@@ -37,13 +37,13 @@ export async function render(root) {
     </div>`;
 
   const add = root.querySelector("#add");
-  if (add) add.onclick = () => openAdd(root, d.projects);
+  if (add) add.onclick = () => openAdd(root, d.projects, d.kinds);
 }
 
-function openAdd(root, projects) {
+function openAdd(root, projects, kinds) {
   const fields = [
     { k: "pid", l: "所属项目", t: "select", req: 1, opts: projects.map((p) => ({ v: p.id, l: `${p.id} ${p.name}` })) },
-    { k: "kind", l: "材料类别", t: "select", req: 1, opts: ["立项文件", "合同", "议程", "课件", "签到表", "劳务表", "发票", "现场照片"] },
+    { k: "kind", l: "材料类别", t: "select", req: 1, opts: kinds },
     { k: "name", l: "材料名称", req: 1, ph: "如：签到表-终版.pdf" },
     { k: "version", l: "版本", v: "v1" }
   ];

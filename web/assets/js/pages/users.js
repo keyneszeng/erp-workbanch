@@ -76,7 +76,7 @@ function openEdit(root, u, roles) {
     { k: "active", l: "账号状态", t: "select", opts: [{ v: "1", l: "启用" }, { v: "0", l: "停用" }] },
     { k: "password", l: "重置密码（留空不改）", ph: "不修改请留空" }
   ];
-  const m = modal({ title: `编辑账号 · ${u.name}`, width: "600px", body: formHtml(fields, { ...u, active: String(u.active) }),
+  const m = modal({ title: `编辑账号 · ${esc(u.name)}`, width: "600px", body: formHtml(fields, { ...u, active: String(u.active) }),
     footer: `<button class="btn btn-o" data-x="0">取消</button><button class="btn btn-p" data-x="1">保存</button>` });
   m.querySelector('[data-x="0"]').onclick = () => m.classList.remove("open");
   m.querySelector('[data-x="1"]').onclick = async () => {

@@ -14,7 +14,7 @@ let tab = "overview";
 export async function render(root, [pid]) {
   const d = await api.get(`/api/projects/${pid}`);
   const p = d.project;
-  const canEdit = state.super || state.user.role === "assoc";
+  const canEdit = (state.super || state.user.role === "assoc") && (p.status !== "已归档" || state.super);
 
   root.innerHTML = `
   <div class="crumb"><a data-go="projects">会议项目</a> / <span class="mono">${p.id}</span></div>
@@ -115,9 +115,14 @@ function tabContracts(d, p) {
 
 /* ---------------- 付款 ---------------- */
 function tabPayments(d, p) {
-  const payable = PAYABLE.includes(p.status);
-  return `${payable ? "" : `<div class="gate" style="margin-bottom:12px"><b>付款门禁锁定</b>
-      项目状态「${p.status}」，按制度必须先完成 6 步核销并通过（已核销）才可付款。当前核销进度 ${d.verification.passed}/6。</div>`}
+  const archived = p.status === "已归档";
+  const payable = PAYABLE.includes(p.status) && !archived;
+  const gate = archived
+    ? `<div class="gate" style="margin-bottom:12px"><b>卷宗已封存</b>项目已归档，不可再新增付款；历史付款记录仍可查阅。</div>`
+    : payable ? ""
+      : `<div class="gate" style="margin-bottom:12px"><b>付款门禁锁定</b>
+      项目状态「${p.status}」，按制度必须先完成 6 步核销并通过（已核销）才可付款。当前核销进度 ${d.verification.passed}/6。</div>`;
+  return `${gate}
   ${panel("付款记录", `已付款 ¥${money(d.paidTotal)}`, table(
     [{ t: "付款单号", w: "112px" }, { t: "类型", w: "86px" }, { t: "收款方" }, { t: "金额", w: "100px", cls: "num" },
      { t: "发票号", w: "96px" }, { t: "申请人", w: "72px" }, { t: "状态", w: "80px" }, { t: "操作", w: "120px" }],
@@ -131,7 +136,7 @@ function tabPayments(d, p) {
         </div>`]
     })), { empty: "暂无付款记录" }),
     can("payment:create")
-      ? `<button class="btn btn-p btn-sm" id="addPay" ${payable ? "" : "disabled title=\"核销通过后才可付款\""}>+ 付款申请</button>`
+      ? `<button class="btn btn-p btn-sm" id="addPay" ${payable ? "" : `disabled title="${archived ? "项目已归档，不可新增付款" : "核销通过后才可付款"}"`}>+ 付款申请</button>`
       : "")}`;
 }
 

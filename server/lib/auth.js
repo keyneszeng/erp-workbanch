@@ -59,4 +59,33 @@ function pruneSessions() {
   db.prepare("DELETE FROM sessions WHERE expires_at <= ?").run(new Date().toISOString());
 }
 
-module.exports = { hashPassword, verifyPassword, createSession, destroySession, userByToken, publicUser, login, pruneSessions, COOKIE, SESSION_TTL_MS };
+/* ---------------- 登录失败限流（内存级，单实例够用） ---------------- */
+const WINDOW_MS = 5 * 60 * 1000;
+const MAX_FAILS = 5;
+const fails = new Map(); // key -> { count, first }
+
+function throttleKey(ip, username) {
+  return `${ip || "-"}|${String(username || "").toLowerCase()}`;
+}
+function isThrottled(ip, username) {
+  const k = throttleKey(ip, username);
+  const rec = fails.get(k);
+  if (!rec) return false;
+  if (Date.now() - rec.first > WINDOW_MS) { fails.delete(k); return false; }
+  return rec.count >= MAX_FAILS;
+}
+function noteFailure(ip, username) {
+  const k = throttleKey(ip, username);
+  const rec = fails.get(k);
+  if (!rec || Date.now() - rec.first > WINDOW_MS) fails.set(k, { count: 1, first: Date.now() });
+  else rec.count += 1;
+  if (fails.size > 5000) fails.clear(); // 防内存膨胀
+}
+function clearFailures(ip, username) {
+  fails.delete(throttleKey(ip, username));
+}
+
+module.exports = {
+  hashPassword, verifyPassword, createSession, destroySession, userByToken, publicUser, login,
+  pruneSessions, COOKIE, SESSION_TTL_MS, isThrottled, noteFailure, clearFailures
+};

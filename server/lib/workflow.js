@@ -74,12 +74,20 @@ const GUARDS = {
     const v = verification(p.id);
     if (!v.complete) return "核销未通过（6 步未全过或存在未决例外），不能结算";
     if (settlementOf(p.id)) return "结算单已存在，不可重复生成";
+    const pending = db
+      .prepare("SELECT COUNT(*) AS c FROM payments WHERE pid = ? AND status IN ('待审批','已审批')")
+      .get(p.id).c;
+    if (pending) return `还有 ${pending} 笔付款未完成（待审批 / 已审批），需先处理完才能结算`;
     return null;
   },
   archive(p) {
     const m = materialsStatus(p.id);
     if (!m.ok) return `归档材料缺 ${m.missing.length} 类：${m.missing.join("、")}`;
     if (!settlementOf(p.id)) return "结算单未生成，不能归档";
+    const pending = db
+      .prepare("SELECT COUNT(*) AS c FROM payments WHERE pid = ? AND status IN ('待审批','已审批')")
+      .get(p.id).c;
+    if (pending) return `还有 ${pending} 笔付款未完成，不能归档`;
     return null;
   }
 };

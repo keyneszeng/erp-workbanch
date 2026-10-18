@@ -10,7 +10,7 @@ export async function render(root) {
     api.get("/api/settlements"),
     api.get("/api/projects")
   ]);
-  const payableProjects = proj.rows.filter((p) => PAYABLE.includes(p.status));
+  const payableProjects = proj.rows.filter((p) => PAYABLE.includes(p.status) && p.status !== "已归档");
   const all = pay.rows;
   const pendingAmt = all.filter((r) => r.status === "待审批").reduce((s, r) => s + r.amount, 0);
   const approvedAmt = all.filter((r) => r.status === "已审批").reduce((s, r) => s + r.amount, 0);

@@ -62,6 +62,9 @@ function register(router) {
     if (!PAYMENT_TYPES.includes(b.type)) throw bad(`付款类型必须是：${PAYMENT_TYPES.join(" / ")}`);
     if (!String(b.payee || "").trim()) throw bad("收款方为必填项");
     if (!(Number(b.amount) > 0)) throw bad("付款金额必须大于 0");
+    if (p.status === "已归档") {
+      throw conflict("项目已归档，数字卷宗已封存，不可再新增付款", "ARCHIVED", { status: p.status });
+    }
     if (!PAYABLE_STATUS.includes(p.status)) {
       throw conflict(
         `付款被拦截：项目「${p.name}」当前状态为「${p.status}」，按制度必须先完成 6 步核销并通过（已核销）才可付款`,

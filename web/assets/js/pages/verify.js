@@ -24,12 +24,18 @@ async function renderList(root) {
     <div class="panel mt"><div class="panel-h"><h2>核销项目</h2><span class="hint">${rows.length} 个项目</span></div>
       ${table(
         [{ t: "编号", w: "112px" }, { t: "会议名称" }, { t: "会期", w: "92px" }, { t: "状态", w: "84px" },
-         { t: "核销进度", w: "200px" }, { t: "例外单", w: "80px" }, { t: "结算单", w: "110px" }, { t: "操作", w: "96px" }],
+         { t: "核销进度", w: "150px" }, { t: "例外单", w: "76px" }, { t: "结算单", w: "112px" }, { t: "操作", w: "96px" }],
         rows.map((p) => {
-          const passed = 0;
+          const passed = p.v_passed || 0;
+          const pct = Math.round((passed / 6) * 100);
           return {
             c: [`<span class="mono">${p.id}</span>`, esc(p.name), `<span class="mono">${esc(p.date)}</span>`, badge(p.status),
-              `<span style="font-size:12px;color:var(--sub)">进入详情查看 6 步</span>`, "—", "—",
+              `<div style="display:flex;align-items:center;gap:8px">
+                 <div style="flex:1;height:6px;background:#eef2f7;border-radius:4px;overflow:hidden">
+                   <div style="width:${pct}%;height:100%;background:${passed === 6 ? "var(--green)" : "var(--blue)"}"></div></div>
+                 <b style="font-size:12px" class="num">${passed}/6</b></div>`,
+              p.ex_open ? `<span class="badge b-orange">${p.ex_open} 待审批</span>` : '<span style="color:var(--mute)">—</span>',
+              p.st_id ? `<span class="mono">${p.st_id}</span>` : '<span style="color:var(--mute)">未生成</span>',
               `<div class="tacts"><button class="link" data-go="verify/${p.id}">核销</button>
                <button class="link" data-go="projects/${p.id}">详情</button></div>`]
           };

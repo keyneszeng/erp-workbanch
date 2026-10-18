@@ -80,6 +80,17 @@ function topHtml(r) {
     </div>`;
 }
 
+/** 该页面当前角色是否可访问（模块白名单 + 条目级权限） */
+function canVisit(nav) {
+  const mods = state.role?.modules || [];
+  for (const g of NAV) {
+    if (!mods.includes(g.k)) continue;
+    const it = g.items.find((x) => x.k === nav);
+    if (it) return !it.need || it.need();
+  }
+  return false;
+}
+
 async function route() {
   if (!state.user) return;
   const path = parseHash();
@@ -89,6 +100,12 @@ async function route() {
     if (m) { hit = { ...r, params: m.slice(1) }; break; }
   }
   if (!hit) { location.hash = "#/dashboard"; return; }
+
+  if (!canVisit(hit.nav)) {
+    toast("当前角色无权访问该页面", "warn");
+    location.hash = "#/dashboard";
+    return;
+  }
 
   state.route = hit.nav;
   document.getElementById("nav").innerHTML = navHtml(hit.nav);
@@ -100,7 +117,15 @@ async function route() {
   try {
     await hit.page.render(content, hit.params, hit);
   } catch (e) {
-    content.innerHTML = `<div class="alert alert-r"><div><b>页面加载失败</b><br>${esc(e.message)}</div></div>`;
+    const title = e.status === 403 ? "无权访问" : e.status === 404 ? "对象不存在" : "页面加载失败";
+    const tip = e.status === 403
+      ? "该项目不在你的数据范围内，或当前角色缺少对应权限。"
+      : e.status === 404 ? "链接可能已失效，或对象已被删除。" : "请稍后重试；若持续出现请联系管理员。";
+    content.innerHTML = `<div class="panel" style="max-width:560px;margin:40px auto;text-align:center">
+      <div style="font-size:15px;font-weight:700;margin-bottom:6px">${title}</div>
+      <div style="font-size:13px;color:var(--sub);line-height:1.8">${esc(e.message)}<br>${tip}</div>
+      <div style="margin-top:16px"><button class="btn btn-p" data-go="dashboard">返回工作台</button></div>
+    </div>`;
   }
   content.scrollTop = 0;
 }

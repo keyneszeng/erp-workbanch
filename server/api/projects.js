@@ -16,6 +16,9 @@ function validate(body, partial = false) {
     if (v === undefined || v === null || String(v).trim() === "") throw bad(`${label}为必填项`);
   }
   if ("budget" in body && !(Number(body.budget) > 0)) throw bad("预算必须大于 0");
+  if ("people" in body && body.people !== "" && Number(body.people) < 0) throw bad("预计参会人数不能为负数");
+  if ("days" in body && body.days !== "" && Number(body.days) < 1) throw bad("会期至少 1 天");
+  if ("days" in body && Number(body.days) > 60) throw bad("会期不能超过 60 天");
   if ("assoc" in body && !ASSOCS.includes(body.assoc)) throw bad("所属协会不在可选范围");
   if ("form" in body && !FORMS.includes(body.form)) throw bad("会议形式不合法");
   if ("dept" in body && body.dept && !DEPTS.includes(body.dept)) throw bad("承办部门不合法");
@@ -39,7 +42,10 @@ function listProjects(user, { status, q, assoc, stage } = {}) {
   }
   const rows = db.prepare(
     `SELECT p.*, (SELECT COUNT(*) FROM payments y WHERE y.pid = p.id) AS pay_cnt,
-            (SELECT COALESCE(SUM(y.amount),0) FROM payments y WHERE y.pid = p.id AND y.status='已付款') AS paid_amt
+            (SELECT COALESCE(SUM(y.amount),0) FROM payments y WHERE y.pid = p.id AND y.status='已付款') AS paid_amt,
+            (SELECT COUNT(*) FROM verify_steps v WHERE v.pid = p.id AND v.result IN ('通过','已解例外')) AS v_passed,
+            (SELECT COUNT(*) FROM exceptions e WHERE e.pid = p.id AND e.status='待审批') AS ex_open,
+            (SELECT id FROM settlements s WHERE s.pid = p.id) AS st_id
      FROM projects p WHERE ${where.join(" AND ")} ORDER BY p.date DESC, p.id`
   ).all(...args);
   return rows;

@@ -1,6 +1,6 @@
 "use strict";
 const { db } = require("../lib/db");
-const { login, publicUser, destroySession, COOKIE, SESSION_TTL_MS } = require("../lib/auth");
+const { login, publicUser, destroySession, COOKIE, SESSION_TTL_MS, isThrottled, noteFailure, clearFailures } = require("../lib/auth");
 const { sendJson, cookieHeader } = require("../lib/http");
 const { logAudit } = require("../lib/audit");
 const { ROLES, MODULES, STATUSES, isSuper, can, PERMS } = require("../lib/rbac");
@@ -11,11 +11,16 @@ function register(router) {
   router.post("/api/auth/login", async (ctx) => {
     const { username, password } = ctx.body || {};
     if (!username || !password) throw bad("请输入账号与密码");
+    if (isThrottled(ctx.ip, username)) {
+      throw new HttpError(429, "TOO_MANY_ATTEMPTS", "登录失败次数过多，请 5 分钟后再试");
+    }
     const r = login(username, password, ctx.ip);
     if (!r) {
+      noteFailure(ctx.ip, username);
       logAudit({ user: null, module: "系统配置", action: "登录失败", target: String(username), detail: "账号或密码错误", ip: ctx.ip });
       throw new HttpError(401, "INVALID_CREDENTIALS", "账号或密码错误");
     }
+    clearFailures(ctx.ip, username);
     logAudit({ user: r.user, module: "系统配置", action: "登录", target: r.user.username, detail: `角色：${ROLES[r.user.role].name}`, ip: ctx.ip });
     return {
       __cookie: cookieHeader(COOKIE, r.token, { maxAge: Math.floor(SESSION_TTL_MS / 1000) }),

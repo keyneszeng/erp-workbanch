@@ -187,8 +187,16 @@ function register(router) {
   router.get("/api/dashboard", async (ctx) => dashboard(ctx.user));
 
   router.get("/api/users", async (ctx) => {
-    const rows = db.prepare("SELECT id,username,name,role,assoc,dept,phone,active,created_at FROM users ORDER BY id").all();
-    return { rows: rows.map((u) => ({ ...u, role_name: ROLES[u.role]?.name || u.role })) };
+    // 只有能管理账号 / 调整项目成员的角色可以看到完整通讯录，其余角色只给最小字段
+    const full = can(ctx.user, "user:manage") || can(ctx.user, "project:member");
+    const rows = db.prepare("SELECT * FROM users ORDER BY id").all();
+    return {
+      rows: rows.map((u) => full
+        ? { id: u.id, username: u.username, name: u.name, role: u.role, assoc: u.assoc, dept: u.dept,
+            phone: u.phone, active: u.active, created_at: u.created_at, role_name: ROLES[u.role]?.name || u.role }
+        : { id: u.id, name: u.name, role: u.role, role_name: ROLES[u.role]?.name || u.role, active: u.active }),
+      limited: !full
+    };
   });
 
   router.post("/api/users", async (ctx) => {
@@ -216,6 +224,10 @@ function register(router) {
       if (k in b && String(b[k] ?? "") !== String(u[k] ?? "")) patch[k] = b[k];
     }
     if (patch.role && !ROLES[patch.role]) throw bad("角色不合法");
+    if (u.id === ctx.user.id) {
+      if ("active" in patch && !Number(patch.active)) throw bad("不能停用当前登录的账号");
+      if ("role" in patch && patch.role !== u.role) throw bad("不能修改自己的角色，请由其他总管理员操作");
+    }
     if (Object.keys(patch).length) {
       db.prepare(`UPDATE users SET ${Object.keys(patch).map((k) => `${k} = ?`).join(", ")} WHERE id = ?`)
         .run(...Object.values(patch), u.id);
