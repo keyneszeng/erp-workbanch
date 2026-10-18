@@ -1,0 +1,18 @@
+{
+  "name": "assoc-meeting-erp",
+  "version": "1.0.0",
+  "private": true,
+  "description": "协会会议执行 ERP —— 依据《会务执行 ERP V1.0.2 可点击演示版》研发的生产版代码",
+  "type": "commonjs",
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "scripts": {
+    "start": "node --experimental-sqlite server/index.js",
+    "dev": "node --experimental-sqlite --watch server/index.js",
+    "seed": "node --experimental-sqlite server/scripts/seed.js --reset",
+    "test": "node --experimental-sqlite --test test/api.test.js"
+  },
+  "dependencies": {},
+  "devDependencies": {}
+}

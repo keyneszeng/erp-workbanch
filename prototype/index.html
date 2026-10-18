@@ -1,0 +1,2973 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>协会会议执行 ERP · 管理后台（演示版）</title>
+<style>
+:root{
+  --navy:#10243f;--navy2:#1f3a66;--navy3:#2b4160;
+  --bg:#f2f5f9;--card:#ffffff;--line:#e3e8ef;--line2:#eef2f7;
+  --txt:#1a2330;--sub:#6b7787;--mute:#98a3b3;
+  --blue:#2e5fa3;--green:#1f8a3e;--teal:#2a8c7f;--purple:#7e4fa0;
+  --orange:#c0561e;--red:#b83544;--steel:#1f5f8b;
+  --blue-l:#dce6f2;--green-l:#d9f0df;--teal-l:#d6efeb;--purple-l:#e6daf0;
+  --orange-l:#f8e1cf;--red-l:#f4d9dd;--steel-l:#d7e5ee;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--txt);
+  font:14px/1.6 "PingFang SC","Hiragino Sans GB","Microsoft YaHei",system-ui,-apple-system,sans-serif;
+  -webkit-font-smoothing:antialiased}
+button{font:inherit;cursor:pointer;border:0;background:none;color:inherit}
+h1,h2,h3,h4,p{margin:0}
+table{border-collapse:collapse;width:100%}
+/* 列数多的表在窄屏（<1100px）下允许横向滚动，避免内容被裁掉 */
+.tw{overflow-x:auto;-webkit-overflow-scrolling:touch}
+.tw>table{min-width:100%}
+
+/* ---------- 布局 ---------- */
+.layout{display:flex;height:100vh;overflow:hidden}
+.side{width:236px;flex:0 0 236px;background:var(--navy2);display:flex;flex-direction:column;color:#dde6f2}
+.brand{background:var(--navy);padding:16px 18px 14px;border-bottom:1px solid rgba(255,255,255,.06)}
+.brand-t{font-size:15px;font-weight:700;letter-spacing:.5px}
+.brand-s{font-size:11px;color:#9fb3cc;margin-top:2px;letter-spacing:2px}
+.nav{flex:1;overflow-y:auto;padding:8px 8px 16px}
+.nav::-webkit-scrollbar{width:6px}
+.nav::-webkit-scrollbar-thumb{background:rgba(255,255,255,.14);border-radius:3px}
+.ni{display:flex;align-items:center;gap:6px;width:100%;text-align:left;border-radius:5px;
+  color:#c2d0e2;transition:.1s;line-height:1.35;padding:7px 8px 7px 10px;font-size:13px;margin-bottom:1px}
+.ni:hover{background:rgba(255,255,255,.07);color:#fff}
+.ni .caret{width:12px;flex:0 0 12px;font-size:9px;color:#7f95b3;transition:transform .15s;text-align:center}
+.ni.open .caret{transform:rotate(90deg)}
+.ni .lbl{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ni .dot{width:5px;height:5px;border-radius:50%;background:#6b82a2;flex:0 0 5px}
+.ni.d1{font-size:13.5px;font-weight:600;color:#dde6f2;padding-top:9px;padding-bottom:9px;margin-top:2px}
+.ni.d2{padding-left:26px;font-size:12.8px}
+.ni.d3{padding-left:44px;font-size:12.4px;color:#b3c3d8}
+.ni.d4{padding-left:62px;font-size:12.2px;color:#a7b8ce}
+.ni.d4 .dot{width:4px;height:4px;flex:0 0 4px;background:#5c7391}
+.ni.on{background:#fff;color:var(--navy);font-weight:600}
+.ni.on .dot{background:var(--blue)}
+.ni.anc{color:#fff;font-weight:600}
+.ni.anc .caret{color:#9fb3cc}
+.nav .nav-sep{height:1px;background:rgba(255,255,255,.08);margin:8px 6px}
+.side-foot{background:var(--navy);padding:10px 18px;font-size:12px;border-top:1px solid rgba(255,255,255,.06)}
+.side-foot b{display:block;font-size:12.5px;color:#fff}
+.side-foot span{color:#8ea4c0}
+
+.main{flex:1;display:flex;flex-direction:column;min-width:0}
+.topbar{height:60px;flex:0 0 60px;background:#fff;border-bottom:1px solid var(--line);
+  display:flex;align-items:center;justify-content:space-between;padding:0 22px;gap:16px}
+.topbar h1{font-size:16px;font-weight:600}
+.topbar p{font-size:12px;color:var(--sub);margin-top:1px}
+.top-right{display:flex;align-items:center;gap:10px;flex-shrink:0}
+.super-tag{font-size:11px;color:var(--green);background:var(--green-l);border:1px solid #a9d9b8;
+  padding:2px 9px;border-radius:20px;white-space:nowrap;font-weight:600}
+.demo-tag{font-size:11px;color:var(--orange);background:var(--orange-l);
+  padding:3px 8px;border-radius:4px;border:1px solid #e8c3a4;white-space:nowrap}
+select{font:inherit;font-size:12.5px;padding:6px 8px;border:1px solid var(--line);
+  border-radius:5px;background:#fff;color:var(--txt);cursor:pointer}
+.content{flex:1;overflow-y:auto;padding:20px 22px 40px}
+
+/* ---------- 窄屏适配：13 寸笔记本 / 分屏时不挤成一团 ---------- */
+@media (max-width:1200px){
+  .side{width:208px;flex:0 0 208px}
+  .content{padding:16px 16px 32px}
+  .topbar{padding:0 16px}
+  .panel{padding:14px 14px}
+  .ni.d3{padding-left:38px}
+  .ni.d4{padding-left:52px}
+}
+@media (max-width:980px){
+  .g4,.g3,.g2{grid-template-columns:1fr}
+  .fgrid,.fgrid.c3{grid-template-columns:1fr}
+}
+
+/* ---------- 通用 ---------- */
+.panel{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px 18px}
+.panel + .panel{margin-top:14px}
+.panel-h{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px;flex-wrap:wrap}
+.panel-h h2{font-size:14.5px;font-weight:600}
+.panel-h .hint{font-size:12px;color:var(--sub);font-weight:400}
+.panel-h > div{display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end}
+.grid{display:grid;gap:14px}
+.g4{grid-template-columns:repeat(4,1fr)}
+.g3{grid-template-columns:repeat(3,1fr)}
+.g2{grid-template-columns:repeat(2,1fr)}
+.mt{margin-top:14px}
+.chips{display:flex;gap:10px;flex-wrap:wrap;margin:2px 0 12px}
+.chip{display:inline-flex;align-items:center;gap:6px;background:#f4f7fb;border:1px solid var(--line2);
+  border-radius:6px;padding:5px 10px;font-size:12px}
+.chip i{font-style:normal;color:var(--sub)}
+.chip b{font-weight:600;font-variant-numeric:tabular-nums}
+
+.badge{display:inline-block;padding:2px 8px;border-radius:20px;font-size:11.5px;
+  font-weight:600;white-space:nowrap;line-height:1.5}
+.b-blue{background:var(--blue-l);color:var(--blue)}
+.b-green{background:var(--green-l);color:var(--green)}
+.b-teal{background:var(--teal-l);color:var(--teal)}
+.b-orange{background:var(--orange-l);color:var(--orange)}
+.b-red{background:var(--red-l);color:var(--red)}
+.b-gray{background:#eef1f5;color:var(--sub)}
+.b-steel{background:var(--steel-l);color:var(--steel)}
+.b-purple{background:var(--purple-l);color:var(--purple)}
+
+.btn{display:inline-flex;align-items:center;gap:5px;padding:6px 13px;border-radius:6px;
+  font-size:12.5px;font-weight:600;border:1px solid transparent;transition:.12s;white-space:nowrap}
+.btn-p{background:var(--blue);color:#fff}
+.btn-p:hover{background:#25508c}
+.btn-g{background:var(--green);color:#fff}
+.btn-g:hover{background:#186f32}
+.btn-d{background:#fff;color:var(--red);border-color:#e3b6bc}
+.btn-d:hover{background:var(--red-l)}
+.btn-o{background:#fff;color:var(--sub);border-color:var(--line)}
+.btn-o:hover{background:#f6f8fb}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.btn-sm{padding:4px 10px;font-size:12px}
+
+table th{background:#f7f9fc;text-align:left;font-size:12px;font-weight:600;color:var(--sub);
+  padding:9px 12px;border-bottom:1px solid var(--line);white-space:nowrap}
+table td{padding:10px 12px;border-bottom:1px solid var(--line2);font-size:13px;vertical-align:middle}
+table tbody tr:hover{background:#fafcff}
+table tbody tr{cursor:default}
+table tr.clickable{cursor:pointer}
+.mono{font-family:"SF Mono",Menlo,Consolas,monospace;font-size:12.5px;color:var(--sub)}
+
+.kpi{background:#fff;border:1px solid var(--line);border-radius:10px;padding:14px 16px;position:relative;overflow:hidden}
+.kpi::after{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--blue)}
+.kpi.k2::after{background:var(--teal)}
+.kpi.k3::after{background:var(--orange)}
+.kpi.k4::after{background:var(--purple)}
+.kpi .t{font-size:12.5px;color:var(--sub)}
+.kpi .v{font-size:26px;font-weight:700;line-height:1.25;margin-top:2px}
+.kpi .u{font-size:12px;color:var(--mute);margin-left:4px;font-weight:400;vertical-align:3px}
+
+.alert{display:flex;gap:10px;align-items:flex-start;padding:11px 14px;border-radius:8px;
+  font-size:13px;border:1px solid}
+.alert-w{background:var(--orange-l);border-color:#e8c3a4;color:#7b3a10}
+.alert-r{background:var(--red-l);border-color:#e3b6bc;color:#7b241c}
+.alert-g{background:var(--green-l);border-color:#a9d9b8;color:#14532d}
+.alert b{font-weight:600}
+
+.todo{display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid var(--line);
+  border-radius:8px;margin-bottom:8px;background:#fff;transition:.12s}
+.todo:hover{border-color:#c3d3e6;background:#fafcff}
+.todo .bar{width:3px;height:26px;border-radius:2px;background:var(--orange);flex:0 0 3px}
+.todo .bar.g{background:var(--green)}
+.todo .bar.b{background:var(--blue)}
+.todo .bar.r{background:var(--red)}
+.todo .tx{flex:1;min-width:0}
+.todo .tx b{display:block;font-size:13px;font-weight:600}
+.todo .tx span{font-size:12px;color:var(--sub)}
+.todo .go{font-size:12px;color:var(--blue);font-weight:600;white-space:nowrap}
+
+/* ---------- 核销 ---------- */
+.vstep{border:1.5px solid var(--line);border-radius:9px;padding:13px 15px;background:#fff;transition:.15s}
+.vstep.s-pass{border-color:#7bc394;background:#f4fbf6}
+.vstep.s-fail{border-color:#e0a072;background:#fdf6f0}
+.vstep.s-wait{border-color:#d5dbe4;background:#fafbfd}
+.vstep .vh{display:flex;align-items:center;gap:9px;margin-bottom:6px}
+.vstep .no{width:22px;height:22px;border-radius:50%;display:grid;place-items:center;
+  font-size:12px;font-weight:700;color:#fff;flex:0 0 22px;background:var(--mute)}
+.vstep.s-pass .no{background:var(--green)}
+.vstep.s-fail .no{background:var(--orange)}
+.vstep .nm{font-size:13.5px;font-weight:600;flex:1}
+.vstep .ds{font-size:12px;color:var(--sub);line-height:1.5;min-height:34px}
+.vstep .vf{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:9px;
+  padding-top:9px;border-top:1px dashed #e6ebf2}
+.vstep .ow{font-size:11.5px;color:var(--mute)}
+.vstep .acts{display:flex;gap:6px}
+.vstep .concl{font-size:12px;font-weight:700}
+.c-pass{color:var(--green)}.c-fail{color:var(--orange)}.c-wait{color:var(--mute)}
+
+.ex{border:1px solid #e3b6bc;background:#fdf5f6;border-radius:9px;padding:13px 15px;margin-top:10px}
+.ex .eh{display:flex;align-items:center;gap:9px;margin-bottom:5px;flex-wrap:wrap}
+.ex .eid{font-family:"SF Mono",Menlo,monospace;font-size:12px;font-weight:700;color:#7b241c}
+.ex .el{font-size:12.5px;color:#4a3b3d}
+.ex .el b{color:#7b241c}
+
+.gate{display:flex;align-items:center;gap:12px;padding:13px 18px;border-radius:9px;
+  border:1.5px solid;font-size:13.5px;margin-top:14px}
+.gate.lock{background:#fff8e1;border-color:#e0c07a;color:#7b5a10}
+.gate.open{background:#f0faf3;border-color:#7bc394;color:#14532d}
+.gate .big{font-size:15px;font-weight:700}
+
+/* ---------- 财务锁定 ---------- */
+.locked{position:relative;border-radius:10px;overflow:hidden}
+.locked .veil{position:absolute;inset:0;background:rgba(255,255,255,.72);
+  backdrop-filter:blur(2px);display:grid;place-items:center;z-index:2;border-radius:10px}
+.locked .veil .box{background:#fff;border:1.5px solid #e0c07a;border-radius:10px;
+  padding:18px 26px;text-align:center;max-width:420px;box-shadow:0 8px 28px rgba(16,36,63,.12)}
+.locked .veil .box h3{font-size:14.5px;color:#7b5a10;margin-bottom:5px}
+.locked .veil .box p{font-size:12.5px;color:var(--sub);line-height:1.6}
+
+.pay{display:flex;align-items:center;gap:12px;padding:12px 15px;border:1px solid var(--line);
+  border-radius:8px;background:#fff}
+.pay .ic{width:34px;height:34px;border-radius:8px;display:grid;place-items:center;
+  font-size:13px;font-weight:700;color:#fff;flex:0 0 34px}
+.pay .tx{flex:1;min-width:0}
+.pay .tx b{display:block;font-size:13px}
+.pay .tx span{font-size:11.5px;color:var(--sub)}
+.pay .amt{font-size:14px;font-weight:700;font-variant-numeric:tabular-nums}
+
+/* ---------- 材料 / 需求 ---------- */
+.mcard{border:1px solid var(--line);border-radius:9px;padding:13px 15px;background:#fff}
+.mcard .mh{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px}
+.mcard .mh b{font-size:13.5px}
+.mcard .meta{font-size:12px;color:var(--sub);line-height:1.7}
+.mcard .meta i{font-style:normal;color:var(--txt);font-weight:600}
+
+.bar-wrap{height:6px;background:#eef1f5;border-radius:4px;overflow:hidden;margin-top:9px}
+.bar-in{height:100%;background:var(--green);border-radius:4px;transition:width .3s}
+
+.tabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin-bottom:14px;flex-wrap:wrap}
+.tabs button{padding:8px 14px;font-size:13px;color:var(--sub);border-bottom:2px solid transparent;
+  margin-bottom:-1px;font-weight:500}
+.tabs button:hover{color:var(--txt)}
+.tabs button.on{color:var(--blue);border-bottom-color:var(--blue);font-weight:600}
+
+/* ---------- 抽屉 / toast ---------- */
+#drawer{position:fixed;inset:0;pointer-events:none;z-index:50}
+#drawer .mask{position:absolute;inset:0;background:rgba(16,36,63,.35);opacity:0;transition:.2s;pointer-events:none}
+#drawer.open .mask{opacity:1;pointer-events:auto}
+#drawer .sheet{position:absolute;top:0;right:0;bottom:0;width:480px;max-width:92vw;background:#fff;
+  box-shadow:-8px 0 32px rgba(16,36,63,.16);transform:translateX(100%);transition:.24s cubic-bezier(.4,0,.2,1);
+  display:flex;flex-direction:column;pointer-events:auto}
+#drawer.open .sheet{transform:translateX(0)}
+#drawer .sh-h{padding:18px 20px;border-bottom:1px solid var(--line);display:flex;
+  align-items:flex-start;justify-content:space-between;gap:12px}
+#drawer .sh-h h3{font-size:15.5px}
+#drawer .sh-h p{font-size:12px;color:var(--sub);margin-top:2px}
+#drawer .sh-b{flex:1;overflow-y:auto;padding:18px 20px}
+#drawer .close{font-size:20px;line-height:1;color:var(--mute);padding:2px 6px;border-radius:4px}
+#drawer .close:hover{background:#f2f5f9;color:var(--txt)}
+.kv{display:grid;grid-template-columns:96px 1fr;gap:8px 12px;font-size:13px}
+.kv dt{color:var(--sub);font-size:12.5px}
+.kv dd{margin:0;font-weight:500}
+
+#toast{position:fixed;right:24px;bottom:24px;z-index:80;display:flex;flex-direction:column;gap:8px;align-items:flex-end;pointer-events:none}
+.toast{background:var(--navy);color:#fff;padding:11px 16px;border-radius:8px;font-size:13px;
+  box-shadow:0 8px 24px rgba(16,36,63,.24);animation:tin .22s ease;max-width:380px}
+.toast.ok{background:#14532d}
+.toast.warn{background:#7b3a10}
+@keyframes tin{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+
+.empty{padding:40px 20px;text-align:center;color:var(--mute);font-size:13px}
+.clamp2{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.foot-note{font-size:12px;color:var(--mute);margin-top:16px;line-height:1.7}
+
+/* ---------- 面包屑 ---------- */
+.crumb{display:flex;align-items:center;gap:5px;font-size:11.5px;color:var(--mute);margin-bottom:2px;flex-wrap:wrap}
+.crumb a{color:var(--mute);text-decoration:none;cursor:pointer}
+.crumb a:hover{color:var(--blue)}
+.crumb .sep{color:#c6cfdb}
+.crumb .cur{color:var(--sub);font-weight:600}
+
+/* ---------- 工具条 / 分页 ---------- */
+.toolbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+.toolbar .sp{flex:1}
+.toolbar input,.toolbar select{height:32px}
+input[type=text],input[type=number],input[type=date],input[type=search],textarea{
+  font:inherit;font-size:12.5px;padding:6px 9px;border:1px solid var(--line);border-radius:5px;
+  background:#fff;color:var(--txt);width:100%}
+input:focus,textarea:focus,select:focus{outline:none;border-color:#9fb6d4;box-shadow:0 0 0 2px rgba(46,95,163,.1)}
+input:disabled,textarea:disabled{background:#f5f7fa;color:var(--mute)}
+.pager{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:12px;
+  font-size:12px;color:var(--sub);flex-wrap:wrap}
+.pager .pg{display:flex;gap:4px}
+.pager .pg button{min-width:28px;height:28px;border:1px solid var(--line);border-radius:5px;
+  background:#fff;font-size:12px;color:var(--sub);padding:0 7px}
+.pager .pg button.on{background:var(--blue);border-color:var(--blue);color:#fff;font-weight:600}
+.pager .pg button:hover:not(.on):not(:disabled){background:#f4f7fb}
+.pager .pg button:disabled{opacity:.4;cursor:not-allowed}
+
+/* ---------- 表单 ---------- */
+.form-sec{margin-bottom:22px}
+.form-sec > h3{font-size:13px;font-weight:600;color:var(--teal);margin-bottom:2px;
+  display:flex;align-items:center;gap:7px}
+.form-sec > h3::before{content:"";width:3px;height:12px;background:var(--teal);border-radius:2px}
+.form-sec > p{font-size:11.5px;color:var(--mute);margin:2px 0 12px 10px}
+.fgrid{display:grid;grid-template-columns:repeat(2,1fr);gap:14px 18px}
+.fgrid.c1{grid-template-columns:1fr}
+.fgrid.c3{grid-template-columns:repeat(3,1fr)}
+.fld{display:flex;flex-direction:column;gap:5px;min-width:0}
+.fld > label{font-size:12.5px;color:var(--sub);font-weight:500}
+.fld > label .req{color:var(--red);margin-left:2px}
+.fld .tip{font-size:11px;color:var(--mute)}
+.fld.err input,.fld.err select,.fld.err textarea{border-color:var(--red);background:#fffafa}
+.fld .emsg{font-size:11.5px;color:var(--red);display:none}
+.fld.err .emsg{display:block}
+.fld.full{grid-column:1/-1}
+.chk-row{display:flex;gap:14px;flex-wrap:wrap;padding-top:3px}
+.chk{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;color:var(--txt);cursor:pointer}
+.chk input{width:14px;height:14px;accent-color:var(--blue);cursor:pointer}
+.upload{display:flex;align-items:center;gap:10px;border:1px dashed #c8d3e2;border-radius:6px;
+  padding:10px 12px;background:#fafcff;font-size:12px;color:var(--sub)}
+.form-foot{display:flex;gap:10px;align-items:center;padding-top:16px;border-top:1px solid var(--line2);
+  margin-top:6px;flex-wrap:wrap}
+.form-foot .sp{flex:1}
+.form-foot .note{font-size:11.5px;color:var(--mute)}
+
+/* ---------- 描述列表 / 时间线 ---------- */
+.dl{display:grid;grid-template-columns:112px 1fr;gap:9px 14px;font-size:13px}
+.dl dt{color:var(--sub);font-size:12.5px}
+.dl dd{margin:0;font-weight:500;min-width:0}
+.dl.c2{grid-template-columns:112px 1fr 112px 1fr}
+.tl{position:relative;padding-left:20px}
+.tl::before{content:"";position:absolute;left:5px;top:6px;bottom:6px;width:1px;background:var(--line)}
+.tl .ti{position:relative;padding-bottom:16px}
+.tl .ti:last-child{padding-bottom:0}
+.tl .ti::before{content:"";position:absolute;left:-19px;top:5px;width:9px;height:9px;border-radius:50%;
+  background:#fff;border:2px solid var(--mute)}
+.tl .ti.ok::before{border-color:var(--green);background:var(--green)}
+.tl .ti.now::before{border-color:var(--blue);background:var(--blue);box-shadow:0 0 0 3px var(--blue-l)}
+.tl .ti b{font-size:13px;display:block}
+.tl .ti span{font-size:11.5px;color:var(--mute)}
+
+/* ---------- 全流程条 ---------- */
+.flow{display:flex;align-items:stretch;padding:6px 0 16px;overflow-x:auto}
+.fstep{flex:1 0 104px;min-width:104px;border:1px solid var(--line);border-radius:9px;padding:9px 10px;
+  background:#fff;cursor:pointer;transition:.15s}
+.fstep:hover{border-color:var(--blue);box-shadow:0 2px 10px rgba(46,95,163,.13)}
+.fstep.hot{background:#f3f7fe;border-color:#c2d4ee}
+.fstep.done{background:#f3faf5;border-color:#c6e3cd}
+.fno{font-size:11px;color:var(--mute)}
+.fn{font-size:12.5px;font-weight:600;margin:2px 0 5px;white-space:nowrap}
+.fc{font-size:11.5px;color:var(--sub);white-space:nowrap}
+.farrow{flex:0 0 16px;display:grid;place-items:center;color:#c3ccd8;font-size:15px}
+.rule{border:1px solid #efdcc8;background:#fdf7f1;border-radius:8px;padding:10px 12px}
+.rule b{font-size:12.5px;color:var(--txt);display:block}
+.rule p{font-size:12px;color:var(--sub);margin:4px 0 0;line-height:1.6}
+
+/* ---------- 权限矩阵 ---------- */
+.mx td,.mx th{text-align:center;font-size:12px;padding:8px 6px}
+.mx td:first-child,.mx th:first-child{text-align:left;white-space:nowrap}
+.mx .yes{color:var(--green);font-weight:700}
+.mx .no{color:#d3dae4}
+.mx .ro{color:var(--orange);font-weight:700}
+
+/* ---------- 弹窗 ---------- */
+#modal{position:fixed;inset:0;z-index:70;display:none;place-items:center;padding:20px}
+#modal.open{display:grid}
+#modal .mmask{position:absolute;inset:0;background:rgba(16,36,63,.38)}
+#modal .mbox{position:relative;background:#fff;border-radius:10px;width:520px;max-width:96vw;
+  max-height:86vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(16,36,63,.28)}
+#modal .mh{padding:16px 20px;border-bottom:1px solid var(--line);display:flex;
+  align-items:center;justify-content:space-between;gap:12px}
+#modal .mh h3{font-size:15px}
+#modal .mb{padding:18px 20px;overflow-y:auto;font-size:13px;color:var(--sub);line-height:1.7}
+#modal .mf{padding:12px 20px;border-top:1px solid var(--line);display:flex;gap:8px;justify-content:flex-end}
+#modal .close{font-size:20px;line-height:1;color:var(--mute);padding:2px 6px;border-radius:4px}
+#modal .close:hover{background:#f2f5f9;color:var(--txt)}
+#modal .fgrid{grid-template-columns:1fr}
+#modal .panel{border:0;padding:0}
+#modal .panel-h{display:none}
+#modal .form-foot{display:none}
+#modal .form-sec:last-child{margin-bottom:0}
+</style>
+</head>
+<body>
+<div class="layout">
+  <aside class="side" id="side"></aside>
+  <main class="main">
+    <header class="topbar" id="top"></header>
+    <div class="content" id="content"></div>
+  </main>
+</div>
+<div id="drawer"><div class="mask" data-act="closeDrawer"></div><div class="sheet" id="sheet"></div></div>
+<div id="modal"><div class="mmask" data-act="closeModal"></div><div class="mbox" id="mbox"></div></div>
+<div id="toast"></div>
+
+<script>
+"use strict";
+
+/* ==================== 基础数据 ==================== */
+const isSuper = () => !!ROLES[state.role].super;
+const ROLES = {
+  admin:   {name:"总管理员",      scope:"全平台",   super:true, mods:["dashboard","projects","prep","demand","exec","materials","verify","finance","archive","audit","system"]},
+  assoc:   {name:"协会管理员",    scope:"本协会",   mods:["dashboard","projects","prep","demand","exec","materials","verify","finance","archive","audit"]},
+  exec:    {name:"会务执行人员",  scope:"授权会议", mods:["dashboard","projects","prep","demand","exec","materials","verify"]},
+  finance: {name:"财务与核销",    scope:"授权项目", mods:["dashboard","projects","prep","exec","materials","verify","finance","archive"]},
+  user:    {name:"普通用户 / 嘉宾",scope:"本人数据", mods:["dashboard","projects"]}
+};
+
+const MODULES = [
+  {k:"dashboard",n:"工作台",   d:"我的待办 / 本周会议 / 异常预警"},
+  {k:"projects", n:"项目管理", d:"会议列表与详情"},
+  {k:"prep",     n:"筹备管理", d:"合同 / 招商 / 嘉宾 / 议程 / 资源 / 任务"},
+  {k:"demand",   n:"会务需求", d:"设计 / 制作 / 现场执行 / 其他 四组"},
+  {k:"exec",     n:"会务执行", d:"报名签到 / 嘉宾邀请 / 任务 / 异常"},
+  {k:"materials",n:"材料中心", d:"课件 / 串场 / 劳务表 / 协议 / 照片"},
+  {k:"verify",   n:"会后核销", d:"6 步 SOP + 例外单（财务结算唯一前置门）"},
+  {k:"finance",  n:"财务结算", d:"公付 / 报销 / 厂家款 / 发票"},
+  {k:"archive",  n:"档案中心", d:"数字卷宗检索 / 导出"},
+  {k:"audit",    n:"审计日志", d:"跨模块全量操作留痕 · 4W1H"}
+];
+
+const STATUS_CLS = {
+  "草稿":"b-gray","待审批":"b-orange","已立项":"b-blue","筹备中":"b-blue",
+  "执行中":"b-teal","待核销":"b-orange","已核销":"b-green","已结算":"b-green","已归档":"b-steel"
+};
+
+const PROJECTS = [
+  {id:"MP-2026-001",name:"华东医学会年会",  assoc:"华东医学会",  status:"筹备中",date:"2026-09-12",budget:180000,form:"线下",     owner:"王敏",people:320},
+  {id:"MP-2026-002",name:"护理协会论坛",    assoc:"护理协会",    status:"执行中",date:"2026-09-25",budget:96000, form:"混合",     owner:"李强",people:180},
+  {id:"MP-2026-003",name:"京津冀论坛 2026",assoc:"京津冀医学会",status:"待核销",date:"2026-08-30",budget:240000,form:"混合",     owner:"张伟",people:260},
+  {id:"MP-2026-004",name:"外科沙龙 2026",  assoc:"外科分会",    status:"待核销",date:"2026-08-15",budget:68000, form:"线下",     owner:"陈静",people:64},
+  {id:"MP-2026-005",name:"全科医学大会",    assoc:"全科医学分会",status:"待审批",date:"2026-10-14",budget:150000,form:"线下",     owner:"刘洋",people:0},
+  {id:"MP-2026-006",name:"消化病学术周",    assoc:"消化病分会",  status:"已结算",date:"2026-07-22",budget:210000,form:"混合",     owner:"赵磊",people:210},
+  {id:"MP-2026-007",name:"肿瘤精准治疗会",  assoc:"肿瘤分会",    status:"已归档",date:"2026-06-10",budget:320000,form:"线上",     owner:"孙倩",people:480},
+  {id:"MP-2026-008",name:"儿科护理新进展",  assoc:"护理协会",    status:"已核销",date:"2026-07-05",budget:72000, form:"线下",     owner:"周涛",people:96},
+  {id:"MP-2026-009",name:"心血管介入培训班",assoc:"心血管分会",  status:"已立项",date:"2026-11-06",budget:54000, form:"线下",     owner:"陈静",people:48},
+  {id:"MP-2026-010",name:"糖尿病管理论坛",  assoc:"内分泌分会",  status:"筹备中",date:"2026-10-28",budget:128000,form:"混合",     owner:"王敏",people:210},
+  {id:"MP-2026-011",name:"基层医师能力提升班",assoc:"全科医学分会",status:"筹备中",date:"2026-11-18",budget:66000, form:"线下",     owner:"刘洋",people:120},
+  {id:"MP-2026-012",name:"呼吸病学年会",    assoc:"呼吸病分会",  status:"执行中",date:"2026-10-09",budget:265000,form:"混合",     owner:"张伟",people:390},
+  {id:"MP-2026-013",name:"骨科新技术研讨会",assoc:"骨科分会",    status:"执行中",date:"2026-10-16",budget:88000, form:"线下",     owner:"赵磊",people:150},
+  {id:"MP-2026-014",name:"神经介入沙龙",    assoc:"神经科分会",  status:"待核销",date:"2026-09-19",budget:46000, form:"线下",     owner:"陈静",people:56},
+  {id:"MP-2026-015",name:"病理质控年会",    assoc:"病理分会",    status:"待核销",date:"2026-09-05",budget:112000,form:"线下",     owner:"孙倩",people:180},
+  {id:"MP-2026-016",name:"超声医学论坛",    assoc:"超声分会",    status:"待审批",date:"2026-12-04",budget:96000, form:"混合",     owner:"周涛",people:0},
+  {id:"MP-2026-017",name:"急诊医学年会",    assoc:"急诊分会",    status:"已结算",date:"2026-06-26",budget:178000,form:"线下",     owner:"李强",people:300},
+  {id:"MP-2026-018",name:"老年医学大会",    assoc:"老年医学分会",status:"已归档",date:"2026-05-15",budget:205000,form:"混合",     owner:"王敏",people:340},
+  {id:"MP-2026-019",name:"感染病防控论坛",  assoc:"感染病分会",  status:"草稿",  date:"2026-12-18",budget:0,     form:"待定",     owner:"刘洋",people:0},
+  {id:"MP-2026-020",name:"麻醉安全研讨会",  assoc:"麻醉分会",    status:"筹备中",date:"2026-11-27",budget:74000, form:"线下",     owner:"赵磊",people:110},
+  {id:"MP-2026-021",name:"康复治疗年会",    assoc:"康复分会",    status:"执行中",date:"2026-10-22",budget:132000,form:"混合",     owner:"孙倩",people:230},
+  {id:"MP-2026-022",name:"眼科手术直播周",  assoc:"眼科分会",    status:"待核销",date:"2026-09-28",budget:158000,form:"线上",     owner:"周涛",people:620},
+  {id:"MP-2026-023",name:"检验医学质评会",  assoc:"检验分会",    status:"已立项",date:"2026-11-11",budget:42000, form:"线下",     owner:"陈静",people:36},
+  {id:"MP-2026-024",name:"精神心理学术会",  assoc:"精神科分会",  status:"待审批",date:"2026-12-11",budget:86000, form:"混合",     owner:"李强",people:0},
+  {id:"MP-2026-025",name:"皮肤科病例大赛",  assoc:"皮肤科分会",  status:"已结算",date:"2026-07-31",budget:58000, form:"线下",     owner:"张伟",people:88},
+  {id:"MP-2026-026",name:"核医学技术交流会",assoc:"核医学分会",  status:"已归档",date:"2026-04-24",budget:96000, form:"线下",     owner:"王敏",people:120},
+  {id:"MP-2026-027",name:"口腔种植研讨会",  assoc:"口腔分会",    status:"草稿",  date:"2027-01-08",budget:0,     form:"待定",     owner:"赵磊",people:0},
+  {id:"MP-2026-028",name:"护理质量改善大会",assoc:"护理协会",    status:"筹备中",date:"2026-11-02",budget:142000,form:"混合",     owner:"孙倩",people:280}
+];
+
+const VSTEPS = [
+  {no:1,name:"盖章基线",       desc:"提取已盖章会议通知 / 招商函，作为核销基线",owner:"会务执行 / 核销"},
+  {no:2,name:"照片三处一致",   desc:"议程 ∩ 劳务收集表 ∩ 劳务协议，三处名单相互覆盖",owner:"核销"},
+  {no:3,name:"参会数据 >30min",desc:"线上时长 + 线下签到表；有角色老师每人须 >30 分钟",owner:"核销"},
+  {no:4,name:"材料（课件 / 串场）",desc:"课题须属议程课题清单；药企 logo 仅限首页 / 尾页 / 鸣谢页",owner:"核销"},
+  {no:5,name:"劳务板块一致",   desc:"会议名 / 时间 / 角色 / 金额 / 银行收款信息 5 字段比对",owner:"核销"},
+  {no:6,name:"会务板块一致",   desc:"合同 ↔ 结算单 ↔ 发票，金额 / 名称 / 时间比对",owner:"财务 + 核销"}
+];
+
+const ROLE_DICT = [
+  {code:"speaker",   name:"讲者",     time:1,pay:1,note:"课件 / 课题主体"},
+  {code:"host",      name:"主持",     time:1,pay:1,note:"环节主持"},
+  {code:"panelist",  name:"讨论嘉宾", time:1,pay:1,note:"讨论 / 圆桌"},
+  {code:"reviewer",  name:"点评专家", time:1,pay:1,note:"点评 / 审稿"},
+  {code:"coordinator",name:"会务协调",time:0,pay:0,note:"工作人员，不计费"},
+  {code:"audience",  name:"普通听众", time:0,pay:0,note:"仅报名，不参与劳务"},
+  {code:"staff",     name:"签到 / 执行",time:0,pay:0,note:"现场执行人员"}
+];
+
+/* 核销状态：1 通过 / 0 待处理 / -1 不通过 */
+const VERIFY = {
+  "MP-2026-003":{1:1,2:1,3:1,4:-1,5:1,6:1},
+  "MP-2026-004":{1:1,2:1,3:1,4:0,5:-1,6:0},
+  /* 已核销 / 已结算 / 已归档的项目，6 步必须全绿，否则核销页会出现「状态已核销但 0/6」的自相矛盾 */
+  "MP-2026-006":{1:1,2:1,3:1,4:1,5:1,6:1},
+  "MP-2026-007":{1:1,2:1,3:1,4:1,5:1,6:1},
+  "MP-2026-008":{1:1,2:1,3:1,4:1,5:1,6:1}
+};
+
+const EXCEPTIONS = [
+  {id:"EX-2026-018",pid:"MP-2026-003",step:4,type:"课件不在议程课题",
+   desc:"课件「京津冀基层医生糖尿病管理新进展」不在议程课题清单内，判定第 4 步不通过",
+   assignee:"李XX",status:"处理中",sla:"2 个工作日",created:"2026-10-17 11:39"},
+  {id:"EX-2026-021",pid:"MP-2026-004",step:5,type:"劳务字段不一致",
+   desc:"劳务收集表与协议「劳务金额」不一致：收集表 ¥3,000 / 协议 ¥2,500",
+   assignee:"陈静",status:"待处理",sla:"2 个工作日",created:"2026-10-17 09:20"},
+  {id:"EX-2026-017",pid:"MP-2026-014",step:3,type:"签到数据缺失",
+   desc:"线上分会场签到数据未回传，参会时长无法判定",
+   assignee:"陈静",status:"待处理",sla:"2 个工作日",created:"2026-10-16 15:30"},
+  {id:"EX-2026-016",pid:"MP-2026-015",step:2,type:"通知未盖章",
+   desc:"会议通知为电子版，缺盖章扫描件",
+   assignee:"孙倩",status:"已闭环",sla:"2 个工作日",created:"2026-10-12 10:10"},
+  {id:"EX-2026-015",pid:"MP-2026-022",step:6,type:"结算单缺签字",
+   desc:"结算单缺协会负责人签字页",
+   assignee:"周涛",status:"处理中",sla:"3 个工作日",created:"2026-10-11 16:45"},
+  {id:"EX-2026-014",pid:"MP-2026-003",step:1,type:"招商函未盖章",
+   desc:"招商函 ZS-2026-013 未盖章，需补寄原件",
+   assignee:"张伟",status:"已闭环",sla:"5 个工作日",created:"2026-10-08 09:20"},
+  {id:"EX-2026-013",pid:"MP-2026-004",step:4,type:"课件题目不符",
+   desc:"课件题目与议程课题不一致，已由讲者重传",
+   assignee:"陈静",status:"已闭环",sla:"2 个工作日",created:"2026-10-02 14:00"}
+];
+
+const DEMAND = {
+  "设计":[["串场 PPT","是","主视觉 16:9，含 5 个环节页","王敏","2026-09-05","会务预算","3 个附件","已完成"],
+         ["议程 A4 单张","是","双面彩印 300 份","王敏","2026-09-08","会务预算","1 个附件","已完成"],
+         ["台卡","是","21×15cm，亚克力 40 个","李强","2026-09-10","会务预算","0","制作中"],
+         ["议程易拉宝","否","—","—","—","—","0","不需要"]],
+  "制作":[["背景板","是","6×3m 桁架喷绘","李强","2026-09-12","会务预算","2 个附件","制作中"],
+         ["讲台花","是","鲜花 1 组，含更换","陈静","2026-09-13","会务预算","0","未开始"],
+         ["横幅","是","8m，含协会名 + logo","王敏","2026-09-12","会务预算","1 个附件","已完成"]],
+  "现场执行":[["控台","是","2 人，含彩排","张伟","2026-09-14","会务预算","0","已确认"],
+             ["摄影","是","1 机位，全天","张伟","2026-09-14","会务预算","0","已确认"],
+             ["签到台","是","4 工位，含胸卡打印","陈静","2026-09-15","会务预算","1 个附件","已确认"]],
+  "其他":[["车队","是","大巴 2 辆，机场往返","刘洋","2026-09-15","会务预算","1 个附件","未开始"],
+         ["茶歇","否","—","—","—","—","0","不需要"]]
+};
+
+const MATERIALS = [
+  {name:"课件",        fixed:true, need:6, done:5, cmp:"1 项题目不符", ok:false},
+  {name:"串场",        fixed:true, need:1, done:1, cmp:"题目与会议名一致", ok:true},
+  {name:"劳务收集表",  fixed:true, need:1, done:1, cmp:"字段完整", ok:true},
+  {name:"劳务协议",    fixed:true, need:1, done:1, cmp:"5 字段一致", ok:true},
+  {name:"讲者照片",    fixed:false,need:6, done:4, cmp:"2 张待上传", ok:false},
+  {name:"自定义模块",  fixed:false,need:2, done:2, cmp:"现场照片", ok:true}
+];
+
+const AGENDA = [
+  {no:1,title:"糖尿病管理新进展",  speaker:"王教授",role:"讲者",     time:"09:10-09:40",material:"已交"},
+  {no:2,title:"基层用药规范",      speaker:"李主任",role:"讲者",     time:"09:40-10:10",material:"已交"},
+  {no:3,title:"病例讨论",          speaker:"张医生",role:"讨论嘉宾", time:"10:10-10:40",material:"已交"},
+  {no:4,title:"分级诊疗实践",      speaker:"赵院长",role:"点评专家", time:"10:40-11:10",material:"待补"},
+  {no:5,title:"圆桌：区域协同",    speaker:"孙主任",role:"主持",     time:"11:10-11:40",material:"已交"}
+];
+
+const AUDIT = [
+  {t:"10-17 11:39",role:"财务与核销",mod:"会后核销",act:"结论",  pid:"MP-2026-003",detail:"第 4 步判定不通过 → 生成例外单 EX-2026-018",att:1},
+  {t:"10-17 11:25",role:"会务执行",  mod:"材料中心",act:"上传",  pid:"MP-2026-001",detail:"上传串场 PPT v2",att:1},
+  {t:"10-17 10:58",role:"协会管理员",mod:"项目管理",act:"审批通过",pid:"MP-2026-002",detail:"立项审批通过，状态 → 已立项",att:0},
+  {t:"10-17 10:30",role:"总管理员",  mod:"系统配置",act:"改角色",pid:"—",          detail:"为 张伟 增加「财务与核销」授权",att:0},
+  {t:"10-17 09:50",role:"财务与核销",mod:"财务结算",act:"付款",  pid:"MP-2026-006",detail:"学会公付 ¥120,000 已提交银行",att:3},
+  {t:"10-17 09:12",role:"会务执行",  mod:"会务执行",act:"分配任务",pid:"MP-2026-002",detail:"现场摄影分配给 张伟",att:0},
+  {t:"10-17 08:45",role:"总管理员",  mod:"会后核销",act:"例外审批",pid:"MP-2026-004",detail:"例外单 EX-2026-021 转交 陈静",att:1},
+  {t:"10-16 18:05",role:"会务执行",  mod:"材料中心",act:"上传",    pid:"MP-2026-003",detail:"上传课件「京津冀基层医生糖尿病管理新进展」→ 转人工复核",att:1},
+  {t:"10-16 17:20",role:"会务执行",  mod:"财务结算",act:"付款",    pid:"MP-2026-003",detail:"学会公付 ¥84,000 提交审批",att:2},
+  {t:"10-16 16:40",role:"财务与核销",mod:"财务结算",act:"付款",    pid:"MP-2026-006",detail:"厂家款 ¥88,200 已付款",att:3},
+  {t:"10-16 15:12",role:"会务执行",  mod:"材料中心",act:"上传",    pid:"MP-2026-001",detail:"上传串场 PPT v1（后被 v2 覆盖）",att:1},
+  {t:"10-16 14:10",role:"会务执行",  mod:"项目管理",act:"变更",    pid:"MP-2026-001",detail:"议程调整：新增「区域协同」圆桌 30 分钟",att:0},
+  {t:"10-16 11:12",role:"财务与核销",mod:"材料中心",act:"校验",    pid:"MP-2026-004",detail:"劳务协议金额与收集表不一致 → 不通过",att:1},
+  {t:"10-16 09:20",role:"财务与核销",mod:"会后核销",act:"例外",    pid:"MP-2026-004",detail:"生成例外单 EX-2026-021，指派 陈静",att:1},
+  {t:"10-15 17:05",role:"会务执行",  mod:"材料中心",act:"上传",    pid:"MP-2026-001",detail:"上传讲者照片 王教授",att:1},
+  {t:"10-15 15:12",role:"会务执行",  mod:"数据导出",act:"导出",    pid:"MP-2026-003",detail:"导出签到名单（260 行）",att:0},
+  {t:"10-15 10:00",role:"协会管理员",mod:"项目管理",act:"审批通过",pid:"MP-2026-008",detail:"立项审批通过，状态 → 已立项",att:1},
+  {t:"10-14 16:40",role:"财务与核销",mod:"财务结算",act:"驳回",    pid:"MP-2026-006",detail:"厂家款 ¥150,000 驳回：缺招商函盖章件",att:2},
+  {t:"10-14 10:15",role:"会务执行",  mod:"会务执行",act:"签到",    pid:"MP-2026-002",detail:"现场扫码签到开启，应到 180 人",att:0},
+  {t:"10-13 18:30",role:"财务与核销",mod:"会后核销",act:"结论",    pid:"MP-2026-004",detail:"第 5 步判定不通过 → 待例外单闭环",att:1},
+  {t:"10-13 14:22",role:"会务执行",  mod:"筹备管理",act:"签约",    pid:"MP-2026-001",detail:"餐饮服务合同 HT-2026-0333 已签订",att:1},
+  {t:"10-12 11:05",role:"会务执行",  mod:"项目管理",act:"变更",    pid:"MP-2026-003",detail:"预算变更：场地费 ¥80,000 → ¥86,000（+6,000）",att:1},
+  {t:"10-12 09:10",role:"会务执行",  mod:"财务结算",act:"报销",    pid:"MP-2026-008",detail:"报销 ¥3,600（市内交通 + 快递）已付款",att:1},
+  {t:"10-11 16:00",role:"协会管理员",mod:"系统配置",act:"授权",    pid:"—",          detail:"为 陈静 授权 MP-2026-014 核销权限",att:0},
+  {t:"10-11 10:40",role:"会务执行",  mod:"筹备管理",act:"招商",    pid:"MP-2026-001",detail:"招商函 ZS-2026-012 盖章寄出（A 药业 冠名）",att:1},
+  {t:"10-10 15:00",role:"财务与核销",mod:"财务结算",act:"驳回",    pid:"MP-2026-004",detail:"付款 ¥23,800 驳回：项目仍处待核销",att:1},
+  {t:"10-09 18:20",role:"会务执行",  mod:"财务结算",act:"报销",    pid:"MP-2026-003",detail:"报销 ¥1,240（专家接送用车）提交",att:1},
+  {t:"10-09 11:30",role:"总管理员",  mod:"系统配置",act:"改角色",  pid:"—",          detail:"停用 赵磊 的「财务与核销」授权",att:0},
+  {t:"10-08 11:40",role:"会务执行",  mod:"财务结算",act:"报销",    pid:"MP-2026-003",detail:"报销 ¥860（现场物料补印）提交，无票待说明",att:0},
+  {t:"10-08 09:05",role:"财务与核销",mod:"财务结算",act:"验真",    pid:"MP-2026-003",detail:"发票 0312 4471 验真通过（场地租赁 ¥84,000）",att:1},
+  {t:"10-07 16:45",role:"会务执行",  mod:"会务执行",act:"任务",    pid:"MP-2026-002",detail:"现场摄影任务分配给 张伟",att:0},
+  {t:"10-06 14:10",role:"会务执行",  mod:"会务执行",act:"异常",    pid:"MP-2026-002",detail:"登记现场异常：签到机断网 12 分钟",att:1},
+  {t:"10-05 14:10",role:"财务与核销",mod:"财务结算",act:"驳回",    pid:"MP-2026-004",detail:"报销 ¥320 驳回：超预算科目",att:0},
+  {t:"10-04 10:20",role:"协会管理员",mod:"项目管理",act:"立项",    pid:"MP-2026-005",detail:"提交立项「全科医学大会」，预算 ¥150,000",att:1},
+  {t:"10-03 09:40",role:"会务执行",  mod:"筹备管理",act:"嘉宾",    pid:"MP-2026-001",detail:"嘉宾 赵院长 由线下改为线上参会",att:0},
+  {t:"10-02 17:30",role:"财务与核销",mod:"材料中心",act:"校验",    pid:"MP-2026-004",detail:"餐饮发票 0312 4502 标记「疑点待核」",att:1},
+  {t:"09-30 16:00",role:"会务执行",  mod:"会务需求",act:"确认",    pid:"MP-2026-001",detail:"会务需求单确认：串场 PPT / 台卡 / 背景板",att:2},
+  {t:"09-28 16:20",role:"会务执行",  mod:"项目管理",act:"变更",    pid:"MP-2026-002",detail:"会议日期 09-18 顺延至 09-25",att:0},
+  {t:"09-26 10:00",role:"总管理员",  mod:"系统配置",act:"新增",    pid:"—",          detail:"新增协会「核医学分会」，负责人 王敏",att:0},
+  {t:"09-22 15:30",role:"协会管理员",mod:"档案中心",act:"归档",    pid:"MP-2026-018",detail:"8/8 材料齐全，项目归档完成",att:8},
+  {t:"09-20 11:00",role:"会务执行",  mod:"材料中心",act:"上传",    pid:"MP-2026-015",detail:"上传课件 5 份，全部通过题目校验",att:5}
+];
+
+/* ==================== 状态 ==================== */
+const state = {role:"admin",route:"dashboard.home",pid:"MP-2026-003",prepTab:"合同",execTab:"报名签到",
+  pjStatus:"全部",pjAssoc:"全部",open:new Set(["dashboard","dashboard.todo","dashboard.board"]),pg:{}};
+const $ = s => document.querySelector(s);
+const pid2p = id => PROJECTS.find(p => p.id === id);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const money = n => "¥" + n.toLocaleString("zh-CN");
+
+function toast(msg, kind){
+  const box = $("#toast");
+  box.innerHTML = "";                       // 同一时刻只留一条，避免叠起来挡住表格
+  const el = document.createElement("div");
+  el.className = "toast" + (kind ? " " + kind : "");
+  el.textContent = msg;
+  box.appendChild(el);
+  setTimeout(() => { el.style.opacity = "0"; el.style.transition = ".3s"; }, 2600);
+  setTimeout(() => el.remove(), 3000);
+}
+function logAudit(mod, act, pid, detail, att){
+  const d = new Date();
+  const p = n => String(n).padStart(2,"0");
+  AUDIT.unshift({
+    t:`${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`,
+    role:ROLES[state.role].name, mod, act, pid:pid || "—", detail, att:att || 0
+  });
+}
+
+/* ==================== 核销计算 ==================== */
+function vstate(pid){ return VERIFY[pid] || (VERIFY[pid] = {1:0,2:0,3:0,4:0,5:0,6:0}); }
+function vOpenEx(pid){ return EXCEPTIONS.filter(e => e.pid === pid && e.status !== "已解决" && e.status !== "已驳回"); }
+function vAllPass(pid){
+  const v = vstate(pid);
+  return [1,2,3,4,5,6].every(n => v[n] === 1) && vOpenEx(pid).length === 0;
+}
+function vPassCount(pid){ const v = vstate(pid); return [1,2,3,4,5,6].filter(n => v[n] === 1).length; }
+/* 结算金额统一口径：按项目预算拆分，发票归档 = 前三项之和 */
+function finAmounts(pid){
+  const B = (pid2p(pid) || {budget:0}).budget;
+  const pub = Math.round(B * 0.35 / 100) * 100;
+  const reimb = Math.round(B * 0.05 / 100) * 100;
+  const ven = Math.round(B * 0.42 / 100) * 100;
+  return {pub, reimb, ven, total: pub + reimb + ven};
+}
+function visibleProjects(role){
+  const r = role || state.role;
+  if (r === "admin") return PROJECTS;
+  if (r === "assoc") return PROJECTS.filter(p => ["护理协会","京津冀医学会"].includes(p.assoc));
+  if (r === "exec") return PROJECTS.filter(p => ["执行中","待核销","已核销"].includes(p.status));
+  if (r === "finance") return PROJECTS.filter(p => ["待核销","已核销","已结算","已归档"].includes(p.status));
+  return PROJECTS.filter(p => p.id === "MP-2026-002");
+}
+
+function kpiSet(list){
+  const c = s => list.filter(p => p.status === s).length;
+  const r = state.role;
+  if (r === "exec") return [
+    {t:"我的会议任务", v:"7", u:"项", cls:""},
+    {t:"材料待补", v:"4", u:"项", cls:"k2"},
+    {t:"执行中会议", v:c("执行中"), u:"场", cls:"k3"},
+    {t:"待核销（我负责）", v:c("待核销"), u:"个", cls:"k4"}];
+  if (r === "finance") return [
+    {t:"核销待处理", v:c("待核销"), u:"个项目", cls:"k3"},
+    {t:"例外单未闭环", v:EXCEPTIONS.filter(e => e.status !== "已解决" && e.status !== "已驳回").length, u:"张", cls:""},
+    {t:"结算待触发", v:c("已核销"), u:"笔", cls:"k2"},
+    {t:"已结算", v:c("已结算"), u:"笔", cls:"k4"}];
+  if (r === "user") return [
+    {t:"我报名的活动", v:"2", u:"场", cls:""},
+    {t:"待签到", v:"1", u:"场", cls:"k3"},
+    {t:"已参加", v:"5", u:"场", cls:"k2"},
+    {t:"学时证明", v:"3", u:"份", cls:"k4"}];
+  return [
+    {t:"待处理立项", v:c("待审批"), u:"个", cls:""},
+    {t:"本周会议", v:"6", u:"场", cls:"k2"},
+    {t:"核销待处理", v:c("待核销"), u:"个项目", cls:"k3"},
+    {t:"结算待触发", v:c("已核销"), u:"笔", cls:"k4"}];
+}
+
+const TODOS = [
+  {roles:["admin","assoc","finance"], k:"verify", pid:"MP-2026-003", bar:"r",
+   t:"例外单待处理 · 京津冀论坛 2026", s:"第 4 步课件题目与议程不符 · 2 小时前", go:"去处理"},
+  {roles:["admin","assoc","finance","exec"], k:"verify", pid:"MP-2026-004", bar:"",
+   t:"核销待补件 · 外科沙龙 2026", s:"劳务金额不一致 · 昨天", go:"去处理"},
+  /* 立项审批只给总管理员：全科医学大会属「全科医学分会」，协会管理员的数据范围内看不到该项目 */
+  {roles:["admin"], k:"projects", pid:"MP-2026-005", bar:"b",
+   t:"立项审批 · 全科医学大会", s:"提交人 刘洋 · 今天", go:"去审批"},
+  {roles:["admin","assoc","exec"], k:"materials", pid:"MP-2026-002", bar:"g",
+   t:"材料待补 · 护理协会论坛", s:"讲者照片 2 张、课件 3 项 · 今天", go:"去查看"},
+  /* 结算待触发必须挂在一个「已核销且无未闭环例外单」的项目上，否则文案与事实矛盾 */
+  {roles:["finance"], k:"finance", pid:"MP-2026-008", bar:"b",
+   t:"结算待触发 · 儿科护理新进展", s:"核销 6 步已通过，待生成结算单", go:"去结算"},
+  {roles:["user"], k:"projects", pid:"MP-2026-002", bar:"b",
+   t:"护理协会论坛 · 待签到", s:"2026-09-25 · 上海国际会议中心", go:"去签到"}
+];
+
+/* ==================== 扩展数据（多级菜单 / 表单） ==================== */
+const APPROVALS = [
+  {id:"AP-2026-014",type:"立项审批",  title:"全科医学大会",             pid:"MP-2026-005",by:"刘洋", at:"10-17 09:30",amt:150000,sla:"今日 18:00",st:"待审批"},
+  {id:"AP-2026-013",type:"例外单审批",title:"EX-2026-018 课件不在议程课题",pid:"MP-2026-003",by:"李XX", at:"10-17 09:05",amt:0,     sla:"10-19",    st:"待审批"},
+  {id:"AP-2026-012",type:"付款审批",  title:"学会公付 ¥86,000",          pid:"MP-2026-003",by:"张伟", at:"10-16 17:20",amt:86000, sla:"10-18",    st:"待审批"},
+  {id:"AP-2026-011",type:"变更审批",  title:"议程调整：新增 1 个圆桌环节", pid:"MP-2026-001",by:"王敏", at:"10-16 14:10",amt:0,     sla:"10-19",    st:"已通过"},
+  {id:"AP-2026-010",type:"立项审批",  title:"儿科护理新进展",             pid:"MP-2026-008",by:"周涛", at:"10-15 10:00",amt:72000, sla:"已完成",   st:"已通过"},
+  {id:"AP-2026-009",type:"付款审批",  title:"厂家款 ¥150,000",           pid:"MP-2026-006",by:"赵磊", at:"10-14 16:40",amt:150000,sla:"已完成",   st:"已驳回"},
+  {id:"AP-2026-008",type:"变更审批",  title:"预算变更：场地费 +6,000",     pid:"MP-2026-003",by:"张伟", at:"10-12 11:05",amt:6000,  sla:"已完成",st:"已通过"},
+  {id:"AP-2026-007",type:"付款审批",  title:"学会公付 ¥120,000",          pid:"MP-2026-006",by:"赵磊", at:"10-09 10:20",amt:120000,sla:"已完成",st:"已通过"},
+  {id:"AP-2026-006",type:"立项审批",  title:"消化病学术周",               pid:"MP-2026-006",by:"赵磊", at:"06-12 09:00",amt:210000,sla:"已完成",st:"已通过"},
+  {id:"AP-2026-005",type:"例外单审批",title:"EX-2026-014 招商函未盖章",   pid:"MP-2026-003",by:"张伟", at:"10-08 09:20",amt:0,     sla:"已完成",st:"已通过"}
+];
+
+const CC_LIST = [
+  {id:"CC-0091",from:"财务与核销",title:"MP-2026-003 核销结论已提交，财务结算已解锁",at:"10-17 11:40",st:"未读"},
+  {id:"CC-0090",from:"总管理员",  title:"为 张伟 增加「财务与核销」授权",            at:"10-17 10:30",st:"未读"},
+  {id:"CC-0088",from:"协会管理员",title:"MP-2026-002 立项审批通过",                  at:"10-17 10:58",st:"已读"},
+  {id:"CC-0085",from:"会务执行",  title:"MP-2026-001 串场 PPT v2 已上传",            at:"10-16 15:12",st:"已读"},
+  {id:"CC-0081",from:"财务与核销",title:"例外单 EX-2026-021 转交 陈静",              at:"10-16 09:20",st:"已读"},
+  {id:"CC-0079",from:"协会管理员",title:"MP-2026-005 立项待审批，请尽快处理",at:"10-15 10:05",st:"已读"},
+  {id:"CC-0076",from:"财务与核销",title:"MP-2026-003 付款 ¥84,000 待审批",  at:"10-14 17:30",st:"已读"},
+  {id:"CC-0072",from:"会务执行",  title:"MP-2026-003 课件题目不符，已转人工复核",at:"10-13 16:48",st:"已读"},
+  {id:"CC-0068",from:"总管理员",  title:"角色权限矩阵已更新（v1.0.2）",      at:"10-10 09:00",st:"已读"}
+];
+
+const CHANGES = [
+  {id:"CH-2026-007",pid:"MP-2026-001",type:"议程变更",desc:"新增「区域协同」圆桌 30 分钟",by:"王敏",at:"10-16 14:10",st:"待审批",impact:"预算 +0"},
+  {id:"CH-2026-006",pid:"MP-2026-003",type:"预算变更",desc:"场地费由 ¥80,000 调整为 ¥86,000",by:"张伟",at:"10-12 11:05",st:"已通过",impact:"预算 +6,000"},
+  {id:"CH-2026-005",pid:"MP-2026-002",type:"时间变更",desc:"会议日期由 09-18 顺延至 09-25",by:"李强",at:"09-28 16:20",st:"已通过",impact:"预算 +0"},
+  {id:"CH-2026-004",pid:"MP-2026-004",type:"嘉宾变更",desc:"赵院长由线下改为线上参会",by:"陈静",at:"08-30 10:40",st:"已通过",impact:"劳务 -3,000"},
+  {id:"CH-2026-003",pid:"MP-2026-010",type:"预算变更",desc:"餐饮标准由 180 元/人 调整为 220 元/人",by:"王敏",at:"10-10 15:30",st:"待审批",impact:"预算 +8,400"},
+  {id:"CH-2026-002",pid:"MP-2026-012",type:"场地变更",desc:"主会场由 A 厅调整至 B 厅（容纳 400 人）",by:"张伟",at:"10-06 09:15",st:"已通过",impact:"预算 +0"},
+  {id:"CH-2026-001",pid:"MP-2026-013",type:"嘉宾变更",desc:"新增讲者 1 位（骨科 微创方向）",by:"赵磊",at:"09-30 14:20",st:"已通过",impact:"预算 +6,000"},
+  {id:"CH-2025-018",pid:"MP-2026-021",type:"议程变更",desc:"取消闭幕式，改为线上总结",by:"孙倩",at:"09-25 11:10",st:"已驳回",impact:"预算 -3,000"},
+  {id:"CH-2025-017",pid:"MP-2026-020",type:"时间变更",desc:"会议日期提前 3 天至 11-24",by:"赵磊",at:"09-18 16:00",st:"已通过",impact:"预算 +0"}
+];
+
+const MEMBERS = [
+  {name:"张伟",role:"会务执行人员",dept:"会务部",scope:"授权会议（3 个）",grant:"编辑 / 上传 / 提交核销",at:"2026-03-12",st:"正常"},
+  {name:"王敏",role:"会务执行人员",dept:"会务部",scope:"授权会议（5 个）",grant:"编辑 / 上传",at:"2026-02-08",st:"正常"},
+  {name:"陈静",role:"财务与核销",  dept:"财务部",scope:"授权项目（4 个）",grant:"核销判定 / 例外处理",at:"2026-01-20",st:"正常"},
+  {name:"李强",role:"会务执行人员",dept:"会务部",scope:"授权会议（2 个）",grant:"编辑",at:"2026-04-02",st:"正常"},
+  {name:"刘洋",role:"协会管理员",  dept:"全科分会",scope:"本协会",grant:"全部（本协会）",at:"2026-05-11",st:"正常"},
+  {name:"赵磊",role:"财务与核销",  dept:"财务部",scope:"授权项目（2 个）",grant:"核销判定",at:"2026-06-18",st:"已停用"}
+];
+
+const GATE_RULES = [
+  {stage:"立项 → 已立项",  cond:"主题 + 形式 + 时间 + 预算 + 初版议程 5 项齐备；外部用户预审 + 验证码",blocker:"缺任一必填项不得提交",owner:"协会管理员",st:"启用"},
+  {stage:"筹备 → 执行中",  cond:"合同 / 招商 / 嘉宾 / 议程 / 资源 / 任务 六类齐备；本阶段不产生任何付款",blocker:"存在未签合同不得进入执行",owner:"会务执行",st:"启用"},
+  {stage:"执行中 → 待核销",cond:"会议结束 + 签到数据归档 + 材料齐备",blocker:"材料未齐备不得进入核销",owner:"会务执行",st:"启用"},
+  {stage:"待核销 → 已核销",cond:"6 步 SOP 全部通过 + 例外单全部闭环",blocker:"硬约束：任一步不通过即锁定",owner:"财务与核销",st:"启用"},
+  {stage:"已核销 → 已结算",cond:"核销结论已写入 + 结算单生成 + 付款审批通过",blocker:"无核销结论不得付款",owner:"财务与核销",st:"启用"},
+  {stage:"已结算 → 已归档",cond:"已结算 + 结算记录 + 材料完整（8/8）",blocker:"三者缺一不可归档",owner:"协会管理员",st:"启用"}
+];
+
+const DEMAND_CHANGES = [
+  {id:"DC-021",group:"设计",item:"串场 PPT",desc:"主视觉改为协会新版 VI",by:"王敏",at:"09-02 10:20",st:"已通过",extra:"0"},
+  {id:"DC-020",group:"制作",item:"背景板",desc:"尺寸 6×3m 改为 8×3m",by:"李强",at:"09-05 15:40",st:"已通过",extra:"¥6,000"},
+  {id:"DC-019",group:"现场执行",item:"摄影",desc:"1 机位增加至 2 机位",by:"张伟",at:"09-10 09:15",st:"待审批",extra:"¥4,500"},
+  {id:"DC-018",group:"其他",item:"车队",desc:"大巴 2 辆改为 3 辆",by:"刘洋",at:"09-12 17:30",st:"已驳回",extra:"¥2,200"}
+];
+
+const DEMAND_TRACK = [
+  {item:"串场 PPT",   owner:"王敏",due:"2026-09-05",done:"2026-09-04",st:"已完成",attach:3},
+  {item:"议程 A4 单张",owner:"王敏",due:"2026-09-08",done:"2026-09-08",st:"已完成",attach:1},
+  {item:"台卡",       owner:"李强",due:"2026-09-10",done:"—",         st:"制作中",attach:0},
+  {item:"背景板",     owner:"李强",due:"2026-09-12",done:"—",         st:"制作中",attach:2},
+  {item:"讲台花",     owner:"陈静",due:"2026-09-13",done:"—",         st:"未开始",attach:0},
+  {item:"横幅",       owner:"王敏",due:"2026-09-12",done:"2026-09-11",st:"已完成",attach:1},
+  {item:"控台",       owner:"张伟",due:"2026-09-14",done:"2026-09-14",st:"已确认",attach:0},
+  {item:"签到台",     owner:"陈静",due:"2026-09-15",done:"2026-09-15",st:"已确认",attach:1},
+  {item:"指引牌",     owner:"李强",due:"2026-09-15",done:"—",         st:"制作中",attach:0},
+  {item:"资料袋",     owner:"王敏",due:"2026-09-16",done:"2026-09-15",st:"已完成",attach:2},
+  {item:"胸卡挂绳",   owner:"陈静",due:"2026-09-16",done:"2026-09-14",st:"已完成",attach:0},
+  {item:"签约背板",   owner:"李强",due:"2026-09-17",done:"—",         st:"未开始",attach:0},
+  {item:"茶歇区标识", owner:"张伟",due:"2026-09-18",done:"2026-09-18",st:"已确认",attach:1},
+  {item:"闭幕式视频", owner:"王敏",due:"2026-09-20",done:"—",         st:"制作中",attach:1}
+];
+
+const UPLOAD_LOG = [
+  {t:"10-17 11:25",by:"会务执行 王敏",file:"串场 PPT v2.pptx",mod:"串场",pid:"MP-2026-001",size:"18.4 MB",cmp:"题目与会议名一致",st:"通过"},
+  {t:"10-17 10:02",by:"会务执行 张伟",file:"糖尿病管理新进展.pdf",mod:"课件",pid:"MP-2026-003",size:"6.2 MB",cmp:"课题在议程清单内",st:"通过"},
+  {t:"10-16 16:48",by:"会务执行 张伟",file:"基层医生糖尿病管理新进展.pdf",mod:"课件",pid:"MP-2026-003",size:"5.8 MB",cmp:"课题不在议程清单内",st:"转人工复核"},
+  {t:"10-16 14:30",by:"会务执行 陈静",file:"劳务收集表.xlsx",mod:"劳务收集表",pid:"MP-2026-004",size:"0.3 MB",cmp:"字段完整",st:"通过"},
+  {t:"10-16 11:12",by:"会务执行 陈静",file:"劳务协议（赵院长）.pdf",mod:"劳务协议",pid:"MP-2026-004",size:"1.1 MB",cmp:"金额与收集表不一致",st:"不通过"},
+  {t:"10-15 17:05",by:"会务执行 王敏",file:"讲者照片-王教授.jpg",mod:"讲者照片",pid:"MP-2026-001",size:"2.4 MB",cmp:"—",st:"通过"},
+  {t:"10-17 09:40",by:"会务执行 周涛",file:"儿科护理-讲者照片.zip",mod:"讲者照片",pid:"MP-2026-008",size:"12.6 MB",cmp:"—",st:"通过"},
+  {t:"10-16 18:20",by:"会务执行 陈静",file:"签到名单-线下.xlsx",mod:"签到数据",pid:"MP-2026-014",size:"0.2 MB",cmp:"应到 56 / 实到 51",st:"转人工复核"},
+  {t:"10-16 10:05",by:"会务执行 王敏",file:"议程 A4 单张.pdf",mod:"议程物料",pid:"MP-2026-001",size:"3.1 MB",cmp:"—",st:"通过"},
+  {t:"10-15 16:40",by:"会务执行 张伟",file:"招商函 ZS-2026-013.pdf",mod:"招商函",pid:"MP-2026-003",size:"0.9 MB",cmp:"缺盖章页",st:"不通过"},
+  {t:"10-14 11:20",by:"会务执行 孙倩",file:"病理质控-课件 5 份.zip",mod:"课件",pid:"MP-2026-015",size:"48.2 MB",cmp:"5 个课题均在议程内",st:"通过"},
+  {t:"10-13 15:00",by:"会务执行 周涛",file:"结算单（签字版）.pdf",mod:"结算单",pid:"MP-2026-022",size:"1.4 MB",cmp:"缺负责人签字页",st:"不通过"},
+  {t:"10-12 09:30",by:"会务执行 李强",file:"急诊年会-现场照片.zip",mod:"自定义模块",pid:"MP-2026-017",size:"126 MB",cmp:"—",st:"通过"},
+  {t:"10-10 14:10",by:"会务执行 王敏",file:"劳务收集表（急诊年会）.xlsx",mod:"劳务收集表",pid:"MP-2026-017",size:"0.4 MB",cmp:"字段完整",st:"通过"}
+];
+
+const PAYMENTS = [
+  {id:"PY-2026-031",pid:"MP-2026-003",type:"学会公付",payee:"上海国际会议中心",amt:84000, inv:"0312 4471",req:"张伟",at:"10-16 17:20",st:"待审批"},
+  {id:"PY-2026-030",pid:"MP-2026-006",type:"厂家款",  payee:"A 药业",          amt:88200, inv:"0312 4488",req:"赵磊",at:"10-14 16:40",st:"已付款"},
+  {id:"PY-2026-029",pid:"MP-2026-008",type:"个人报销",payee:"周涛",            amt:3600,  inv:"0312 4490",req:"周涛",at:"10-12 09:10",st:"已付款"},
+  {id:"PY-2026-028",pid:"MP-2026-004",type:"学会公付",payee:"上海国际会议中心",amt:23800, inv:"0312 4501",req:"陈静",at:"10-10 15:00",st:"已驳回"},
+  {id:"PY-2026-027",pid:"MP-2026-006",type:"学会公付",payee:"上海国际会议中心",amt:120000,inv:"0312 4488",req:"赵磊",at:"10-09 10:20",st:"已付款"},
+  {id:"PY-2026-026",pid:"MP-2026-017",type:"厂家款",  payee:"B 器械",          amt:64000, inv:"0312 4412",req:"李强",at:"07-10 14:30",st:"已付款"},
+  {id:"PY-2026-025",pid:"MP-2026-017",type:"学会公付",payee:"上海国际会议中心",amt:86000, inv:"0312 4411",req:"李强",at:"07-02 09:15",st:"已付款"},
+  {id:"PY-2026-024",pid:"MP-2026-025",type:"学会公付",payee:"杭州国际博览中心",amt:38000, inv:"0312 4390",req:"张伟",at:"08-05 16:40",st:"已付款"},
+  {id:"PY-2026-023",pid:"MP-2026-007",type:"厂家款",  payee:"C 生物",          amt:150000,inv:"0312 4355",req:"孙倩",at:"06-20 11:20",st:"已付款"},
+  {id:"PY-2026-022",pid:"MP-2026-008",type:"学会公付",payee:"上海国际会议中心",amt:52000, inv:"0312 4490",req:"周涛",at:"07-18 15:00",st:"已付款"},
+  {id:"PY-2026-021",pid:"MP-2026-003",type:"厂家款",  payee:"A 药业",          amt:120000,inv:"0312 4471",req:"张伟",at:"10-15 09:30",st:"待审批"},
+  {id:"PY-2026-020",pid:"MP-2026-014",type:"学会公付",payee:"南京国际会议大酒店",amt:18000,inv:"—",       req:"陈静",at:"10-16 10:05",st:"草稿"}
+];
+
+const INVOICES = [
+  {no:"0312 4471",pid:"MP-2026-003",type:"场地租赁",amt:84000, seller:"上海国际会议中心",date:"2026-10-08",st:"已验真"},
+  {no:"0312 4488",pid:"MP-2026-006",type:"会议服务",amt:88200, seller:"A 药业",          date:"2026-09-30",st:"已验真"},
+  {no:"0312 4490",pid:"MP-2026-008",type:"个人报销",amt:3600,  seller:"周涛",            date:"2026-09-18",st:"已验真"},
+  {no:"0312 4501",pid:"MP-2026-004",type:"场地租赁",amt:23800, seller:"上海国际会议中心",date:"2026-10-02",st:"待验真"},
+  {no:"0312 4502",pid:"MP-2026-004",type:"餐饮服务",amt:9600,  seller:"会务餐饮",        date:"2026-10-03",st:"疑点待核"},
+  {no:"0312 4503",pid:"MP-2026-003",type:"交通服务",amt:1240,  seller:"沪上用车",        date:"2026-10-06",st:"已验真"},
+  {no:"0312 4412",pid:"MP-2026-017",type:"会议服务",amt:64000, seller:"B 器械",          date:"2026-07-05",st:"已验真"},
+  {no:"0312 4411",pid:"MP-2026-017",type:"场地租赁",amt:86000, seller:"上海国际会议中心",date:"2026-06-28",st:"已验真"},
+  {no:"0312 4390",pid:"MP-2026-025",type:"场地租赁",amt:38000, seller:"杭州国际博览中心",date:"2026-08-01",st:"已验真"},
+  {no:"0312 4355",pid:"MP-2026-007",type:"会议服务",amt:150000,seller:"C 生物",          date:"2026-06-15",st:"已验真"},
+  {no:"0312 4504",pid:"MP-2026-015",type:"餐饮服务",amt:14600, seller:"会务餐饮",        date:"2026-09-08",st:"待验真"},
+  {no:"0312 4505",pid:"MP-2026-022",type:"直播服务",amt:32000, seller:"云端直播",        date:"2026-09-30",st:"待验真"}
+];
+
+const REIMBURSES = [
+  {id:"RB-2026-018",pid:"MP-2026-008",who:"周涛",item:"市内交通 + 快递",amt:3600, at:"10-12 09:10",st:"已付款",inv:"0312 4490"},
+  {id:"RB-2026-017",pid:"MP-2026-003",who:"王敏",item:"专家接送用车",amt:1240, at:"10-09 18:20",st:"已通过",inv:"0312 4503"},
+  {id:"RB-2026-016",pid:"MP-2026-003",who:"张伟",item:"现场物料补印",amt:860,  at:"10-08 11:40",st:"待审批",inv:"—"},
+  {id:"RB-2026-015",pid:"MP-2026-004",who:"陈静",item:"胸卡打印耗材",amt:320,  at:"10-05 14:10",st:"已驳回",inv:"—"},
+  {id:"RB-2026-014",pid:"MP-2026-003",who:"王敏",item:"专家高铁票（往返）",amt:1860, at:"10-04 09:30",st:"已付款",inv:"0312 4503"},
+  {id:"RB-2026-013",pid:"MP-2026-002",who:"张伟",item:"现场加班餐",        amt:640,  at:"09-26 20:10",st:"已通过",inv:"—"},
+  {id:"RB-2026-012",pid:"MP-2026-006",who:"赵磊",item:"会场快递费",        amt:280,  at:"07-24 11:00",st:"已付款",inv:"0312 4402"},
+  {id:"RB-2026-011",pid:"MP-2026-008",who:"周涛",item:"胸卡与挂绳",        amt:520,  at:"07-01 15:20",st:"已付款",inv:"0312 4490"},
+  {id:"RB-2026-010",pid:"MP-2026-015",who:"孙倩",item:"病理标本运输",      amt:980,  at:"09-06 10:15",st:"待审批",inv:"—"},
+  {id:"RB-2026-009",pid:"MP-2026-022",who:"周涛",item:"直播设备押金",      amt:2000, at:"09-29 16:30",st:"待审批",inv:"—"}
+];
+
+const ARCHIVE_TASKS = [
+  {pid:"MP-2026-006",name:"消化病学术周",need:8,done:8,st:"已归档",at:"2026-08-05",owner:"协会管理员"},
+  {pid:"MP-2026-007",name:"肿瘤精准治疗会",need:8,done:8,st:"已归档",at:"2026-07-02",owner:"协会管理员"},
+  {pid:"MP-2026-008",name:"儿科护理新进展",need:8,done:6,st:"待归档",at:"—",owner:"周涛"},
+  {pid:"MP-2026-003",name:"京津冀论坛 2026",need:8,done:5,st:"未开始",at:"—",owner:"张伟"},
+  {pid:"MP-2026-017",name:"急诊医学年会",    need:8,done:8,st:"已归档",at:"2026-07-20",owner:"协会管理员"},
+  {pid:"MP-2026-025",name:"皮肤科病例大赛",  need:8,done:8,st:"已归档",at:"2026-08-18",owner:"张伟"},
+  {pid:"MP-2026-018",name:"老年医学大会",    need:8,done:8,st:"已归档",at:"2026-06-02",owner:"王敏"},
+  {pid:"MP-2026-026",name:"核医学技术交流会",need:8,done:8,st:"已归档",at:"2026-05-10",owner:"王敏"},
+  {pid:"MP-2026-014",name:"神经介入沙龙",    need:8,done:7,st:"待归档",at:"—",owner:"陈静"},
+  {pid:"MP-2026-015",name:"病理质控年会",    need:8,done:6,st:"待归档",at:"—",owner:"孙倩"},
+  {pid:"MP-2026-022",name:"眼科手术直播周",  need:8,done:4,st:"未开始",at:"—",owner:"周涛"},
+  {pid:"MP-2026-004",name:"外科沙龙 2026",   need:8,done:3,st:"未开始",at:"—",owner:"陈静"}
+];
+
+const BORROWS = [
+  {id:"BR-0042",pid:"MP-2026-007",who:"李强",reason:"审计抽查核销材料",range:"10-15 ~ 10-17",st:"已归还"},
+  {id:"BR-0041",pid:"MP-2026-006",who:"陈静",reason:"财务对账",range:"10-12 ~ 10-14",st:"已归还"},
+  {id:"BR-0040",pid:"MP-2026-007",who:"外部审计 王工",reason:"年度审计",range:"10-18 ~ 10-25",st:"借用中"},
+  {id:"BR-0039",pid:"MP-2026-006",who:"外部审计 王工",reason:"年度审计抽查",range:"09-20 ~ 09-28",st:"已归还"},
+  {id:"BR-0038",pid:"MP-2026-018",who:"孙倩",        reason:"归档复核",    range:"09-10 ~ 09-12",st:"已归还"},
+  {id:"BR-0037",pid:"MP-2026-007",who:"张伟",        reason:"课题材料复用",range:"08-15 ~ 08-20",st:"已归还"},
+  {id:"BR-0036",pid:"MP-2026-025",who:"陈静",        reason:"财务对账",    range:"08-25 ~ 08-27",st:"已归还"},
+  {id:"BR-0035",pid:"MP-2026-017",who:"李强",        reason:"经验复盘",    range:"10-20 ~ 10-22",st:"已申请"}
+];
+
+const LOGINS = [
+  {t:"10-17 09:02",who:"张伟",role:"会务执行人员",ip:"116.228.x.x",dev:"Mac · Chrome",st:"成功"},
+  {t:"10-17 08:58",who:"陈静",role:"财务与核销",  ip:"116.228.x.x",dev:"Windows · Edge",st:"成功"},
+  {t:"10-17 08:41",who:"王敏",role:"会务执行人员",ip:"101.88.x.x", dev:"iPhone · 小程序",st:"成功"},
+  {t:"10-17 08:12",who:"未知", role:"—",          ip:"45.132.x.x", dev:"Linux · curl",st:"失败（密码错误 3 次）"},
+  {t:"10-16 22:30",who:"刘洋",role:"协会管理员",  ip:"116.228.x.x",dev:"Mac · Safari",st:"成功"},
+  {t:"10-16 21:10",who:"孙倩",    role:"会务执行人员",ip:"116.228.x.x",dev:"Mac · Chrome",st:"成功"},
+  {t:"10-16 17:45",who:"赵磊",    role:"财务与核销",  ip:"101.88.x.x", dev:"Windows · Chrome",st:"失败（账号已停用）"},
+  {t:"10-16 14:02",who:"周涛",    role:"会务执行人员",ip:"116.228.x.x",dev:"iPhone · 小程序",st:"成功"},
+  {t:"10-16 09:18",who:"总管理员",role:"总管理员",    ip:"116.228.x.x",dev:"Mac · Safari",st:"成功"},
+  {t:"10-15 22:40",who:"未知",    role:"—",          ip:"103.44.x.x", dev:"Windows · Python",st:"失败（密码错误 1 次）"},
+  {t:"10-15 16:30",who:"王敏",    role:"会务执行人员",ip:"116.228.x.x",dev:"Mac · Chrome",st:"成功"},
+  {t:"10-15 10:05",who:"李强",    role:"会务执行人员",ip:"101.88.x.x", dev:"Android · 小程序",st:"成功"},
+  {t:"10-14 20:12",who:"陈静",    role:"财务与核销",  ip:"116.228.x.x",dev:"Windows · Edge",st:"成功"},
+  {t:"10-14 09:40",who:"张伟",    role:"会务执行人员",ip:"116.228.x.x",dev:"Mac · Chrome",st:"成功"},
+  {t:"10-13 23:55",who:"未知",    role:"—",          ip:"45.132.x.x", dev:"Linux · curl",st:"失败（账号锁定 15 分钟）"},
+  {t:"10-13 08:30",who:"刘洋",    role:"协会管理员",  ip:"116.228.x.x",dev:"Mac · Safari",st:"成功"}
+];
+
+const EXPORTS = [
+  {t:"10-17 10:20",who:"总管理员",what:"全平台项目清单（xlsx）",rows:8,   st:"完成"},
+  {t:"10-16 16:05",who:"财务与核销",what:"MP-2026-006 结算单（pdf）",rows:1,st:"完成"},
+  {t:"10-16 09:30",who:"协会管理员",what:"本协会审计日志（csv）",rows:42,  st:"完成"},
+  {t:"10-15 15:12",who:"会务执行 张伟",what:"MP-2026-003 签到名单（xlsx）",rows:260,st:"完成"},
+  {t:"10-14 11:40",who:"总管理员",    what:"全平台付款明细（xlsx）",        rows:12, st:"完成"},
+  {t:"10-13 15:20",who:"财务与核销",  what:"MP-2026-003 核销材料包（zip）", rows:9,  st:"完成"},
+  {t:"10-12 10:05",who:"协会管理员",  what:"护理协会项目清单（xlsx）",      rows:5,  st:"完成"},
+  {t:"10-10 16:30",who:"会务执行 张伟",what:"MP-2026-001 嘉宾名单（xlsx）",  rows:24, st:"完成"},
+  {t:"10-08 09:15",who:"总管理员",    what:"角色权限矩阵（csv）",          rows:11, st:"完成"},
+  {t:"10-05 14:00",who:"财务与核销",  what:"发票台账（xlsx）",             rows:12, st:"失败（无权限）"}
+];
+
+const ORGS = [
+  {name:"中华医学会",        type:"总会",    assoc:12,proj:38,owner:"总会秘书处",st:"正常"},
+  {name:"华东医学会",        type:"分会",    assoc:1, proj:6, owner:"王敏",      st:"正常"},
+  {name:"京津冀医学会",      type:"分会",    assoc:1, proj:4, owner:"张伟",      st:"正常"},
+  {name:"护理协会",          type:"独立协会",assoc:1, proj:5, owner:"李强",      st:"正常"},
+  {name:"外科分会",          type:"分会",    assoc:1, proj:3, owner:"陈静",      st:"正常"},
+  {name:"全科医学分会",      type:"分会",    assoc:1, proj:2, owner:"刘洋",      st:"正常"},
+  {name:"消化病分会",        type:"分会",    assoc:1, proj:3, owner:"赵磊",      st:"正常"},
+  {name:"肿瘤分会",          type:"分会",    assoc:1, proj:2, owner:"孙倩",      st:"停用"},
+  {name:"心血管分会",        type:"分会",    assoc:1, proj:1, owner:"陈静",      st:"正常"},
+  {name:"内分泌分会",        type:"分会",    assoc:1, proj:1, owner:"王敏",      st:"正常"},
+  {name:"呼吸病分会",        type:"分会",    assoc:1, proj:1, owner:"张伟",      st:"正常"},
+  {name:"骨科分会",          type:"分会",    assoc:1, proj:1, owner:"赵磊",      st:"正常"},
+  {name:"神经科分会",        type:"分会",    assoc:1, proj:1, owner:"陈静",      st:"正常"},
+  {name:"眼科分会",          type:"分会",    assoc:1, proj:1, owner:"周涛",      st:"正常"},
+  {name:"康复分会",          type:"分会",    assoc:1, proj:1, owner:"孙倩",      st:"正常"},
+  {name:"检验分会",          type:"分会",    assoc:1, proj:1, owner:"陈静",      st:"停用"}
+];
+
+const ROLE_LIST = [
+  {k:"admin",  n:"总管理员",       scope:"全平台",   mem:2, mods:11, desc:"超级角色：11 个模块全权、全部项目可见，可代行审批 / 核销 / 结算 / 归档 / 资料修改"},
+  {k:"assoc",  n:"协会管理员",     scope:"本协会",   mem:6, mods:10, desc:"本协会项目立项审批、阶段门、归档；不可跨协会"},
+  {k:"exec",   n:"会务执行人员",   scope:"授权会议", mem:9, mods:7,  desc:"授权会议内的筹备、需求、执行、材料与核销提交"},
+  {k:"finance",n:"财务与核销",     scope:"授权项目", mem:3, mods:8,  desc:"核销 6 步判定、例外单处理、结算与发票；核销是付款唯一前置"},
+  {k:"user",   n:"普通用户 / 嘉宾",scope:"本人数据", mem:0, mods:2,  desc:"查看本人报名的活动、签到、学时证明"}
+];
+
+const DICT_FORM = [
+  {code:"offline",n:"线下",  desc:"实体会场，需签到表与现场照片",used:5,st:"启用"},
+  {code:"online", n:"线上",  desc:"直播平台，需观看时长 >30 分钟",used:1,st:"启用"},
+  {code:"hybrid", n:"混合",  desc:"线下 + 线上，两类数据都要核",  used:2,st:"启用"},
+  {code:"satellite",n:"卫星会",desc:"依附主会的分论坛",          used:0,st:"停用"}
+];
+
+const STATUS_FLOW = [
+  {no:1,from:"草稿",    to:"待审批",  who:"发起人",   cond:"立项信息 5 项齐备",        gate:"必填校验 + 验证码"},
+  {no:2,from:"待审批",  to:"已立项",  who:"协会管理员",cond:"审批通过",                gate:"审批意见必填"},
+  {no:3,from:"已立项",  to:"筹备中",  who:"会务执行", cond:"分配负责人与授权",        gate:"无"},
+  {no:4,from:"筹备中",  to:"执行中",  who:"会务执行", cond:"合同 / 招商 / 嘉宾 / 议程 / 资源 / 任务 齐备",gate:"不付款硬约束"},
+  {no:5,from:"执行中",  to:"待核销",  who:"会务执行", cond:"会议结束 + 签到归档 + 材料齐备",gate:"材料完整性"},
+  {no:6,from:"待核销",  to:"已核销",  who:"财务与核销",cond:"6 步 SOP 全通过 + 例外闭环",gate:"硬约束：否则锁定"},
+  {no:7,from:"已核销",  to:"已结算",  who:"财务与核销",cond:"结算单 + 付款审批",        gate:"必须有核销结论"},
+  {no:8,from:"已结算",  to:"已归档",  who:"协会管理员",cond:"结算记录 + 材料完整 8/8",  gate:"归档后冻结"}
+];
+
+const NOTIFY = [
+  {id:"NT-0112",ch:"站内信",event:"核销结论提交",to:"财务与核销组",tpl:"MP-2026-003 核销结论已通过，可生成结算单",st:"启用"},
+  {id:"NT-0111",ch:"小程序",event:"例外单指派",  to:"被指派人",    tpl:"您有一张例外单待处理：{例外单号}",st:"启用"},
+  {id:"NT-0110",ch:"邮件",  event:"付款完成",    to:"申请人 + 财务",tpl:"{项目名} 付款 ¥{金额} 已完成",st:"启用"},
+  {id:"NT-0109",ch:"站内信",event:"阶段门拦截",  to:"操作人",      tpl:"{项目名} 未满足「{阶段}」条件：{原因}",st:"启用"},
+  {id:"NT-0108",ch:"短信",  event:"签到提醒",    to:"报名嘉宾",    tpl:"{会议名} 将于 {时间} 开始，请提前签到",st:"停用"}
+];
+
+/* 权限矩阵：w 全权 / r 只读 / — 无权限。列序 admin assoc exec finance user */
+const MATRIX = [
+  ["工作台",    "w","w","w","w","r"],
+  ["项目管理",  "w","w","w","w","r"],
+  ["筹备管理",  "w","w","w","w","—"],
+  ["会务需求",  "w","w","w","—","—"],
+  ["会务执行",  "w","w","w","r","—"],
+  ["材料中心",  "w","w","w","r","—"],
+  ["会后核销",  "w","w","w","w","—"],
+  ["财务结算",  "w","w","—","w","—"],
+  ["档案中心",  "w","w","—","r","—"],
+  ["审计日志",  "w","w","—","—","—"],
+  ["系统设置",  "w","—","—","—","—"]
+];
+const MATRIX_ROLES = ["admin","assoc","exec","finance","user"];
+
+/* ==================== 菜单树（4 级） ==================== */
+const MENU = [
+  {n:"工作台", k:"dashboard", c:[
+    {n:"我的工作台", k:"dashboard.home"},
+    {n:"待办中心", k:"dashboard.todo", c:[
+      {n:"我的待办", k:"dashboard.todo.mine"},
+      {n:"待我审批", k:"dashboard.todo.approve"},
+      {n:"抄送我的", k:"dashboard.todo.cc"}]},
+    {n:"数据看板", k:"dashboard.board", c:[
+      {n:"会议概览", k:"dashboard.board.meeting"},
+      {n:"核销概览", k:"dashboard.board.verify"},
+      {n:"全流程总览", k:"dashboard.flow"}]}]},
+
+  {n:"项目管理", k:"projects", c:[
+    {n:"会议项目", k:"projects.list", c:[
+      {n:"全部项目", k:"projects.list.all"},
+      {n:"按阶段", k:"projects.list.stage", c:[
+        {n:"待审批", k:"projects.list.stage.draft"},
+        {n:"筹备中", k:"projects.list.stage.prep"},
+        {n:"执行中", k:"projects.list.stage.exec"},
+        {n:"待核销", k:"projects.list.stage.verify"},
+        {n:"已核销及以后", k:"projects.list.stage.done"}]},
+      {n:"项目详情", k:"projects.list.detail"}]},
+    {n:"立项管理", k:"projects.init", c:[
+      {n:"立项申请", k:"projects.init.apply"},
+      {n:"立项审批", k:"projects.init.approve"},
+      {n:"变更申请", k:"projects.init.change"}]},
+    {n:"项目设置", k:"projects.setting", c:[
+      {n:"成员与授权", k:"projects.setting.member"},
+      {n:"阶段门配置", k:"projects.setting.gate"}]}]},
+
+  {n:"筹备管理", k:"prep", c:[
+    {n:"合同管理", k:"prep.contract"},
+    {n:"招商管理", k:"prep.invest"},
+    {n:"嘉宾管理", k:"prep.guest"},
+    {n:"议程管理", k:"prep.agenda"},
+    {n:"资源管理", k:"prep.resource"},
+    {n:"任务管理", k:"prep.task"}]},
+
+  {n:"会务需求", k:"demand", c:[
+    {n:"需求确认", k:"demand.confirm"},
+    {n:"需求变更", k:"demand.change"},
+    {n:"交付跟踪", k:"demand.track"}]},
+
+  {n:"会务执行", k:"exec", c:[
+    {n:"报名签到", k:"exec.checkin"},
+    {n:"嘉宾邀请", k:"exec.invite"},
+    {n:"会务任务", k:"exec.task"},
+    {n:"现场异常", k:"exec.issue"}]},
+
+  {n:"材料中心", k:"materials", c:[
+    {n:"材料总览", k:"materials.overview"},
+    {n:"固定模块", k:"materials.fixed"},
+    {n:"可选模块", k:"materials.optional"},
+    {n:"课题清单", k:"materials.agenda"},
+    {n:"上传记录", k:"materials.log"}]},
+
+  {n:"会后核销", k:"verify", c:[
+    {n:"核销工作台", k:"verify.work"},
+    {n:"例外单管理", k:"verify.exception"},
+    {n:"核销结论", k:"verify.conclusion"}]},
+
+  {n:"财务结算", k:"finance", c:[
+    {n:"结算单", k:"finance.settle"},
+    {n:"付款申请", k:"finance.pay"},
+    {n:"发票管理", k:"finance.invoice"},
+    {n:"报销管理", k:"finance.reimburse"}]},
+
+  {n:"档案中心", k:"archive", c:[
+    {n:"卷宗检索", k:"archive.search"},
+    {n:"归档任务", k:"archive.task"},
+    {n:"借阅记录", k:"archive.borrow"}]},
+
+  {n:"审计日志", k:"audit", c:[
+    {n:"操作日志", k:"audit.operate"},
+    {n:"登录日志", k:"audit.login"},
+    {n:"导出记录", k:"audit.export"}]},
+
+  {n:"系统设置", k:"system", c:[
+    {n:"组织与协会", k:"system.org"},
+    {n:"角色与权限", k:"system.role", c:[
+      {n:"角色列表", k:"system.role.list"},
+      {n:"权限矩阵", k:"system.role.matrix", c:[
+        {n:"按角色查看", k:"system.role.matrix.role"},
+        {n:"按模块查看", k:"system.role.matrix.module"}]}]},
+    {n:"基础字典", k:"system.dict", c:[
+      {n:"角色字典", k:"system.dict.role"},
+      {n:"会议形式", k:"system.dict.form"},
+      {n:"状态机", k:"system.dict.status"}]},
+    {n:"消息与通知", k:"system.notify"}]}
+];
+
+/* 叶子索引：key → {n, path:[{n,k}], top: 一级 key, level} */
+const LEAF = {};
+(function walk(nodes, path, top){
+  nodes.forEach(nd => {
+    const p = path.concat([{n:nd.n, k:nd.k}]);
+    if (nd.c && nd.c.length) walk(nd.c, p, top || nd.k);
+    else LEAF[nd.k] = {n:nd.n, path:p, top:top || nd.k, level:p.length};
+  });
+})(MENU, [], null);
+
+/* 当前角色可见的菜单（按一级模块 mods 过滤） */
+function visibleMenu(){
+  const mods = ROLES[state.role].mods;
+  return MENU.filter(m => mods.includes(m.k));
+}
+function menuNode(k){
+  let found = null;
+  (function walk(nodes){ nodes.forEach(nd => { if (nd.k === k) found = nd; if (nd.c) walk(nd.c); }); })(MENU);
+  return found;
+}
+function isBranch(k){ const nd = menuNode(k); return !!(nd && nd.c && nd.c.length); }
+function leafTop(k){ return LEAF[k] ? LEAF[k].top : "dashboard"; }
+
+
+/* ==================== 渲染：外壳 ==================== */
+function nodeHtml(nd, depth, activePath){
+  const hasC = nd.c && nd.c.length;
+  const isActive = state.route === nd.k;
+  const isAnc = !isActive && activePath.includes(nd.k);
+  const open = state.open.has(nd.k) || isAnc || isActive;
+  const cls = ["ni", "d" + Math.min(depth, 4)];
+  if (isActive && !hasC) cls.push("on");
+  if (isAnc) cls.push("anc");
+  if (open && hasC) cls.push("open");
+  const lead = hasC ? '<span class="caret">▶</span>'
+    : depth >= 4 ? '<span class="dot"></span>' : "";
+  const act = hasC ? `data-act="toggleMenu" data-k="${nd.k}"` : `data-act="go" data-k="${nd.k}"`;
+  let out = `<button class="${cls.join(" ")}" ${act} title="${nd.n}">${lead}<span class="lbl">${nd.n}</span></button>`;
+  if (hasC && open) out += nd.c.map(c => nodeHtml(c, depth + 1, activePath)).join("");
+  return out;
+}
+function renderSide(){
+  const r = ROLES[state.role];
+  const activePath = (LEAF[state.route] || {path:[]}).path.map(x => x.k);
+  $("#side").innerHTML = `
+    <div class="brand"><div class="brand-t">协会会议执行</div><div class="brand-s">ERP 系统</div></div>
+    <nav class="nav">${visibleMenu().map(m => nodeHtml(m, 1, activePath)).join("")}</nav>
+    <div class="side-foot"><b>${r.name}</b><span>数据范围：${r.scope}</span></div>`;
+}
+function renderTop(){
+  const lf = LEAF[state.route] || LEAF["dashboard.home"];
+  const m = MODULES.find(x => x.k === leafTop(state.route)) || MODULES[0];
+  const up = lf.path.slice(0, -1);
+  const crumb = up.length
+    ? up.map(x => `<a data-act="go" data-k="${x.k}">${x.n}</a>`).join('<span class="sep">/</span>')
+    : `<span>${m.n}</span>`;
+  $("#top").innerHTML = `
+    <div style="min-width:0">
+      <div class="crumb">${crumb}</div>
+      <h1>${lf.n}</h1>
+    </div>
+    <div class="top-right">
+      <span class="demo-tag">演示数据 · 非真实业务</span>
+      ${ROLES[state.role].super ? '<span class="super-tag">全部权限 · 全平台</span>' : ""}
+      <select id="roleSel" title="切换角色，观察侧栏与数据范围变化">
+        ${Object.entries(ROLES).map(([k,v]) => `<option value="${k}" ${state.role === k ? "selected" : ""}>${v.name}（${v.scope}）</option>`).join("")}
+      </select>
+    </div>`;
+  $("#roleSel").addEventListener("change", e => {
+    state.role = e.target.value;
+    const mods = ROLES[state.role].mods;
+    /* 当前叶子不在新角色可见范围内 → 落到该角色第一个可见叶子 */
+    const curTop = leafTop(state.route);
+    if (!mods.includes(curTop)){
+      const first = visibleMenu()[0];
+      state.route = firstLeafOf(first.k);
+    }
+    state.pjStatus = "全部"; state.pjAssoc = "全部";
+    const vis = visibleProjects();
+    if (!vis.find(p => p.id === state.pid)) state.pid = vis[0] ? vis[0].id : state.pid;
+    openPathTo(state.route);
+    render();
+    toast("已切换为「" + ROLES[state.role].name + "」，侧栏层级与数据范围随之变化");
+  });
+}
+function firstLeafOf(k){
+  const nd = menuNode(k);
+  if (!nd) return "dashboard.home";
+  if (!nd.c) return nd.k;
+  for (const c of nd.c){ const r = firstLeafOf(c.k); if (r) return r; }
+  return nd.k;
+}
+function openPathTo(k){
+  const lf = LEAF[k];
+  if (!lf) return;
+  lf.path.forEach(x => state.open.add(x.k));
+}
+/* 分支节点 → 落到它的第一个叶子；叶子原样返回 */
+function toLeaf(k){
+  if (LEAF[k]) return k;
+  return firstLeafOf(k);
+}
+
+/* ==================== 渲染：工作台 ==================== */
+function viewDashboard(){
+  const list = visibleProjects();
+  const kpis = kpiSet(list);
+  const todos = TODOS.filter(t => isSuper() || t.roles.includes(state.role));
+  const scopeNote = isSuper() ? "全平台" : "当前角色可见范围";
+
+  /* 预警条按真实数据算，不写死：只统计当前角色可见范围内的未闭环例外单 */
+  const ids = list.map(p => p.id);
+  const openEx = EXCEPTIONS.filter(e => e.status !== "已解决" && e.status !== "已驳回" && ids.includes(e.pid));
+  const exPids = [...new Set(openEx.map(e => e.pid))];
+  const alertHtml = (state.role !== "user" && openEx.length)
+    ? `<div class="alert alert-w mt">异常预警：${exPids.length} 个项目存在核销异常 · ${openEx.length} 张例外单未闭环（${openEx.map(e => `${e.id} / ${(pid2p(e.pid) || {}).name || e.pid}`).join("；")}）</div>`
+    : "";
+
+  return `
+  <div class="grid g4">
+    ${kpis.map(k => `<div class="kpi ${k.cls}"><div class="t">${k.t}</div>
+      <div class="v">${k.v}<span class="u">${k.u}</span></div></div>`).join("")}
+  </div>
+
+  ${alertHtml}
+
+  <div class="grid g2 mt" style="align-items:start">
+    <div class="panel">
+      <div class="panel-h"><h2>我的待办</h2><span class="hint">点击直达</span></div>
+      ${todos.length ? todos.map(t => `
+        <div class="todo" data-act="goTodo" data-k="${t.k}" data-pid="${t.pid}">
+          <div class="bar ${t.bar}"></div>
+          <div class="tx"><b>${t.t}</b><span>${t.s}</span></div>
+          <span class="go">${t.go}</span>
+        </div>`).join("") : '<div class="empty">当前角色没有待办事项</div>'}
+    </div>
+
+    <div class="panel">
+      <div class="panel-h"><h2>阶段分布</h2><span class="hint">${scopeNote} · 共 ${list.length} 个项目</span></div>
+      <table><tbody>
+        ${STATUSES.map(s => {
+          const c = list.filter(p => p.status === s).length;
+          const w = list.length ? Math.round(c / list.length * 100) : 0;
+          return `<tr><td style="width:86px"><span class="badge ${STATUS_CLS[s]}">${s}</span></td>
+            <td style="width:52px;text-align:right;font-weight:600">${c}</td>
+            <td><div class="bar-wrap" style="margin:0"><div class="bar-in" style="width:${w}%;background:${
+              s === "待核销" ? "#c0561e" : s === "已核销" || s === "已结算" ? "#1f8a3e" : s === "草稿" ? "#9aa4b2" : "#2e5fa3"}"></div></div></td></tr>`;
+        }).join("")}
+      </tbody></table>
+    </div>
+  </div>
+
+  <div class="panel mt">
+    <div class="panel-h"><h2>最近项目</h2>
+      ${ROLES[state.role].mods.includes("projects") ? '<button class="btn btn-o btn-sm" data-act="go" data-k="projects">全部项目</button>' : ""}</div>
+    ${list.length ? projectTable(list.slice(0, 5)) : '<div class="empty">当前数据范围内没有项目</div>'}
+  </div>
+
+  <p class="foot-note">演示提示：点「我的待办」第一条进入会后核销 → 处理例外单 → 6 步全部通过 → 财务结算自动解锁。右上角切换角色，可看侧栏模块、待办与统计口径如何随权限一起收窄。</p>`;
+}
+
+function projectTable(list){
+  return `<table>
+    <thead><tr><th>项目编号</th><th>会议名称</th><th>协会</th><th>状态</th><th>会议日期</th><th>预算</th><th>负责人</th></tr></thead>
+    <tbody>${list.map(p => `
+      <tr class="clickable" data-act="openProject" data-pid="${p.id}">
+        <td class="mono">${p.id}</td>
+        <td style="font-weight:600">${p.name}</td>
+        <td style="color:var(--sub)">${p.assoc}</td>
+        <td><span class="badge ${STATUS_CLS[p.status]}">${p.status}</span></td>
+        <td class="mono">${p.date}</td>
+        <td style="font-variant-numeric:tabular-nums">${money(p.budget)}</td>
+        <td>${p.owner}</td>
+      </tr>`).join("")}</tbody></table>`;
+}
+
+/* ==================== 渲染：项目管理 ==================== */
+const STATUSES = ["草稿","待审批","已立项","筹备中","执行中","待核销","已核销","已结算","已归档"];
+function viewProjects(){
+  const scope = visibleProjects();
+  const fs = state.pjStatus || "全部", fa = state.pjAssoc || "全部";
+  const list = scope.filter(p => (fs === "全部" || p.status === fs) && (fa === "全部" || p.assoc === fa));
+  const assocs = [...new Set(scope.map(p => p.assoc))];
+  const pgr = paged("projects.list.all", list, 12);
+  return `
+  <div class="panel">
+    <div class="panel-h">
+      <h2>会议项目（${list.length}${list.length !== scope.length ? ` / ${scope.length}` : ""}）</h2>
+      <div style="display:flex;gap:8px">
+        <select data-pjfilter="status">
+          <option ${fs === "全部" ? "selected" : ""}>全部</option>
+          ${STATUSES.map(s => `<option ${fs === s ? "selected" : ""}>${s}</option>`).join("")}
+        </select>
+        <select data-pjfilter="assoc">
+          <option ${fa === "全部" ? "selected" : ""}>全部</option>
+          ${assocs.map(a => `<option ${fa === a ? "selected" : ""}>${a}</option>`).join("")}
+        </select>
+        <button class="btn btn-o btn-sm" data-act="exportCsv">导出</button>
+        <button class="btn btn-p btn-sm" data-act="newProject">+ 新建立项</button>
+      </div>
+    </div>
+    ${list.length ? projectTable(pgr.rows) + pgr.html
+      : `<div class="empty">没有符合筛选条件的项目${(fs !== "全部" || fa !== "全部") ? ' —— <a href="#" data-act="clearPjFilter" style="color:var(--blue)">清空筛选</a>' : ""}</div>`}
+    <p class="foot-note">点任意一行打开项目详情。阶段门不可跳：待核销 → 已核销必须 6 步全通过；已核销 → 已结算必须有核销结论。</p>
+  </div>`;
+}
+
+/* ==================== 渲染：筹备管理 ==================== */
+const PREP = {
+  "合同":[
+    ["HT-2026-0331","场地租赁合同","上海国际会议中心","¥86,000","已签订","2026-08-20"],
+    ["HT-2026-0332","搭建服务合同","博展搭建","¥42,000","已签订","2026-08-25"],
+    ["HT-2026-0333","餐饮服务合同","会务餐饮","¥58,000","已签订","2026-08-28"],
+    ["HT-2026-0334","摄影摄像服务","影像工坊","¥8,600","已签订","2026-08-30"],
+    ["HT-2026-0335","同传设备租赁","声译科技","¥6,800","已签订","2026-09-01"],
+    ["HT-2026-0336","会务用车服务","沪上用车","¥5,400","已签订","2026-09-02"],
+    ["HT-2026-0337","印刷制作合同","快印通","¥4,600","已签订","2026-09-03"],
+    ["HT-2026-0338","物料制作合同","博展搭建","¥4,200","待签订","—"],
+    ["HT-2026-0339","保险服务合同","平安会务险","¥3,600","已签订","2026-09-04"],
+    ["HT-2026-0340","茶歇服务合同","会务餐饮","¥3,200","待签订","—"],
+    ["HT-2026-0341","网络直播服务","云端直播","¥3,400","已签订","2026-09-05"],
+    ["HT-2026-0342","安保服务合同","沪卫安保","¥2,800","已签订","2026-09-06"],
+    ["HT-2026-0343","礼仪服务合同","礼仪之星","¥2,200","待签订","—"],
+    ["HT-2026-0344","酒店客房协议","国际会议中心酒店","¥4,000","已签订","2026-09-07"],
+    ["HT-2026-0345","志愿者补贴协议","协会志愿者部","¥1,800","已签订","2026-09-08"],
+    ["HT-2026-0346","快递物流协议","顺捷物流","¥800","待签订","—"]
+  ],
+  "招商":[["ZS-2026-012","A 药业","冠名赞助","¥150,000","已到账","招商函已盖章"],
+         ["ZS-2026-013","B 器械","展位 3 个","¥45,000","待打款","招商函已盖章"],
+         ["ZS-2026-014","C 生物","卫星会 1 场","¥80,000","已到账","招商函已盖章"],
+         ["ZS-2026-015","D 制药","卫星会 1 场","¥60,000","已到账","招商函已盖章"],
+         ["ZS-2026-016","E 医疗","展位 2 个","¥30,000","待打款","招商函已盖章"],
+         ["ZS-2026-017","F 科技","资料入袋","¥12,000","已到账","招商函已盖章"],
+         ["ZS-2026-018","G 检验","冠名晚宴","¥80,000","待打款","待盖章"],
+         ["ZS-2026-019","H 康复","展位 1 个","¥15,000","已到账","招商函已盖章"],
+         ["ZS-2026-020","I 口腔","茶歇赞助","¥18,000","待打款","招商函已盖章"],
+         ["ZS-2026-021","J 眼科","卫星会 1 场","¥40,000","已到账","招商函已盖章"],
+         ["ZS-2026-022","K 生物","展位 4 个","¥60,000","已到账","招商函已盖章"],
+         ["ZS-2026-023","L 器械","资料入袋","¥8,000","待打款","待盖章"]],
+  "嘉宾":[["G-001","王教授","讲者","已确认","上海交通大学","课件已交"],
+         ["G-002","李主任","讲者","已确认","北京协和","课件已交"],
+         ["G-003","张医生","讨论嘉宾","已确认","华山医院","待补课件"],
+         ["G-004","赵院长","点评专家","待回复","瑞金医院","—"],
+         ["G-005","孙主任","主持","已确认","中山医院","串场已交"],
+         ["G-006","周教授","讲者","已确认","复旦大学","课件已交"],
+         ["G-007","吴主任","讲者","已确认","四川大学华西","课件已交"],
+         ["G-008","郑医生","讨论嘉宾","已确认","浙江省人民医院","待补课件"],
+         ["G-009","冯院长","点评专家","已确认","江苏省人民医院","—"],
+         ["G-010","陈主任","主持","已确认","中山大学附一","串场已交"],
+         ["G-011","褚教授","讲者","待回复","华中科技大学","—"],
+         ["G-012","卫主任","讲者","已确认","天津医科大学","课件已交"],
+         ["G-013","蒋医生","讨论嘉宾","已确认","南京鼓楼医院","待补课件"],
+         ["G-014","沈院长","点评专家","已确认","山东大学齐鲁","—"],
+         ["G-015","韩主任","讲者","已取消","武汉协和","—"],
+         ["G-016","杨教授","评委","已确认","北京大学医学部","评分表已交"],
+         ["G-017","朱主任","评委","已确认","上海长征医院","评分表已交"],
+         ["G-018","秦医生","讲者","已确认","西安交通大学","课件已交"],
+         ["G-019","尤主任","讨论嘉宾","待回复","福建医科大学","—"],
+         ["G-020","许教授","讲者","已确认","中山大学肿瘤","课件已交"],
+         ["G-021","何医生","讨论嘉宾","已确认","河南省人民医院","待补课件"],
+         ["G-022","吕主任","主持","已确认","中国医科大学","串场已交"],
+         ["G-023","施教授","讲者","已确认","浙江大学","课件已交"],
+         ["G-024","张工","工作人员","已确认","协会会务部","—"]],
+  "议程":AGENDA.map(a => [a.no,a.title,a.speaker,a.role,a.time,a.material]),
+  "资源":[["ZY-01","主会场","1 个，可容纳 400 人","已锁定"],["ZY-02","LED 屏","P3，6×3m","已锁定"],["ZY-03","同传设备","2 语种","待确认"],
+         ["ZY-04","分会场","2 个，各 120 人","已锁定"],["ZY-05","签到机","4 台，支持扫码","已锁定"],["ZY-06","胸卡打印机","2 台","待确认"],
+         ["ZY-07","直播推流设备","1 套，1080P","已锁定"],["ZY-08","茶歇区","1 处，可容纳 200 人","已锁定"],["ZY-09","展位","8 个，3×3m","待确认"],
+         ["ZY-10","志愿者","12 人","已锁定"]],
+  "任务":[["T-01","确定场地并签约","王敏","2026-08-20","已完成"],["T-02","招商函盖章寄出","李强","2026-08-25","已完成"],["T-03","嘉宾二次确认","陈静","2026-09-10","进行中"],["T-04","终版议程定稿","王敏","2026-09-12","进行中"],
+         ["T-05","课件收集与题目校验","张伟","2026-09-14","进行中"],["T-06","劳务收集表下发","陈静","2026-09-15","已完成"],
+         ["T-07","劳务协议签署","陈静","2026-09-18","进行中"],["T-08","签到机联调","张伟","2026-09-19","未开始"],
+         ["T-09","物料到场合验","李强","2026-09-20","未开始"],["T-10","现场摄影排班","张伟","2026-09-21","未开始"],
+         ["T-11","串场 PPT 定稿","王敏","2026-09-21","进行中"],["T-12","结算单预填","陈静","2026-09-26","未开始"],
+         ["T-13","核销材料归档","陈静","2026-09-30","未开始"],["T-14","发票验真与对账","赵磊","2026-10-08","未开始"],
+         ["T-15","专家接送安排","王敏","2026-09-18","进行中"],["T-16","闭幕式视频剪辑","孙倩","2026-09-28","未开始"]]
+};
+const PREP_HEAD = {
+  "合同":["合同编号","合同名称","对方单位","金额","状态","签订日期"],
+  "招商":["编号","企业","权益","金额","到款状态","招商函"],
+  "嘉宾":["编号","姓名","角色","确认状态","单位","材料"],
+  "议程":["序号","课题","讲者","角色","时段","材料"],
+  "资源":["编号","资源","规格","状态"],
+  "任务":["编号","任务","负责人","截止","状态"]
+};
+const numOf = v => parseInt(String(v).replace(/[^\d]/g, ""), 10) || 0;
+/* 合同 / 招商金额以 24 万预算的会议为基准，按当前项目预算等比缩放，
+   否则切到小预算会议会出现「合同总额 > 会议预算」的硬矛盾 */
+function scalePrep(tab, rows, p){
+  if (tab !== "合同" && tab !== "招商") return rows;
+  const f = p.budget / 240000;
+  return rows.map(r => {
+    const c = r.slice();
+    c[3] = money(Math.round(numOf(r[3]) * f / 1000) * 1000);
+    return c;
+  });
+}
+function prepSummary(tab, rows){
+  const cnt = (i, v) => rows.filter(r => r[i] === v).length;
+  const sum = (i, f) => rows.filter(f || (() => true)).reduce((s, r) => s + numOf(r[i]), 0);
+  let chips = [];
+  if (tab === "合同") chips = [["合同份数", rows.length + " 份"], ["已签订", cnt(4, "已签订") + " 份"], ["合同总额", money(sum(3))]];
+  if (tab === "招商") chips = [["招商项", rows.length + " 项"], ["已到账", cnt(4, "已到账") + " 项"],
+    ["招商总额", money(sum(3))], ["已到账金额", money(sum(3, r => r[4] === "已到账"))]];
+  if (tab === "嘉宾") chips = [["嘉宾总数", rows.length + " 人"], ["已确认", cnt(3, "已确认") + " 人"], ["待回复", cnt(3, "待回复") + " 人"]];
+  if (tab === "议程") chips = [["课题数", rows.length + " 个"], ["材料已交", cnt(5, "已交") + " 个"], ["待补", cnt(5, "待补") + " 个"]];
+  if (tab === "资源") chips = [["资源项", rows.length + " 项"], ["已锁定", cnt(3, "已锁定") + " 项"], ["待确认", cnt(3, "待确认") + " 项"]];
+  if (tab === "任务") chips = [["任务数", rows.length + " 项"], ["已完成", cnt(4, "已完成") + " 项"], ["进行中", cnt(4, "进行中") + " 项"]];
+  return `<div class="chips">${chips.map(([k, v]) => `<span class="chip"><i>${k}</i><b>${v}</b></span>`).join("")}</div>`;
+}
+function projSelect(){
+  const list = visibleProjects();
+  const cur = list.find(p => p.id === state.pid) ? state.pid : (list[0] ? list[0].id : "");
+  return `<select data-pidsel>${list.map(p => `<option value="${p.id}" ${p.id === cur ? "selected" : ""}>${p.name}（${p.status}）</option>`).join("")}</select>`;
+}
+const PREP_KEY = {"合同":"prep.contract","招商":"prep.invest","嘉宾":"prep.guest",
+  "议程":"prep.agenda","资源":"prep.resource","任务":"prep.task"};
+const PREP_FORM = {"合同":"contract","招商":"invest","嘉宾":"guest","议程":"agenda","任务":"task"};
+function viewPrep(tabArg){
+  const p = pid2p(state.pid) || PROJECTS[0];
+  const tab = tabArg || state.prepTab, head = PREP_HEAD[tab];
+  const rows = scalePrep(tab, PREP[tab], p);
+  const pgr = paged("prep." + tab, rows, 10);
+  return `
+  <div class="panel">
+    <div class="panel-h"><h2>${tab}管理 · ${p.name}</h2>
+      <div style="display:flex;gap:10px;align-items:center">
+        <span class="hint">合同 / 招商在此签订与归档，<b style="color:var(--orange)">此阶段不产生任何付款</b></span>
+        ${projSelect()}
+      </div></div>
+    <div class="tabs">${Object.keys(PREP).map(t => `<button class="${t === tab ? "on" : ""}" data-act="go" data-k="${PREP_KEY[t]}">${t}</button>`).join("")}</div>
+    ${prepSummary(tab, rows)}
+    <div class="toolbar" style="margin-top:2px">
+      <span class="sp"></span>
+      <button class="btn btn-o btn-sm" data-act="exportCsv">导出</button>
+      ${PREP_FORM[tab] ? `<button class="btn btn-p btn-sm" data-act="openForm" data-form="${PREP_FORM[tab]}">+ 新增${tab === "议程" ? "环节" : tab}</button>` : ""}
+    </div>
+    <table><thead><tr>${head.map(h => `<th>${h}</th>`).join("")}</tr></thead>
+      <tbody>${pgr.rows.map(r => `<tr>${r.map((c,i) => `<td${i === 0 ? ' class="mono"' : ""}${i === 1 && tab !== "议程" && tab !== "资源" ? ' style="font-weight:600"' : ""}>${esc(c)}</td>`).join("")}</tr>`).join("")}</tbody>
+    </table>
+    ${pgr.html}
+    <p class="foot-note">付款全部集中在「财务结算」，且必须以「已核销」为前置条件 —— 这是本系统最硬的一条约束。</p>
+  </div>`;
+}
+
+/* ==================== 渲染：会务需求 ==================== */
+function viewDemand(){
+  const p = pid2p(state.pid) || PROJECTS[0];
+  const groups = Object.keys(DEMAND);
+  return `
+  <div class="panel">
+    <div class="panel-h"><h2>会务需求确认明细 · ${p.name}（4 组）</h2>
+      <div style="display:flex;gap:10px;align-items:center">
+        <span class="hint">7 个字段：是否需要 / 规格或数量 / 负责人 / 交付时间 / 预算归属 / 附件 / 执行状态</span>
+        ${projSelect()}
+      </div></div>
+    ${groups.map(g => `
+      <h3 style="font-size:13.5px;font-weight:600;margin:16px 0 8px;color:var(--teal)">${g}</h3>
+      <table>
+        <thead><tr><th>需求项</th><th>是否需要</th><th>规格或数量</th><th>负责人</th><th>交付时间</th><th>预算归属</th><th>附件</th><th>执行状态</th></tr></thead>
+        <tbody>${DEMAND[g].map(r => `<tr>
+          <td style="font-weight:600">${r[0]}</td>
+          <td>${r[1] === "是" ? '<span class="badge b-teal">是</span>' : '<span class="badge b-gray">否</span>'}</td>
+          <td style="color:var(--sub)">${r[2]}</td><td>${r[3]}</td><td class="mono">${r[4]}</td>
+          <td style="color:var(--sub)">${r[5]}</td><td class="mono">${r[6]}</td>
+          <td><span class="badge ${r[7] === "已完成" || r[7] === "已确认" ? "b-green" : r[7] === "不需要" ? "b-gray" : "b-orange"}">${r[7]}</span></td>
+        </tr>`).join("")}</tbody>
+      </table>`).join("")}
+    <p class="foot-note">四组共用同一套字段与状态机；「其他」组按需扩展自定义类别，字段与前三组一致。</p>
+  </div>`;
+}
+
+/* ==================== 渲染：会务执行 ==================== */
+const EXEC_KEY = {"报名签到":"exec.checkin","嘉宾邀请":"exec.invite","会务任务":"exec.task","现场异常":"exec.issue"};
+function viewExec(tabArg){
+  const p = pid2p(state.pid) || PROJECTS[0];
+  const tab = tabArg || state.execTab;
+  const TABS = ["报名签到","嘉宾邀请","会务任务","现场异常"];
+  let body = "";
+  if (tab === "报名签到") body = `
+    <div class="grid g3" style="margin-bottom:14px">
+      <div class="kpi"><div class="t">已报名</div><div class="v">260<span class="u">人</span></div></div>
+      <div class="kpi k2"><div class="t">已签到</div><div class="v">241<span class="u">人 / 92.7%</span></div></div>
+      <div class="kpi k3"><div class="t">实名核验未通过</div><div class="v">3<span class="u">人</span></div></div>
+    </div>
+    <table><thead><tr><th>姓名</th><th>单位</th><th>角色</th><th>报名时间</th><th>签到</th><th>实名核验</th></tr></thead>
+    <tbody>
+      ${[["王教授","上海交通大学","讲者","08-20 09:12","已签到","通过"],
+         ["李主任","北京协和","讲者","08-21 14:30","已签到","通过"],
+         ["张医生","华山医院","讨论嘉宾","08-22 10:05","已签到","通过"],
+         ["周医生","仁济医院","普通听众","08-25 16:40","未签到","通过"],
+         ["吴女士","某器械公司","会务协调","08-26 09:00","已签到","待复核"]].map(r => `
+        <tr><td style="font-weight:600">${r[0]}</td><td>${r[1]}</td>
+        <td><span class="badge b-blue">${r[2]}</span></td><td class="mono">${r[3]}</td>
+        <td>${r[4] === "已签到" ? '<span class="badge b-green">已签到</span>' : '<span class="badge b-gray">未签到</span>'}</td>
+        <td>${r[5] === "通过" ? '<span class="badge b-green">通过</span>' : '<span class="badge b-orange">待复核</span>'}</td></tr>`).join("")}
+    </tbody></table>`;
+  if (tab === "嘉宾邀请") body = `
+    <table><thead><tr><th>姓名</th><th>角色</th><th>环节</th><th>邀请状态</th><th>行程</th><th>材料</th></tr></thead>
+    <tbody>
+      ${[["王教授","讲者","09:10 主题演讲","已确认","高铁 09-14","课件已交"],
+         ["李主任","讲者","09:40 主题演讲","已确认","自驾","课件已交"],
+         ["张医生","讨论嘉宾","10:10 病例讨论","已确认","线上","待补课件"],
+         ["赵院长","点评专家","10:40 点评","待回复","待定","—"],
+         ["孙主任","主持","11:10 圆桌","已确认","高铁 09-14","串场已交"]].map(r => `
+        <tr><td style="font-weight:600">${r[0]}</td><td><span class="badge b-purple">${r[1]}</span></td><td>${r[2]}</td>
+        <td>${r[3] === "已确认" ? '<span class="badge b-green">已确认</span>' : '<span class="badge b-orange">待回复</span>'}</td>
+        <td style="color:var(--sub)">${r[4]}</td><td style="color:var(--sub)">${r[5]}</td></tr>`).join("")}
+    </tbody></table>`;
+  if (tab === "会务任务") body = `
+    <table><thead><tr><th>任务</th><th>负责人</th><th>截止</th><th>状态</th></tr></thead>
+    <tbody>${PREP["任务"].map(r => `<tr><td style="font-weight:600">${r[1]}</td><td>${r[2]}</td><td class="mono">${r[3]}</td>
+      <td>${r[4] === "已完成" ? '<span class="badge b-green">已完成</span>' : '<span class="badge b-orange">进行中</span>'}</td></tr>`).join("")}</tbody></table>`;
+  if (tab === "现场异常") body = `
+    <table><thead><tr><th>时间</th><th>异常</th><th>处理人</th><th>状态</th></tr></thead>
+    <tbody>
+      ${[["09-15 08:40","签到台胸卡打印机故障，改用备用机","陈静","已解决"],
+         ["09-15 10:22","赵院长临时改为线上参会","张伟","处理中"],
+         ["09-15 11:05","圆桌麦克风啸叫，更换手持麦","李强","已解决"]].map(r => `
+        <tr><td class="mono">${r[0]}</td><td>${r[1]}</td><td>${r[2]}</td>
+        <td>${r[3] === "已解决" ? '<span class="badge b-green">已解决</span>' : '<span class="badge b-orange">处理中</span>'}</td></tr>`).join("")}
+    </tbody></table>`;
+  return `
+  <div class="panel">
+    <div class="panel-h"><h2>会务执行 · ${p.name}</h2>
+      <div style="display:flex;gap:10px;align-items:center">
+        <span class="hint">报名签到强制实名</span>${projSelect()}
+      </div></div>
+    <div class="tabs">${TABS.map(t => `<button class="${t === tab ? "on" : ""}" data-act="go" data-k="${EXEC_KEY[t]}">${t}</button>`).join("")}</div>
+    ${tab === "现场异常" ? `<div class="toolbar"><span class="sp"></span><button class="btn btn-p btn-sm" data-act="openForm" data-form="issue">+ 上报异常</button></div>` : ""}
+    ${body}
+  </div>`;
+}
+
+/* ==================== 渲染：材料中心 ==================== */
+function viewMaterials(){
+  const p = pid2p(state.pid) || PROJECTS[0];
+  return `
+  <div class="panel">
+    <div class="panel-h"><h2>材料中心 · ${p.name}</h2>
+      <div style="display:flex;gap:10px;align-items:center">
+        <span class="hint">固定模块可按会议启用 / 停用，<b style="color:var(--purple)">历史材料不可删除，仅软删 / 冻结</b></span>
+        ${projSelect()}
+      </div></div>
+
+    <div class="alert alert-w" style="margin-bottom:14px">
+      <div>材料识别机制：上传终版议程 → 系统按议程课题清单生成待办 → 人工上传后做<b>题目 / 名称字符串比对</b> → 不一致转人工复核。</div>
+    </div>
+
+    <div class="grid g3">
+      ${MATERIALS.map(m => `
+        <div class="mcard">
+          <div class="mh"><b>${m.name}</b>
+            ${m.fixed ? '<span class="badge b-purple">固定模块</span>' : '<span class="badge b-gray">可选模块</span>'}</div>
+          <div class="meta">应提交 <i>${m.need}</i> 项 · 已提交 <i>${m.done}</i> 项</div>
+          <div class="meta" style="color:${m.ok ? "var(--green)" : "var(--orange)"}">比对结果：${m.cmp}</div>
+          <div class="bar-wrap"><div class="bar-in" style="width:${Math.round(m.done / m.need * 100)}%;background:${m.ok ? "var(--green)" : "var(--orange)"}"></div></div>
+        </div>`).join("")}
+    </div>
+
+    <h3 style="font-size:13.5px;font-weight:600;margin:20px 0 8px;color:var(--purple)">终版议程 → 课题清单（材料待办来源）</h3>
+    <table><thead><tr><th>序号</th><th>课题</th><th>讲者</th><th>角色</th><th>时段</th><th>材料状态</th></tr></thead>
+    <tbody>${AGENDA.map(a => `<tr>
+      <td class="mono">${a.no}</td><td style="font-weight:600">${a.title}</td><td>${a.speaker}</td>
+      <td><span class="badge b-purple">${a.role}</span></td><td class="mono">${a.time}</td>
+      <td>${a.material === "已交" ? '<span class="badge b-green">已交</span>' : '<span class="badge b-orange">待补</span>'}</td></tr>`).join("")}</tbody></table>
+    <p class="foot-note">第 4 步核销比对时，课件课题必须出现在上面这份清单内；串场主图题目须与立项会议名一致，且药企 logo 仅限首页 / 尾页 / 鸣谢页。</p>
+  </div>`;
+}
+
+/* ==================== 渲染：会后核销 ★ ==================== */
+function viewVerify(){
+  /* 必须走 visibleProjects()，否则执行人员在核销页能选到已结算/已归档的项目（越权） */
+  const list = visibleProjects().filter(p => ["待核销","已核销","已结算","已归档"].includes(p.status));
+  if (!list.find(p => p.id === state.pid)) state.pid = list[0] ? list[0].id : "MP-2026-003";
+  const p = pid2p(state.pid);
+  const v = vstate(p.id);
+  const openEx = vOpenEx(p.id);
+  const passN = vPassCount(p.id);
+  const allPass = vAllPass(p.id);
+  const concluded = ["已核销","已结算","已归档"].includes(p.status);
+
+  return `
+  <div class="panel">
+    <div class="panel-h">
+      <h2>会后核销 · 6 步 SOP</h2>
+      <div style="display:flex;gap:8px;align-items:center">
+        <select id="pidSel" data-pidsel>${list.map(x => `<option value="${x.id}" ${x.id === p.id ? "selected" : ""}>${x.name}（${x.status}）</option>`).join("")}</select>
+      </div>
+    </div>
+
+    <div style="display:flex;gap:18px;flex-wrap:wrap;padding:10px 0 14px;border-bottom:1px solid var(--line2);font-size:12.5px;color:var(--sub)">
+      <span>项目编号 <b class="mono" style="color:var(--txt)">${p.id}</b></span>
+      <span>协会 <b style="color:var(--txt)">${p.assoc}</b></span>
+      <span>会议日期 <b class="mono" style="color:var(--txt)">${p.date}</b></span>
+      <span>形式 <b style="color:var(--txt)">${p.form}</b></span>
+      <span>当前状态 <span class="badge ${STATUS_CLS[p.status]}">${p.status}</span></span>
+      <span>已通过 <b style="color:${passN === 6 ? "var(--green)" : "var(--orange)"}">${passN} / 6</b></span>
+    </div>
+
+    <div class="grid g2" style="margin-top:16px">
+      ${VSTEPS.map(s => {
+        const st = v[s.no];
+        const cls = st === 1 ? "s-pass" : st === -1 ? "s-fail" : "s-wait";
+        const concl = st === 1 ? "通过" : st === -1 ? "不通过" : "待处理";
+        const ccls = st === 1 ? "c-pass" : st === -1 ? "c-fail" : "c-wait";
+        return `<div class="vstep ${cls}">
+          <div class="vh"><span class="no">${s.no}</span><span class="nm">${s.name}</span>
+            <span class="concl ${ccls}">[${concl}]</span></div>
+          <div class="ds">${s.desc}</div>
+          <div class="vf"><span class="ow">责任人：${s.owner}</span>
+            <span class="acts">
+              ${concluded
+                ? `<span style="font-size:11.5px;color:var(--mute)">结论已归档，不可修改</span>`
+                : `<button class="btn btn-g btn-sm" data-act="vset" data-no="${s.no}" data-r="1">通过</button>
+                   <button class="btn btn-d btn-sm" data-act="vset" data-no="${s.no}" data-r="-1">不通过</button>`}
+            </span></div>
+        </div>`;
+      }).join("")}
+    </div>
+
+    ${openEx.length ? `
+      <h3 style="font-size:13.5px;font-weight:600;margin:20px 0 4px;color:var(--red)">例外单（${openEx.length} 张未闭环 · 未闭环不得结算）</h3>
+      ${openEx.map(e => `
+        <div class="ex">
+          <div class="eh"><span class="eid">${e.id}</span>
+            <span class="badge b-red">${e.type}</span>
+            <span class="badge ${e.status === "处理中" ? "b-orange" : "b-gray"}">${e.status}</span>
+            <span style="margin-left:auto;font-size:11.5px;color:var(--sub)">步骤 ${e.step} · 指派 ${e.assignee} · SLA ${e.sla}</span></div>
+          <div class="el">触发：<b>${e.desc}</b></div>
+          <div style="margin-top:9px;display:flex;gap:8px">
+            <button class="btn btn-p btn-sm" data-act="resolveEx" data-id="${e.id}">标记已解决（触发重新核销）</button>
+            <button class="btn btn-o btn-sm" data-act="rejectEx" data-id="${e.id}">驳回（维持不通过）</button>
+          </div>
+        </div>`).join("")}
+    ` : ""}
+
+    <div class="gate ${allPass ? "open" : "lock"}">
+      <span class="big">${allPass ? "核销结论：通过" : "核销结论：未通过"}</span>
+      <span>${allPass
+        ? "6 步全部通过且例外单已闭环 —— 财务结算已解锁。"
+        : `还有 ${6 - passN} 步未通过${openEx.length ? `、${openEx.length} 张例外单未闭环` : ""} —— 财务结算保持锁定。`}</span>
+      <span style="margin-left:auto">
+        ${concluded
+          ? `<span class="badge b-green">${p.status} · 结论已写入审计</span>`
+          : `<button class="btn ${allPass ? "btn-g" : "btn-o"}" data-act="submitVerify" ${allPass ? "" : "disabled"}>提交核销结论</button>`}
+      </span>
+    </div>
+
+    <p class="foot-note">核销是财务结算的唯一前置门：任一步不通过必须进例外单，例外未闭环前项目锁定结算。每一步结论（基线文件、比对结果、例外）均写入审计日志，可回溯。</p>
+  </div>`;
+}
+
+/* ==================== 渲染：财务结算 ==================== */
+function viewFinance(){
+  const list = visibleProjects().filter(p => ["待核销","已核销","已结算","已归档"].includes(p.status));
+  if (!list.find(p => p.id === state.pid)) state.pid = list[0] ? list[0].id : "MP-2026-003";
+  const p = pid2p(state.pid);
+  const unlocked = ["已核销","已结算","已归档"].includes(p.status);
+  const v = vstate(p.id);
+  const passN = vPassCount(p.id);
+  const openEx = vOpenEx(p.id);
+
+  /* 金额按项目预算推导，切项目时四张卡与结算单一起变，不再写死 */
+  const fa = finAmounts(p.id);
+  const amtPublic = fa.pub, amtReimb = fa.reimb, amtVendor = fa.ven, total = fa.total;
+
+  const pays = [
+    {k:"学会公付",   d:"按核销结论生成结算单",    amt:amtPublic, c:"var(--blue)",  ab:"公"},
+    {k:"个人报销",   d:"结算的一种类型，非独立阶段", amt:amtReimb,  c:"var(--teal)",  ab:"报"},
+    {k:"厂家付款凭证",d:"招商 / 赞助对应付款",      amt:amtVendor, c:"var(--orange)",ab:"厂"},
+    {k:"发票归档",   d:"发票与结算单一一对应",      amt:total,     c:"var(--purple)",ab:"票"}
+  ];
+
+  return `
+  <div class="panel">
+    <div class="panel-h"><h2>财务结算</h2>
+      <select id="pidSel2" data-pidsel>${list.map(x => `<option value="${x.id}" ${x.id === p.id ? "selected" : ""}>${x.name}（${x.status}）</option>`).join("")}</select>
+    </div>
+
+    <div class="gate ${unlocked ? "open" : "lock"}" style="margin-top:0;margin-bottom:16px">
+      <span class="big">${unlocked ? "结算已解锁" : "结算被锁定"}</span>
+      <span>${unlocked
+        ? `项目状态为「${p.status}」，核销结论已通过，可触发付款。`
+        : `核销 6 步已通过 ${passN}/6${openEx.length ? `，${openEx.length} 张例外单未闭环` : ""} —— 未核销不得生成任何可付款结算。`}</span>
+      <span style="margin-left:auto">${p.status === "已核销"
+        ? `<button class="btn btn-g btn-sm" data-act="pay">生成结算单</button>`
+        : unlocked
+          ? `<span class="badge b-green">结算已完成 · ${money(total)}</span>`
+          : `<button class="btn btn-o btn-sm" data-act="goVerifyFromFinance">去处理核销</button>`}</span>
+    </div>
+
+    <div class="locked">
+      ${unlocked ? "" : `<div class="veil"><div class="box">
+        <h3>财务结算已锁定</h3>
+        <p>本项目核销未通过。系统硬约束：<b>核销 6 步未全部通过、或例外单未闭环，不得生成任何可付款结算</b>。</p>
+      </div></div>`}
+      <div class="grid g2">
+        ${pays.map(x => `
+          <div class="pay">
+            <div class="ic" style="background:${x.c}">${x.ab}</div>
+            <div class="tx"><b>${x.k}</b><span>${x.d}</span></div>
+            <div class="amt">${money(x.amt)}</div>
+          </div>`).join("")}
+      </div>
+      <div class="panel" style="margin-top:14px;background:#fbfcfe">
+        <div class="panel-h"><h2 style="font-size:13px">结算单</h2><span class="hint">合计 ${money(total)}</span></div>
+        <table><thead><tr><th>类型</th><th>对方</th><th>金额</th><th>发票号</th><th>状态</th></tr></thead>
+        <tbody>${[
+          {t:"学会公付", to:"上海国际会议中心", amt:amtPublic, inv:"0312 4471"},
+          {t:"厂家款",   to:"A 药业",          amt:amtVendor, inv:"0312 4488"},
+          {t:"个人报销", to:p.owner,           amt:amtReimb,  inv:"0312 4490"}
+        ].map(r => `<tr><td>${r.t}</td><td>${r.to}</td><td class="mono">${money(r.amt)}</td>
+          <td class="mono">${r.inv}</td>
+          <td><span class="badge ${unlocked ? "b-green" : "b-gray"}">${unlocked ? "待付款" : "锁定"}</span></td></tr>`).join("")}
+        </tbody></table>
+      </div>
+    </div>
+
+    <div class="panel" style="margin-top:14px">
+      <div class="panel-h"><h2 style="font-size:13px">核销结论摘要（付款依据）</h2>
+        <span class="hint">${passN} / 6 步通过${openEx.length ? ` · ${openEx.length} 张例外单未闭环` : ""}</span></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        ${VSTEPS.map(st => `<span class="badge ${v[st.no] === 1 ? "b-green" : v[st.no] === -1 ? "b-orange" : "b-gray"}">${st.no} ${st.name}</span>`).join("")}
+      </div>
+      <p class="foot-note" style="margin-top:12px">财务据此判断能否付款：6 步全绿且无未闭环例外单，才允许生成结算单。</p>
+    </div>
+
+    <p class="foot-note">报销是结算的一种类型（个人报销），不单列阶段。合同 / 招商仅在筹备签订，付款全部集中在这里触发。</p>
+  </div>`;
+}
+
+/* ==================== 渲染：档案中心 ==================== */
+function viewArchive(){
+  const list = visibleProjects().filter(p => ["已核销","已结算","已归档"].includes(p.status));
+  const body = list.length ? `<table><thead><tr><th>项目编号</th><th>会议名称</th><th>归档状态</th><th>卷宗完整性</th><th>会议日期</th><th>操作</th></tr></thead>
+    <tbody>${list.map(p => {
+      const done = p.status === "已归档";
+      const settled = p.status === "已结算";
+      const full = done ? "完整（8/8）" : settled ? "待归档（7/8）" : "待归档（6/8）";
+      return `<tr>
+        <td class="mono">${p.id}</td><td style="font-weight:600">${p.name}</td>
+        <td><span class="badge ${STATUS_CLS[p.status]}">${p.status}</span></td>
+        <td><span class="badge ${done ? "b-green" : "b-orange"}">${full}</span></td>
+        <td class="mono">${p.date}</td>
+        <td>${done
+          ? `<button class="btn btn-o btn-sm" data-act="exportArchive" data-pid="${p.id}">导出卷宗</button>`
+          : settled
+            ? `<button class="btn btn-p btn-sm" data-act="genArchive" data-pid="${p.id}">生成卷宗</button>`
+            : `<button class="btn btn-o btn-sm" disabled title="归档门：已结算 + 结算记录 + 材料完整，三者齐备方可归档">需先结算</button>`}</td>
+      </tr>`;
+    }).join("")}</tbody></table>`
+    : '<div class="empty">当前数据范围内没有可归档项目</div>';
+  return `
+  <div class="panel">
+    <div class="panel-h"><h2>档案中心（${list.length}）</h2>
+      <div style="display:flex;gap:10px;align-items:center">
+        <span class="hint">数字卷宗 · 可检索 / 可导出 / 可审计</span>
+        <button class="btn btn-o btn-sm" data-act="exportCsv">导出</button>
+      </div></div>
+    ${body}
+    <p class="foot-note">归档门：已结算 + 结算记录 + 材料完整，三者齐备方可归档。已归档项目冻结，历史材料仅软删，不可物理删除。</p>
+  </div>`;
+}
+
+/* ==================== 渲染：审计日志 ==================== */
+function viewAudit(){
+  const pga = paged("audit.operate", AUDIT, 12);
+  return `
+  <div class="panel">
+    <div class="panel-h"><h2>审计日志</h2>
+      <div style="display:flex;gap:10px;align-items:center">
+        <span class="hint">4W1H：角色 / 范围 / 时间 / 前后值 / 附件证据 · 共 ${AUDIT.length} 条</span>
+        <button class="btn btn-o btn-sm" data-act="exportCsv">导出</button>
+      </div></div>
+    <table><colgroup>
+      <col style="width:78px"><col style="width:104px"><col style="width:90px">
+      <col style="width:74px"><col style="width:106px"><col><col style="width:52px">
+    </colgroup>
+    <thead><tr><th>时间</th><th>角色</th><th>模块</th><th>动作</th><th>项目</th><th>详情</th><th>附件</th></tr></thead>
+    <tbody>${pga.rows.map(a => `<tr>
+      <td class="mono" style="white-space:nowrap">${a.t}</td>
+      <td style="white-space:nowrap">${a.role}</td>
+      <td style="color:var(--sub);white-space:nowrap">${a.mod}</td>
+      <td><span class="badge ${/不通过|驳回|锁定/.test(a.act) ? "b-orange" : /通过|付款|解决/.test(a.act) ? "b-green" : "b-blue"}">${a.act}</span></td>
+      <td class="mono" style="white-space:nowrap">${a.pid}</td>
+      <td style="color:var(--sub)">${esc(a.detail)}</td>
+      <td class="mono">${a.att || 0}</td>
+    </tr>`).join("")}</tbody></table>
+    ${pga.html}
+    <p class="foot-note">您刚才在核销 / 例外单上的每一步操作，都会实时追加到这张表 —— 这就是「关键操作强制留痕」。</p>
+  </div>`;
+}
+
+/* ==================== 通用 UI 组件 ==================== */
+const ST_CLS = {
+  "已完成":"b-green","通过":"b-green","已通过":"b-green","已付款":"b-green","已验真":"b-green",
+  "正常":"b-green","启用":"b-green","成功":"b-green","已解决":"b-green","已归还":"b-green",
+  "已归档":"b-green","已确认":"b-green","已核销":"b-green","已结算":"b-green","已立项":"b-blue",
+  "待审批":"b-orange","待处理":"b-orange","制作中":"b-orange","进行中":"b-orange","处理中":"b-orange",
+  "待验真":"b-orange","疑点待核":"b-orange","转人工复核":"b-orange","借用中":"b-orange","未读":"b-orange",
+  "待归档":"b-orange","待付款":"b-orange","待核销":"b-orange",
+  "未开始":"b-gray","不需要":"b-gray","已读":"b-gray","停用":"b-gray","已停用":"b-gray","锁定":"b-gray",
+  "已驳回":"b-red","不通过":"b-red","失败":"b-red"
+};
+function badge(s){ return `<span class="badge ${ST_CLS[s] || "b-blue"}">${s}</span>`; }
+
+function table(cols, rows, opt){
+  opt = opt || {};
+  if (!rows.length) return `<div class="empty">${opt.empty || "暂无数据"}</div>`;
+  return `<div class="tw"><table${opt.minw ? ` style="min-width:${opt.minw}"` : ""}><thead><tr>${cols.map(c => `<th${c.w ? ` style="width:${c.w}"` : ""}>${c.t}</th>`).join("")}</tr></thead>
+  <tbody>${rows.map(r => `<tr${r.attrs || ""}>${r.c.map((x, i) =>
+    `<td${cols[i].cls ? ` class="${cols[i].cls}"` : ""}${cols[i].nw ? ' style="white-space:nowrap"' : ""}>${x}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
+}
+function paged(key, rows, size){
+  size = size || 8;
+  const pages = Math.max(1, Math.ceil(rows.length / size));
+  const cur = Math.min(state.pg[key] || 1, pages);
+  state.pg[key] = cur;
+  let btns = "";
+  for (let i = 1; i <= pages; i++)
+    btns += `<button class="${i === cur ? "on" : ""}" data-act="pg" data-key="${key}" data-p="${i}">${i}</button>`;
+  const html = `<div class="pager"><span>共 ${rows.length} 条${rows.length > size ? ` · 每页 ${size} 条` : ""}</span>
+    ${pages > 1 ? `<div class="pg">${btns}</div>` : ""}</div>`;
+  return {rows: rows.slice((cur - 1) * size, cur * size), html};
+}
+/* 列表页通用分页：table + pager 一次拼好 */
+function pagedTable(key, cols, rows, size, opt){
+  const p = paged(key, rows, size || 10);
+  return table(cols, p.rows, opt) + p.html;
+}
+function panel(title, hint, body, right){
+  return `<div class="panel">
+    <div class="panel-h"><h2>${title}</h2>
+      <div style="display:flex;gap:10px;align-items:center">${hint ? `<span class="hint">${hint}</span>` : ""}${right || ""}</div></div>
+    ${body}</div>`;
+}
+function kv(pairs, cls){
+  return `<dl class="dl ${cls || ""}">${pairs.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("")}</dl>`;
+}
+function timeline(items){
+  return `<div class="tl">${items.map(i => `<div class="ti ${i.s || ""}">
+    <b>${i.t}</b><span>${i.d || ""}</span></div>`).join("")}</div>`;
+}
+
+/* ---------- 表单 ---------- */
+const F = (n, l, o) => Object.assign({n, l}, o || {});
+function fldInput(f){
+  const id = "f_" + f.n;
+  const base = `name="${f.n}" id="${id}"${f.req ? ' data-req="1"' : ""}${f.ph ? ` placeholder="${f.ph}"` : ""}${f.v ? ` value="${f.v}"` : ""}`;
+  let ctl;
+  if (f.t === "select") ctl = `<select ${base}>${f.req ? '<option value="">请选择…</option>' : ""}${(f.opts || []).map(o => `<option>${o}</option>`).join("")}</select>`;
+  else if (f.t === "textarea") ctl = `<textarea ${base} rows="${f.rows || 3}"></textarea>`;
+  else if (f.t === "date") ctl = `<input type="date" ${base}>`;
+  else if (f.t === "number") ctl = `<input type="number" ${base}>`;
+  else if (f.t === "check") ctl = `<div class="chk-row">${(f.opts || []).map(o =>
+    `<label class="chk"><input type="checkbox" name="${f.n}" value="${o}">${o}</label>`).join("")}</div>`;
+  else if (f.t === "file") ctl = `<label class="upload"><input type="file" name="${f.n}" hidden><span>📎</span><span class="up-txt">点击选择文件 · 演示版不上传真实内容</span></label>`;
+  else ctl = `<input type="text" ${base}>`;
+  return `<div class="fld${f.full ? " full" : ""}" data-fld="${f.n}">
+    <label for="${id}">${f.l}${f.req ? '<span class="req">*</span>' : ""}</label>
+    ${ctl}${f.tip ? `<span class="tip">${f.tip}</span>` : ""}
+    <span class="emsg">此项必填</span>
+  </div>`;
+}
+function formHtml(def, compact){
+  return `<div class="panel">
+    ${compact ? "" : `<div class="panel-h"><h2>${def.title}</h2><span class="hint">${def.hint || ""}</span></div>`}
+    ${(def.secs || []).map(s => `<div class="form-sec"><h3>${s.h}</h3>${s.p ? `<p>${s.p}</p>` : ""}
+      <div class="fgrid ${s.c || ""}">${s.fields.map(fldInput).join("")}</div></div>`).join("")}
+    ${compact ? "" : `<div class="form-foot">
+      <span class="note">带 <b style="color:var(--red)">*</b> 为必填项；提交后自动写入审计日志。</span>
+      <span class="sp"></span>
+      <button class="btn btn-o" data-act="formReset">重置</button>
+      <button class="btn btn-p" data-act="submitForm" data-form="${def.key}">${def.ok || "提交"}</button>
+    </div>`}
+  </div>`;
+}
+function validateForm(){
+  let ok = true;
+  document.querySelectorAll("#content .fld[data-fld], #modal .fld[data-fld]").forEach(el => {
+    const ctl = el.querySelector("[data-req]");
+    if (!ctl) return;
+    const v = ctl.type === "checkbox" ? "x" : String(ctl.value || "").trim();
+    if (!v){ el.classList.add("err"); ok = false; } else el.classList.remove("err");
+  });
+  return ok;
+}
+function readForm(){
+  const out = {};
+  document.querySelectorAll("#content [name], #modal [name]").forEach(el => {
+    if (el.type === "checkbox"){
+      out[el.name] = out[el.name] || [];
+      if (el.checked) out[el.name].push(el.value);
+    } else out[el.name] = el.value;
+  });
+  return out;
+}
+const todayStr = () => { const d = new Date(), p = n => String(n).padStart(2, "0");
+  return `${p(d.getMonth() + 1)}-${p(d.getDate())}`; };
+const nowStr = () => { const d = new Date(), p = n => String(n).padStart(2, "0");
+  return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`; };
+
+/* ---------- 导出：前端生成真实文件（CSV / 卷宗） ---------- */
+function csvOfTable(){
+  const tb = document.querySelector("#content table");
+  if (!tb) return null;
+  const rows = [...tb.querySelectorAll("tr")].map(tr => [...tr.children].map(td =>
+    '"' + (td.innerText || "").replace(/\s+/g, " ").trim().replace(/"/g, '""') + '"').join(","));
+  return {csv:"\ufeff" + rows.join("\r\n"), rows:tb.querySelectorAll("tbody tr").length};
+}
+function download(name, text, mime){
+  const blob = new Blob([text], {type:mime || "text/plain;charset=utf-8"});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+
+/* ---------- 弹窗 ---------- */
+function openModal(title, body, foot){
+  $("#mbox").innerHTML = `<div class="mh"><h3>${title}</h3><button class="close" data-act="closeModal">×</button></div>
+    <div class="mb">${body}</div>
+    <div class="mf">${foot || '<button class="btn btn-o" data-act="closeModal">关闭</button>'}</div>`;
+  $("#modal").classList.add("open");
+}
+function closeModal(){ $("#modal").classList.remove("open"); }
+function openModalForm(key){
+  const def = FORM_DEFS[key];
+  if (!def) { toast("该表单未接入", "warn"); return; }
+  openModal(def.title, formHtml(def, true),
+    `<button class="btn btn-o" data-act="formReset">重置</button>
+     <button class="btn btn-o" data-act="closeModal">取消</button>
+     <button class="btn btn-p" data-act="submitForm" data-form="${key}">${def.ok || "提交"}</button>`);
+}
+
+/* ==================== 表单定义 ==================== */
+const FORM_DEFS = {
+  apply: {
+    key:"apply", title:"立项申请", hint:"提交后进入「待审批」，协会管理员审批通过才可进入筹备", ok:"提交立项申请",
+    secs:[
+      {h:"会议基本信息", p:"5 项齐备方可提交（主题 / 形式 / 时间 / 预算 / 初版议程）", fields:[
+        F("name","会议名称",{req:1,ph:"如：京津冀论坛 2027",full:1}),
+        F("assoc","所属协会",{t:"select",opts:["华东医学会","京津冀医学会","护理协会","外科分会","全科医学分会","消化病分会","肿瘤分会"],req:1}),
+        F("form","会议形式",{t:"select",opts:["线下","线上","混合"],req:1}),
+        F("date","会议日期",{t:"date",req:1}),
+        F("days","会期（天）",{t:"number",v:"1"}),
+        F("budget","预算（元）",{t:"number",req:1,ph:"如：240000"}),
+        F("people","预计参会人数",{t:"number",ph:"如：260"})]},
+      {h:"组织与联系", p:"", fields:[
+        F("owner","项目负责人",{req:1,ph:"如：张伟"}),
+        F("phone","联系电话",{ph:"仅内部可见"}),
+        F("dept","承办部门",{t:"select",opts:["会务部","学术部","财务部","秘书处"]})]},
+      {h:"议程与合规", p:"外部用户提交需预审 + 验证码，防止垃圾立项", fields:[
+        F("agenda","初版议程要点",{t:"textarea",req:1,rows:3,full:1,ph:"按环节列出，如：09:10 主题演讲 / 10:10 病例讨论 …"}),
+        F("pre","是否需要外部预审",{t:"select",opts:["否","是"]}),
+        F("code","验证码",{req:1,ph:"4 位数字",tip:"演示版任意填写即可"}),
+        F("attach","立项附件",{t:"file",full:1})]}
+    ],
+    on(v){
+      const id = "MP-2026-" + String(PROJECTS.length + 1).padStart(3, "0");
+      PROJECTS.push({id, name:v.name, assoc:v.assoc, status:"待审批", date:v.date || "2026-12-01",
+        budget:+v.budget || 0, form:v.form, owner:v.owner, people:+v.people || 0});
+      APPROVALS.unshift({id:"AP-2026-0" + (20 + Math.floor(Math.random() * 70)), type:"立项审批",
+        title:v.name, pid:id, by:v.owner, at:nowStr(), amt:+v.budget || 0, sla:"2 个工作日", st:"待审批"});
+      logAudit("项目管理", "立项申请", id, `提交立项「${v.name}」，预算 ¥${(+v.budget || 0).toLocaleString("zh-CN")}，进入待审批`, 1);
+      toast(`立项已提交（${id}），等待审批`, "ok");
+      state.route = "projects.init.approve"; openPathTo(state.route);
+    }
+  },
+  change: {
+    key:"change", title:"变更申请", hint:"立项后的时间 / 预算 / 议程 / 嘉宾变更均需走变更单", ok:"提交变更",
+    secs:[{h:"变更内容", p:"", fields:[
+      F("pid","关联项目",{t:"select",opts:PROJECTS.map(p => p.id + " " + p.name),req:1,full:1}),
+      F("type","变更类型",{t:"select",opts:["时间变更","预算变更","议程变更","嘉宾变更","场地变更"],req:1}),
+      F("impact","影响金额（元）",{t:"number",ph:"0 表示不影响预算"}),
+      F("desc","变更说明",{t:"textarea",req:1,rows:3,full:1,ph:"写清楚变更前后差异"}),
+      F("reason","变更原因",{t:"textarea",rows:2,full:1}),
+      F("attach","附件",{t:"file",full:1})]}],
+    on(v){
+      const pid = (v.pid || "").split(" ")[0];
+      CHANGES.unshift({id:"CH-2026-0" + (10 + Math.floor(Math.random() * 80)), pid, type:v.type,
+        desc:v.desc, by:ROLES[state.role].name, at:nowStr(), st:"待审批",
+        impact:(+v.impact ? "预算 " + (+v.impact > 0 ? "+" : "") + (+v.impact).toLocaleString("zh-CN") : "预算 +0")});
+      logAudit("项目管理", "变更申请", pid, `${v.type}：${v.desc}`, 1);
+      toast("变更单已提交，等待审批", "ok");
+    }
+  },
+  member: {
+    key:"member", title:"成员与授权", hint:"授权即数据范围：被授权人只能看到被授权的会议 / 项目", ok:"保存授权",
+    secs:[{h:"成员信息", p:"", fields:[
+      F("name","姓名",{req:1}),
+      F("dept","部门",{t:"select",opts:["会务部","财务部","学术部","秘书处"],req:1}),
+      F("role","系统角色",{t:"select",opts:["会务执行人员","财务与核销","协会管理员","总管理员（全平台）"],req:1}),
+      F("scope","数据范围",{t:"select",opts:["授权会议（按项目勾选）","授权项目（按项目勾选）","本协会全部"],req:1,full:1}),
+      F("grant","操作权限",{t:"check",opts:["查看","编辑","上传材料","提交核销","核销判定","结算付款"],full:1}),
+      F("expire","授权有效期",{t:"date",tip:"留空表示长期有效"})]}],
+    on(v){
+      MEMBERS.unshift({name:v.name, role:v.role, dept:v.dept, scope:v.scope,
+        grant:(v.grant || []).join(" / ") || "查看", at:todayStr(), st:"正常"});
+      logAudit("系统配置", "授权", "—", `为 ${v.name} 授予「${v.role}」，范围：${v.scope}`, 0);
+      toast(`已为 ${v.name} 保存授权`, "ok");
+    }
+  },
+  contract: {
+    key:"contract", title:"新增合同", hint:"筹备阶段签订，本阶段不产生任何付款", ok:"保存合同",
+    secs:[{h:"合同信息", p:"", fields:[
+      F("no","合同编号",{req:1,ph:"HT-2026-0xxx"}),
+      F("name","合同名称",{req:1,ph:"如：场地租赁合同"}),
+      F("party","对方单位",{req:1}),
+      F("amt","合同金额（元）",{t:"number",req:1}),
+      F("sign","签订日期",{t:"date",req:1}),
+      F("st","状态",{t:"select",opts:["草稿","已签订"]}),
+      F("memo","备注",{t:"textarea",rows:2,full:1}),
+      F("file","合同扫描件",{t:"file",full:1})]}],
+    on(v){
+      PREP["合同"].push([v.no, v.name, v.party, money(+v.amt || 0), v.st, v.sign]);
+      logAudit("筹备管理", "新增合同", state.pid, `新增合同 ${v.no}「${v.name}」，金额 ${money(+v.amt || 0)}`, 1);
+      toast("合同已保存", "ok");
+    }
+  },
+  invest: {
+    key:"invest", title:"新增招商", hint:"招商函须盖章，与核销第 1 步「盖章基线」直接相关", ok:"保存招商",
+    secs:[{h:"招商信息", p:"", fields:[
+      F("no","招商编号",{req:1,ph:"ZS-2026-0xx"}),
+      F("co","企业名称",{req:1}),
+      F("right","权益内容",{req:1,ph:"如：冠名赞助 / 展位 3 个"}),
+      F("amt","金额（元）",{t:"number",req:1}),
+      F("st","到款状态",{t:"select",opts:["待打款","已到账"]}),
+      F("letter","招商函",{t:"select",opts:["招商函已盖章","招商函未盖章"]}),
+      F("file","盖章件",{t:"file",full:1})]}],
+    on(v){
+      PREP["招商"].push([v.no, v.co, v.right, money(+v.amt || 0), v.st, v.letter]);
+      logAudit("筹备管理", "新增招商", state.pid, `新增招商 ${v.no}「${v.co}」，金额 ${money(+v.amt || 0)}`, 1);
+      toast("招商记录已保存", "ok");
+    }
+  },
+  guest: {
+    key:"guest", title:"邀请嘉宾", hint:"嘉宾角色决定是否计时长、是否计劳务", ok:"发送邀请",
+    secs:[{h:"嘉宾信息", p:"", fields:[
+      F("name","姓名",{req:1}),
+      F("unit","单位",{req:1}),
+      F("role","角色",{t:"select",opts:["讲者","主持","讨论嘉宾","点评专家","会务协调","普通听众","签到 / 执行"],req:1}),
+      F("session","对应环节",{t:"select",opts:["09:10 主题演讲","09:40 主题演讲","10:10 病例讨论","10:40 点评","11:10 圆桌"]}),
+      F("phone","手机号",{ph:"用于发送小程序邀请"}),
+      F("need","接待需求",{t:"check",opts:["高铁","机票","住宿","接送","无"],full:1}),
+      F("memo","备注",{t:"textarea",rows:2,full:1})]}],
+    on(v){
+      PREP["嘉宾"].push(["G-0" + (10 + Math.floor(Math.random() * 80)), v.name, v.role, "待回复", v.unit, "—"]);
+      logAudit("筹备管理", "邀请嘉宾", state.pid, `邀请 ${v.unit} ${v.name}（${v.role}）`, 0);
+      toast(`已向 ${v.name} 发送邀请`, "ok");
+    }
+  },
+  agenda: {
+    key:"agenda", title:"新增议程环节", hint:"议程是材料待办的来源，也是核销第 4 步的比对基准", ok:"添加环节",
+    secs:[{h:"环节信息", p:"", fields:[
+      F("no","序号",{t:"number",req:1,v:String(AGENDA.length + 1)}),
+      F("title","课题 / 环节名称",{req:1,full:1}),
+      F("speaker","讲者",{req:1}),
+      F("role","角色",{t:"select",opts:["讲者","主持","讨论嘉宾","点评专家"],req:1}),
+      F("time","时段",{req:1,ph:"如：11:40-12:10"}),
+      F("material","材料状态",{t:"select",opts:["待补","已交"]})]}],
+    on(v){
+      AGENDA.push({no:+v.no || AGENDA.length + 1, title:v.title, speaker:v.speaker,
+        role:v.role, time:v.time, material:v.material});
+      AGENDA.sort((a, b) => a.no - b.no);
+      logAudit("筹备管理", "新增议程", state.pid, `新增环节「${v.title}」，讲者 ${v.speaker}`, 0);
+      toast("议程环节已添加，材料待办同步生成", "ok");
+    }
+  },
+  task: {
+    key:"task", title:"派发任务", hint:"任务负责人会收到小程序待办提醒", ok:"派发",
+    secs:[{h:"任务信息", p:"", fields:[
+      F("name","任务名称",{req:1,full:1}),
+      F("owner","负责人",{t:"select",opts:["王敏","李强","陈静","张伟","刘洋","周涛"],req:1}),
+      F("due","截止日期",{t:"date",req:1}),
+      F("prio","优先级",{t:"select",opts:["普通","紧急"]}),
+      F("memo","说明",{t:"textarea",rows:2,full:1})]}],
+    on(v){
+      PREP["任务"].push(["T-0" + (10 + Math.floor(Math.random() * 80)), v.name, v.owner, v.due, "进行中"]);
+      logAudit("筹备管理", "派发任务", state.pid, `派发任务「${v.name}」给 ${v.owner}，截止 ${v.due}`, 0);
+      toast(`任务已派发给 ${v.owner}`, "ok");
+    }
+  },
+  issue: {
+    key:"issue", title:"上报现场异常", hint:"现场异常会进入当日执行简报，影响核销判断", ok:"上报",
+    secs:[{h:"异常信息", p:"", fields:[
+      F("type","异常类型",{t:"select",opts:["设备故障","人员变更","签到问题","材料缺失","安全问题","其他"],req:1}),
+      F("level","影响等级",{t:"select",opts:["低","中","高"],req:1}),
+      F("desc","异常描述",{t:"textarea",req:1,rows:3,full:1}),
+      F("who","处理人",{t:"select",opts:["陈静","张伟","李强","王敏"],req:1}),
+      F("file","现场照片",{t:"file",full:1})]}],
+    on(v){
+      logAudit("会务执行", "上报异常", state.pid, `上报现场异常（${v.type} / ${v.level}）：${v.desc}`, 1);
+      toast("异常已上报，已通知处理人", "warn");
+    }
+  },
+  demandChange: {
+    key:"demandChange", title:"需求变更", hint:"变更会影响预算归属，需重新确认", ok:"提交变更",
+    secs:[{h:"变更内容", p:"", fields:[
+      F("group","需求组",{t:"select",opts:["设计","制作","现场执行","其他"],req:1}),
+      F("item","需求项",{req:1}),
+      F("desc","变更内容",{t:"textarea",req:1,rows:3,full:1}),
+      F("extra","追加金额（元）",{t:"number",ph:"0 表示不追加预算"}),
+      F("owner","确认人",{t:"select",opts:["王敏","李强","陈静","张伟"],req:1})]}],
+    on(v){
+      DEMAND_CHANGES.unshift({id:"DC-0" + (30 + Math.floor(Math.random() * 60)), group:v.group, item:v.item,
+        desc:v.desc, by:ROLES[state.role].name, at:nowStr(), st:"待审批",
+        extra:(+v.extra ? money(+v.extra) : "0")});
+      logAudit("会务需求", "需求变更", state.pid, `${v.group}「${v.item}」：${v.desc}`, 0);
+      toast("需求变更已提交", "ok");
+    }
+  },
+  pay: {
+    key:"pay", title:"付款申请", hint:"必须挂在「已核销」项目上，否则提交会被硬约束拦截", ok:"提交付款申请",
+    secs:[{h:"付款信息", p:"", fields:[
+      F("pid","关联项目",{t:"select",opts:PROJECTS.map(p => p.id + " " + p.name),req:1,full:1}),
+      F("type","付款类型",{t:"select",opts:["学会公付","厂家款","个人报销"],req:1}),
+      F("payee","收款方",{req:1}),
+      F("amt","金额（元）",{t:"number",req:1}),
+      F("inv","发票号",{ph:"如：0312 4471"}),
+      F("memo","用途说明",{t:"textarea",rows:2,full:1}),
+      F("file","发票影像",{t:"file",full:1})]}],
+    on(v){
+      const pid = (v.pid || "").split(" ")[0], p = pid2p(pid);
+      if (!p || !["已核销","已结算","已归档"].includes(p.status)){
+        toast("硬约束拦截：该项目核销未通过，不得生成可付款结算", "warn");
+        logAudit("财务结算", "付款申请被拦截", pid, `核销未通过，付款申请被拒绝（金额 ${money(+v.amt || 0)}）`, 0);
+        return false;
+      }
+      PAYMENTS.unshift({id:"PY-2026-0" + (40 + Math.floor(Math.random() * 50)), pid, type:v.type,
+        payee:v.payee, amt:+v.amt || 0, inv:v.inv || "—", req:ROLES[state.role].name, at:nowStr(), st:"待审批"});
+      logAudit("财务结算", "付款申请", pid, `${v.type} ${money(+v.amt || 0)} 提交审批`, 2);
+      toast("付款申请已提交，等待审批", "ok");
+    }
+  },
+  reimburse: {
+    key:"reimburse", title:"报销申请", hint:"报销是结算的一种类型，不是独立阶段", ok:"提交报销",
+    secs:[{h:"报销信息", p:"", fields:[
+      F("pid","关联项目",{t:"select",opts:PROJECTS.map(p => p.id + " " + p.name),req:1,full:1}),
+      F("who","报销人",{req:1}),
+      F("item","费用项目",{req:1,ph:"如：专家接送用车"}),
+      F("amt","金额（元）",{t:"number",req:1}),
+      F("inv","发票号",{ph:"无票需说明"}),
+      F("memo","说明",{t:"textarea",rows:2,full:1})]}],
+    on(v){
+      const pid = (v.pid || "").split(" ")[0];
+      REIMBURSES.unshift({id:"RB-2026-0" + (20 + Math.floor(Math.random() * 50)), pid, who:v.who,
+        item:v.item, amt:+v.amt || 0, at:nowStr(), st:"待审批", inv:v.inv || "—"});
+      logAudit("财务结算", "报销申请", pid, `${v.who} 报销「${v.item}」${money(+v.amt || 0)}`, 1);
+      toast("报销申请已提交", "ok");
+    }
+  },
+  exception: {
+    key:"exception", title:"手工登记例外单", hint:"核销判「不通过」会自动生成；此处用于线下发现的问题补录", ok:"登记例外单",
+    secs:[{h:"例外信息", p:"", fields:[
+      F("pid","关联项目",{t:"select",opts:PROJECTS.map(p => p.id + " " + p.name),req:1,full:1}),
+      F("step","关联核销步骤",{t:"select",opts:["1 盖章基线","2 照片三处一致","3 参会数据 >30min","4 材料（课件 / 串场）","5 劳务板块一致","6 会务板块一致"],req:1}),
+      F("type","例外类型",{t:"select",opts:["课件不在议程课题","劳务字段不一致","签到数据缺失","照片不一致","会务三单不一致","其他"],req:1}),
+      F("desc","问题描述",{t:"textarea",req:1,rows:3,full:1}),
+      F("assignee","指派人",{t:"select",opts:["陈静","张伟","李强","王敏"],req:1}),
+      F("sla","处理时限",{t:"select",opts:["1 个工作日","2 个工作日","3 个工作日"]})]}],
+    on(v){
+      const pid = (v.pid || "").split(" ")[0], step = parseInt(v.step, 10);
+      const eid = "EX-2026-0" + (30 + Math.floor(Math.random() * 60));
+      EXCEPTIONS.unshift({id:eid, pid, step, type:v.type, desc:v.desc,
+        assignee:v.assignee, status:"待处理", sla:v.sla, created:nowStr()});
+      vstate(pid)[step] = -1;
+      logAudit("会后核销", "登记例外", pid, `${eid} ${v.type}：${v.desc}`, 1);
+      toast(`例外单 ${eid} 已登记，第 ${step} 步置为不通过`, "warn");
+    }
+  },
+  upload: {
+    key:"upload", title:"上传材料", hint:"上传后系统做题目 / 名称字符串比对，不一致转人工复核", ok:"上传并比对",
+    secs:[{h:"材料信息", p:"", fields:[
+      F("mod","材料模块",{t:"select",opts:["课件","串场","劳务收集表","劳务协议","讲者照片","自定义模块"],req:1}),
+      F("title","材料名称 / 课题",{req:1,full:1,ph:"须与议程课题清单一致"}),
+      F("who","提交人",{req:1}),
+      F("file","文件",{t:"file",full:1}),
+      F("memo","备注",{t:"textarea",rows:2,full:1})]}],
+    on(v){
+      const inList = AGENDA.some(a => a.title === v.title || v.title.includes(a.title));
+      const res = v.mod === "课件" ? (inList ? "通过" : "转人工复核") : "通过";
+      UPLOAD_LOG.unshift({t:nowStr(), by:ROLES[state.role].name + " " + v.who, file:v.title,
+        mod:v.mod, pid:state.pid, size:"—", cmp:inList ? "课题在议程清单内" : "课题不在议程清单内", st:res});
+      logAudit("材料中心", "上传", state.pid, `上传${v.mod}「${v.title}」，比对结果：${res}`, 1);
+      toast(res === "通过" ? "上传成功，比对通过" : "上传成功，但题目与议程不一致，已转人工复核", res === "通过" ? "ok" : "warn");
+    }
+  },
+  notify: {
+    key:"notify", title:"新增通知规则", hint:"", ok:"保存规则",
+    secs:[{h:"规则", p:"", fields:[
+      F("event","触发事件",{t:"select",opts:["核销结论提交","例外单指派","付款完成","阶段门拦截","签到提醒"],req:1}),
+      F("ch","通知渠道",{t:"select",opts:["站内信","小程序","邮件","短信"],req:1}),
+      F("to","接收对象",{t:"select",opts:["操作人","审批人","财务组","项目负责人","报名嘉宾"],req:1}),
+      F("tpl","消息模板",{t:"textarea",req:1,rows:3,full:1,ph:"可用变量：{项目名} {金额} {阶段} {原因}"})]}],
+    on(v){
+      NOTIFY.unshift({id:"NT-0" + (120 + Math.floor(Math.random() * 80)), ch:v.ch, event:v.event,
+        to:v.to, tpl:v.tpl, st:"启用"});
+      logAudit("系统配置", "新增通知", "—", `${v.event} → ${v.ch}（${v.to}）`, 0);
+      toast("通知规则已保存", "ok");
+    }
+  },
+  org: {
+    key:"org", title:"新增协会", hint:"", ok:"保存",
+    secs:[{h:"协会信息", p:"", fields:[
+      F("name","协会名称",{req:1}),
+      F("type","类型",{t:"select",opts:["总会","分会","独立协会"],req:1}),
+      F("owner","负责人",{req:1}),
+      F("memo","说明",{t:"textarea",rows:2,full:1})]}],
+    on(v){
+      ORGS.push({name:v.name, type:v.type, assoc:1, proj:0, owner:v.owner, st:"正常"});
+      logAudit("系统配置", "新增协会", "—", `新增协会「${v.name}」（${v.type}）`, 0);
+      toast("协会已新增", "ok");
+    }
+  }
+};
+
+
+/* ==================== 页面：全流程总览 ==================== */
+function pageFlow(){
+  const cnt = sts => PROJECTS.filter(p => sts.includes(p.status)).length;
+  const matOk = MATERIALS.filter(m => m.ok).length;
+  const stages = [
+    {n:"立项",     sts:["草稿","待审批","已立项"], who:"发起人 → 协会管理员", act:"立项申请 → 审批",              gate:"5 项必填 + 验证码；审批意见必填", k:"projects.init.apply"},
+    {n:"筹备",     sts:["筹备中"],                who:"会务执行",           act:"合同 / 招商 / 嘉宾 / 议程 / 资源 / 任务", gate:"本阶段零付款（不付款硬约束）",   k:"prep.contract"},
+    {n:"会务执行", sts:["执行中"],                who:"会务执行",           act:"报名签到 / 嘉宾邀请 / 会务任务 / 现场异常", gate:"材料完整性检查",                k:"exec.checkin"},
+    {n:"材料中心", sts:[],                        who:"会务执行 / 讲者",     act:"固定 + 可选模块上传，题目自动比对",      gate:"课题须在议程清单内",            k:"materials.overview"},
+    {n:"会后核销", sts:["待核销"],                who:"财务与核销",         act:"6 步 SOP 判定，不通过转例外单",          gate:"6 步全通过 + 例外闭环",         k:"verify.work"},
+    {n:"财务结算", sts:["已核销"],                who:"财务与核销",         act:"结算单 → 付款 → 发票 → 报销",            gate:"必须有核销结论，否则锁定",       k:"finance.settle"},
+    {n:"档案归档", sts:["已结算"],                who:"协会管理员",         act:"卷宗生成 / 检索 / 借阅",                 gate:"8/8 材料完整；归档后冻结",       k:"archive.search"}
+  ];
+  const strip = stages.map((s, i) => `
+    <div class="fstep${s.sts.length && cnt(s.sts) ? " hot" : ""}" data-act="go" data-k="${s.k}">
+      <div class="fno">STEP ${i + 1}</div>
+      <div class="fn">${s.n}</div>
+      <div class="fc">${s.sts.length ? cnt(s.sts) + " 个项目" : "达标 " + matOk + "/" + MATERIALS.length}</div>
+    </div>`).join('<div class="farrow">›</div>');
+
+  const rows = stages.map((s, i) => ({c:[
+    `<span class="mono">${i + 1}</span>`, `<b>${s.n}</b>`, `<span style="color:var(--sub)">${s.who}</span>`,
+    s.act, `<span style="color:var(--red)">${s.gate}</span>`,
+    s.sts.length ? `<b>${cnt(s.sts)}</b> 个` : `<b>${matOk}/${MATERIALS.length}</b>`]}));
+
+  const total = PROJECTS.length;
+  const done = PROJECTS.filter(p => p.status === "已归档").length;
+  const locked = PROJECTS.filter(p => p.status === "待核销").length;
+
+  return `
+  <div class="panel">
+    <div class="panel-h"><h2>全流程总览</h2>
+      <span class="hint">7 个阶段 · 9 个状态 · 3 条硬约束，一屏看清谁在什么时候卡住什么</span></div>
+    <div class="flow">${strip}
+      <div class="farrow">›</div>
+      <div class="fstep done"><div class="fno">DONE</div><div class="fn">已归档</div>
+        <div class="fc">${done} 个项目</div></div>
+    </div>
+    <div class="grid g3" style="margin-bottom:16px">
+      <div class="kpi"><div class="t">在库项目</div><div class="v">${total}</div>
+        <div class="t" style="margin-top:2px">覆盖 9 个状态</div></div>
+      <div class="kpi k3"><div class="t">卡在核销</div><div class="v" style="color:var(--orange)">${locked}</div>
+        <div class="t" style="margin-top:2px">未过 6 步 → 结算锁定</div></div>
+      <div class="kpi k2"><div class="t">已归档</div><div class="v" style="color:var(--green)">${done}</div>
+        <div class="t" style="margin-top:2px">项目冻结，仅软删</div></div>
+    </div>
+    ${panel("阶段职责与闸门", "点左侧流程条可直接跳到该阶段的工作页",
+      table([{t:"#",w:"40px"},{t:"阶段",w:"84px"},{t:"责任角色",w:"158px",nw:1},{t:"关键动作"},{t:"出口闸门（硬约束）",w:"232px"},{t:"当前",w:"86px"}], rows))}
+  </div>
+  <div class="grid g2" style="margin-top:16px">
+    ${panel("核销 6 步 SOP", "任一步不通过 → 自动生成例外单，未闭环不得结算",
+      `<div class="tl">${VSTEPS.map((s, i) => `<div class="ti${i === 0 ? " now" : ""}">
+        <b>${s.no}. ${s.name}</b><span style="color:var(--sub);line-height:1.55;display:block">${s.desc} · 责任人 ${s.owner}</span></div>`).join("")}</div>`)}
+    ${panel("三条硬约束", "点不动的门，前端灰化 + 业务层二次校验",
+      `<div style="display:flex;flex-direction:column;gap:10px">
+        ${[["① 核销未过 → 结算锁定", "6 步未全通过，或例外单未闭环，不得生成任何可付款结算。"],
+           ["② 结论提交 → 不可回改", "核销结论写入即冻结，改判必须走例外单重新核销。"],
+           ["③ 未结算 → 不可归档", "归档门要求已结算 + 结算记录 + 材料 8/8；归档后项目冻结。"]]
+          .map(([h, d]) => `<div class="rule"><b>${h}</b><p>${d}</p></div>`).join("")}
+      </div>`)}
+  </div>
+  <div class="panel" style="margin-top:16px">
+    <div class="panel-h"><h2>状态机</h2><span class="hint">9 个状态、8 条合法流转，越级跳转一律拦截</span></div>
+    ${table([{t:"#",w:"44px"},{t:"流转",w:"210px"},{t:"操作角色",w:"120px"},{t:"进入条件"},{t:"拦截规则",w:"196px"}],
+      STATUS_FLOW.map(x => ({c:[`<span class="mono">${x.no}</span>`, `<b>${x.from}</b> → <b>${x.to}</b>`,
+        x.who, x.cond, `<span style="color:var(--orange)">${x.gate}</span>`]})))}
+  </div>`;
+}
+
+/* ==================== 页面：工作台 ==================== */
+const ROLE_SHORT = {admin:"总管理", assoc:"协会", exec:"执行", finance:"财务", user:"用户"};
+function pageTodoMine(){
+  const sup = isSuper();
+  const todos = TODOS.filter(t => sup || t.roles.includes(state.role));
+  const cols = [{t:"事项"},{t:"说明"},{t:"项目",w:"118px"},{t:"状态",w:"96px"}];
+  if (sup) cols.push({t:"归属角色",w:"226px"});
+  cols.push({t:"操作",w:"88px"});
+  const rows = todos.map(t => {
+    const p = pid2p(t.pid);
+    const c = [`<b>${t.t}</b>`, `<span style="color:var(--sub)">${t.s}</span>`,
+      `<span class="mono">${t.pid}</span>`, p ? badge(p.status) : "—"];
+    if (sup) c.push(t.roles.map(r => `<span class="badge b-gray" title="${ROLES[r].name}">${ROLE_SHORT[r] || ROLES[r].name}</span>`).join(" "));
+    c.push(`<button class="btn btn-p btn-sm" data-act="goTodo" data-k="${t.k}" data-pid="${t.pid}">${t.go}</button>`);
+    return {c};
+  });
+  return panel("我的待办", `${todos.length} 项 · 点击直达对应页面`
+      + (sup ? " · 超级管理员可见全部角色的待办，无需切换身份" : ""),
+    table(cols, rows, {empty:"当前角色没有待办事项"}));
+}
+function pageApprove(){
+  const rows = APPROVALS.map(a => ({c:[
+    `<span class="mono">${a.id}</span>`, `<span style="color:var(--sub)">${a.type}</span>`,
+    `<b>${a.title}</b>`, `<span class="mono">${a.pid}</span>`, a.by,
+    a.amt ? money(a.amt) : "—", badge(a.st),
+    a.st === "待审批"
+      ? `<span style="display:flex;gap:6px"><button class="btn btn-g btn-sm" data-act="approve" data-id="${a.id}" data-r="1">通过</button><button class="btn btn-d btn-sm" data-act="approve" data-id="${a.id}" data-r="0">驳回</button></span>`
+      : `<span style="color:var(--mute);font-size:12px">已处理</span>`]}));
+  const wait = APPROVALS.filter(a => a.st === "待审批").length;
+  return panel("待我审批", `${wait} 项待处理 · 审批结论写入审计日志`,
+    pagedTable("dashboard.todo.approve", [{t:"单号",w:"112px"},{t:"类型",w:"104px"},{t:"事项"},{t:"项目",w:"112px"},
+      {t:"提交人",w:"72px"},{t:"金额",w:"92px"},{t:"状态",w:"78px"},{t:"操作",w:"128px"}], rows),
+    `<button class="btn btn-o btn-sm" data-act="go" data-k="projects.init.apply">+ 新建立项</button>`);
+}
+function pageCC(){
+  const rows = CC_LIST.map(c => ({c:[
+    `<span class="mono">${c.id}</span>`, c.from, c.title, `<span class="mono">${c.at}</span>`,
+    c.st === "未读" ? '<span class="badge b-orange">未读</span>' : '<span class="badge b-gray">已读</span>',
+    `<button class="btn btn-o btn-sm" data-act="readCC" data-id="${c.id}">${c.st === "未读" ? "标为已读" : "查看"}</button>`]}));
+  const un = CC_LIST.filter(c => c.st === "未读").length;
+  return panel("抄送我的", `${un} 条未读`, pagedTable("dashboard.todo.cc",
+    [{t:"编号",w:"100px"},{t:"来源",w:"110px"},{t:"内容"},{t:"时间",w:"96px"},{t:"状态",w:"78px"},{t:"操作",w:"92px"}], rows));
+}
+function pageBoardMeeting(){
+  const list = visibleProjects();
+  const c = s => list.filter(p => p.status === s).length;
+  const kpis = [["项目总数", list.length, "个"], ["筹备中", c("筹备中"), "个"],
+    ["执行中", c("执行中"), "个"], ["待核销", c("待核销"), "个"]];
+  const byAssoc = [...new Set(list.map(p => p.assoc))].map(a => {
+    const sub = list.filter(p => p.assoc === a);
+    return {a, n: sub.length, budget: sub.reduce((s, p) => s + p.budget, 0),
+      done: sub.filter(p => ["已核销","已结算","已归档"].includes(p.status)).length};
+  }).sort((x, y) => y.n - x.n || y.budget - x.budget).map(o => ({c:[`<b>${o.a}</b>`, o.n + " 个", money(o.budget), o.done + " 个"]}));
+  const stages = STATUSES.map(s => {
+    const n = c(s), w = list.length ? Math.round(n / list.length * 100) : 0;
+    return {c:[badge(s), n + " 个",
+      `<div class="bar-wrap" style="margin:0;width:100%"><div class="bar-in" style="width:${w}%;background:${
+        s === "待核销" ? "#c0561e" : s === "已核销" || s === "已结算" ? "#1f8a3e" : s === "草稿" ? "#9aa4b2" : "#2e5fa3"}"></div></div>`]};
+  });
+  return `<div class="grid g4">${kpis.map(([t, v, u]) => `<div class="kpi"><div class="t">${t}</div><div class="v">${v}<span class="u">${u}</span></div></div>`).join("")}</div>
+  <div class="grid g2 mt" style="align-items:start">
+    ${panel("阶段分布", `共 ${list.length} 个项目`, table([{t:"阶段",w:"96px"},{t:"数量",w:"66px"},{t:""}], stages))}
+    ${panel("按协会统计", "预算合计与完成情况", pagedTable("dashboard.board.meeting.assoc",
+      [{t:"协会"},{t:"项目",w:"66px"},{t:"预算合计",w:"106px"},{t:"已完成",w:"74px"}], byAssoc, 9))}
+  </div>`;
+}
+function pageBoardVerify(){
+  const list = visibleProjects().filter(p => ["待核销","已核销","已结算","已归档"].includes(p.status));
+  const rows = list.map(p => {
+    const pass = vPassCount(p.id), ex = vOpenEx(p.id).length;
+    return {c:[`<span class="mono">${p.id}</span>`, `<b>${p.name}</b>`, badge(p.status),
+      `<b style="color:${pass === 6 ? "var(--green)" : "var(--orange)"}">${pass} / 6</b>`,
+      ex ? `<span class="badge b-red">${ex} 张未闭环</span>` : '<span class="badge b-green">0</span>',
+      vAllPass(p.id) ? '<span class="badge b-green">可结算</span>' : '<span class="badge b-gray">结算锁定</span>']};
+  });
+  const steps = VSTEPS.map(s => {
+    const n = list.filter(p => vstate(p.id)[s.no] === 1).length;
+    const w = list.length ? Math.round(n / list.length * 100) : 0;
+    return {c:[`<b>${s.no} ${s.name}</b>`, `<span style="color:var(--sub)">${s.owner}</span>`,
+      `${n} / ${list.length}`,
+      `<div class="bar-wrap" style="margin:0"><div class="bar-in" style="width:${w}%;background:${w === 100 ? "var(--green)" : "var(--orange)"}"></div></div>`]};
+  });
+  return panel("核销概览", "6 步通过率 · 例外单闭环情况",
+    table([{t:"项目编号",w:"118px"},{t:"会议名称"},{t:"状态",w:"92px"},{t:"通过",w:"78px"},{t:"例外单",w:"104px"},{t:"结算",w:"96px"}], rows)
+    + `<h3 style="font-size:13px;font-weight:600;margin:20px 0 8px;color:var(--teal)">各步骤通过率</h3>`
+    + table([{t:"步骤",w:"240px"},{t:"责任人",w:"150px"},{t:"通过",w:"70px"},{t:""}], steps));
+}
+
+/* ==================== 页面：项目管理 ==================== */
+function stagePage(st, title){
+  const scope = visibleProjects();
+  const list = scope.filter(p => st === "done"
+    ? ["已核销","已结算","已归档"].includes(p.status) : p.status === st);
+  const r = ROLES[state.role];
+  const pgr = paged(state.route, list, 12);
+  return panel(`${title}（${list.length}）`, `当前角色可见 ${scope.length} 个项目 · 阶段门不可跳`,
+    list.length ? projectTable(pgr.rows) + pgr.html
+      : `<div class="empty" style="line-height:1.9">当前角色（${r.name}，数据范围：${r.scope}）在该阶段没有可见项目<br>
+        <span style="font-size:12px">可见性由两件事共同决定：① 项目是否已流转到该阶段；② 角色数据范围是否覆盖该项目</span></div>`);
+}
+function pageProjectDetail(){
+  const p = pid2p(state.pid) || PROJECTS[0];
+  const v = vstate(p.id);
+  const order = ["草稿","待审批","已立项","筹备中","执行中","待核销","已核销","已结算","已归档"];
+  const idx = order.indexOf(p.status);
+  const tl = order.slice(1).map((s, i) => ({
+    t: s, d: i < idx ? "已完成" : i === idx ? "当前阶段" : "未开始",
+    s: i < idx ? "ok" : i === idx ? "now" : ""
+  }));
+  return `<div class="panel">
+    <div class="panel-h"><h2>项目详情 · ${p.name}</h2>
+      <div style="display:flex;gap:10px;align-items:center">${projSelect()}
+        <button class="btn btn-o btn-sm" data-act="openProject" data-pid="${p.id}">打开抽屉</button></div></div>
+    <div class="grid g2" style="align-items:start">
+      <div>${kv([["项目编号", `<span class="mono">${p.id}</span>`], ["会议名称", p.name], ["协会", p.assoc],
+        ["当前状态", badge(p.status)], ["会议日期", `<span class="mono">${p.date}</span>`], ["会议形式", p.form],
+        ["预算", money(p.budget)], ["负责人", p.owner], ["参会人数", p.people + " 人"],
+        ["核销进度", `<b style="color:${vPassCount(p.id) === 6 ? "var(--green)" : "var(--orange)"}">${vPassCount(p.id)} / 6</b>`]])}</div>
+      <div><div style="font-size:12.5px;color:var(--sub);margin-bottom:10px">阶段流转</div>${timeline(tl)}</div>
+    </div>
+    <h3 style="font-size:13px;font-weight:600;margin:20px 0 8px">核销 6 步</h3>
+    <div class="grid g2">${VSTEPS.map(s => {
+      const st = v[s.no];
+      return `<div class="vstep ${st === 1 ? "s-pass" : st === -1 ? "s-fail" : "s-wait"}">
+        <div class="vh"><span class="no">${s.no}</span><span class="nm">${s.name}</span>
+          <span class="concl ${st === 1 ? "c-pass" : st === -1 ? "c-fail" : "c-wait"}">[${st === 1 ? "通过" : st === -1 ? "不通过" : "待处理"}]</span></div>
+        <div class="ds">${s.desc}</div></div>`;
+    }).join("")}</div>
+  </div>`;
+}
+function pageChange(){
+  const rows = CHANGES.map(c => ({c:[`<span class="mono">${c.id}</span>`, `<span class="mono">${c.pid}</span>`,
+    `<span style="color:var(--sub)">${c.type}</span>`, c.desc, c.by, `<span class="mono">${c.at}</span>`,
+    c.impact, badge(c.st)]}));
+  return panel("变更申请", "立项后的时间 / 预算 / 议程 / 嘉宾变更均需走变更单",
+    pagedTable("projects.init.change", [{t:"单号",w:"100px",nw:1},{t:"项目",w:"106px",nw:1},{t:"类型",w:"78px",nw:1},{t:"变更说明"},{t:"提交人",w:"66px"},{t:"时间",w:"96px",nw:1},{t:"影响",w:"92px",nw:1},{t:"状态",w:"74px"}], rows),
+    `<button class="btn btn-p btn-sm" data-act="openForm" data-form="change">+ 发起变更</button>`);
+}
+function pageMember(){
+  const rows = MEMBERS.map(m => ({c:[`<b>${m.name}</b>`, m.role, m.dept, m.scope, m.grant,
+    `<span class="mono">${m.at}</span>`, badge(m.st)]}));
+  return panel("成员与授权", "授权即数据范围：被授权人只能看到被授权的会议 / 项目",
+    table([{t:"姓名",w:"80px"},{t:"角色",w:"118px"},{t:"部门",w:"90px"},{t:"数据范围",w:"130px"},{t:"操作权限"},{t:"授权时间",w:"100px"},{t:"状态",w:"78px"}], rows),
+    `<button class="btn btn-p btn-sm" data-act="openForm" data-form="member">+ 添加成员</button>`);
+}
+function pageGate(){
+  const rows = GATE_RULES.map(g => ({c:[`<b>${g.stage}</b>`, g.cond,
+    `<span style="color:var(--red)">${g.blocker}</span>`, g.owner, badge(g.st)]}));
+  return panel("阶段门配置", "每一道门都是硬约束，前端灰化 + 服务端二次校验",
+    table([{t:"阶段流转",w:"140px",nw:1},{t:"进入条件"},{t:"拦截规则",w:"212px"},{t:"责任角色",w:"96px",nw:1},{t:"状态",w:"64px"}], rows));
+}
+
+/* ==================== 页面：会务需求 ==================== */
+function pageDemandChange(){
+  const rows = DEMAND_CHANGES.map(c => ({c:[`<span class="mono">${c.id}</span>`, c.group, `<b>${c.item}</b>`,
+    c.desc, c.by, `<span class="mono">${c.at}</span>`, c.extra, badge(c.st)]}));
+  return panel("需求变更", "变更会影响预算归属，需重新确认",
+    table([{t:"单号",w:"88px"},{t:"需求组",w:"86px"},{t:"需求项",w:"130px"},{t:"变更内容"},{t:"提交人",w:"70px"},{t:"时间",w:"104px",nw:1},{t:"追加",w:"86px"},{t:"状态",w:"78px"}], rows),
+    `<button class="btn btn-p btn-sm" data-act="openForm" data-form="demandChange">+ 发起变更</button>`);
+}
+function pageDemandTrack(){
+  const rows = DEMAND_TRACK.map(d => {
+    const late = d.st !== "已完成" && d.st !== "已确认" && d.due < "2026-09-15";
+    return {c:[`<b>${d.item}</b>`, d.owner, `<span class="mono">${d.due}</span>`,
+      `<span class="mono">${d.done}</span>`,
+      `<span style="color:${late ? "var(--red)" : "var(--sub)"}">${late ? "已逾期" : "正常"}</span>`,
+      d.attach ? `<span class="badge b-blue">${d.attach} 个附件</span>` : '<span style="color:var(--mute)">0</span>',
+      badge(d.st)]};
+  });
+  return panel("交付跟踪", "按交付时间排期，逾期项在核销时会重点核查",
+    pagedTable("demand.track", [{t:"需求项",w:"140px"},{t:"负责人",w:"80px"},{t:"交付时间",w:"110px",nw:1},{t:"实际交付",w:"110px",nw:1},{t:"时效",w:"80px"},{t:"附件",w:"96px"},{t:"状态",w:"88px"}], rows));
+}
+
+/* ==================== 页面：材料中心 ==================== */
+function matCards(list){
+  return `<div class="grid g3">${list.map(m => `
+    <div class="mcard">
+      <div class="mh"><b>${m.name}</b>
+        ${m.fixed ? '<span class="badge b-purple">固定模块</span>' : '<span class="badge b-gray">可选模块</span>'}</div>
+      <div class="meta">应提交 <i>${m.need}</i> 项 · 已提交 <i>${m.done}</i> 项</div>
+      <div class="meta" style="color:${m.ok ? "var(--green)" : "var(--orange)"}">比对结果：${m.cmp}</div>
+      <div class="bar-wrap"><div class="bar-in" style="width:${Math.round(m.done / m.need * 100)}%;background:${m.ok ? "var(--green)" : "var(--orange)"}"></div></div>
+    </div>`).join("")}</div>`;
+}
+function pageMatModule(fixed){
+  const list = MATERIALS.filter(m => m.fixed === fixed);
+  return panel(fixed ? "固定模块" : "可选模块",
+    fixed ? "固定模块按会议启用 / 停用，不可删除" : "按会议需要自行启用，字段与固定模块一致",
+    matCards(list), `<button class="btn btn-p btn-sm" data-act="openForm" data-form="upload">+ 上传材料</button>`);
+}
+function pageMatAgenda(){
+  const rows = AGENDA.map(a => ({c:[`<span class="mono">${a.no}</span>`, `<b>${a.title}</b>`, a.speaker,
+    `<span class="badge b-purple">${a.role}</span>`, `<span class="mono">${a.time}</span>`, badge(a.material)]}));
+  return panel("课题清单", "材料待办由此生成；核销第 4 步按此清单比对课件题目",
+    table([{t:"序号",w:"60px"},{t:"课题"},{t:"讲者",w:"90px"},{t:"角色",w:"100px"},{t:"时段",w:"120px"},{t:"材料",w:"80px"}], rows));
+}
+function pageUploadLog(){
+  const rows = UPLOAD_LOG.map(u => ({c:[`<span class="mono">${u.t}</span>`, u.by, `<b>${u.file}</b>`, u.mod,
+    `<span class="mono">${u.pid}</span>`, `<span style="color:var(--sub)">${u.cmp}</span>`, badge(u.st)]}));
+  return panel("上传记录", "每次上传都做题目 / 名称字符串比对，不一致转人工复核",
+    pagedTable("materials.log", [{t:"时间",w:"104px",nw:1},{t:"提交人",w:"130px"},{t:"文件"},{t:"模块",w:"96px"},{t:"项目",w:"112px"},{t:"比对结果",w:"150px"},{t:"状态",w:"100px"}], rows));
+}
+
+/* ==================== 页面：核销 / 财务 ==================== */
+function pageException(){
+  const rows = EXCEPTIONS.map(e => ({c:[`<span class="mono">${e.id}</span>`, `<span class="mono">${e.pid}</span>`,
+    `第 ${e.step} 步`, e.type, `<span class="clamp2" title="${esc(e.desc)}" style="color:var(--sub)">${esc(e.desc)}</span>`, e.assignee,
+    `<span class="mono">${e.created}</span>`, badge(e.status),
+    (e.status === "已解决" || e.status === "已驳回")
+      ? `<span style="color:var(--mute);font-size:12px">已闭环</span>`
+      : `<span style="display:flex;gap:6px"><button class="btn btn-p btn-sm" data-act="resolveEx" data-id="${e.id}">解决</button><button class="btn btn-o btn-sm" data-act="rejectEx" data-id="${e.id}">驳回</button></span>`]}));
+  const open = EXCEPTIONS.filter(e => e.status !== "已解决" && e.status !== "已驳回").length;
+  return panel("例外单管理", `${open} 张未闭环 · 未闭环不得结算`,
+    pagedTable("verify.exception", [{t:"单号",w:"104px",nw:1},{t:"项目",w:"106px",nw:1},{t:"步骤",w:"60px",nw:1},{t:"类型",w:"118px",nw:1},
+      {t:"问题描述",w:"240px"},{t:"指派",w:"60px",nw:1},{t:"创建",w:"104px",nw:1},{t:"状态",w:"76px"},{t:"操作",w:"124px"}], rows, 10, {minw:"960px"}),
+    `<button class="btn btn-p btn-sm" data-act="openForm" data-form="exception">+ 登记例外单</button>`);
+}
+function pageConclusion(){
+  const list = visibleProjects().filter(p => ["待核销","已核销","已结算","已归档"].includes(p.status));
+  const rows = list.map(p => {
+    const v = vstate(p.id), ex = vOpenEx(p.id).length;
+    return {c:[`<span class="mono">${p.id}</span>`, `<b>${p.name}</b>`, badge(p.status),
+      `<b style="color:${vPassCount(p.id) === 6 ? "var(--green)" : "var(--orange)"}">${vPassCount(p.id)} / 6</b>`,
+      ex ? `<span class="badge b-red">${ex}</span>` : '<span class="badge b-green">0</span>',
+      vAllPass(p.id) ? '<span class="badge b-green">通过</span>' : '<span class="badge b-orange">未通过</span>',
+      `<button class="btn btn-o btn-sm" data-act="goTodo" data-k="verify.work" data-pid="${p.id}">查看明细</button>`]};
+  });
+  return panel("核销结论", "结论一旦提交即冻结，付款依据由此产生",
+    table([{t:"项目编号",w:"118px"},{t:"会议名称"},{t:"状态",w:"92px"},{t:"通过",w:"78px"},{t:"例外单",w:"86px"},{t:"结论",w:"86px"},{t:"操作",w:"96px"}], rows));
+}
+function pagePayments(){
+  const rows = PAYMENTS.map(x => ({c:[`<span class="mono">${x.id}</span>`, `<span class="mono">${x.pid}</span>`,
+    x.type, x.payee, `<b>${money(x.amt)}</b>`, `<span class="mono">${x.inv}</span>`, x.req,
+    `<span class="mono">${x.at}</span>`, badge(x.st)]}));
+  return panel("付款申请", "必须挂在「已核销」项目上，否则提交被硬约束拦截",
+    pagedTable("finance.pay", [{t:"单号",w:"112px"},{t:"项目",w:"112px"},{t:"类型",w:"86px"},{t:"收款方"},{t:"金额",w:"96px"},{t:"发票号",w:"92px"},{t:"申请人",w:"70px"},{t:"时间",w:"104px",nw:1},{t:"状态",w:"78px"}], rows),
+    `<button class="btn btn-p btn-sm" data-act="openForm" data-form="pay">+ 付款申请</button>`);
+}
+function pageInvoices(){
+  const rows = INVOICES.map(x => ({c:[`<span class="mono">${x.no}</span>`, `<span class="mono">${x.pid}</span>`,
+    x.type, `<b>${money(x.amt)}</b>`, x.seller, `<span class="mono">${x.date}</span>`, badge(x.st)]}));
+  return panel("发票管理", "发票与结算单一一对应，验真后才可归档",
+    pagedTable("finance.invoice", [{t:"发票号",w:"110px"},{t:"项目",w:"112px"},{t:"类型",w:"96px"},{t:"金额",w:"96px"},{t:"开票方"},{t:"开票日期",w:"116px",nw:1},{t:"验真",w:"96px"}], rows));
+}
+function pageReimburse(){
+  const rows = REIMBURSES.map(x => ({c:[`<span class="mono">${x.id}</span>`, `<span class="mono">${x.pid}</span>`,
+    x.who, x.item, `<b>${money(x.amt)}</b>`, `<span class="mono">${x.inv}</span>`,
+    `<span class="mono">${x.at}</span>`, badge(x.st)]}));
+  return panel("报销管理", "报销是结算的一种类型，不是独立阶段",
+    pagedTable("finance.reimburse", [{t:"单号",w:"112px"},{t:"项目",w:"112px"},{t:"报销人",w:"76px"},{t:"费用项目"},{t:"金额",w:"90px"},{t:"发票号",w:"96px"},{t:"时间",w:"104px",nw:1},{t:"状态",w:"78px"}], rows),
+    `<button class="btn btn-p btn-sm" data-act="openForm" data-form="reimburse">+ 报销申请</button>`);
+}
+
+/* ==================== 页面：档案 / 审计 / 系统 ==================== */
+function pageArchiveTask(){
+  const rows = ARCHIVE_TASKS.map(t => ({c:[`<span class="mono">${t.pid}</span>`, `<b>${t.name}</b>`,
+    `${t.done} / ${t.need}`,
+    `<div class="bar-wrap" style="margin:0"><div class="bar-in" style="width:${Math.round(t.done / t.need * 100)}%;background:${t.done === t.need ? "var(--green)" : "var(--orange)"}"></div></div>`,
+    t.owner, `<span class="mono">${t.at}</span>`, badge(t.st)]}));
+  return panel("归档任务", "归档门：已结算 + 结算记录 + 材料完整（8/8）",
+    pagedTable("archive.task", [{t:"项目编号",w:"118px"},{t:"会议名称"},{t:"材料",w:"70px"},{t:"完整度",w:"150px"},{t:"责任人",w:"96px"},{t:"归档时间",w:"116px",nw:1},{t:"状态",w:"86px"}], rows));
+}
+function pageBorrow(){
+  const rows = BORROWS.map(b => ({c:[`<span class="mono">${b.id}</span>`, `<span class="mono">${b.pid}</span>`,
+    b.who, b.reason, `<span class="mono">${b.range}</span>`, badge(b.st)]}));
+  return panel("借阅记录", "已归档项目冻结，只能借阅不可修改",
+    pagedTable("archive.borrow", [{t:"借阅单",w:"96px"},{t:"项目",w:"112px"},{t:"借阅人",w:"110px"},{t:"事由"},{t:"借阅期",w:"150px",nw:1},{t:"状态",w:"86px"}], rows));
+}
+function pageLogin(){
+  const rows = LOGINS.map(l => ({c:[`<span class="mono">${l.t}</span>`, l.who, l.role,
+    `<span class="mono">${l.ip}</span>`, l.dev, badge(l.st)]}));
+  return panel("登录日志", "失败 3 次自动锁定 15 分钟；异地登录发短信提醒",
+    pagedTable("audit.login", [{t:"时间",w:"104px",nw:1},{t:"账号",w:"80px"},{t:"角色",w:"130px"},{t:"IP",w:"118px"},{t:"设备"},{t:"结果",w:"130px"}], rows));
+}
+function pageExport(){
+  const rows = EXPORTS.map(e => ({c:[`<span class="mono">${e.t}</span>`, e.who, e.what,
+    `<span class="mono">${e.rows}</span>`, badge(e.st)]}));
+  return panel("导出记录", "导出即留痕：谁、什么时候、导了什么、多少行",
+    pagedTable("audit.export", [{t:"时间",w:"104px",nw:1},{t:"操作人",w:"110px"},{t:"导出内容"},{t:"行数",w:"70px"},{t:"结果",w:"86px"}], rows));
+}
+function pageOrg(){
+  const rows = ORGS.map(o => ({c:[`<b>${o.name}</b>`, o.type, o.assoc, o.proj, o.owner, badge(o.st)]}));
+  return panel("组织与协会", "协会是数据隔离的第一层边界",
+    pagedTable("system.org", [{t:"协会名称",w:"170px"},{t:"类型",w:"96px"},{t:"下属协会",w:"86px"},{t:"项目数",w:"76px"},{t:"负责人",w:"96px"},{t:"状态",w:"78px"}], rows),
+    `<button class="btn btn-p btn-sm" data-act="openForm" data-form="org">+ 新增协会</button>`);
+}
+function pageRoleList(){
+  const rows = ROLE_LIST.map(r => {
+    const sup = !!ROLES[r.k].super;
+    return {c:[`<b>${r.n}</b>${sup ? ' <span class="badge b-green">全部权限</span>' : ""}`,
+      `<span class="mono">${r.k}</span>`,
+      `<span class="badge ${sup ? "b-green" : "b-gray"}">${r.scope}</span>`,
+      r.mem + " 人",
+      sup ? `<b>${r.mods}</b> / ${r.mods} 个模块` : `${r.mods} 个模块`,
+      `<span style="color:var(--sub)">${r.desc}</span>`,
+      `<button class="btn btn-o btn-sm" data-act="viewRole" data-k="${r.k}">查看权限</button>`]};
+  });
+  return panel("角色列表", "5 个内置角色，权限按「一级模块 + 数据范围」两级控制；总管理员为超级角色，权限覆盖其余全部角色",
+    table([{t:"角色",w:"130px"},{t:"标识",w:"86px"},{t:"数据范围",w:"96px"},{t:"成员",w:"66px"},{t:"模块",w:"86px"},{t:"说明"},{t:"操作",w:"96px"}], rows));
+}
+function matrixCell(v){
+  return v === "w" ? '<span class="yes">全权</span>' : v === "r" ? '<span class="ro">只读</span>' : '<span class="no">—</span>';
+}
+function pageMatrixByRole(){
+  const rows = MATRIX_ROLES.map((rk, i) => ({c:[`<b>${ROLES[rk].name}</b>${
+      ROLES[rk].super ? ' <span class="badge b-green">超级</span>' : ""}<br>
+    <span style="color:var(--mute);font-size:11px">${ROLES[rk].scope}</span>`,
+    ...MATRIX.map(m => matrixCell(m[i + 1]))]}));
+
+  const scopeRows = MATRIX_ROLES.map(rk => {
+    const i = MATRIX_ROLES.indexOf(rk);
+    const w = MATRIX.filter(m => m[i + 1] === "w").length;
+    const ro = MATRIX.filter(m => m[i + 1] === "r").length;
+    const vis = visibleProjects(rk).length;
+    const note = ROLES[rk].super
+      ? '<span class="badge b-green">全部权限</span> <span style="color:var(--sub);font-size:12px">可代行其余角色的全部操作与资料修改</span>'
+      : rk === "assoc" ? '<span class="badge b-gray">受数据范围约束</span> <span style="color:var(--sub);font-size:12px">仅本协会项目，无系统设置</span>'
+      : rk === "exec" ? '<span class="badge b-gray">受数据范围约束</span> <span style="color:var(--sub);font-size:12px">仅授权会议，无财务与审计</span>'
+      : rk === "finance" ? '<span class="badge b-gray">受数据范围约束</span> <span style="color:var(--sub);font-size:12px">仅授权项目，无审计与系统设置</span>'
+      : '<span class="badge b-gray">受数据范围约束</span> <span style="color:var(--sub);font-size:12px">仅本人数据，只读</span>';
+    return {c:[`<b>${ROLES[rk].name}</b>`, `<span class="badge ${ROLES[rk].super ? "b-green" : "b-gray"}">${ROLES[rk].scope}</span>`,
+      `<b>${vis}</b> <span style="color:var(--mute)">/ ${PROJECTS.length}</span>`,
+      `<b>${w}</b> 全权 · ${ro} 只读 · ${MATRIX.length - w - ro} 不可见`, note]};
+  });
+
+  return `<div class="panel">
+    <div class="panel-h"><h2>权限矩阵 · 按角色查看</h2>
+      <span class="hint">全权 = 可增删改；只读 = 仅查看；— = 不可见</span></div>
+    <div class="alert alert-g" style="margin:0 0 14px">
+      <span><b>总管理员是超级角色</b>：11 个一级模块全部「全权」，数据范围「全平台」，
+      不受任何数据范围裁剪；并且可以直接执行其余四个角色的全部操作 ——
+      立项审批、核销判定、例外处理、结算付款、归档、资料修改，<b>无需切换身份</b>。
+      其余四个角色的权限都是它的子集。</span></div>
+    <div style="overflow-x:auto">${table([{t:"角色 / 数据范围",w:"156px"},
+      ...MATRIX.map(m => ({t:m[0],w:"72px"}))], rows)}</div>
+    <p class="foot-note">这张表就是侧栏为什么会长成那样的原因 —— 换角色后左侧菜单树会按这张表裁剪。</p>
+  </div>
+  <div class="panel" style="margin-top:16px">
+    <div class="panel-h"><h2>数据范围与规模</h2>
+      <span class="hint">权限 = 模块可见性 × 数据范围，两者同时成立才放行</span></div>
+    ${table([{t:"角色",w:"132px"},{t:"数据范围",w:"110px"},{t:"可见项目",w:"96px"},
+      {t:"可写模块",w:"220px"},{t:"结论"}], scopeRows)}
+  </div>`;
+}
+function pageMatrixByModule(){
+  const rows = MATRIX.map(m => ({c:[`<b>${m[0]}</b>`,
+    ...MATRIX_ROLES.map((rk, i) => matrixCell(m[i + 1]))]}));
+  return panel("权限矩阵 · 按模块查看", "同一张表换个视角：按模块看谁有权限",
+    table([{t:"一级模块",w:"160px"},
+      ...MATRIX_ROLES.map(rk => ({t:ROLES[rk].name + (ROLES[rk].super ? " ★" : ""), w:"120px"}))], rows)
+    + `<p class="foot-note">★ 总管理员在全部 11 个模块上都是「全权」，且数据范围为全平台 —— 表中每一列的权限都是它的一部分。</p>`);
+}
+function pageDictRole(){
+  const rows = ROLE_DICT.map(r => ({c:[`<b>${r.name}</b>`, `<span class="mono">${r.code}</span>`,
+    r.time ? '<span class="badge b-green">计入</span>' : '<span class="badge b-gray">不计</span>',
+    r.pay ? '<span class="badge b-green">计入</span>' : '<span class="badge b-gray">不计</span>',
+    `<span style="color:var(--sub)">${r.note}</span>`]}));
+  return panel("角色字典", "7 个角色；「计时长 / 计劳务」直接决定核销第 3、5 步的判定范围",
+    table([{t:"角色",w:"130px"},{t:"code",w:"130px"},{t:"计时长",w:"96px"},{t:"计劳务",w:"96px"},{t:"说明"}], rows));
+}
+function pageDictForm(){
+  const rows = DICT_FORM.map(f => ({c:[`<b>${f.n}</b>`, `<span class="mono">${f.code}</span>`,
+    f.desc, f.used + " 场", badge(f.st)]}));
+  return panel("会议形式", "形式决定核销时取哪套参会数据（签到表 / 观看时长）",
+    table([{t:"形式",w:"110px"},{t:"code",w:"120px"},{t:"说明"},{t:"使用中",w:"86px"},{t:"状态",w:"78px"}], rows));
+}
+function pageDictStatus(){
+  const rows = STATUS_FLOW.map(s => ({c:[`<span class="mono">${s.no}</span>`,
+    `<b>${s.from}</b> → <b>${s.to}</b>`, s.who, s.cond,
+    `<span style="color:var(--orange)">${s.gate}</span>`]}));
+  return panel("状态机", "8 条流转 · 每条都有进入条件与拦截规则",
+    table([{t:"#",w:"46px"},{t:"流转",w:"230px"},{t:"操作角色",w:"130px"},{t:"进入条件"},{t:"拦截规则",w:"180px"}], rows));
+}
+function pageNotify(){
+  const rows = NOTIFY.map(n => ({c:[`<span class="mono">${n.id}</span>`, n.event, n.ch, n.to,
+    `<span style="color:var(--sub)">${n.tpl}</span>`, badge(n.st)]}));
+  return panel("消息与通知", "事件 → 渠道 → 接收对象 → 模板",
+    table([{t:"编号",w:"92px"},{t:"触发事件",w:"140px"},{t:"渠道",w:"86px"},{t:"接收对象",w:"110px"},{t:"模板"},{t:"状态",w:"78px"}], rows),
+    `<button class="btn btn-p btn-sm" data-act="openForm" data-form="notify">+ 新增规则</button>`);
+}
+
+/* ==================== 路由表 ==================== */
+const PAGES = {
+  "dashboard.home": viewDashboard,
+  "dashboard.todo.mine": pageTodoMine,
+  "dashboard.todo.approve": pageApprove,
+  "dashboard.todo.cc": pageCC,
+  "dashboard.board.meeting": pageBoardMeeting,
+  "dashboard.board.verify": pageBoardVerify,
+  "dashboard.flow": pageFlow,
+
+  "projects.list.all": viewProjects,
+  "projects.list.stage.draft": () => stagePage("待审批", "待审批项目"),
+  "projects.list.stage.prep": () => stagePage("筹备中", "筹备中项目"),
+  "projects.list.stage.exec": () => stagePage("执行中", "执行中项目"),
+  "projects.list.stage.verify": () => stagePage("待核销", "待核销项目"),
+  "projects.list.stage.done": () => stagePage("done", "已核销及以后"),
+  "projects.list.detail": pageProjectDetail,
+  "projects.init.apply": () => formHtml(FORM_DEFS.apply),
+  "projects.init.approve": pageApprove,
+  "projects.init.change": pageChange,
+  "projects.setting.member": pageMember,
+  "projects.setting.gate": pageGate,
+
+  "prep.contract": () => viewPrep("合同"),
+  "prep.invest": () => viewPrep("招商"),
+  "prep.guest": () => viewPrep("嘉宾"),
+  "prep.agenda": () => viewPrep("议程"),
+  "prep.resource": () => viewPrep("资源"),
+  "prep.task": () => viewPrep("任务"),
+
+  "demand.confirm": viewDemand,
+  "demand.change": pageDemandChange,
+  "demand.track": pageDemandTrack,
+
+  "exec.checkin": () => viewExec("报名签到"),
+  "exec.invite": () => viewExec("嘉宾邀请"),
+  "exec.task": () => viewExec("会务任务"),
+  "exec.issue": () => viewExec("现场异常"),
+
+  "materials.overview": viewMaterials,
+  "materials.fixed": () => pageMatModule(true),
+  "materials.optional": () => pageMatModule(false),
+  "materials.agenda": pageMatAgenda,
+  "materials.log": pageUploadLog,
+
+  "verify.work": viewVerify,
+  "verify.exception": pageException,
+  "verify.conclusion": pageConclusion,
+
+  "finance.settle": viewFinance,
+  "finance.pay": pagePayments,
+  "finance.invoice": pageInvoices,
+  "finance.reimburse": pageReimburse,
+
+  "archive.search": viewArchive,
+  "archive.task": pageArchiveTask,
+  "archive.borrow": pageBorrow,
+
+  "audit.operate": viewAudit,
+  "audit.login": pageLogin,
+  "audit.export": pageExport,
+
+  "system.org": pageOrg,
+  "system.role.list": pageRoleList,
+  "system.role.matrix.role": pageMatrixByRole,
+  "system.role.matrix.module": pageMatrixByModule,
+  "system.dict.role": pageDictRole,
+  "system.dict.form": pageDictForm,
+  "system.dict.status": pageDictStatus,
+  "system.notify": pageNotify
+};
+
+
+function render(){
+  renderSide();
+  renderTop();
+  const fn = PAGES[state.route] || PAGES["dashboard.home"];
+  $("#content").innerHTML = fn();
+  $("#content").scrollTop = 0;
+  /* 统一的控件绑定：任何视图里放 data-pidsel / data-pjfilter 都会自动接上 */
+  document.querySelectorAll("#content [data-pidsel]").forEach(s =>
+    s.addEventListener("change", e => { state.pid = e.target.value; render(); }));
+  document.querySelectorAll("#content [data-pjfilter]").forEach(s =>
+    s.addEventListener("change", e => {
+      if (e.target.dataset.pjfilter === "status") state.pjStatus = e.target.value;
+      else state.pjAssoc = e.target.value;
+      render();
+    }));
+}
+
+/* ==================== 交互 ==================== */
+document.addEventListener("click", e => {
+  const t = e.target.closest("[data-act]");
+  if (!t) return;
+  const act = t.dataset.act;
+
+  if (act === "go"){
+    const k = toLeaf(t.dataset.k);
+    state.route = k;
+    state.pg[k] = 1;
+    openPathTo(k);
+    render();
+    return;
+  }
+  if (act === "toggleMenu"){
+    const k = t.dataset.k;
+    if (state.open.has(k)) state.open.delete(k); else state.open.add(k);
+    render();
+    return;
+  }
+  if (act === "pg"){ state.pg[t.dataset.key] = +t.dataset.p; render(); return; }
+  if (act === "closeModal"){ closeModal(); return; }
+  if (act === "openForm"){ openModalForm(t.dataset.form); return; }
+  if (act === "submitForm"){
+    const def = FORM_DEFS[t.dataset.form];
+    if (!def) return;
+    if (!validateForm()){ toast("请先填写所有必填项", "warn"); return; }
+    const keep = def.on(readForm()) === false;   // 业务拦截时保留弹窗，避免用户白填一遍
+    if (!keep) closeModal();
+    render();
+    return;
+  }
+  if (act === "formReset"){
+    const box = t.closest("#modal");
+    if (box){
+      const sb = box.querySelector('[data-act="submitForm"]');
+      if (sb) openModalForm(sb.dataset.form);      // 弹窗表单：重开一张干净表单
+    } else render();                                // 整页表单：重渲染即回到默认值
+    return;
+  }
+  if (act === "exportCsv"){
+    const r = csvOfTable();
+    if (!r){ toast("当前页面没有可导出的表格", "warn"); return; }
+    const nm = (LEAF[state.route] || {n:"导出"}).n + "-" + nowStr().replace(/\s+/g, "_").replace(/:/g, "") + ".csv";
+    download(nm, r.csv, "text/csv;charset=utf-8");
+    EXPORTS.unshift({t:nowStr(), who:ROLES[state.role].name, what:nm, rows:r.rows, st:"完成"});
+    logAudit("数据导出", "导出", state.pid, `导出「${LEAF[state.route].n}」${r.rows} 行 → ${nm}`, 0);
+    toast(`已导出 ${r.rows} 行，已记入导出记录`, "ok");
+    return;
+  }
+  if (act === "approve"){
+    const a = APPROVALS.find(x => x.id === t.dataset.id);
+    if (!a) return;
+    const pass = t.dataset.r === "1";
+    a.st = pass ? "已通过" : "已驳回";
+    if (pass && a.type === "立项审批"){
+      const p = pid2p(a.pid);
+      if (p) p.status = "已立项";
+    }
+    logAudit("项目管理", pass ? "审批通过" : "审批驳回", a.pid, `${a.id} ${a.type}「${a.title}」${pass ? "通过" : "驳回"}`, 1);
+    toast(pass ? "已通过审批" : "已驳回", pass ? "ok" : "warn");
+    render();
+    return;
+  }
+  if (act === "readCC"){
+    const c = CC_LIST.find(x => x.id === t.dataset.id);
+    if (c) c.st = "已读";
+    render();
+    return;
+  }
+  if (act === "viewRole"){
+    const rk = t.dataset.k, r = ROLES[rk];
+    const mods = MATRIX.map(m => {
+      const i = MATRIX_ROLES.indexOf(rk), v = m[i + 1];
+      return v === "—" ? null : `<span class="badge ${v === "w" ? "b-green" : "b-orange"}">${m[0]}${v === "w" ? " · 全权" : " · 只读"}</span>`;
+    }).filter(Boolean).join(" ");
+    openModal(`${r.name}（${r.scope}）`, `<p style="margin-bottom:12px">${(ROLE_LIST.find(x => x.k === rk) || {}).desc || ""}</p>
+      ${r.super ? '<div class="alert alert-g" style="margin-bottom:12px"><span>超级角色：全部 11 个模块「全权」+ 全平台数据，可代行任一角色的操作与资料修改，无需切换身份。</span></div>' : ""}
+      <div style="display:flex;gap:8px;flex-wrap:wrap">${mods || '<span class="badge b-gray">无可访问模块</span>'}</div>`);
+    return;
+  }
+  if (act === "goTodo"){
+    state.route = toLeaf(t.dataset.k);
+    if (t.dataset.pid) state.pid = t.dataset.pid;
+    openPathTo(state.route);
+    render();
+    toast("已定位到 " + (pid2p(t.dataset.pid) || {}).name);
+    return;
+  }
+  if (act === "prepTab"){ state.prepTab = t.dataset.t; render(); return; }
+  if (act === "execTab"){ state.execTab = t.dataset.t; render(); return; }
+  if (act === "newProject"){
+    state.route = "projects.init.apply";
+    state.pg[state.route] = 1;
+    openPathTo(state.route);
+    render();
+    return;
+  }
+  if (act === "openProject"){ openProject(t.dataset.pid); return; }
+  if (act === "closeDrawer"){ closeDrawer(); return; }
+  if (act === "goVerifyFromFinance"){
+    state.route = "verify.work"; openPathTo(state.route); render(); return;
+  }
+  if (act === "clearPjFilter"){ e.preventDefault(); state.pjStatus = "全部"; state.pjAssoc = "全部"; render(); return; }
+
+  if (act === "genArchive"){
+    const p = pid2p(t.dataset.pid);
+    if (!p || p.status !== "已结算"){ toast("归档门未满足：需先完成结算", "warn"); return; }
+    p.status = "已归档";
+    logAudit("档案中心", "归档", p.id, `数字卷宗生成并归档（8/8），项目冻结，历史材料仅软删`, 8);
+    toast(`${p.name} 已归档，项目冻结`, "ok");
+    render();
+    return;
+  }
+  if (act === "exportArchive"){
+    const p = pid2p(t.dataset.pid);
+    if (!p) return;
+    const v = vstate(p.id), fa = finAmounts(p.id);
+    const exs = EXCEPTIONS.filter(e => e.pid === p.id);
+    const logs = AUDIT.filter(a => a.pid === p.id).slice(0, 12);
+    const lines = [
+      "数字卷宗 · " + p.name,
+      "项目编号：" + p.id,
+      "所属协会：" + p.assoc,
+      "会议日期：" + p.date + "　形式：" + p.form,
+      "负责人：" + p.owner + "　参会：" + p.people + " 人",
+      "预算：" + money(p.budget) + "　当前状态：" + p.status,
+      "",
+      "一、核销 6 步结论",
+      ...VSTEPS.map(x => "  " + x.no + ". " + x.name + "：" + (v[x.no] === 1 ? "通过" : v[x.no] === -1 ? "不通过" : "待处理")),
+      "",
+      "二、结算金额",
+      "  学会公付 " + money(fa.pub) + "　个人报销 " + money(fa.reimb) + "　厂家付款 " + money(fa.ven),
+      "  合计 " + money(fa.total),
+      "",
+      "三、例外单（" + exs.length + " 张）",
+      ...(exs.length ? exs.map(e => "  " + e.id + " · 第 " + e.step + " 步 · " + e.type + " · " + e.status) : ["  无"]),
+      "",
+      "四、审计留痕（最近 " + logs.length + " 条）",
+      ...(logs.length ? logs.map(a => "  " + a.t + " " + a.role + " " + a.act + "：" + a.detail) : ["  无"]),
+      "",
+      "本卷宗由演示系统生成，仅用于流程演示。"
+    ];
+    const nm = p.id + "_" + p.name + "_数字卷宗.txt";
+    download(nm, lines.join("\r\n"));
+    logAudit("档案中心", "导出卷宗", p.id, "导出数字卷宗 " + nm + "（核销结论 / 结算金额 / 例外单 / 审计留痕）", 0);
+    toast("卷宗已导出（含核销结论与审计留痕）", "ok");
+    return;
+  }
+
+  if (act === "vset"){
+    const no = +t.dataset.no, r = +t.dataset.r, pid = state.pid;
+    const v = vstate(pid), p = pid2p(pid);
+    /* 核销结论一旦提交（已核销及之后）即冻结，不允许回改 */
+    if (!p || p.status !== "待核销"){ toast("该项目核销结论已归档，不可修改", "warn"); render(); return; }
+    const before = v[no];
+    v[no] = r;
+    const step = VSTEPS.find(s => s.no === no);
+    if (r === -1){
+      // 不通过 → 若无未闭环例外单则生成一张
+      if (!EXCEPTIONS.find(x => x.pid === pid && x.step === no && x.status !== "已解决" && x.status !== "已驳回")){
+        const d = new Date(), p2 = n => String(n).padStart(2,"0");
+        const eid = "EX-2026-0" + (30 + Math.floor(Math.random() * 60));
+        EXCEPTIONS.unshift({
+          id:eid, pid, step:no, type:step.name + " 不通过",
+          desc:`第 ${no} 步「${step.name}」判定不通过，已自动生成例外单，需补件后重新核销`,
+          assignee:"待指派", status:"待处理", sla:"2 个工作日",
+          created:`${p2(d.getMonth()+1)}-${p2(d.getDate())} ${p2(d.getHours())}:${p2(d.getMinutes())}`
+        });
+        toast(`第 ${no} 步不通过，已生成例外单 ${eid}`, "warn");
+      } else {
+        toast(`第 ${no} 步已标记不通过`);
+      }
+      logAudit("会后核销", "结论", pid, `第 ${no} 步「${step.name}」判定不通过（原 ${before === 1 ? "通过" : "待处理"}）`, 1);
+    } else {
+      logAudit("会后核销", "结论", pid, `第 ${no} 步「${step.name}」判定通过（原 ${before === -1 ? "不通过" : "待处理"}）`, 1);
+      toast(`第 ${no} 步已标记通过（${vPassCount(pid)}/6）`, "ok");
+    }
+    render();
+    return;
+  }
+
+  if (act === "resolveEx"){
+    const ex = EXCEPTIONS.find(x => x.id === t.dataset.id);
+    if (!ex) return;
+    ex.status = "已解决";
+    vstate(ex.pid)[ex.step] = 1;
+    logAudit("会后核销", "例外解决", ex.pid, `${ex.id} 已解决，第 ${ex.step} 步置为通过，触发重新核销`, 2);
+    toast(`${ex.id} 已解决，第 ${ex.step} 步自动置为通过`, "ok");
+    render();
+    return;
+  }
+  if (act === "rejectEx"){
+    const ex = EXCEPTIONS.find(x => x.id === t.dataset.id);
+    if (!ex) return;
+    ex.status = "已驳回";
+    vstate(ex.pid)[ex.step] = -1;
+    logAudit("会后核销", "例外驳回", ex.pid, `${ex.id} 驳回，第 ${ex.step} 步维持不通过，升级通知`, 1);
+    toast(`${ex.id} 已驳回，该步维持不通过`, "warn");
+    render();
+    return;
+  }
+
+  if (act === "submitVerify"){
+    const pid = state.pid, p = pid2p(pid);
+    if (!p || p.status !== "待核销"){ toast("当前项目不在「待核销」状态，无需提交", "warn"); return; }
+    if (!vAllPass(pid)){ toast("6 步未全部通过或例外未闭环，无法提交", "warn"); return; }
+    p.status = "已核销";
+    logAudit("会后核销", "通过", pid, `6 步 SOP 全部通过，核销结论写入，项目状态 → 已核销，财务结算解锁`, 6);
+    toast("核销结论已提交，财务结算已解锁", "ok");
+    render();
+    return;
+  }
+
+  if (act === "pay"){
+    const p = pid2p(state.pid);
+    /* 防重复付款：只有「已核销」才允许生成结算单，已结算/已归档一律拒绝 */
+    if (!p || p.status !== "已核销"){ toast("该项目不处于「已核销」，无法生成结算单", "warn"); return; }
+    const t = finAmounts(p.id).total;
+    p.status = "已结算";
+    logAudit("财务结算", "付款", p.id, `结算单生成并提交付款，合计 ${money(t)}，项目状态 → 已结算`, 3);
+    toast(`结算单已生成（${money(t)}），项目状态 → 已结算`, "ok");
+    render();
+    return;
+  }
+});
+
+/* ==================== 抽屉 ==================== */
+function openProject(pid){
+  const p = pid2p(pid);
+  if (!p) return;
+  const v = vstate(pid), passN = vPassCount(pid);
+  $("#sheet").innerHTML = `
+    <div class="sh-h">
+      <div><h3>${p.name}</h3><p>${p.id} · ${p.assoc}</p></div>
+      <button class="close" data-act="closeDrawer">×</button>
+    </div>
+    <div class="sh-b">
+      <dl class="kv">
+        <dt>当前状态</dt><dd><span class="badge ${STATUS_CLS[p.status]}">${p.status}</span></dd>
+        <dt>会议日期</dt><dd class="mono">${p.date}</dd>
+        <dt>会议形式</dt><dd>${p.form}</dd>
+        <dt>预算</dt><dd style="font-variant-numeric:tabular-nums">${money(p.budget)}</dd>
+        <dt>负责人</dt><dd>${p.owner}</dd>
+        <dt>参会人数</dt><dd>${p.people} 人</dd>
+        <dt>核销进度</dt><dd>${passN} / 6 步</dd>
+      </dl>
+      <h4 style="font-size:13px;margin:20px 0 8px">核销 6 步</h4>
+      <div style="display:flex;flex-direction:column;gap:6px">
+        ${VSTEPS.map(s => {
+          const st = v[s.no];
+          return `<div style="display:flex;align-items:center;gap:8px;font-size:12.5px">
+            <span style="width:18px;height:18px;border-radius:50%;display:grid;place-items:center;
+              font-size:11px;color:#fff;background:${st === 1 ? "#1f8a3e" : st === -1 ? "#c0561e" : "#98a3b3"}">${s.no}</span>
+            <span style="flex:1">${s.name}</span>
+            <span style="font-weight:600;color:${st === 1 ? "#1f8a3e" : st === -1 ? "#c0561e" : "#98a3b3"}">
+              ${st === 1 ? "通过" : st === -1 ? "不通过" : "待处理"}</span>
+          </div>`;
+        }).join("")}
+      </div>
+      <div style="margin-top:22px;display:flex;gap:8px">
+        ${ROLES[state.role].mods.includes("verify")
+          ? `<button class="btn btn-p" data-act="goTodo" data-k="verify" data-pid="${pid}">进入核销</button>` : ""}
+        ${ROLES[state.role].mods.includes("finance")
+          ? `<button class="btn btn-o" data-act="goTodo" data-k="finance" data-pid="${pid}">查看财务</button>` : ""}
+        ${!ROLES[state.role].mods.includes("verify") && !ROLES[state.role].mods.includes("finance")
+          ? `<button class="btn btn-o" data-act="closeDrawer">关闭</button>` : ""}
+      </div>
+      <p class="foot-note">阶段门不可跳：${p.status === "待核销" ? "需 6 步全部通过 + 例外闭环，才能进入已核销。" : "当前状态已越过核销阶段。"}</p>
+    </div>`;
+  $("#drawer").classList.add("open");
+}
+function closeDrawer(){ $("#drawer").classList.remove("open"); }
+document.addEventListener("keydown", e => { if (e.key === "Escape"){ closeDrawer(); closeModal(); } });
+/* 文件字段：选中后回显文件名（演示版不读取内容） */
+document.addEventListener("change", e => {
+  const inp = e.target;
+  if (inp.matches && inp.matches('.upload input[type="file"]')){
+    const t = inp.closest(".upload").querySelector(".up-txt");
+    if (t) t.textContent = inp.files && inp.files[0] ? inp.files[0].name + "（演示版不落盘）" : "点击选择文件 · 演示版不上传真实内容";
+  }
+});
+
+/* ==================== 启动 ==================== */
+openPathTo(state.route);
+render();
+</script>
+</body>
+</html>

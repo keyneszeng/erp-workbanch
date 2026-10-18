@@ -1,0 +1,118 @@
+/* ============ 生产版增量样式（复用演示版设计系统） ============ */
+
+/* ---------- 登录 ---------- */
+.layout[hidden]{display:none !important}
+#login{min-height:100vh;display:grid;place-items:center;
+  background:radial-gradient(1200px 600px at 20% 0%,#1b3560 0%,#10243f 45%,#0b1a2e 100%);padding:32px}
+.login-box{width:980px;max-width:96vw;display:grid;grid-template-columns:1.05fr .95fr;
+  background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 30px 80px rgba(6,18,36,.5)}
+.login-left{background:linear-gradient(160deg,#16304f 0%,#1f3a66 60%,#2b4160 100%);
+  color:#dbe6f4;padding:44px 40px;display:flex;flex-direction:column;gap:18px;position:relative}
+.login-left::after{content:"";position:absolute;right:-60px;bottom:-80px;width:260px;height:260px;
+  border-radius:50%;background:rgba(255,255,255,.05)}
+.login-left h1{font-size:24px;letter-spacing:.5px;color:#fff}
+.login-left .sub{font-size:12.5px;color:#9fb3cc;letter-spacing:2px}
+.login-left p{font-size:13px;line-height:1.9;color:#c2d0e2}
+.login-points{display:flex;flex-direction:column;gap:11px;margin-top:6px}
+.login-points div{display:flex;gap:10px;font-size:12.8px;color:#cfdcec;align-items:flex-start}
+.login-points b{color:#8fd3b0;font-weight:700}
+.login-right{padding:40px 40px 32px;display:flex;flex-direction:column;gap:16px}
+.login-right h2{font-size:18px}
+.login-right .hint{font-size:12.5px;color:var(--sub)}
+.login-field{display:flex;flex-direction:column;gap:6px}
+.login-field label{font-size:12.5px;color:var(--sub);font-weight:600}
+.login-field input{height:40px;padding:0 12px;border:1px solid var(--line);border-radius:7px;font-size:13.5px;background:#fbfcfe}
+.login-field input:focus{outline:none;border-color:var(--blue);background:#fff;box-shadow:0 0 0 3px rgba(46,95,163,.12)}
+.login-btn{width:100%;height:42px;border-radius:7px;background:var(--blue);color:#fff;font-weight:700;font-size:14px;margin-top:4px}
+.login-btn:hover{background:#25508c}
+.login-btn:disabled{opacity:.6}
+.login-err{background:var(--red-l);border:1px solid #e3b6bc;color:#7b2b33;font-size:12.5px;
+  padding:9px 12px;border-radius:7px;display:none}
+.demo-users{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:2px}
+.demo-user{border:1px solid var(--line);border-radius:7px;padding:7px 10px;text-align:left;
+  font-size:12px;color:var(--sub);background:#fafcff;transition:.12s;line-height:1.5}
+.demo-user:hover{border-color:var(--blue);background:#f3f7fe}
+.demo-user b{display:block;color:var(--txt);font-size:12.5px}
+.demo-user span{font-size:11px;color:var(--mute)}
+.login-foot{font-size:11.5px;color:var(--mute);margin-top:auto;padding-top:6px}
+
+/* ---------- 侧边栏用户 ---------- */
+.side-user{display:flex;align-items:center;gap:9px}
+.side-user .av{width:30px;height:30px;border-radius:50%;background:#2f5385;color:#fff;
+  display:grid;place-items:center;font-size:12.5px;font-weight:700;flex:0 0 30px}
+.side-user b{font-size:12.5px;color:#fff;display:block;line-height:1.3}
+.side-user span{font-size:11px;color:#8ea4c0}
+
+/* ---------- 页面头 ---------- */
+.phead{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;margin-bottom:16px;flex-wrap:wrap}
+.phead h2{font-size:18px;font-weight:700;letter-spacing:.2px}
+.phead p{font-size:12.5px;color:var(--sub);margin-top:3px}
+.phead .acts{display:flex;gap:8px;flex-wrap:wrap}
+.crumb{font-size:12px;color:var(--mute);margin-bottom:6px}
+.crumb a{color:var(--blue);text-decoration:none;cursor:pointer}
+.crumb a:hover{text-decoration:underline}
+
+/* ---------- 项目状态时间轴 ---------- */
+.steps{display:flex;align-items:center;gap:0;overflow-x:auto;padding:4px 0 6px}
+.steps .st{display:flex;align-items:center;gap:7px;flex:0 0 auto;padding:6px 10px;border-radius:20px;
+  font-size:12px;color:var(--mute);border:1px solid transparent;white-space:nowrap}
+.steps .st i{width:16px;height:16px;border-radius:50%;background:#e6ebf2;color:#8b98a9;display:grid;
+  place-items:center;font-size:10px;font-style:normal;font-weight:700}
+.steps .st.done{color:var(--green);background:#f2fbf5;border-color:#c9e8d4}
+.steps .st.done i{background:var(--green);color:#fff}
+.steps .st.cur{color:var(--blue);background:#f1f6fe;border-color:#c2d4ee;font-weight:700}
+.steps .st.cur i{background:var(--blue);color:#fff}
+.steps .ln{width:16px;height:1px;background:var(--line);flex:0 0 16px}
+
+/* ---------- 表格操作列 ---------- */
+.tacts{display:flex;gap:6px;flex-wrap:nowrap}
+.link{color:var(--blue);font-size:12.5px;font-weight:600;cursor:pointer;background:none;padding:0;white-space:nowrap}
+.link:hover{text-decoration:underline}
+.link.danger{color:var(--red)}
+.link.muted{color:var(--mute);cursor:not-allowed;text-decoration:none}
+
+/* ---------- 角色徽标 ---------- */
+.role-tag{font-size:11px;padding:2px 7px;border-radius:4px;background:#eef2f7;color:var(--sub);font-weight:600}
+.role-tag.super{background:var(--green-l);color:var(--green);border:1px solid #a9d9b8}
+
+/* ---------- 核销步骤卡 ---------- */
+.vsteps{display:grid;gap:10px}
+.vstep .vh .nm{font-size:13.5px;font-weight:600;color:var(--txt)}
+.vstep .vh .who{margin-left:auto;font-size:11.5px;color:var(--mute)}
+.vstep .desc{font-size:12px;color:var(--sub);margin:2px 0 8px}
+.vstep .res{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:12px;color:var(--sub)}
+.vstep .res .rm{color:var(--txt)}
+
+/* ---------- 门禁提示 ---------- */
+.gate{border:1px solid #efdcc8;background:#fdf7f1;border-radius:8px;padding:10px 13px;font-size:12.5px;color:#7b3a10}
+.gate b{display:block;font-size:13px;color:var(--txt);margin-bottom:2px}
+.gate.ok{border-color:#c9e8d4;background:#f4fbf6;color:#186f32}
+
+/* ---------- 筛选条 ---------- */
+.filters{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px}
+.filters input[type=search]{height:32px;min-width:220px}
+.filters .sp{flex:1}
+
+/* ---------- 数字强调 ---------- */
+.num{font-variant-numeric:tabular-nums}
+td .mono, td.mono{white-space:nowrap}
+.pos{color:var(--green);font-weight:700}
+.neg{color:var(--red);font-weight:700}
+
+/* ---------- 空态 / 加载 ---------- */
+.spin{width:16px;height:16px;border:2px solid rgba(255,255,255,.35);border-top-color:#fff;
+  border-radius:50%;display:inline-block;animation:sp .7s linear infinite;vertical-align:-3px}
+@keyframes sp{to{transform:rotate(360deg)}}
+
+/* ---------- 全流程总览 ---------- */
+.flowwrap{display:flex;gap:8px;overflow-x:auto;padding:2px 0 10px}
+.flowwrap .fs{flex:1 0 118px;border:1px solid var(--line);border-radius:9px;padding:10px 11px;background:#fff;cursor:pointer}
+.flowwrap .fs:hover{border-color:var(--blue);box-shadow:0 2px 10px rgba(46,95,163,.12)}
+.flowwrap .fs b{display:block;font-size:12.5px}
+.flowwrap .fs span{font-size:11.5px;color:var(--sub)}
+.flowwrap .fs em{font-style:normal;font-size:18px;font-weight:700;color:var(--blue);display:block;margin-top:2px}
+
+@media (max-width:980px){
+  .login-box{grid-template-columns:1fr}
+  .login-left{display:none}
+}
