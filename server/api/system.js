@@ -234,9 +234,15 @@ function register(router) {
       logAudit({ user: ctx.user, module: "系统配置", action: "改角色/资料", target: String(u.id), detail: Object.entries(patch).map(([k, v]) => `${k}: ${u[k] ?? "空"} → ${v}`).join("；"), ip: ctx.ip });
     }
     if (b.password) {
+      if (String(b.password).length < 6) throw bad("密码至少 6 位");
       const { salt, hash } = hashPassword(b.password);
       db.prepare("UPDATE users SET pass_salt = ?, pass_hash = ? WHERE id = ?").run(salt, hash, u.id);
-      logAudit({ user: ctx.user, module: "系统配置", action: "重置密码", target: String(u.id), detail: u.name, ip: ctx.ip });
+      // 改密后立即吊销该账号的其它会话（保留操作者自己的当前会话，避免把自己踢下线）
+      const killed = db.prepare("DELETE FROM sessions WHERE user_id = ? AND token <> ?").run(u.id, ctx.token || "");
+      logAudit({
+        user: ctx.user, module: "系统配置", action: "重置密码", target: String(u.id),
+        detail: `${u.name}（已吊销 ${killed.changes} 个旧会话）`, ip: ctx.ip
+      });
     }
     return { user: db.prepare("SELECT id,username,name,role,assoc,dept,phone,active FROM users WHERE id = ?").get(u.id), message: "已保存" };
   });
@@ -258,6 +264,10 @@ function register(router) {
   });
 
   router.get("/api/exports", async (ctx) => {
+    // 导出记录含他人文件名与操作人，仅审计角色 / 可导出角色可见
+    if (!can(ctx.user, "export:any") && !can(ctx.user, "audit:read")) {
+      throw require("../lib/util").forbidden("当前角色无导出记录查看权限");
+    }
     return { rows: db.prepare("SELECT * FROM exports ORDER BY id DESC LIMIT 50").all() };
   });
 
@@ -280,7 +290,8 @@ function register(router) {
     };
   });
 
-  router.get("/api/health", async () => ({ ok: true, at: now(), db: require("../lib/db").DB_FILE }));
+  // 健康检查：公开接口，只回存活状态，不暴露数据库路径等内部信息
+  router.get("/api/health", async () => ({ ok: true, at: now() }));
 
   return router;
 }

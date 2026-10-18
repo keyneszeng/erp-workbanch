@@ -34,6 +34,7 @@ function register(router) {
 
     const { result, remark } = ctx.body || {};
     if (!["通过", "不通过"].includes(result)) throw bad("判定结果只能是「通过」或「不通过」");
+    if (String(remark || "").length > 1000) throw bad(`问题描述不能超过 1000 字（当前 ${String(remark).length} 字）`);
     if (result === "不通过" && !String(remark || "").trim()) throw bad("判定不通过必须填写问题描述");
 
     const v = verification(p.id);
@@ -71,9 +72,13 @@ function register(router) {
     assertProjectVisible(ctx.user, p);
     assertCan(ctx.user, "verify:exception", "当前角色无例外单提交权限");
     const { step_no, reason } = ctx.body || {};
+    if (["已结算", "已归档"].includes(p.status)) {
+      throw conflict(`项目已「${p.status}」，核销结论已冻结，不可再提交例外单`, "FROZEN", { status: p.status });
+    }
     const no = Number(step_no);
     if (!(no >= 1 && no <= 6)) throw bad("例外步骤编号应为 1~6");
     if (!String(reason || "").trim()) throw bad("必须说明例外原因");
+    if (String(reason).trim().length > 500) throw bad(`例外原因不能超过 500 字（当前 ${String(reason).trim().length} 字）`);
     const at = now();
     const id = nextId(db, "exceptions", "id", "EX");
     db.prepare("INSERT INTO exceptions (id,pid,step_no,reason,status,created_by,created_at) VALUES (?,?,?,?,?,?,?)")
@@ -95,6 +100,7 @@ function register(router) {
     assertCan(ctx.user, "verify:exception_approve", "只有财务与核销（或总管理员）可以审批例外单");
     if (ex.status !== "待审批") throw conflict(`例外单已是「${ex.status}」状态，不可重复审批`);
     const { approve, comment } = ctx.body || {};
+    if (String(comment || "").length > 500) throw bad("审批意见不能超过 500 字");
     const at = now();
     const status = approve ? "已通过" : "已驳回";
     db.prepare("UPDATE exceptions SET status = ?, approved_by = ?, approved_at = ?, comment = ? WHERE id = ?")
@@ -122,8 +128,9 @@ function register(router) {
       `SELECT m.*, p.name AS pname, p.status AS pstatus FROM materials m JOIN projects p ON p.id = m.pid
        WHERE ${sql} ORDER BY m.id DESC`
     ).all(...params);
+    // 已归档项目卷宗封存，不再出现在可登记列表
     const projects = db.prepare(
-      `SELECT p.id, p.name, p.status FROM projects p WHERE ${sql} AND p.status IN ('筹备中','执行中','待核销','已核销','已结算','已归档') ORDER BY p.date DESC`
+      `SELECT p.id, p.name, p.status FROM projects p WHERE ${sql} AND p.status IN ('筹备中','执行中','待核销','已核销','已结算') ORDER BY p.date DESC`
     ).all(...params).map((p) => {
       const have = [...new Set(rows.filter((r) => r.pid === p.id).map((r) => r.kind))];
       return { ...p, have, missing: MATERIAL_KINDS.filter((k) => !have.includes(k)) };
@@ -136,9 +143,11 @@ function register(router) {
     const p = getProject(ctx.params.id);
     assertProjectVisible(ctx.user, p);
     assertCan(ctx.user, "archive:write", "当前角色无材料登记权限");
+    if (p.status === "已归档") throw conflict("项目已归档，材料清单已封存，不可再登记", "ARCHIVED", { status: p.status });
     const { kind, name, version } = ctx.body || {};
     if (!MATERIAL_KINDS.includes(kind)) throw bad(`材料类别必须是：${MATERIAL_KINDS.join(" / ")}`);
     if (!String(name || "").trim()) throw bad("请填写材料名称");
+    if (String(name).trim().length > 120) throw bad("材料名称不能超过 120 字");
     db.prepare("INSERT INTO materials (pid,kind,name,version,uploader,created_at) VALUES (?,?,?,?,?,?)")
       .run(p.id, kind, String(name).trim(), version || "v1", ctx.user.name, now());
     logAudit({ user: ctx.user, module: "材料中心", action: "上传", target: p.id, detail: `${kind}：${name}`, ip: ctx.ip });

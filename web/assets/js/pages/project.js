@@ -4,7 +4,7 @@ import {
 } from "../lib/ui.js";
 
 const ORDER = ["草稿", "待审批", "已立项", "筹备中", "执行中", "待核销", "已核销", "已结算", "已归档"];
-const PAYABLE = ["已核销", "已结算", "已归档"];
+const PAYABLE = ["已核销"];
 const TABS = [
   ["overview", "概览"], ["contracts", "合同"], ["payments", "付款"],
   ["verify", "核销"], ["materials", "材料"], ["team", "成员与授权"], ["timeline", "操作留痕"]
@@ -89,7 +89,7 @@ function tabOverview(d, p) {
         : `<div class="gate"><b>结算单未生成</b>核销 6 步全部通过后，由财务生成结算单；生成后核销结论冻结。</div>`}</div>
       <div style="margin-top:10px">${PAYABLE.includes(p.status)
         ? `<div class="gate ok"><b>付款门禁已放行</b>项目已完成核销，可提交付款申请。</div>`
-        : `<div class="gate"><b>付款门禁锁定</b>当前状态「${p.status}」，6 步核销通过（已核销）后才可付款。</div>`}</div>
+        : `<div class="gate"><b>付款门禁锁定</b>当前状态「${p.status}」，6 步核销通过（已核销）后才可付款${p.status === "已结算" ? "；结算后账目已封账" : p.status === "已归档" ? "；归档后卷宗已封存" : ""}。</div>`}</div>
       `)}
       ${panel("流程门禁", "系统实时校验", `<div style="display:flex;flex-direction:column;gap:8px;font-size:12.5px">
         <div>${v.complete ? "✅" : "⛔"} 核销：${v.passed}/6 通过${v.openExceptions ? `，${v.openExceptions} 张例外单待审批` : ""}</div>
@@ -105,21 +105,26 @@ function tabOverview(d, p) {
 }
 
 /* ---------------- 合同 ---------------- */
+const CONTRACT_LOCKED = ["已结算", "已归档"];
 function tabContracts(d, p) {
-  return panel("合同台账", `${d.contracts.length} 份`, table(
+  const locked = CONTRACT_LOCKED.includes(p.status);
+  return panel("合同台账", `${d.contracts.length} 份${locked ? " · 已封存" : ""}`, table(
     [{ t: "合同编号", w: "112px" }, { t: "合同名称" }, { t: "签约方", w: "160px" }, { t: "金额", w: "100px", cls: "num" }, { t: "签署日期", w: "100px" }, { t: "状态", w: "80px" }],
     d.contracts.map((c) => ({ c: [`<span class="mono">${c.id}</span>`, esc(c.name), esc(c.vendor), `¥${money(c.amount)}`, `<span class="mono">${esc(c.sign_date || "—")}</span>`, badge(c.status)] })),
     { empty: "暂无合同" }),
-    can("contract:write") ? '<button class="btn btn-p btn-sm" id="addContract">+ 录入合同</button>' : "");
+    locked ? `<span class="foot-note">项目${p.status === "已归档" ? "已归档，卷宗封存" : "已结算，台账封账"}，不可再录入合同</span>`
+      : can("contract:write") ? '<button class="btn btn-p btn-sm" id="addContract">+ 录入合同</button>' : "");
 }
 
 /* ---------------- 付款 ---------------- */
 function tabPayments(d, p) {
   const archived = p.status === "已归档";
-  const payable = PAYABLE.includes(p.status) && !archived;
+  const payable = PAYABLE.includes(p.status);
   const gate = archived
     ? `<div class="gate" style="margin-bottom:12px"><b>卷宗已封存</b>项目已归档，不可再新增付款；历史付款记录仍可查阅。</div>`
-    : payable ? ""
+    : p.status === "已结算"
+      ? `<div class="gate" style="margin-bottom:12px"><b>账目已封账</b>结算单已生成，不可再新增付款；如需补付请走线下流程。</div>`
+      : payable ? ""
       : `<div class="gate" style="margin-bottom:12px"><b>付款门禁锁定</b>
       项目状态「${p.status}」，按制度必须先完成 6 步核销并通过（已核销）才可付款。当前核销进度 ${d.verification.passed}/6。</div>`;
   return `${gate}

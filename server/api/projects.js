@@ -8,6 +8,19 @@ const { ASSOCS, FORMS, DEPTS } = require("../lib/constants");
 
 const EDITABLE = ["name", "assoc", "form", "date", "days", "budget", "people", "owner", "phone", "dept", "agenda"];
 
+/** 字段长度上限（字符数），防止超长文本撑爆列表 / 导出 / 前端渲染 */
+const MAX_LEN = { name: 80, assoc: 40, owner: 20, phone: 20, dept: 40, agenda: 2000 };
+const LEN_LABEL = { name: "会议名称", assoc: "所属协会", owner: "项目负责人", phone: "联系电话", dept: "承办部门", agenda: "初版议程要点" };
+
+function checkLength(body) {
+  for (const [k, max] of Object.entries(MAX_LEN)) {
+    if (!(k in body)) continue;
+    const v = body[k];
+    if (v === undefined || v === null) continue;
+    if (String(v).length > max) throw bad(`${LEN_LABEL[k]}不能超过 ${max} 字（当前 ${String(v).length} 字）`);
+  }
+}
+
 function validate(body, partial = false) {
   const need = { name: "会议名称", assoc: "所属协会", form: "会议形式", date: "会议日期", budget: "预算", owner: "项目负责人", agenda: "初版议程要点" };
   for (const [k, label] of Object.entries(need)) {
@@ -15,14 +28,33 @@ function validate(body, partial = false) {
     const v = body[k];
     if (v === undefined || v === null || String(v).trim() === "") throw bad(`${label}为必填项`);
   }
-  if ("budget" in body && !(Number(body.budget) > 0)) throw bad("预算必须大于 0");
-  if ("people" in body && body.people !== "" && Number(body.people) < 0) throw bad("预计参会人数不能为负数");
-  if ("days" in body && body.days !== "" && Number(body.days) < 1) throw bad("会期至少 1 天");
-  if ("days" in body && Number(body.days) > 60) throw bad("会期不能超过 60 天");
+  checkLength(body);
+  if ("budget" in body) {
+    const n = Number(body.budget);
+    if (!(n > 0)) throw bad("预算必须大于 0");
+    if (!Number.isFinite(n)) throw bad("预算必须是数字");
+    if (n > 1e9) throw bad("预算不能超过 10 亿元");
+    if (Number(n.toFixed(2)) !== n) throw bad("预算最多保留两位小数");
+  }
+  if ("people" in body && body.people !== "" && body.people !== null && body.people !== undefined) {
+    const n = Number(body.people);
+    if (!Number.isInteger(n) || n < 0) throw bad("预计参会人数必须是非负整数");
+    if (n > 100000) throw bad("预计参会人数不能超过 100000");
+  }
+  if ("days" in body && body.days !== "" && body.days !== null && body.days !== undefined) {
+    const n = Number(body.days);
+    if (!Number.isInteger(n) || n < 1) throw bad("会期至少 1 天");
+    if (n > 60) throw bad("会期不能超过 60 天");
+  }
   if ("assoc" in body && !ASSOCS.includes(body.assoc)) throw bad("所属协会不在可选范围");
   if ("form" in body && !FORMS.includes(body.form)) throw bad("会议形式不合法");
   if ("dept" in body && body.dept && !DEPTS.includes(body.dept)) throw bad("承办部门不合法");
-  if ("date" in body && !/^\d{4}-\d{2}-\d{2}$/.test(String(body.date))) throw bad("会议日期格式应为 YYYY-MM-DD");
+  if ("date" in body) {
+    const s = String(body.date);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) throw bad("会议日期格式应为 YYYY-MM-DD");
+    const d = new Date(`${s}T00:00:00Z`);
+    if (Number.isNaN(d.getTime()) || d.toISOString().slice(0, 10) !== s) throw bad(`会议日期 ${s} 不是有效日期`);
+  }
 }
 
 function listProjects(user, { status, q, assoc, stage } = {}) {

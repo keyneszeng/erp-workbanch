@@ -34,11 +34,17 @@ function money(n) {
   return Number(n || 0).toLocaleString("zh-CN");
 }
 
+/** CSV 单元格：双引号转义 + 公式注入中和（= + - @ 制表符 回车 开头加 ' 前缀） */
+function csvCell(v) {
+  let s = String(v ?? "");
+  if (typeof v === "string" && /^[=+\-@\t\r]/.test(s)) s = "'" + s;
+  return `"${s.replace(/"/g, '""')}"`;
+}
+
 /** CSV 序列化：带 BOM、CRLF、双引号转义 */
 function toCsv(headers, rows) {
-  const esc = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
-  const lines = [headers.map(esc).join(",")];
-  for (const r of rows) lines.push(r.map(esc).join(","));
+  const lines = [headers.map(csvCell).join(",")];
+  for (const r of rows) lines.push(r.map(csvCell).join(","));
   return "\ufeff" + lines.join("\r\n");
 }
 
@@ -55,4 +61,4 @@ const forbidden = (msg = "当前角色无权执行该操作", code = "FORBIDDEN"
 const notFound = (msg = "对象不存在", code = "NOT_FOUND") => new HttpError(404, code, msg);
 const conflict = (msg, code = "CONFLICT", extra) => new HttpError(409, code, msg, extra);
 
-module.exports = { now, today, nowIso, nextId, randToken, money, toCsv, HttpError, bad, forbidden, notFound, conflict, pad };
+module.exports = { now, today, nowIso, nextId, randToken, money, toCsv, csvCell, HttpError, bad, forbidden, notFound, conflict, pad };

@@ -1,13 +1,21 @@
 "use strict";
 const { db } = require("../lib/db");
 const { now, nextId, bad, notFound, conflict, forbidden } = require("../lib/util");
-const { assertCan, assertProjectVisible, scopeFilter, can } = require("../lib/rbac");
+const { assertCan, assertProjectVisible, scopeFilter, can, isSuper } = require("../lib/rbac");
 const { logAudit } = require("../lib/audit");
 const { getProject, verification } = require("../lib/workflow");
 const { PAYMENT_TYPES } = require("../lib/constants");
 const { transition } = require("../lib/workflow");
 
-const PAYABLE_STATUS = ["已核销", "已结算", "已归档"];
+// 只有「已核销」可新增付款：结算后账目已封账，归档后卷宗已封存，均不得再挂账
+const PAYABLE_STATUS = ["已核销"];
+
+/** 已占用预算：待审批 + 已审批 + 已付款（驳回的不占） */
+function committed(pid) {
+  return Number(db.prepare(
+    "SELECT COALESCE(SUM(amount),0) AS s FROM payments WHERE pid = ? AND status IN ('待审批','已审批','已付款')"
+  ).get(pid).s) || 0;
+}
 
 function register(router) {
   /* ---------------- 合同 ---------------- */
@@ -25,13 +33,20 @@ function register(router) {
     const p = getProject(b.pid);
     assertProjectVisible(ctx.user, p);
     assertCan(ctx.user, "contract:write", "当前角色无合同录入权限");
+    if (p.status === "已归档") throw conflict("项目已归档，合同台账已封存，不可再录入合同", "ARCHIVED", { status: p.status });
+    if (p.status === "已结算") throw conflict("项目已结算，合同台账已封账，不可再录入合同", "FROZEN", { status: p.status });
     if (!String(b.name || "").trim()) throw bad("合同名称为必填项");
+    if (String(b.name).length > 80) throw bad("合同名称不能超过 80 字");
     if (!String(b.vendor || "").trim()) throw bad("签约方为必填项");
-    if (!(Number(b.amount) > 0)) throw bad("合同金额必须大于 0");
+    if (String(b.vendor).length > 80) throw bad("签约方不能超过 80 字");
+    const amount = Number(b.amount);
+    if (!Number.isFinite(amount) || !(amount > 0)) throw bad("合同金额必须大于 0");
+    if (amount > 1e9) throw bad("合同金额不能超过 10 亿元");
+    if (Number(amount.toFixed(2)) !== amount) throw bad("合同金额最多保留两位小数");
     const id = nextId(db, "contracts", "id", "HT");
     db.prepare("INSERT INTO contracts (id,pid,name,vendor,amount,sign_date,status,remark,created_by,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)")
-      .run(id, p.id, b.name, b.vendor, Number(b.amount), b.sign_date || "", b.status || "草稿", b.remark || "", ctx.user.id, now());
-    logAudit({ user: ctx.user, module: "筹备管理", action: "合同录入", target: p.id, detail: `${id} ${b.name} / ${b.vendor} / ¥${Number(b.amount).toLocaleString("zh-CN")}`, ip: ctx.ip });
+      .run(id, p.id, b.name, b.vendor, amount, b.sign_date || "", b.status || "草稿", b.remark || "", ctx.user.id, now());
+    logAudit({ user: ctx.user, module: "筹备管理", action: "合同录入", target: p.id, detail: `${id} ${b.name} / ${b.vendor} / ¥${amount.toLocaleString("zh-CN")}`, ip: ctx.ip });
     return { contract: db.prepare("SELECT * FROM contracts WHERE id = ?").get(id), message: `合同 ${id} 已保存` };
   });
 
@@ -61,9 +76,15 @@ function register(router) {
     assertCan(ctx.user, "payment:create", "当前角色无付款申请权限");
     if (!PAYMENT_TYPES.includes(b.type)) throw bad(`付款类型必须是：${PAYMENT_TYPES.join(" / ")}`);
     if (!String(b.payee || "").trim()) throw bad("收款方为必填项");
-    if (!(Number(b.amount) > 0)) throw bad("付款金额必须大于 0");
+    const amount = Number(b.amount);
+    if (!Number.isFinite(amount) || !(amount > 0)) throw bad("付款金额必须大于 0");
+    if (amount > 1e9) throw bad("单笔付款金额不能超过 10 亿元");
+    if (Number(amount.toFixed(2)) !== amount) throw bad("付款金额最多保留两位小数（精确到分）");
     if (p.status === "已归档") {
       throw conflict("项目已归档，数字卷宗已封存，不可再新增付款", "ARCHIVED", { status: p.status });
+    }
+    if (p.status === "已结算") {
+      throw conflict("项目已生成结算单，账目已封账，不可再新增付款（如需补付请走线下流程并说明）", "SETTLED", { status: p.status });
     }
     if (!PAYABLE_STATUS.includes(p.status)) {
       throw conflict(
@@ -72,14 +93,31 @@ function register(router) {
         { status: p.status, verify: verification(p.id).judged + "/6" }
       );
     }
+    // 超预算硬门禁：总管理员可显式 force 特批
+    const used = committed(p.id);
+    const budget = Number(p.budget) || 0;
+    const force = !!b.force && isSuper(ctx.user);
+    if (!force && used + amount > budget) {
+      throw conflict(
+        `付款被拦截：项目预算 ¥${budget.toLocaleString("zh-CN")}，已占用 ¥${used.toLocaleString("zh-CN")}，` +
+        `本笔 ¥${amount.toLocaleString("zh-CN")} 将超预算 ¥${(used + amount - budget).toLocaleString("zh-CN")}；` +
+        `如需特批请由总管理员携带 force 标记提交`,
+        "OVER_BUDGET",
+        { budget, used, amount, over: used + amount - budget }
+      );
+    }
     const at = now();
     const id = nextId(db, "payments", "id", "PY");
     db.prepare("INSERT INTO payments (id,pid,type,payee,amount,invoice_no,req_user,status,remark,created_by,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)")
-      .run(id, p.id, b.type, b.payee, Number(b.amount), b.invoice_no || "", ctx.user.name, "待审批", b.remark || "", ctx.user.id, at);
+      .run(id, p.id, b.type, b.payee, amount, b.invoice_no || "", ctx.user.name, "待审批", b.remark || "", ctx.user.id, at);
     const apId = nextId(db, "approvals", "id", "AP");
     db.prepare("INSERT INTO approvals (id,type,title,pid,ref_id,amount,by_user,sla,status,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)")
-      .run(apId, "付款审批", `${b.type} ¥${Number(b.amount).toLocaleString("zh-CN")}`, p.id, id, Number(b.amount), ctx.user.name, "1 个工作日", "待审批", at);
-    logAudit({ user: ctx.user, module: "财务结算", action: "付款申请", target: p.id, detail: `${id} ${b.type} ¥${Number(b.amount).toLocaleString("zh-CN")} → ${b.payee}（核销已通过）`, ip: ctx.ip });
+      .run(apId, "付款审批", `${b.type} ¥${amount.toLocaleString("zh-CN")}`, p.id, id, amount, ctx.user.name, "1 个工作日", "待审批", at);
+    logAudit({
+      user: ctx.user, module: "财务结算", action: "付款申请", target: p.id,
+      detail: `${id} ${b.type} ¥${amount.toLocaleString("zh-CN")} → ${b.payee}（核销已通过${force ? "；超预算特批" : ""}）`,
+      ip: ctx.ip
+    });
     return { payment: db.prepare("SELECT * FROM payments WHERE id = ?").get(id), message: `付款申请 ${id} 已提交，等待财务审批` };
   });
 

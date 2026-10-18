@@ -2,6 +2,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { URL } = require("node:url");
+const { HttpError } = require("./util");
 
 const MIME = {
   ".html": "text/html; charset=utf-8",
@@ -20,17 +21,28 @@ const MIME = {
 function readBody(req, limit = 2 * 1024 * 1024) {
   return new Promise((resolve, reject) => {
     let size = 0;
+    let settled = false;
     const chunks = [];
+    const fail = (err) => {
+      if (settled) return;
+      settled = true;
+      chunks.length = 0;
+      reject(err);
+    };
     req.on("data", (c) => {
+      if (settled) return;
       size += c.length;
       if (size > limit) {
-        reject(new Error("请求体过大"));
-        req.destroy();
+        // 继续把剩余字节读完（丢弃），否则直接断开会让客户端收到 ECONNRESET 而非 413
+        req.resume();
+        fail(new HttpError(413, "PAYLOAD_TOO_LARGE", `请求体超过上限（${Math.round(limit / 1024 / 1024)} MB）`));
         return;
       }
       chunks.push(c);
     });
     req.on("end", () => {
+      if (settled) return;
+      settled = true;
       const raw = Buffer.concat(chunks).toString("utf8");
       if (!raw) return resolve({});
       const type = req.headers["content-type"] || "";
@@ -44,7 +56,7 @@ function readBody(req, limit = 2 * 1024 * 1024) {
         return resolve({});
       }
     });
-    req.on("error", reject);
+    req.on("error", (err) => fail(err));
   });
 }
 

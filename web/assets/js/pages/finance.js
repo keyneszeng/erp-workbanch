@@ -2,7 +2,8 @@ import { api, can, state } from "../lib/api.js";
 import { badge, confirmBox, esc, formHtml, modal, money, panel, readForm, table, toast, validate } from "../lib/ui.js";
 
 let filterStatus = "";
-const PAYABLE = ["已核销", "已结算", "已归档"];
+// 只有「已核销」可付款：已结算 = 账目封账，已归档 = 卷宗封存
+const PAYABLE = ["已核销"];
 
 export async function render(root) {
   const [pay, st, proj] = await Promise.all([
@@ -10,7 +11,7 @@ export async function render(root) {
     api.get("/api/settlements"),
     api.get("/api/projects")
   ]);
-  const payableProjects = proj.rows.filter((p) => PAYABLE.includes(p.status) && p.status !== "已归档");
+  const payableProjects = proj.rows.filter((p) => PAYABLE.includes(p.status));
   const all = pay.rows;
   const pendingAmt = all.filter((r) => r.status === "待审批").reduce((s, r) => s + r.amount, 0);
   const approvedAmt = all.filter((r) => r.status === "已审批").reduce((s, r) => s + r.amount, 0);
@@ -107,14 +108,17 @@ async function act(root, id, kind) {
 function openPay(root, projects) {
   if (!projects.length) return toast("当前没有已核销项目可付款", "warn");
   const fields = [
-    { k: "pid", l: "付款项目", t: "select", req: 1, opts: projects.map((p) => ({ v: p.id, l: `${p.id} ${p.name}（${p.status}）` })) },
+    { k: "pid", l: "付款项目", t: "select", req: 1, opts: projects.map((p) => ({
+        v: p.id,
+        l: `${p.id} ${p.name}（预算 ¥${Number(p.budget).toLocaleString("zh-CN")}，已付 ¥${Number(p.paid_amt || 0).toLocaleString("zh-CN")}）`
+      })) },
     { k: "type", l: "付款类型", t: "select", req: 1, opts: state.meta.paymentTypes },
     { k: "payee", l: "收款方", req: 1 },
     { k: "amount", l: "付款金额（元）", t: "number", req: 1 },
     { k: "invoice_no", l: "发票号" },
     { k: "remark", l: "备注", t: "textarea", full: 1, rows: 2 }
   ];
-  const m = modal({ title: "付款申请", body: `<div class="gate ok" style="margin-bottom:12px"><b>核销门禁</b>仅列出「已核销 / 已结算 / 已归档」项目，未核销项目不在可选范围。</div>${formHtml(fields)}`,
+  const m = modal({ title: "付款申请", body: `<div class="gate ok" style="margin-bottom:12px"><b>核销门禁</b>仅列出「已核销」项目：未核销项目不可付款，已结算项目账目已封账，已归档项目卷宗已封存。<br><b>预算门禁</b>已占用（待审批 + 已审批 + 已付款）加本笔金额超过预算时，接口返回 <code>OVER_BUDGET</code>，需总管理员特批。</div>${formHtml(fields)}`,
     footer: `<button class="btn btn-o" data-x="0">取消</button><button class="btn btn-p" data-x="1">提交申请</button>` });
   m.querySelector('[data-x="0"]').onclick = () => m.classList.remove("open");
   m.querySelector('[data-x="1"]').onclick = async () => {
