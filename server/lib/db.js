@@ -1,21 +1,27 @@
 "use strict";
 /**
- * 数据库层 —— 使用 Node 内置 node:sqlite（零第三方依赖）
- * 启动参数需带 --experimental-sqlite（Node 22/24 均支持）
+ * 数据库层 —— 双后端（对外接口完全一致，上层 141 处调用零改动）
+ *
+ * 1) Node / Vercel：node:sqlite（DatabaseSync），同步 API
+ * 2) Cloudflare Workers：Durable Object 的 ctx.storage.sql，同样是同步 API
+ *
+ * 之所以能做零改动适配，是因为 DO 的 SQL 存储也是同步的：
+ *   sql.exec(query, ...bindings) -> SqlStorageCursor { toArray(), rowsWritten }
+ * 而 node:sqlite 是：
+ *   stmt.all()/get()/run()
+ * 两者在 prepare/exec 语义上可以一一映射。
+ *
+ * ⚠️ Cloudflare Workers 里的 node:sqlite 是「非功能性空壳」（可 import，调用即抛），
+ *    因此 node:sqlite 必须延迟 require —— 只有真正走 Node 后端时才加载。
  */
-const { DatabaseSync } = require("node:sqlite");
 const path = require("node:path");
-const fs = require("node:fs");
 
-const DATA_DIR = path.join(__dirname, "..", "..", "data");
-const DB_FILE = process.env.ERP_DB || path.join(DATA_DIR, "erp.db");
-
-fs.mkdirSync(path.dirname(DB_FILE), { recursive: true });
-
-const db = new DatabaseSync(DB_FILE);
-db.exec("PRAGMA journal_mode = WAL");
-db.exec("PRAGMA foreign_keys = ON");
-db.exec("PRAGMA busy_timeout = 5000");
+// __dirname 在 Cloudflare Worker 的 ESM 产物里不存在（静态资源由 Assets 托管，用不到）
+const HERE = typeof __dirname === "string" ? __dirname : "";
+const DATA_DIR = path.join(HERE, "..", "..", "data");
+const DEFAULT_DB_FILE = path.join(DATA_DIR, "erp.db");
+const DB_FILE =
+  (typeof process !== "undefined" && process.env && process.env.ERP_DB) || DEFAULT_DB_FILE;
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS users (
@@ -252,13 +258,155 @@ CREATE TABLE IF NOT EXISTS settings (
 );
 `;
 
-function migrate() {
-  db.exec(SCHEMA);
-  // 兼容旧库：users.token_ver 是 V1.0.3 新增列（用于跨实例吊销签名令牌）
-  const cols = db.prepare("PRAGMA table_info(users)").all().map((c) => c.name);
-  if (!cols.includes("token_ver")) {
-    db.exec("ALTER TABLE users ADD COLUMN token_ver INTEGER NOT NULL DEFAULT 0");
+/* ---------------------------------------------------------------- 后端实现 */
+
+/** Node / Vercel：node:sqlite */
+function nodeBackend() {
+  // 用 process.getBuiltinModule 动态取，而不是 require("node:sqlite")：
+  // 打包器会把 require 提升成顶层 import，而 Workers 里的 node:sqlite 只是空壳，
+  // 顶层 import 会让整个 Worker 启动失败。动态调用则完全不进产物。
+  const { DatabaseSync } = process.getBuiltinModule("node:sqlite");
+  const fs = process.getBuiltinModule("node:fs");
+  const file = DB_FILE;
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const raw = new DatabaseSync(file);
+  raw.exec("PRAGMA journal_mode = WAL");
+  raw.exec("PRAGMA foreign_keys = ON");
+  raw.exec("PRAGMA busy_timeout = 5000");
+  return {
+    name: "node:sqlite",
+    file,
+    exec(sql) {
+      raw.exec(sql);
+    },
+    prepare(sql) {
+      const stmt = raw.prepare(sql);
+      return {
+        all: (...p) => stmt.all(...p),
+        get: (...p) => stmt.get(...p),
+        run: (...p) => stmt.run(...p)
+      };
+    }
+  };
+}
+
+/**
+ * Cloudflare：Durable Object 内置 SQLite
+ * ctx.storage.sql.exec() 是同步的，且支持一次执行多条以分号分隔的语句。
+ * 事务必须走 ctx.storage.transactionSync()（exec 里禁止 BEGIN/COMMIT）。
+ */
+function durableBackend(ctx) {
+  const sql = ctx.storage.sql;
+  const one = (q, p) => sql.exec(q, ...p);
+  return {
+    name: "do-sqlite",
+    file: "(Durable Object SQLite)",
+    exec(q) {
+      sql.exec(q);
+    },
+    prepare(q) {
+      return {
+        // 游标必须在 await 之前同步消费完毕，这里统一 toArray()
+        all: (...p) => one(q, p).toArray(),
+        get: (...p) => one(q, p).toArray()[0],
+        run: (...p) => ({ changes: one(q, p).rowsWritten })
+      };
+    },
+    transaction(fn) {
+      return ctx.storage.transactionSync(fn);
+    }
+  };
+}
+
+/* ---------------------------------------------------------------- 对外接口 */
+
+let backend = null;
+
+function useBackend(b) {
+  backend = b;
+  return b;
+}
+
+function ensure() {
+  if (!backend) {
+    // 仅测试用：本机跑不了 workerd，用 node:sqlite 模拟 DO 的 SQL 接口，
+    // 让同一套测试可以在 Cloudflare 后端语义下重跑一遍。
+    const mockDo =
+      typeof process !== "undefined" && process.env && process.env.ERP_DB_BACKEND === "do-sqlite";
+    if (mockDo) {
+      const { createStorage } = require("../../test/lib/do-sqlite-mock");
+      backend = durableBackend({ storage: createStorage(DB_FILE) });
+    } else {
+      backend = nodeBackend();
+    }
+  }
+  return backend;
+}
+
+/** 由 Cloudflare Worker 在 DO 构造时调用，把 DO 的 SQL 存储挂进来 */
+function attachDurableObject(ctx) {
+  return useBackend(durableBackend(ctx));
+}
+
+/** 测试用：注入自定义后端（如用 node:sqlite 模拟 DO 游标） */
+function attachBackend(b) {
+  return useBackend(b);
+}
+
+const db = {
+  prepare(sql) {
+    return ensure().prepare(sql);
+  },
+  exec(sql) {
+    ensure().exec(sql);
+  }
+};
+
+/** 统一事务入口：Node 走 BEGIN/COMMIT，Cloudflare 走 transactionSync */
+function transaction(fn) {
+  const b = ensure();
+  if (b.transaction) return b.transaction(fn);
+  b.exec("BEGIN");
+  try {
+    const r = fn();
+    b.exec("COMMIT");
+    return r;
+  } catch (e) {
+    try {
+      b.exec("ROLLBACK");
+    } catch {
+      /* 回滚失败不掩盖原始异常 */
+    }
+    throw e;
   }
 }
 
-module.exports = { db, migrate, DB_FILE, DATA_DIR };
+function migrate() {
+  const b = ensure();
+  b.exec(SCHEMA);
+  // 兼容旧库：users.token_ver 是 V1.0.3 新增列（用于跨实例吊销签名令牌）
+  let cols = [];
+  try {
+    cols = db.prepare("PRAGMA table_info(users)").all().map((c) => c.name);
+  } catch {
+    cols = [];
+  }
+  if (cols.length && !cols.includes("token_ver")) {
+    try {
+      db.exec("ALTER TABLE users ADD COLUMN token_ver INTEGER NOT NULL DEFAULT 0");
+    } catch {
+      /* 列已存在或后端不支持 ALTER，忽略 */
+    }
+  }
+}
+
+module.exports = {
+  db,
+  migrate,
+  transaction,
+  attachDurableObject,
+  attachBackend,
+  DB_FILE,
+  DATA_DIR,
+  SCHEMA
+};

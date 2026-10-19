@@ -1,4 +1,4 @@
-# 协会会议执行 ERP · 生产版代码 V1.0.5
+# 协会会议执行 ERP · 生产版代码 V1.1.0
 
 > 依据《协会会议执行 ERP 交付版整合包 V1.0.2 · 09_可点击演示版》研发的可运行工程。
 > 演示版验证的是「流程与交互是否成立」，本工程把它落成**真实后端 + 真实数据库 + 真实权限与门禁**。
@@ -10,6 +10,7 @@
 | 层 | 选型 | 说明 |
 |---|---|---|
 | 运行时 | Node.js ≥ 22.5（推荐 24） | 使用内置 `node:sqlite`，**零第三方依赖** |
+| 部署 | Vercel（Serverless）/ Cloudflare Workers + Durable Objects | 同一套代码双运行时，数据库层可切换后端 |
 | 数据库 | SQLite（WAL 模式） | 单文件 `data/erp.db`，随工程走，便于交付与备份 |
 | 后端 | `node:http` + 自研极简路由 | 无框架依赖，`server/lib/*` 分层清晰 |
 | 前端 | 原生 ES Module SPA | 复用演示版设计系统（`app.css`），无构建步骤 |
@@ -33,10 +34,52 @@ npm start            # 等价于 node --experimental-sqlite server/index.js
 
 ```bash
 npm run seed         # 重置数据库并重建种子数据
-npm test             # 110 条接口回归测试（每文件自起服务 + 独立库，不影响主库）
+npm test             # 130 条接口回归测试（每文件自起服务 + 独立库，不影响主库）
+npm run test:cf      # 同一批 130 条，跑在「Durable Object SQL」后端语义下
 ERP_PORT=9000 npm start
 ERP_DB=/path/to/erp.db npm start
 ```
+
+---
+
+## 2.1 部署到 Cloudflare Workers
+
+同一套业务代码，两套运行时。Cloudflare 没有可写的文件系统，`node:sqlite` 在 Workers 里也只是「可 import、调用即抛」的空壳，
+因此数据库换成 **Durable Object 内置 SQLite**——它恰好也是**同步 API**，所以 `db.prepare().all()/get()/run()`
+那 141 处调用一行都没改。
+
+```
+浏览器 ──► Worker（静态资源走 Assets；/api/* 转发）
+              └──► Durable Object「ErpDatabase」（全部业务逻辑 + 私有 SQLite）
+```
+
+| 文件 | 作用 |
+|---|---|
+| `worker/index.mjs` | Worker 入口，`/api/*` 转发给唯一的 DO 实例 |
+| `worker/do.mjs` | DO 类：注入 SQL 存储 → migrate → seed → 跑既有 handler |
+| `worker/adapter.mjs` | 把 Web `Request` 伪装成 node 风格 `req/res`，业务代码零改动 |
+| `wrangler.jsonc` | Assets 绑定、DO 绑定与 migration 声明 |
+
+```bash
+npm run cf:build     # 只打包不发布，检查产物（本机可跑，无需登录）
+npm run cf:deploy    # 真正发布（需先 wrangler login 或设 CLOUDFLARE_API_TOKEN）
+npm run cf:tail      # 实时日志
+```
+
+首次部署会在第一个请求到达时自动建表并写入种子数据。
+
+### 本地为什么不能预览
+
+`wrangler dev` 依赖 workerd，要求 **macOS 13.5+**；本机是 12.7.6，起不来。
+所以本地用 `npm run test:cf` 把同一批 130 条测试跑在「模拟的 DO SQL 后端」上
+（`test/lib/do-sqlite-mock.js`），确认 SQL 语义一致后再部署。
+
+### 已知限制
+
+- **CPU 时间**：登录用 scrypt（N=16384，单次约 78ms）。Workers **免费计划每请求 10ms CPU**，登录会超限（Error 1102）；
+  付费计划（$5/月，默认 30s）无此问题。
+- **单实例**：所有请求串行进同一个 DO。内部 ERP 的并发量完全够用，但不适合高并发 C 端场景。
+- **登出**：因为只有一个实例，登出立即全端生效——Vercel 上「换实例后旧令牌仍可用」的问题在这里天然消失。
 
 ### 演示账号（密码均为 `123456`）
 

@@ -1,5 +1,5 @@
 "use strict";
-const { db } = require("../lib/db");
+const { db, transaction } = require("../lib/db");
 const { now } = require("../lib/util");
 const { bad, notFound, forbidden, conflict } = require("../lib/util");
 const { assertCan, assertProjectVisible, scopeFilter, ROLES } = require("../lib/rbac");
@@ -143,14 +143,8 @@ function register(router) {
       checkItem(it);
     }
     const at = ensureSheet(p.id);
-    db.exec("BEGIN");
-    try {
-      replaceItems(p.id, b.items, at);
-      db.exec("COMMIT");
-    } catch (e) {
-      db.exec("ROLLBACK");
-      throw e;
-    }
+    // 事务走 db 层统一入口：Node 用 BEGIN/COMMIT，Cloudflare 用 transactionSync
+    transaction(() => replaceItems(p.id, b.items, at));
     logAudit({
       user: ctx.user, module: "会务需求", action: "保存需求单", target: p.id,
       detail: `更新 ${b.items.length} 条需求（需要 ${b.items.filter((x) => x.need === "需要").length} 项）`, ip: ctx.ip
