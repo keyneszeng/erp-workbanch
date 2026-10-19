@@ -209,6 +209,34 @@ CREATE TABLE IF NOT EXISTS audit_logs (
 );
 CREATE INDEX IF NOT EXISTS idx_audit_at ON audit_logs(at DESC);
 
+CREATE TABLE IF NOT EXISTS demand_sheets (
+  pid          TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
+  confirmed    INTEGER NOT NULL DEFAULT 0,
+  confirmed_by TEXT,
+  confirmed_at TEXT,
+  created_at   TEXT NOT NULL,
+  updated_at   TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS demand_items (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  pid         TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  grp         TEXT NOT NULL,
+  item        TEXT NOT NULL,
+  note        TEXT,
+  need        TEXT NOT NULL DEFAULT '需要',
+  spec        TEXT,
+  owner       TEXT,
+  due         TEXT,
+  budget      TEXT,
+  attach      TEXT,
+  status      TEXT NOT NULL DEFAULT '未开始',
+  ordering    INTEGER NOT NULL DEFAULT 0,
+  updated_at  TEXT NOT NULL,
+  UNIQUE (pid, grp, item)
+);
+CREATE INDEX IF NOT EXISTS idx_demand_items_pid ON demand_items(pid);
+
 CREATE TABLE IF NOT EXISTS exports (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,
   at          TEXT NOT NULL,

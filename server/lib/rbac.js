@@ -41,6 +41,7 @@ const PERMS = {
   "project:member": ["assoc"],
   "contract:write": ["assoc", "exec"],
   "contract:approve": ["assoc"],
+  "demand:write": ["assoc", "exec"],
   "payment:create": ["assoc", "exec", "finance"],
   "payment:approve": ["finance"],
   "payment:pay": ["finance"],

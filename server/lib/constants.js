@@ -50,4 +50,48 @@ const STATUS_DESC = {
   "已归档": "数字卷宗已封存"
 };
 
-module.exports = { ASSOCS, FORMS, DEPTS, PAYMENT_TYPES, VERIFY_STEPS, MATERIAL_KINDS, FLOW, STATUS_DESC };
+/** 会务需求确认 —— 四组模板（老板提供的《会务需求确认》业务清单） */
+const DEMAND_GROUPS = ["设计", "制作", "现场执行", "其他"];
+
+/**
+ * 每组下的默认条目；note 为括号内的业务提示（如「需要吗」「需要几位」）
+ * 第一次打开某项目的需求单时由后端按此模板生成，之后以数据库为准
+ */
+const DEMAND_TEMPLATE = {
+  "设计": [
+    { item: "串场" },
+    { item: "议程A4单张" },
+    { item: "台卡" },
+    { item: "议程易拉宝" },
+    { item: "人头易拉宝" }
+  ],
+  "制作": [
+    { item: "串场纸质版单面彩印", note: "几份，需不需要装订" },
+    { item: "议程A4单张", note: "几份" },
+    { item: "台卡", note: "讲者是否需要两份" },
+    { item: "易拉宝", note: "人头 / 议程" },
+    { item: "产品易拉宝", note: "需要吗" },
+    { item: "横幅", note: "需要吗" },
+    { item: "讲台花", note: "需要吗" },
+    { item: "讲台包边", note: "需要吗" },
+    { item: "背景板", note: "需要吗" }
+  ],
+  "现场执行": [
+    { item: "控台", note: "需要几位" },
+    { item: "控场", note: "包含普通拍照，需要几位" },
+    { item: "专业摄影", note: "需要几位" },
+    { item: "线上端口", note: "需要吗" }
+  ],
+  "其他": [
+    { item: "垫付" },
+    { item: "参会胸卡设计及实物" },
+    { item: "代购酒水" },
+    { item: "车队服务" },
+    { item: "其他" }
+  ]
+};
+
+const DEMAND_NEED_OPTIONS = ["需要", "不需要"];
+const DEMAND_STATUS_OPTIONS = ["未开始", "进行中", "已完成", "不需要"];
+
+module.exports = { ASSOCS, FORMS, DEPTS, PAYMENT_TYPES, VERIFY_STEPS, MATERIAL_KINDS, FLOW, STATUS_DESC, DEMAND_GROUPS, DEMAND_TEMPLATE, DEMAND_NEED_OPTIONS, DEMAND_STATUS_OPTIONS };

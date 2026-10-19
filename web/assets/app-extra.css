@@ -1,5 +1,15 @@
 /* ============ 生产版增量样式（复用演示版设计系统） ============ */
 
+/* ---------- 会务需求：可编辑清单 ---------- */
+.c-item{display:flex;flex-direction:column;gap:2px;min-width:130px}
+.c-item > b{font-size:13px;font-weight:600}
+.c-item .tip{font-size:11px;color:var(--mute);line-height:1.4}
+.tw td .mini{width:100%;font-size:12px;padding:4px 6px;height:auto;min-width:90px}
+.tw td select.mini{width:100%}
+.banner{margin:0 0 14px;padding:10px 14px;border-radius:8px;font-size:13px;display:flex;align-items:center;gap:8px}
+.banner.ok{background:#eaf7ee;border:1px solid #bfe6c9;color:#1f7a3d}
+.banner.ok::before{content:"";width:6px;height:6px;border-radius:50%;background:#2fa257}
+
 /* ---------- 登录 ---------- */
 .layout[hidden]{display:none !important}
 #login{min-height:100vh;display:grid;place-items:center;

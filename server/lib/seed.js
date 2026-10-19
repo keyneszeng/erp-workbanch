@@ -2,7 +2,7 @@
 const { db } = require("./db");
 const { hashPassword } = require("./auth");
 const { now, today } = require("./util");
-const { VERIFY_STEPS, MATERIAL_KINDS } = require("./constants");
+const { VERIFY_STEPS, MATERIAL_KINDS, DEMAND_GROUPS, DEMAND_TEMPLATE } = require("./constants");
 
 const PASS = "123456";
 
@@ -132,7 +132,8 @@ function alreadySeeded() {
 function seed({ reset = false } = {}) {
   if (reset) {
     for (const t of ["sessions", "audit_logs", "exports", "settlements", "exceptions", "verify_steps", "payments",
-      "contracts", "approvals", "materials", "guests", "tasks", "issues", "project_members", "projects", "users", "settings"]) {
+      "contracts", "approvals", "materials", "guests", "tasks", "issues", "demand_items", "demand_sheets",
+      "project_members", "projects", "users", "settings"]) {
       db.exec(`DELETE FROM ${t}`);
     }
     db.exec("DELETE FROM sqlite_sequence");
@@ -231,6 +232,46 @@ function seed({ reset = false } = {}) {
 
   const insI = db.prepare("INSERT INTO issues (pid,title,level,owner,status,created_at) VALUES (?,?,?,?,?,?)");
   for (const i of ISSUES) insI.run(...i, at);
+
+  // 会务需求：为旗舰项目 MP-2026-001 播种一份已填写的需求单（其余项目首次打开时按模板生成）
+  const DEMAND_SEED = {
+    "设计|串场": ["需要", "主视觉 16:9，含 5 个环节页", "王敏", "2026-09-05", "会务预算", "3 个附件", "已完成"],
+    "设计|议程A4单张": ["需要", "双面彩印 300 份", "王敏", "2026-09-08", "会务预算", "1 个附件", "已完成"],
+    "设计|台卡": ["需要", "21×15cm 亚克力 40 个", "李强", "2026-09-10", "会务预算", "0", "制作中"],
+    "设计|议程易拉宝": ["不需要", "", "", "", "", "", "不需要"],
+    "设计|人头易拉宝": ["需要", "签到区 1 个", "李强", "2026-09-12", "会务预算", "0", "未开始"],
+    "制作|串场纸质版单面彩印": ["需要", "200 份 不装订", "李强", "2026-09-12", "会务预算", "0", "未开始"],
+    "制作|议程A4单张": ["需要", "200 份", "李强", "2026-09-12", "会务预算", "0", "未开始"],
+    "制作|台卡": ["需要", "讲者另备 2 份", "李强", "2026-09-12", "会务预算", "0", "未开始"],
+    "制作|易拉宝": ["需要", "人头 + 议程 各 1 个", "李强", "2026-09-12", "会务预算", "0", "未开始"],
+    "制作|产品易拉宝": ["不需要", "", "", "", "", "", "不需要"],
+    "制作|横幅": ["需要", "8m 含协会名 + logo", "王敏", "2026-09-12", "会务预算", "1 个附件", "已完成"],
+    "制作|讲台花": ["需要", "鲜花 1 组，含更换", "陈静", "2026-09-13", "会务预算", "0", "未开始"],
+    "制作|讲台包边": ["需要", "红绒布包边", "李强", "2026-09-12", "会务预算", "0", "未开始"],
+    "制作|背景板": ["需要", "6×3m 桁架喷绘", "李强", "2026-09-12", "会务预算", "2 个附件", "制作中"],
+    "现场执行|控台": ["需要", "2 人，含彩排", "张伟", "2026-09-14", "会务预算", "0", "已确认"],
+    "现场执行|控场": ["需要", "2 人，含普通拍照", "张伟", "2026-09-14", "会务预算", "0", "已确认"],
+    "现场执行|专业摄影": ["需要", "1 机位，全天", "张伟", "2026-09-14", "会务预算", "0", "已确认"],
+    "现场执行|线上端口": ["需要", "直播推流 1 路", "张伟", "2026-09-14", "会务预算", "0", "未开始"],
+    "其他|垫付": ["需要", "启动资金 ¥50,000", "陈静", "2026-09-01", "会务预算", "0", "进行中"],
+    "其他|参会胸卡设计及实物": ["需要", "320 张含挂绳", "王敏", "2026-09-15", "会务预算", "0", "未开始"],
+    "其他|代购酒水": ["不需要", "", "", "", "", "", "不需要"],
+    "其他|车队服务": ["需要", "大巴 2 辆机场往返", "刘洋", "2026-09-15", "会务预算", "1 个附件", "未开始"],
+    "其他|其他": ["不需要", "", "", "", "", "", "不需要"]
+  };
+  const insSheet = db.prepare("INSERT OR IGNORE INTO demand_sheets (pid,confirmed,created_at,updated_at) VALUES (?,0,?,?)");
+  const insDemand = db.prepare(
+    "INSERT OR IGNORE INTO demand_items (pid,grp,item,note,need,spec,owner,due,budget,attach,status,ordering,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)"
+  );
+  insSheet.run("MP-2026-001", at, at);
+  let dOrder = 0;
+  for (const g of DEMAND_GROUPS) {
+    for (const t of (DEMAND_TEMPLATE[g] || [])) {
+      const ov = DEMAND_SEED[`${g}|${t.item}`];
+      const [need, spec, owner, due, budget, attach, status] = ov || ["需要", "", "", "", "", "", "未开始"];
+      insDemand.run("MP-2026-001", g, t.item, t.note || "", need, spec, owner, due, budget, attach, status, dOrder++, at);
+    }
+  }
 
   const insA = db.prepare(
     "INSERT INTO audit_logs (at,user_id,user_name,role,module,action,target,detail,ip) VALUES (?,?,?,?,?,?,?,?,?)"

@@ -9,6 +9,7 @@ import * as verify from "./pages/verify.js";
 import * as finance from "./pages/finance.js";
 import * as contracts from "./pages/contracts.js";
 import * as materials from "./pages/materials.js";
+import * as demand from "./pages/demand.js";
 import * as archive from "./pages/archive.js";
 import * as audit from "./pages/audit.js";
 import * as users from "./pages/users.js";
@@ -21,6 +22,7 @@ const NAV = [
     { k: "approvals", n: "审批中心", need: () => can("project:approve") || can("verify:exception_approve") || can("payment:approve") },
     { k: "contracts", n: "合同台账", need: () => state.role.modules.includes("prep") }
   ] },
+  { k: "demand", n: "会务需求", items: [{ k: "demand", n: "需求确认" }] },
   { k: "verify", n: "会后核销", items: [{ k: "verify", n: "核销看板" }] },
   { k: "finance", n: "财务结算", items: [{ k: "finance", n: "付款与结算" }] },
   { k: "materials", n: "材料中心", items: [{ k: "materials", n: "归档材料" }] },
@@ -39,6 +41,8 @@ const ROUTES = [
   { re: /^verify\/([\w-]+)$/, page: verify, nav: "verify", title: "核销作业", sub: "6 步判定与例外单闭环" },
   { re: /^finance$/, page: finance, nav: "finance", title: "付款与结算", sub: "付款申请、审批、付款与结算单" },
   { re: /^contracts$/, page: contracts, nav: "contracts", title: "合同台账", sub: "合同金额与签署状态" },
+  { re: /^demand$/, page: demand, nav: "demand", title: "会务需求确认", sub: "四组清单：设计 / 制作 / 现场执行 / 其他" },
+  { re: /^demand\/([\w-]+)$/, page: demand, nav: "demand", title: "需求单", sub: "逐条确认会务需求" },
   { re: /^materials$/, page: materials, nav: "materials", title: "材料中心", sub: "归档必备 8 类材料" },
   { re: /^archive$/, page: archive, nav: "archive", title: "数字卷宗", sub: "已归档项目检索与导出" },
   { re: /^audit$/, page: audit, nav: "audit", title: "审计日志", sub: "Who / When / What / Which" },

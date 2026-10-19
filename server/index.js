@@ -18,7 +18,7 @@ migrate();
 const seeded = seed();
 
 const router = new Router();
-for (const mod of ["./api/auth", "./api/projects", "./api/verify", "./api/finance", "./api/system"]) {
+for (const mod of ["./api/auth", "./api/projects", "./api/verify", "./api/finance", "./api/system", "./api/demand"]) {
   require(mod).register(router);
 }
 
@@ -93,7 +93,7 @@ function startLocalServer() {
   server.listen(PORT, HOST, () => {
     const line = [
       "",
-      "  协会会议执行 ERP  ·  v1.0.2",
+      "  协会会议执行 ERP  ·  v1.0.4",
       `  服务地址   http://${HOST}:${PORT}`,
       `  数据库     ${DB_FILE}`,
       `  种子数据   ${seeded.skipped ? "已存在，跳过" : `已初始化（${seeded.projects} 个项目 / ${seeded.users} 个账号）`}`,

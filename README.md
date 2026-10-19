@@ -1,4 +1,4 @@
-# 协会会议执行 ERP · 生产版代码 V1.0.3
+# 协会会议执行 ERP · 生产版代码 V1.0.4
 
 > 依据《协会会议执行 ERP 交付版整合包 V1.0.2 · 09_可点击演示版》研发的可运行工程。
 > 演示版验证的是「流程与交互是否成立」，本工程把它落成**真实后端 + 真实数据库 + 真实权限与门禁**。
@@ -83,7 +83,7 @@ erp-app/
 │           ├── app.js        # 路由、导航裁剪、顶栏、登录态
 │           ├── lib/api.js    # fetch 封装 + 权限判断
 │           ├── lib/ui.js     # 表格/面板/弹窗/表单/Toast
-│           └── pages/*.js    # 12 个页面模块
+│           └── pages/*.js    # 13 个页面模块（含会务需求）
 ├── test/
 │   ├── api.test.js           # 26 条 主链路
 │   ├── edge.test.js          # 26 条 边界与安全
@@ -176,6 +176,11 @@ erp-app/
 | POST | `/api/approvals/:id/decide` | 统一审批入口，按类型分派 |
 | POST | `/api/projects/:id/change` | 变更申请 |
 | GET/POST/DELETE | `/api/materials` `/api/projects/:id/materials` | 材料登记与删除 |
+| GET | `/api/demand` | 会务需求确认：按数据范围列出会议 + 各会议需求汇总 |
+| GET | `/api/demand/:id` | 单会议需求单（首次打开按四组模板生成） |
+| PATCH | `/api/demand/:id` | 整单保存（协会管理员 / 会务执行可写） |
+| POST | `/api/demand/:id/confirm` `/reset` | 确认需求单 / 重置回模板 |
+| GET | `/api/demand/:id/export` | 需求单 CSV 导出 |
 | GET | `/api/settlements` | 结算单 |
 | GET/POST/PATCH | `/api/users` `/api/users/:id` | 账号与角色 |
 | GET | `/api/audit` | 审计日志（非审计角色仅本人） |
@@ -192,7 +197,7 @@ erp-app/
 ## 6. 测试
 
 ```bash
-npm test        # 116 条：api 26 + edge 26 + matrix 11 + hardening 19 + abuse 28 + stateless 6
+npm test        # 125 条：api 26 + edge 26 + matrix 11 + hardening 19 + abuse 28 + stateless 6 + demand 9
 ```
 
 | 文件 | 关注点 |
@@ -203,23 +208,24 @@ npm test        # 116 条：api 26 + edge 26 + matrix 11 + hardening 19 + abuse 
 | `test/hardening.test.js` | 加固：路径穿越多形态、HEAD/畸形 JSON、请求体 413、字段长度、会话生命周期、CSV 转义与公式注入、超预算、并发状态机幂等 |
 | `test/abuse.test.js` | 滥用与越权：SQL 注入、IDOR、状态机全枚举、审批/付款/结算/归档幂等、金额与日期脏数据、多端会话、封账封存、导出范围一致性 |
 | `test/stateless.test.js` | 无状态会话兜底：模拟 Serverless「换实例」（清空 sessions 表），签名令牌仍可放行；伪造签名 / 篡改 uid / 过期 / 改密吊销 / 未知令牌均 401 |
+| `test/demand.test.js` | 会务需求模块：列表 / 种子+模板详情 / 整单替换 / 财务越权 403 / 非法枚举 400 / 确认+重置 / CSV 导出 BOM |
 
 浏览器层（Playwright + 本机 Chrome，需先起服务）：
 
 ```bash
 ERP_PORT=8787 npm start          # 另开一个终端
-ERP_PORT=8787 npm run test:ui    # 13 页冒烟 → 全链路 E2E → 11 项 UI 边界
+ERP_PORT=8787 npm run test:ui    # 14 页冒烟 → 全链路 E2E → 11 项 UI 边界
 ```
 
 | 脚本 | 关注点 |
 |---|---|
-| `test/ui/smoke.js` | 13 个页面逐页渲染，控制台 0 报错 |
+| `test/ui/smoke.js` | 14 个页面逐页渲染，控制台 0 报错 |
 | `test/ui/e2e.js` | 全链路：立项 → 提交 → 审批 → 加成员 → 推进 → 付款门禁 → 核销不通过 → 例外审批 → 核销通过 → 付款 → 结算 → 补 8 类材料 → 归档 → 导出 |
 | `test/ui/edge.js` | UI 边界：XSS 注入、超长名称布局、404/空态、必填校验、双击提交幂等、越权直链、登录错误与限流 |
 
 端到端（`test/ui/e2e.js`，需本机 Chrome）另跑通：立项 → 提交 → 审批 → 加成员 → 推进 →
 付款门禁提示 → 判定不通过 → 例外审批 → 核销通过 → 付款 → 结算 → 补 8 类材料 → 归档 → 导出下载，
-全程 0 控制台报错。当前实跑结果：接口 116/116、UI 冒烟 13/13、E2E 0 报错、UI 边界 11/11。
+全程 0 控制台报错。当前实跑结果：接口 125/125、UI 冒烟 14/14、E2E 0 报错、UI 边界 11/11。
 
 ---
 
@@ -303,6 +309,15 @@ Serverless 每个实例的 `/tmp` 独立，会话表只能在本实例查到。�
 ---
 
 ## 9. 变更记录
+
+### V1.0.4（新增「会务需求」模块）
+| # | 内容 | 说明 |
+|---|---|---|
+| 1 | 补齐 `rbac.js` 早已占位、但一直未实现的「会务需求」模块 | 按老板提供的《会务需求确认》业务清单落地：四组模板（设计 / 制作 / 现场执行 / 其他，共 23 项），每项带「是否需要 / 规格数量 / 负责人 / 交付时间 / 预算归属 / 附件 / 执行状态」 |
+| 2 | 新增 `server/api/demand.js` + DB 表 `demand_sheets` / `demand_items` | 列表（按数据范围）、详情（首次打开自动生成模板）、整单保存（DELETE+INSERT 全量替换）、确认、重置、CSV 导出；权限 `demand:write` 仅限协会管理员 / 会务执行 |
+| 3 | 前端新增 `web/assets/js/pages/demand.js` 并接入导航与路由 | 会议列表 + 逐会议需求单编辑页，可保存 / 确认 / 重置 / 导出 |
+| 4 | 种子数据 | 旗舰项目 `MP-2026-001` 预置一份已填写的需求单，其余项目首次打开按模板生成 |
+| 5 | 测试 | 新增 `test/demand.test.js`（9 条），全量 `npm test` 116 → 125 条全过 |
 
 ### V1.0.3（Vercel 部署修复）
 | # | 问题 | 修复 |
