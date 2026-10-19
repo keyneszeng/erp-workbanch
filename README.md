@@ -1,4 +1,4 @@
-# 协会会议执行 ERP · 生产版代码 V1.0.2
+# 协会会议执行 ERP · 生产版代码 V1.0.3
 
 > 依据《协会会议执行 ERP 交付版整合包 V1.0.2 · 09_可点击演示版》研发的可运行工程。
 > 演示版验证的是「流程与交互是否成立」，本工程把它落成**真实后端 + 真实数据库 + 真实权限与门禁**。
@@ -237,7 +237,63 @@ ERP_PORT=8787 npm run test:ui    # 13 页冒烟 → 全链路 E2E → 11 项 UI 
 
 ---
 
-## 8. 变更记录
+## 8. Vercel 部署（在线演示）
+
+线上地址：**https://erp-workbanch.vercel.app**（生产域名，无需 Vercel 登录即可访问）
+
+### 8.1 架构
+
+| 层 | 部署方式 |
+|---|---|
+| 前端 `web/` | `buildCommand` 原样复制到 `dist/`，作为纯静态资源由 CDN 直接返回 |
+| 后端 `server/` | 打包进 `api/index.js` 单个 Node Function，`/api/*` 全部 rewrite 到它 |
+| 数据库 | `node:sqlite`，文件落在 `/tmp`（Serverless 唯一可写目录） |
+
+`vercel.json` 三个关键点，任何一个错都会导致部署"构建成功但页面白屏"：
+
+1. **`outputDirectory: "dist"`** —— 前端必须走静态输出。若用 `includeFiles` 把 `web/` 塞进 Function 包，
+   Vercel 的 Node builder 会把所有 `.js` 按 CommonJS 重写，远端 `app.js` 变成 `require("./lib/api.js")`，
+   浏览器报 `require is not defined`，整站白屏。**这是本项目第一次部署失败的真实原因。**
+2. **`includeFiles: "server/**"`** —— 必须是字符串。写成数组会直接报
+   `vercel.json schema validation failed: functions.api/index.js.includeFiles should be string`。
+3. **只 rewrite `/api/*`** —— 静态资源不经过 Function，省冷启动，也避免被转译。
+
+### 8.2 部署命令
+
+```bash
+npm i -g vercel          # 或 npx vercel
+vercel --prod            # 首次会绑定项目 erp-workbanch
+```
+
+Git 集成已开启：推 `main` 即自动触发生产部署。
+
+### 8.3 ⚠️ 演示部署的数据约束
+
+Serverless 实例的 `/tmp` 是**实例本地**的，所以：
+
+- 实例被回收后，数据回到种子态（18 个项目 / 5 个账号，密码均 `123456`）
+- 极端情况下多个并发实例各自持有独立副本
+
+**够演示，不能当生产用。** 要真正持久化有两条路：
+
+| 方案 | 改造量 | 说明 |
+|---|---|---|
+| Turso / libSQL | 中 | SQLite 语法 100% 兼容，只需替换 driver；但 `DatabaseSync` 是同步 API，要全量改 `await` |
+| Vercel Postgres / Neon | 大 | SQL 方言需适配（自增、占位符、时间函数） |
+
+在完成上述改造前，生产环境请用本机/服务器部署（第 2 节），SQLite 落在磁盘上是持久的。
+
+---
+
+## 9. 变更记录
+
+### V1.0.3（Vercel 部署修复）
+| # | 问题 | 修复 |
+|---|---|---|
+| 1 | Vercel 上首页一片空白，浏览器报 `require is not defined` | `includeFiles: "**"` 把 `web/` 塞进 Function 包，Node builder 把前端 ESM 全部转译成 CommonJS。改为 `outputDirectory: "dist"`，前端由 CDN 直接服务 |
+| 2 | 静态资源每个都触发一次 Function 冷启动 | rewrite 收窄为只代理 `/api/*` |
+| 3 | `includeFiles` 写成数组导致构建直接失败 | 改回字符串 `"server/**"` |
+| 4 | `favicon.ico` 404 | 内联 SVG data URI 图标 |
 
 ### V1.0.2（深度加固 · 测试 63 → 110 条）
 | # | 问题 | 修复 |
@@ -276,7 +332,7 @@ ERP_PORT=8787 npm run test:ui    # 13 页冒烟 → 全链路 E2E → 11 项 UI 
 
 ---
 
-## 9. 尚未落地（下一阶段）
+## 10. 尚未落地（下一阶段）
 
 - 文件真实上传：当前材料为元数据登记，接对象存储（S3/OSS/MinIO）后替换 `materials` 的 `url` 字段。
 - 通知：待办目前是查询派生，未做站内信/企微/短信推送。
