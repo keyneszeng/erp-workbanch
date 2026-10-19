@@ -7,7 +7,7 @@ export async function render(root) {
 
   root.innerHTML = `<div class="phead">
       <div><h2>材料中心</h2><p>归档必备 8 类：${d.kinds.join(" / ")}</p></div>
-      <div class="acts">${can("archive:write") ? '<button class="btn btn-p" id="add">+ 登记材料</button>' : ""}</div>
+      <div class="acts">${can("material:write") ? '<button class="btn btn-p" id="add">+ 登记材料</button>' : ""}</div>
     </div>
     <div class="grid g4">
       <div class="kpi"><div class="t">材料条目</div><div class="v">${d.rows.length}<span class="u">条</span></div></div>

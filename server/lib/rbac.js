@@ -51,6 +51,7 @@ const PERMS = {
   "verify:conclude": ["finance"],
   "settle:create": ["finance"],
   "archive:write": ["assoc", "finance"],
+  "material:write": ["assoc", "exec", "finance"],
   "audit:read": ["assoc"],
   "export:any": ["assoc", "exec", "finance"],
   "user:manage": [],

@@ -1,4 +1,4 @@
-# 协会会议执行 ERP · 生产版代码 V1.0.4
+# 协会会议执行 ERP · 生产版代码 V1.0.5
 
 > 依据《协会会议执行 ERP 交付版整合包 V1.0.2 · 09_可点击演示版》研发的可运行工程。
 > 演示版验证的是「流程与交互是否成立」，本工程把它落成**真实后端 + 真实数据库 + 真实权限与门禁**。
@@ -197,7 +197,7 @@ erp-app/
 ## 6. 测试
 
 ```bash
-npm test        # 125 条：api 26 + edge 26 + matrix 11 + hardening 19 + abuse 28 + stateless 6 + demand 9
+npm test        # 130 条：api 26 + edge 26 + matrix 11 + hardening 19 + abuse 28 + stateless 6 + demand 9 + material 5
 ```
 
 | 文件 | 关注点 |
@@ -209,6 +209,7 @@ npm test        # 125 条：api 26 + edge 26 + matrix 11 + hardening 19 + abuse 
 | `test/abuse.test.js` | 滥用与越权：SQL 注入、IDOR、状态机全枚举、审批/付款/结算/归档幂等、金额与日期脏数据、多端会话、封账封存、导出范围一致性 |
 | `test/stateless.test.js` | 无状态会话兜底：模拟 Serverless「换实例」（清空 sessions 表），签名令牌仍可放行；伪造签名 / 篡改 uid / 过期 / 改密吊销 / 未知令牌均 401 |
 | `test/demand.test.js` | 会务需求模块：列表 / 种子+模板详情 / 整单替换 / 财务越权 403 / 非法枚举 400 / 确认+重置 / CSV 导出 BOM |
+| `test/material.test.js` | 材料写入权限：exec 可登记/删除材料但不可归档；assoc/finance 可写；guest 403 |
 
 浏览器层（Playwright + 本机 Chrome，需先起服务）：
 
@@ -225,7 +226,7 @@ ERP_PORT=8787 npm run test:ui    # 14 页冒烟 → 全链路 E2E → 11 项 UI 
 
 端到端（`test/ui/e2e.js`，需本机 Chrome）另跑通：立项 → 提交 → 审批 → 加成员 → 推进 →
 付款门禁提示 → 判定不通过 → 例外审批 → 核销通过 → 付款 → 结算 → 补 8 类材料 → 归档 → 导出下载，
-全程 0 控制台报错。当前实跑结果：接口 125/125、UI 冒烟 14/14、E2E 0 报错、UI 边界 11/11。
+全程 0 控制台报错。当前实跑结果：接口 130/130、UI 冒烟 14/14、E2E 0 报错、UI 边界 11/11。
 
 ---
 
@@ -309,6 +310,13 @@ Serverless 每个实例的 `/tmp` 独立，会话表只能在本实例查到。�
 ---
 
 ## 9. 变更记录
+
+### V1.0.5（修复会务执行人员无材料录入入口）
+| # | 问题 | 修复 |
+|---|---|---|
+| 1 | 会务执行人员进入「材料中心」看不到「+ 登记材料」，项目详情材料页签也没有录入入口，直接调接口返回 403 | 根因：材料增删与「项目归档」共用 `archive:write`，而该权限只给了 assoc / finance。拆出独立权限 `material:write`（assoc / exec / finance），材料增删改用它；`archive:write` 仅保留给归档动作 |
+| 2 | 前端入口判断同步 | `materials.js` 与 `project.js` 的材料增删按钮改为 `can("material:write")` |
+| 3 | 防回归 | 新增 `test/material.test.js`（5 条）：exec 可写材料、不可归档；assoc/finance 可写；guest 403；全量 125 → 130 条 |
 
 ### V1.0.4（新增「会务需求」模块）
 | # | 内容 | 说明 |

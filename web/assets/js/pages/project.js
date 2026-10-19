@@ -188,9 +188,9 @@ function tabMaterials(d, p) {
       <i>${ms.have.includes(k) ? "✅" : "⛔"}</i><b>${esc(k)}</b></span>`).join("")}</div>
     ${table([{ t: "类别", w: "110px" }, { t: "材料名称" }, { t: "版本", w: "60px" }, { t: "上传人", w: "80px" }, { t: "时间", w: "130px" }, { t: "操作", w: "60px" }],
       d.materials.map((m) => ({ c: [esc(m.kind), esc(m.name), esc(m.version || ""), esc(m.uploader || ""), `<span class="mono">${esc(m.created_at)}</span>`,
-        can("archive:write") && p.status !== "已归档" ? `<button class="link danger" data-del-mat="${m.id}">删除</button>` : "—"] })),
+        can("material:write") && p.status !== "已归档" ? `<button class="link danger" data-del-mat="${m.id}">删除</button>` : "—"] })),
       { empty: "暂无材料" })}`,
-    can("archive:write") && p.status !== "已归档" ? '<button class="btn btn-p btn-sm" id="addMat">+ 登记材料</button>' : "");
+    can("material:write") && p.status !== "已归档" ? '<button class="btn btn-p btn-sm" id="addMat">+ 登记材料</button>' : "");
 }
 
 /* ---------------- 成员 ---------------- */

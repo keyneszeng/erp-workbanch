@@ -142,7 +142,7 @@ function register(router) {
   router.post("/api/projects/:id/materials", async (ctx) => {
     const p = getProject(ctx.params.id);
     assertProjectVisible(ctx.user, p);
-    assertCan(ctx.user, "archive:write", "当前角色无材料登记权限");
+    assertCan(ctx.user, "material:write", "当前角色无材料登记权限");
     if (p.status === "已归档") throw conflict("项目已归档，材料清单已封存，不可再登记", "ARCHIVED", { status: p.status });
     const { kind, name, version } = ctx.body || {};
     if (!MATERIAL_KINDS.includes(kind)) throw bad(`材料类别必须是：${MATERIAL_KINDS.join(" / ")}`);
@@ -159,7 +159,7 @@ function register(router) {
     if (!m) throw notFound("材料不存在");
     const p = getProject(m.pid);
     assertProjectVisible(ctx.user, p);
-    assertCan(ctx.user, "archive:write", "当前角色无材料删除权限");
+    assertCan(ctx.user, "material:write", "当前角色无材料删除权限");
     if (p.status === "已归档") throw conflict("已归档项目材料不可删除");
     db.prepare("DELETE FROM materials WHERE id = ?").run(m.id);
     logAudit({ user: ctx.user, module: "材料中心", action: "删除", target: p.id, detail: `删除 ${m.kind}：${m.name}`, ip: ctx.ip });

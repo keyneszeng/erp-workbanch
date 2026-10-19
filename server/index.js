@@ -93,7 +93,7 @@ function startLocalServer() {
   server.listen(PORT, HOST, () => {
     const line = [
       "",
-      "  协会会议执行 ERP  ·  v1.0.4",
+      "  协会会议执行 ERP  ·  v1.0.5",
       `  服务地址   http://${HOST}:${PORT}`,
       `  数据库     ${DB_FILE}`,
       `  种子数据   ${seeded.skipped ? "已存在，跳过" : `已初始化（${seeded.projects} 个项目 / ${seeded.users} 个账号）`}`,
