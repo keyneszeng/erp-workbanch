@@ -236,7 +236,7 @@ function register(router) {
     if (b.password) {
       if (String(b.password).length < 6) throw bad("密码至少 6 位");
       const { salt, hash } = hashPassword(b.password);
-      db.prepare("UPDATE users SET pass_salt = ?, pass_hash = ? WHERE id = ?").run(salt, hash, u.id);
+      db.prepare("UPDATE users SET pass_salt = ?, pass_hash = ?, token_ver = token_ver + 1 WHERE id = ?").run(salt, hash, u.id);
       // 改密后立即吊销该账号的其它会话（保留操作者自己的当前会话，避免把自己踢下线）
       const killed = db.prepare("DELETE FROM sessions WHERE user_id = ? AND token <> ?").run(u.id, ctx.token || "");
       logAudit({

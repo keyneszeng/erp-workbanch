@@ -11,7 +11,7 @@
     "start": "node --experimental-sqlite server/index.js",
     "dev": "node --experimental-sqlite --watch server/index.js",
     "seed": "node --experimental-sqlite server/scripts/seed.js --reset",
-    "test": "node --experimental-sqlite --test test/api.test.js test/edge.test.js test/matrix.test.js test/hardening.test.js test/abuse.test.js",
+    "test": "node --experimental-sqlite --test test/api.test.js test/edge.test.js test/matrix.test.js test/hardening.test.js test/abuse.test.js test/stateless.test.js",
     "test:ui": "node test/ui/smoke.js && node test/ui/e2e.js && node test/ui/edge.js"
   },
   "dependencies": {},

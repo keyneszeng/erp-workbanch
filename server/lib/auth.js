@@ -6,6 +6,46 @@ const { now, randToken } = require("./util");
 const SESSION_TTL_MS = 12 * 60 * 60 * 1000; // 12 小时
 const COOKIE = "erp_sid";
 
+/**
+ * 会话令牌采用「签名令牌 + 会话表」双轨：
+ * - 会话表用于本实例的审计与主动登出；
+ * - 签名令牌保证跨实例可用（Serverless 每个实例的 /tmp 各自独立，
+ *   只靠会话表会导致换实例后全体 401）。
+ * 吊销：users.token_ver + 1，令牌里的 ver 对不上即失效。
+ */
+const SECRET = process.env.ERP_SECRET || "erp-workbanch-demo-secret-v1";
+
+/**
+ * 跨实例兜底开关：
+ * - 本地 / 单机部署（默认关闭）：严格以 sessions 表为准，登出、过期立即失效；
+ * - Serverless（api/index.js 置 1）：会话表只在本实例有效，必须靠签名令牌兜底，
+ *   否则实例一换就全体 401。代价是登出只在签发实例生效（前端会同步清 Cookie）。
+ */
+const STATELESS_FALLBACK = process.env.ERP_SESSION_FALLBACK === "1";
+
+function signToken(uid, exp, ver) {
+  return crypto
+    .createHmac("sha256", SECRET)
+    .update(`${uid}.${exp}.${ver}`)
+    .digest("base64url")
+    .slice(0, 32);
+}
+
+function parseToken(token) {
+  const parts = String(token || "").split(".");
+  if (parts.length !== 5 || parts[0] !== "v1") return null;
+  const uid = Number(parts[1]);
+  const exp = Number(parts[2]);
+  const ver = Number(parts[3]);
+  if (!Number.isInteger(uid) || !Number.isInteger(exp) || !Number.isInteger(ver)) return null;
+  if (exp <= Date.now()) return null;
+  const want = signToken(uid, exp, ver);
+  const got = parts[4];
+  if (want.length !== got.length) return null;
+  if (!crypto.timingSafeEqual(Buffer.from(want), Buffer.from(got))) return null;
+  return { uid, exp, ver };
+}
+
 function hashPassword(password, salt = randToken(16)) {
   const hash = crypto.scryptSync(String(password), salt, 64).toString("hex");
   return { salt, hash };
@@ -19,9 +59,11 @@ function verifyPassword(password, salt, hash) {
 }
 
 function createSession(userId, ip) {
-  const token = randToken(32);
   const created = new Date();
   const expires = new Date(created.getTime() + SESSION_TTL_MS);
+  const ver = db.prepare("SELECT token_ver FROM users WHERE id = ?").get(userId)?.token_ver ?? 0;
+  const exp = expires.getTime();
+  const token = `v1.${userId}.${exp}.${ver}.${signToken(userId, exp, ver)}`;
   db.prepare("INSERT INTO sessions (token, user_id, created_at, expires_at, ip) VALUES (?,?,?,?,?)").run(
     token, userId, now(created), expires.toISOString(), ip || ""
   );
@@ -40,7 +82,15 @@ function userByToken(token) {
        WHERE s.token = ? AND s.expires_at > ? AND u.active = 1`
     )
     .get(token, new Date().toISOString());
-  return row || null;
+  if (row) return row;
+
+  // 跨实例兜底：本实例会话表没有这条记录（另一个实例签发的），改用签名校验
+  if (!STATELESS_FALLBACK) return null;
+  const p = parseToken(token);
+  if (!p) return null;
+  return db
+    .prepare("SELECT * FROM users WHERE id = ? AND active = 1 AND token_ver = ?")
+    .get(p.uid, p.ver) || null;
 }
 
 function publicUser(u) {

@@ -192,7 +192,7 @@ erp-app/
 ## 6. 测试
 
 ```bash
-npm test        # 110 条：api 26 + edge 26 + matrix 11 + hardening 19 + abuse 28
+npm test        # 116 条：api 26 + edge 26 + matrix 11 + hardening 19 + abuse 28 + stateless 6
 ```
 
 | 文件 | 关注点 |
@@ -202,6 +202,7 @@ npm test        # 110 条：api 26 + edge 26 + matrix 11 + hardening 19 + abuse 
 | `test/matrix.test.js` | 角色 × 接口矩阵（5×11 无 500）、并发建单不重号、变更审批、非法流转动作、导出列完整性 |
 | `test/hardening.test.js` | 加固：路径穿越多形态、HEAD/畸形 JSON、请求体 413、字段长度、会话生命周期、CSV 转义与公式注入、超预算、并发状态机幂等 |
 | `test/abuse.test.js` | 滥用与越权：SQL 注入、IDOR、状态机全枚举、审批/付款/结算/归档幂等、金额与日期脏数据、多端会话、封账封存、导出范围一致性 |
+| `test/stateless.test.js` | 无状态会话兜底：模拟 Serverless「换实例」（清空 sessions 表），签名令牌仍可放行；伪造签名 / 篡改 uid / 过期 / 改密吊销 / 未知令牌均 401 |
 
 浏览器层（Playwright + 本机 Chrome，需先起服务）：
 
@@ -218,7 +219,7 @@ ERP_PORT=8787 npm run test:ui    # 13 页冒烟 → 全链路 E2E → 11 项 UI 
 
 端到端（`test/ui/e2e.js`，需本机 Chrome）另跑通：立项 → 提交 → 审批 → 加成员 → 推进 →
 付款门禁提示 → 判定不通过 → 例外审批 → 核销通过 → 付款 → 结算 → 补 8 类材料 → 归档 → 导出下载，
-全程 0 控制台报错。当前实跑结果：接口 110/110、UI 冒烟 13/13、E2E 0 报错、UI 边界 11/11。
+全程 0 控制台报错。当前实跑结果：接口 116/116、UI 冒烟 13/13、E2E 0 报错、UI 边界 11/11。
 
 ---
 
@@ -283,6 +284,22 @@ Serverless 实例的 `/tmp` 是**实例本地**的，所以：
 
 在完成上述改造前，生产环境请用本机/服务器部署（第 2 节），SQLite 落在磁盘上是持久的。
 
+### 8.4 会话如何跨实例（Vercel 上为什么不会一换实例就被踢下线）
+
+Serverless 每个实例的 `/tmp` 独立，会话表只能在本实例查到。若只靠会话表，请求落到新实例
+（`/tmp` 是空的全新库）就会全体 `401`。实测：40 个并发请求有 23 个 `401`，之后顺序请求也全部 `401`。
+
+本项目的解法（见 `server/lib/auth.js`）：
+
+- 登录令牌自带 **HMAC-SHA256 签名**：`v1.<uid>.<exp>.<ver>.<sig>`，`sig` 对所有字段签名。
+- `ERP_SESSION_FALLBACK=1`（仅 Vercel 环境由 `api/index.js` 自动设置）时，本实例查不到会话表就改走签名校验，
+  换实例仍能识别用户。
+- 本地 / 测试环境**默认关闭**兜底，严格以 `sessions` 表为准，登出、过期立即失效——所以测试仍能覆盖这些安全用例。
+- 令牌里的 `ver` 绑定 `users.token_ver`：改密时 `token_ver += 1`，旧令牌即使换实例也立刻失效（吊销语义跨实例成立）。
+
+安全权衡：开启兜底后，**登出只在签发实例生效**（其它实例的旧令牌在 12 小时有效期内仍可用，
+但前端会同步清掉 Cookie）。演示场景可接受；要彻底解决请上共享数据库（第 8.3 节）。
+
 ---
 
 ## 9. 变更记录
@@ -294,6 +311,8 @@ Serverless 实例的 `/tmp` 是**实例本地**的，所以：
 | 2 | 静态资源每个都触发一次 Function 冷启动 | rewrite 收窄为只代理 `/api/*` |
 | 3 | `includeFiles` 写成数组导致构建直接失败 | 改回字符串 `"server/**"` |
 | 4 | `favicon.ico` 404 | 内联 SVG data URI 图标 |
+| 5 | Vercel Serverless 多实例各自 `/tmp`，请求落到新实例后 `sessions` 表查不到，全体 401（实测 40 并发 23 个失败，之后全 401） | 登录令牌改为 HMAC 签名（`v1.<uid>.<exp>.<ver>.<sig>`），仅 Vercel 开 `ERP_SESSION_FALLBACK`；本地/测试仍严格以 `sessions` 表为准 |
+| 6 | 仅靠会话表无法在 Serverless 上吊销令牌 | `users.token_ver` 递增并写入签名，改密后旧令牌即使换实例也失效 |
 
 ### V1.0.2（深度加固 · 测试 63 → 110 条）
 | # | 问题 | 修复 |

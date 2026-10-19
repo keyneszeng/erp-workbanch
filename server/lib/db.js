@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS users (
   pass_salt   TEXT NOT NULL,
   pass_hash   TEXT NOT NULL,
   active      INTEGER NOT NULL DEFAULT 1,
+  token_ver   INTEGER NOT NULL DEFAULT 0,
   created_at  TEXT NOT NULL
 );
 
@@ -225,6 +226,11 @@ CREATE TABLE IF NOT EXISTS settings (
 
 function migrate() {
   db.exec(SCHEMA);
+  // 兼容旧库：users.token_ver 是 V1.0.3 新增列（用于跨实例吊销签名令牌）
+  const cols = db.prepare("PRAGMA table_info(users)").all().map((c) => c.name);
+  if (!cols.includes("token_ver")) {
+    db.exec("ALTER TABLE users ADD COLUMN token_ver INTEGER NOT NULL DEFAULT 0");
+  }
 }
 
 module.exports = { db, migrate, DB_FILE, DATA_DIR };
