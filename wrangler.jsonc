@@ -3,6 +3,12 @@
   "name": "erp-workbanch",
   "main": "worker/index.mjs",
   "compatibility_date": "2026-08-04",
+  "routes": [
+    {
+      "pattern": "erp.aibuild.work",
+      "custom_domain": true
+    }
+  ],
   "assets": {
     "directory": "./web",
     "binding": "ASSETS",
