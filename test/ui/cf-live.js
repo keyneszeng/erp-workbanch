@@ -5,7 +5,7 @@
  */
 const { chromium } = require("playwright");
 
-const BASE = process.env.ERP_BASE || "https://erp-workbanch.keyneszeng.workers.dev";
+const BASE = process.env.ERP_BASE || "https://erp.aibuild.work";
 const shots = [];
 
 async function main() {
