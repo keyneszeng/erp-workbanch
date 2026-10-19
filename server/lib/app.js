@@ -22,9 +22,17 @@ const PUBLIC = new Set(["/api/auth/login", "/api/health", "/api/auth/me"]);
 
 function buildRouter() {
   const router = new Router();
-  for (const mod of ["./../api/auth", "./../api/projects", "./../api/verify", "./../api/finance", "./../api/system", "./../api/demand"]) {
-    require(mod).register(router);
-  }
+  // 必须写成静态 require：动态拼接路径（require(mod)）在 ESM 产物里会变成
+  // "Dynamic require is not supported"，Worker 启动即失败。
+  const modules = [
+    require("../api/auth"),
+    require("../api/projects"),
+    require("../api/verify"),
+    require("../api/finance"),
+    require("../api/system"),
+    require("../api/demand")
+  ];
+  for (const mod of modules) mod.register(router);
   return router;
 }
 
