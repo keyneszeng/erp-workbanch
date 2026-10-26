@@ -29,13 +29,21 @@ async function main() {
   shots.push("/tmp/cf-01-login.png");
 
   // 2. 登录
+  // ⚠️ 线上网络慢时 boot() 里的 /api/auth/me 可能晚于填表返回，把登录页重新渲染一遍清空输入。
+  //    所以先等表单稳定，填完再确认值确实进去了，不行就重填一次。
   const inputs = await page.$$("input");
   check("登录表单存在", inputs.length >= 2, `${inputs.length} 个输入框`);
-  await inputs[0].fill("admin");
-  const pw = await page.$('input[type="password"]');
-  await (pw || inputs[1]).fill("123456");
-  await page.click("button");
-  await page.waitForTimeout(2500);
+  await page.waitForTimeout(800);
+  for (let i = 0; i < 3; i++) {
+    await page.fill('input[name="username"]', "admin");
+    await page.fill('input[name="password"]', "123456");
+    const u = await page.inputValue('input[name="username"]');
+    const p = await page.inputValue('input[name="password"]');
+    if (u === "admin" && p === "123456") break;
+    await page.waitForTimeout(500);
+  }
+  await page.click("#lbtn");
+  await page.waitForTimeout(3000);
 
   const bodyText = await page.textContent("body");
   check("登录后进入系统", !/请输入账号与密码|账号或密码错误/.test(bodyText), "");
