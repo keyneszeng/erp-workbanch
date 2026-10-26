@@ -115,10 +115,10 @@ function dashboard(user) {
   // 而数据范围条件用的是 p. —— SQLite 把 p 当成外层引用，条件恒真，
   // 于是协会管理员看到的是全平台已付款（实测 ¥698,600 vs 本协会 ¥364,000）。
   const budget = Number(db.prepare(
-    `SELECT COALESCE(SUM(p.budget),0) AS v FROM projects p WHERE ${sql}`
+    `SELECT COALESCE(ROUND(SUM(p.budget),2),0) AS v FROM projects p WHERE ${sql}`
   ).get(...params).v) || 0;
   const paid = Number(db.prepare(
-    `SELECT COALESCE(SUM(y.amount),0) AS v FROM payments y JOIN projects p ON p.id = y.pid
+    `SELECT COALESCE(ROUND(SUM(y.amount),2),0) AS v FROM payments y JOIN projects p ON p.id = y.pid
      WHERE y.status = '已付款' AND ${sql}`
   ).get(...params).v) || 0;
 

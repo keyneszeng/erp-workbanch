@@ -42,6 +42,30 @@ function money(n) {
   return Number(n || 0).toLocaleString("zh-CN");
 }
 
+/**
+ * 金额定点：一律换算成「分」再运算。
+ *
+ * 金额入库是 REAL（两位小数），但浮点加法会留下尾巴：
+ *   1234.56 + 2345.67 = 3580.2300000000005
+ *   140000 - 135580.6 = 4419.399999999994
+ * 后果不是「显示难看」这么轻：
+ *   1. 结算单 profit 直接带着 12 位小数入库，导出 CSV 就是 4419.399999999994；
+ *   2. 预算门禁 `已占用 + 本笔 > 预算` 会把「正好用尽」判成超预算，
+ *      实测预算 5389.78、已用 2789.69、本笔 2600.09 被拒，超预算 ¥0.0000000000000009；
+ *   3. 预算下调到「刚好等于已占用」也被拒（3580.23 < 3580.2300000000005）。
+ * 所有金额的比较与汇总都过一遍 cents()，展示与入库走 yuan()。
+ */
+function cents(n) {
+  const v = Number(n);
+  if (!Number.isFinite(v)) return 0;
+  return Math.round(v * 100);
+}
+
+/** 把任意金额收敛到「分」，返回两位小数以内的数值 */
+function yuan(n) {
+  return cents(n) / 100;
+}
+
 /** CSV 单元格：双引号转义 + 公式注入中和（= + - @ 制表符 回车 开头加 ' 前缀） */
 function csvCell(v) {
   let s = String(v ?? "");
@@ -69,4 +93,4 @@ const forbidden = (msg = "当前角色无权执行该操作", code = "FORBIDDEN"
 const notFound = (msg = "对象不存在", code = "NOT_FOUND") => new HttpError(404, code, msg);
 const conflict = (msg, code = "CONFLICT", extra) => new HttpError(409, code, msg, extra);
 
-module.exports = { now, today, nowIso, nextId, randToken, money, toCsv, csvCell, HttpError, bad, forbidden, notFound, conflict, pad };
+module.exports = { now, today, nowIso, nextId, randToken, money, cents, yuan, toCsv, csvCell, HttpError, bad, forbidden, notFound, conflict, pad };

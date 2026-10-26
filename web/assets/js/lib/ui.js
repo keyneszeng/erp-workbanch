@@ -13,7 +13,8 @@ const STATUS_CLS = {
   "待审批(付款)": "b-orange", "已审批": "b-blue", "已付款": "b-green", "已驳回": "b-red",
   "待邀请": "b-gray", "待确认": "b-orange", "已确认": "b-green", "已通过": "b-green",
   "待开始": "b-gray", "进行中": "b-blue", "已完成": "b-green", "处理中": "b-orange", "已解决": "b-green",
-  "已签署": "b-green", "待签署": "b-orange", "已生成": "b-green", "已启用": "b-green", "已停用": "b-gray"
+  "已签署": "b-green", "待签署": "b-orange", "已生成": "b-green", "已启用": "b-green", "已停用": "b-gray",
+  "已撤销": "b-gray"
 };
 
 export const badge = (s) => `<span class="badge ${STATUS_CLS[s] || "b-blue"}">${esc(s)}</span>`;

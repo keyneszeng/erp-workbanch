@@ -13,7 +13,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { DatabaseSync } = require("node:sqlite");
 
-const PORT = 8803;
+const PORT = 8817; // 8803 被 abuse.test.js 占用，node --test 并行跑会 EADDRINUSE
 const BASE = `http://127.0.0.1:${PORT}`;
 const DB = path.join(__dirname, "..", "data", "stateless.db");
 let proc;

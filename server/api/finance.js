@@ -1,6 +1,6 @@
 "use strict";
 const { db } = require("../lib/db");
-const { now, nextId, bad, notFound, conflict, forbidden } = require("../lib/util");
+const { now, nextId, bad, notFound, conflict, forbidden, cents, yuan } = require("../lib/util");
 const { assertCan, assertProjectVisible, scopeFilter, can, isSuper } = require("../lib/rbac");
 const { logAudit } = require("../lib/audit");
 const { getProject, verification, committed } = require("../lib/workflow");
@@ -145,15 +145,16 @@ function register(router) {
     }
 
     // 汇总必须独立聚合：拿当前页的 rows 去 reduce，分页后金额就只剩一页的数
+    // 金额一律 ROUND(...,2)，否则合计会带 3580.2300000000005 这种浮点尾巴
     const agg = db.prepare(
       `SELECT COUNT(*) AS n,
-              COALESCE(SUM(y.amount),0) AS s,
+              COALESCE(ROUND(SUM(y.amount),2),0) AS s,
               COALESCE(SUM(CASE WHEN y.status = '待审批' THEN 1 ELSE 0 END),0) AS n_pending,
               COALESCE(SUM(CASE WHEN y.status = '已审批' THEN 1 ELSE 0 END),0) AS n_approved,
               COALESCE(SUM(CASE WHEN y.status = '已付款' THEN 1 ELSE 0 END),0) AS n_paid,
-              COALESCE(SUM(CASE WHEN y.status = '待审批' THEN y.amount ELSE 0 END),0) AS a_pending,
-              COALESCE(SUM(CASE WHEN y.status = '已审批' THEN y.amount ELSE 0 END),0) AS a_approved,
-              COALESCE(SUM(CASE WHEN y.status = '已付款' THEN y.amount ELSE 0 END),0) AS a_paid
+              COALESCE(ROUND(SUM(CASE WHEN y.status = '待审批' THEN y.amount ELSE 0 END),2),0) AS a_pending,
+              COALESCE(ROUND(SUM(CASE WHEN y.status = '已审批' THEN y.amount ELSE 0 END),2),0) AS a_approved,
+              COALESCE(ROUND(SUM(CASE WHEN y.status = '已付款' THEN y.amount ELSE 0 END),2),0) AS a_paid
        ${base}`
     ).get(...args);
 
@@ -209,16 +210,20 @@ function register(router) {
       );
     }
     // 超预算硬门禁：总管理员可显式 force 特批
+    // 比较走「分」，否则 2789.69 + 2600.09 = 5389.780000000001 > 预算 5389.78，
+    // 明明正好用尽却报「超预算 ¥0.0000000000000009」。
     const used = committed(p.id);
-    const budget = Number(p.budget) || 0;
+    const budget = yuan(p.budget);
     const force = !!b.force && isSuper(ctx.user);
-    if (!force && used + amount > budget) {
+    const overCents = cents(used) + cents(amount) - cents(budget);
+    if (!force && overCents > 0) {
+      const over = overCents / 100;
       throw conflict(
         `付款被拦截：项目预算 ¥${budget.toLocaleString("zh-CN")}，已占用 ¥${used.toLocaleString("zh-CN")}，` +
-        `本笔 ¥${amount.toLocaleString("zh-CN")} 将超预算 ¥${(used + amount - budget).toLocaleString("zh-CN")}；` +
+        `本笔 ¥${amount.toLocaleString("zh-CN")} 将超预算 ¥${over.toLocaleString("zh-CN")}；` +
         `如需特批请由总管理员携带 force 标记提交`,
         "OVER_BUDGET",
-        { budget, used, amount, over: used + amount - budget }
+        { budget, used, amount, over }
       );
     }
     const at = now();

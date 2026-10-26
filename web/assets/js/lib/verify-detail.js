@@ -14,6 +14,14 @@ import { badge, esc, modal, money, table } from "./ui.js";
 const fmt = (n) => `¥${money(Number(n) || 0)}`;
 const dt = (s) => String(s || "").slice(0, 16).replace("T", " ");
 
+/**
+ * 金额比较一律换算成「分」。
+ * 合同总额与已付款都是两位小数，但浮点相加会留尾巴，
+ * 用 diff !== 0 判断「有差额」会把 0.0000000000000009 当成真的差钱。
+ */
+const cents = (n) => Math.round((Number(n) || 0) * 100);
+const round2 = (n) => cents(n) / 100;
+
 /** 议程要点按 / 、；换行 拆成环节 */
 function agendaItems(p) {
   return String(p.agenda || "")
@@ -96,7 +104,7 @@ export function stepBody(d, no) {
     const byType = {};
     for (const y of d.payments || []) {
       if (y.status === "已驳回") continue;
-      byType[y.type] = (byType[y.type] || 0) + Number(y.amount);
+      byType[y.type] = round2((byType[y.type] || 0) + Number(y.amount));
     }
     return `
       <div class="dsec"><h4>费用构成（按付款类型，不含已驳回）</h4>
@@ -146,21 +154,22 @@ export function stepBody(d, no) {
   if (no === 6) {
     const inv = matsOf(d, "发票");
     const contracts = d.contracts || [];
-    const contractTotal = contracts.reduce((s, c) => s + Number(c.amount), 0);
-    const paid = Number(d.paidTotal) || 0;
-    const diff = contractTotal - paid;
+    const contractTotal = round2(contracts.reduce((s, c) => s + Number(c.amount), 0));
+    const paid = round2(d.paidTotal);
+    const diff = round2(contractTotal - paid);
+    const hasDiff = cents(contractTotal) !== cents(paid);
     return `
       <div class="dsec"><h4>三方金额对照</h4>
         <div class="dgrid">
           ${cell("合同总额", fmt(contractTotal), contracts.length === 0)}
           ${cell("已付款合计", fmt(paid))}
-          ${cell("差额（合同 − 已付）", fmt(diff), diff !== 0)}
+          ${cell("差额（合同 − 已付）", fmt(diff), hasDiff)}
         </div>
       </div>
       <div class="dsec"><h4>发票材料（${inv.length} 份）</h4>${matList(inv, "尚未登记「发票」材料")}</div>
       <div class="dchk">核对要点：<b>发票金额 = 合同金额 = 付款金额</b>。
         合同 ${contracts.length} 份合计 ${fmt(contractTotal)}，已付款 ${fmt(paid)}。
-        ${diff !== 0
+        ${hasDiff
           ? `两者相差 <b>${fmt(diff)}</b> —— 若差额有正当理由（分期付款 / 部分结算 / 尾款未付），需在备注里写清楚。`
           : "两者一致。"}</div>`;
   }

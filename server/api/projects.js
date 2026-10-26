@@ -1,6 +1,6 @@
 "use strict";
 const { db } = require("../lib/db");
-const { now, nextId, bad, notFound, conflict, forbidden } = require("../lib/util");
+const { now, nextId, bad, notFound, conflict, forbidden, cents, yuan } = require("../lib/util");
 const { assertCan, assertProjectVisible, can, isSuper, scopeFilter, ROLES } = require("../lib/rbac");
 const { logAudit } = require("../lib/audit");
 const { getProject, verification, materialsStatus, settlementOf, assertNotFrozen, committed, availableActions, transition } = require("../lib/workflow");
@@ -88,7 +88,7 @@ function listProjects(user, { status, q, assoc, stage, page, size } = {}) {
   if (!paging) {
     return db.prepare(
       `SELECT p.*, (SELECT COUNT(*) FROM payments y WHERE y.pid = p.id) AS pay_cnt,
-              (SELECT COALESCE(SUM(y.amount),0) FROM payments y WHERE y.pid = p.id AND y.status='已付款') AS paid_amt,
+              (SELECT COALESCE(ROUND(SUM(y.amount),2),0) FROM payments y WHERE y.pid = p.id AND y.status='已付款') AS paid_amt,
               (SELECT COUNT(*) FROM verify_steps v WHERE v.pid = p.id AND v.result IN ('通过','已解例外')) AS v_passed,
               (SELECT COUNT(*) FROM exceptions e WHERE e.pid = p.id AND e.status='待审批') AS ex_open,
               (SELECT id FROM settlements s WHERE s.pid = p.id) AS st_id
@@ -101,12 +101,12 @@ function listProjects(user, { status, q, assoc, stage, page, size } = {}) {
   // 预算 / 已付款的全量汇总：分页后前端只拿得到一页，合计必须由后端给
   const agg = db.prepare(
     `SELECT COALESCE(SUM(p.budget),0) AS budget,
-            COALESCE(SUM((SELECT COALESCE(SUM(y.amount),0) FROM payments y WHERE y.pid = p.id AND y.status='已付款')),0) AS paid
+            COALESCE(ROUND(SUM((SELECT COALESCE(SUM(y.amount),0) FROM payments y WHERE y.pid = p.id AND y.status='已付款')),2),0) AS paid
      FROM projects p WHERE ${whereSql}`
   ).get(...args);
   const rows = db.prepare(
     `SELECT p.*, (SELECT COUNT(*) FROM payments y WHERE y.pid = p.id) AS pay_cnt,
-            (SELECT COALESCE(SUM(y.amount),0) FROM payments y WHERE y.pid = p.id AND y.status='已付款') AS paid_amt,
+            (SELECT COALESCE(ROUND(SUM(y.amount),2),0) FROM payments y WHERE y.pid = p.id AND y.status='已付款') AS paid_amt,
             (SELECT COUNT(*) FROM verify_steps v WHERE v.pid = p.id AND v.result IN ('通过','已解例外')) AS v_passed,
             (SELECT COUNT(*) FROM exceptions e WHERE e.pid = p.id AND e.status='待审批') AS ex_open,
             (SELECT id FROM settlements s WHERE s.pid = p.id) AS st_id
@@ -237,9 +237,10 @@ function register(router) {
     // 结算单 income 取 projects.budget、expense 取已付款，income < expense 就是负结余。
     // 上调不拦（只会更宽松），只有下调且低于已占用才卡；超管可 force 纠错。
     if ("budget" in patch) {
-      const next = Number(patch.budget);
+      const next = yuan(patch.budget);
       const used = committed(p.id);
-      if (next < used) {
+      // 比较走「分」：3580.23 与 3580.2300000000005 在浮点里是「小于」，会误判成下调过低
+      if (cents(next) < cents(used)) {
         if (!(b.force && isSuper(ctx.user))) {
           throw conflict(
             `新预算 ¥${next.toLocaleString("zh-CN")} 低于该项目已占用金额 ¥${used.toLocaleString("zh-CN")}` +

@@ -434,6 +434,26 @@ function migrate() {
   } catch {
     /* 索引已存在 */
   }
+
+  // V1.2.6：结算单金额定点自愈
+  // 旧版本 profit 是 `income - expense` 直接算的，浮点会留下尾巴
+  // （140000 - 135580.6 = 4419.399999999994），已经入库的老数据不会自己变干净，
+  // 导出 CSV 就是这一串小数。这里收敛到「分」，幂等，跑多少次结果一样。
+  // 注意是 ROUND(income - expense, 2)，不是 ROUND(income,2) - ROUND(expense,2) ——
+  // 后者相减又会把尾巴带回来。
+  try {
+    db.exec(
+      `UPDATE settlements
+          SET income = ROUND(income, 2),
+              expense = ROUND(expense, 2),
+              profit = ROUND(income - expense, 2)
+        WHERE profit <> ROUND(income - expense, 2)
+           OR income <> ROUND(income, 2)
+           OR expense <> ROUND(expense, 2)`
+    );
+  } catch {
+    /* 旧库没有 settlements 表，忽略 */
+  }
 }
 
 module.exports = {

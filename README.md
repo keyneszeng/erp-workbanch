@@ -1,4 +1,4 @@
-# 协会会议执行 ERP · 生产版代码 V1.2.5
+# 协会会议执行 ERP · 生产版代码 V1.2.6
 
 > 依据《协会会议执行 ERP 交付版整合包 V1.0.2 · 09_可点击演示版》研发的可运行工程。
 > 演示版验证的是「流程与交互是否成立」，本工程把它落成**真实后端 + 真实数据库 + 真实权限与门禁**。
@@ -34,8 +34,8 @@ npm start            # 等价于 node --experimental-sqlite server/index.js
 
 ```bash
 npm run seed         # 重置数据库并重建种子数据
-npm test             # 248 条接口回归测试（每文件自起服务 + 独立库，不影响主库）
-npm run test:cf      # 同一批 248 条，跑在「Durable Object SQL」后端语义下
+npm test             # 255 条接口回归测试（每文件自起服务 + 独立库，不影响主库）
+npm run test:cf      # 同一批 255 条，跑在「Durable Object SQL」后端语义下
 ERP_PORT=9000 npm start
 ERP_DB=/path/to/erp.db npm start
 ```
@@ -87,7 +87,7 @@ wrangler r2 bucket create erp-workbanch-files
 ### 本地为什么不能预览
 
 `wrangler dev` 依赖 workerd，要求 **macOS 13.5+**；本机是 12.7.6，起不来。
-所以本地用 `npm run test:cf` 把同一批 248 条测试跑在「模拟的 DO SQL 后端」上
+所以本地用 `npm run test:cf` 把同一批 255 条测试跑在「模拟的 DO SQL 后端」上
 （`test/lib/do-sqlite-mock.js`），确认 SQL 语义一致后再部署。
 
 ### 已知限制
@@ -260,7 +260,7 @@ erp-app/
 ## 6. 测试
 
 ```bash
-npm test        # 246 条：api 26 + edge 26 + matrix 11 + hardening 19 + abuse 28 + stateless 6 + demand 9 + material 5 + password 6 + paging 8 + upload 11 + storage 4 + contract-file 9 + freeze 9 + id-sequence 7 + business-rules 47 + workflow-chain 12 + todo-flag 5
+npm test        # 255 条：api 26 + edge 26 + matrix 11 + hardening 19 + abuse 28 + stateless 6 + demand 9 + material 5 + password 6 + paging 8 + upload 11 + storage 4 + contract-file 9 + freeze 9 + id-sequence 7 + business-rules 47 + workflow-chain 12 + todo-flag 5 + money-precision 7
 ```
 
 | 文件 | 关注点 |
@@ -381,6 +381,52 @@ Serverless 每个实例的 `/tmp` 独立，会话表只能在本实例查到。�
 ---
 
 ## 9. 变更记录
+
+### V1.2.6（金额定点 · 例外单联动 · 分页与并发复查）
+
+第六轮换的三个靶子：**分页稳定性**、**金额精度**、**并发写入**。
+分页和并发没找到真缺陷（跨页不重不漏、12 路并发建单号唯一、同一付款 8 路并发只成功 1 次、
+同发票号并发只成功 1 次、6 路并发结算只生成 1 张结算单），但金额和例外单各挖出一组。
+
+**A. 金额浮点尾巴（4 处，全是「数算得出来但算错了」）**
+
+金额入库是 REAL，两位小数，但浮点运算会留尾巴。以前只是在个别地方 `toLocaleString` 挡了一下，
+数据本身是脏的，导出 CSV 直接暴露：
+
+| 症状 | 实测 |
+|---|---|
+| 结算单 `profit` 带 12 位小数 | `96000 - 71444.44 = 24555.559999999998`；`140000 - 135580.6 = 4419.399999999994` |
+| 预算门禁把「正好用尽」判成超预算 | 预算 5389.78、已用 2789.69、本笔 2600.09 → 拒绝，提示「将超预算 **¥0**」 |
+| 预算下调到「刚好等于已占用」被拒 | `3580.23 < 3580.2300000000005` 成立 |
+| 各列表 / 工作台 / 导出的金额合计带尾巴 | `SUM(amount)` 出来的 `3580.2300000000005` 直接进接口 |
+
+改法：`server/lib/util.js` 新增 `cents()` / `yuan()`，**所有金额比较一律换算成「分」**，
+所有 `SUM` 加 `ROUND(..., 2)`，结算单三个字段入库前收敛。
+`db.js` 加了一段**幂等自愈**：旧库里已经写脏的 `settlements` 行，启动时一次性收敛到「分」
+（注意是 `ROUND(income - expense, 2)`，不是 `ROUND(income,2) - ROUND(expense,2)` —— 后者相减又把尾巴带回来）。
+前端核销详情第 6 步的「差额」高亮也从 `diff !== 0` 改成按分比较，否则 0.0000000000000009 也会亮红。
+
+**B. 例外单与改判脱节（2 处，会让核销永远过不去）**
+
+1. 同一步连点两次「不通过」→ 生成两张例外单（实测 `EX-2026-019` + `EX-2026-020`），
+   审批中心挂两张同一问题的单子。现在同一步已有待审批例外单时**沿用**，只更新问题描述。
+2. 判「不通过」后又改判「通过」→ 旧例外单仍是「待审批」，`openExceptions` 永远 > 0，
+   `verification.complete` 永远为 false，**核销通过被拦「存在 N 张未审批的例外单」**。
+   判定人自己解不开，只能去求财务批一张「问题已经不存在」的例外单。
+   现在改判通过会**自动撤销**该步待审批的例外单（状态 `已撤销`），
+   对应审批单同步关掉，并写一条 `例外单撤销` 审计留痕。
+
+**C. 测试端口冲突（潜伏的随机失败）**
+
+`abuse.test.js` 与 `stateless.test.js` 都用 8803 端口、但各用各的库。
+`node --test` 默认并行跑文件，谁先绑上谁赢，另一个 EADDRINUSE 或**打到别人的库上**。
+后者更糟 —— 报错会指向完全无关的用例。`stateless` 挪到 8817。
+
+**新增测试**
+
+- `test/money-precision.test.js` **7 条**：预算正好用尽、`profit` 落在分位、导出 CSV 无长小数、
+  预算下调到刚好、重复不通过只开一张单、改判通过自动撤销、已撤销单不可再审批
+- 全量 248 → **255**，Node 与 DO SQL 语义双跑 255/255
 
 ### V1.2.5（核销 6 步加「详情」· 判定前必须看得到原始数据）
 

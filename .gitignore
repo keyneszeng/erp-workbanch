@@ -3,6 +3,7 @@ data/*.db-wal
 data/*.db-shm
 data/uploads/
 data/*-uploads/
+data/ui-up/
 node_modules/
 .DS_Store
 *.log

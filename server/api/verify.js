@@ -1,6 +1,6 @@
 "use strict";
 const { db } = require("../lib/db");
-const { now, nextId, bad, notFound, conflict, forbidden } = require("../lib/util");
+const { now, nextId, bad, notFound, conflict, forbidden, yuan } = require("../lib/util");
 const { assertCan, assertProjectVisible, isSuper } = require("../lib/rbac");
 const { logAudit } = require("../lib/audit");
 const { getProject, verification, materialsStatus, settlementOf } = require("../lib/workflow");
@@ -31,7 +31,8 @@ function register(router) {
       materials,
       contracts,
       payments,
-      paidTotal: payments.filter((y) => y.status === "已付款").reduce((s, y) => s + Number(y.amount), 0)
+      // 逐笔 reduce 会累积浮点尾巴，收敛到「分」再给前端
+      paidTotal: yuan(payments.filter((y) => y.status === "已付款").reduce((s, y) => s + Number(y.amount), 0))
     };
   });
 
@@ -66,27 +67,61 @@ function register(router) {
 
     let message = `第 ${no} 步「${def.name}」判定：${result}`;
     let exId = "";
+    let exNote = ""; // 例外单的处理说明，message 与审计共用一套措辞
+    const openEx = db
+      .prepare("SELECT * FROM exceptions WHERE pid = ? AND step_no = ? AND status = '待审批' ORDER BY created_at")
+      .all(p.id, no);
+
     if (result === "不通过") {
-      exId = nextId(db, "exceptions", "id", "EX");
-      db.prepare("INSERT INTO exceptions (id,pid,step_no,reason,status,created_by,created_at) VALUES (?,?,?,?,?,?,?)")
-        .run(exId, p.id, no, String(remark).trim(), "待审批", ctx.user.name, at);
-      db.prepare(
-        "INSERT INTO approvals (id,type,title,pid,ref_id,amount,by_user,sla,status,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)"
-      ).run(nextId(db, "approvals", "id", "AP"), "例外单审批", `${exId} ${String(remark).trim().slice(0, 24)}`, p.id, exId, 0,
-        ctx.user.name, "2 个工作日", "待审批", at);
-      message += `，已生成例外单 ${exId} 待财务审批`;
+      // 同一步已经有待审批的例外单，就沿用它，不再开第二张。
+      // 否则同一个人连点两次「不通过」，审批中心就挂两张同一问题的单子，
+      // 财务批完一张还剩一张，核销照样过不去。
+      if (openEx.length) {
+        exId = openEx[0].id;
+        db.prepare("UPDATE exceptions SET reason = ?, created_by = ?, created_at = ? WHERE id = ?")
+          .run(String(remark).trim(), ctx.user.name, at, exId);
+        exNote = `沿用待审批的例外单 ${exId}（问题描述已更新）`;
+      } else {
+        exId = nextId(db, "exceptions", "id", "EX");
+        db.prepare("INSERT INTO exceptions (id,pid,step_no,reason,status,created_by,created_at) VALUES (?,?,?,?,?,?,?)")
+          .run(exId, p.id, no, String(remark).trim(), "待审批", ctx.user.name, at);
+        db.prepare(
+          "INSERT INTO approvals (id,type,title,pid,ref_id,amount,by_user,sla,status,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)"
+        ).run(nextId(db, "approvals", "id", "AP"), "例外单审批", `${exId} ${String(remark).trim().slice(0, 24)}`, p.id, exId, 0,
+          ctx.user.name, "2 个工作日", "待审批", at);
+        exNote = `已生成例外单 ${exId} 待财务审批`;
+      }
+    } else if (openEx.length) {
+      // 改判「通过」：这一步还挂着的待审批例外单必须一并撤销。
+      // 不撤的话 openExceptions 永远 > 0，核销永远 complete 不了 ——
+      // 判定人只能去求财务批一张「问题已经不存在」的例外单，账就乱了。
+      for (const ex of openEx) {
+        db.prepare("UPDATE exceptions SET status = '已撤销', approved_by = ?, approved_at = ?, comment = ? WHERE id = ?")
+          .run(ctx.user.name, at, `第 ${no} 步改判通过，系统自动撤销`, ex.id);
+        db.prepare(
+          "UPDATE approvals SET status = '已撤销', decided_by = ?, decided_at = ?, comment = ? " +
+          "WHERE ref_id = ? AND type = '例外单审批' AND status = '待审批'"
+        ).run(ctx.user.name, at, `第 ${no} 步改判通过，系统自动撤销`, ex.id);
+        logAudit({
+          user: ctx.user, module: "会后核销", action: "例外单撤销", target: p.id,
+          detail: `${ex.id}（第 ${no} 步改判通过，自动撤销）：原问题 ${ex.reason}`, ip: ctx.ip
+        });
+      }
+      exNote = `已自动撤销 ${openEx.length} 张待审批例外单（${openEx.map((x) => x.id).join("、")}）`;
     }
+    if (exNote) message += `，${exNote}`;
+
     logAudit({
       user: ctx.user, module: "会后核销", action: "结论", target: p.id,
-      detail: `第 ${no} 步「${def.name}」判定${result}${remark ? "：" + remark : ""}${exId ? `；已生成例外单 ${exId}` : ""}`,
+      detail: `第 ${no} 步「${def.name}」判定${result}${remark ? "：" + remark : ""}${exNote ? `；${exNote}` : ""}`,
       ip: ctx.ip
     });
     // 判定「不通过」会自动生成例外单（一条待审批的审批项），必须和手工提交走同一条审计口径。
     // 否则事后拿 EX-xxx 去追，只能靠时间猜它从哪来，审计链就断了。
-    if (exId) {
+    if (exId && result === "不通过") {
       logAudit({
         user: ctx.user, module: "会后核销", action: "例外单", target: p.id,
-        detail: `${exId}（第 ${no} 步判定不通过自动生成）：${String(remark).trim()}`, ip: ctx.ip
+        detail: `${exId}（第 ${no} 步判定不通过${openEx.length ? "沿用" : "自动生成"}）：${String(remark).trim()}`, ip: ctx.ip
       });
     }
     return { verification: verification(p.id), message };

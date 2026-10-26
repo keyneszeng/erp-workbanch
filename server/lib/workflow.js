@@ -1,6 +1,6 @@
 "use strict";
 const { db } = require("./db");
-const { now, nextId, conflict, forbidden, notFound, bad } = require("./util");
+const { now, nextId, conflict, forbidden, notFound, bad, cents, yuan } = require("./util");
 const { can, isSuper, ROLES } = require("./rbac");
 const { logAudit } = require("./audit");
 const { FLOW, VERIFY_STEPS, MATERIAL_KINDS } = require("./constants");
@@ -78,9 +78,11 @@ function assertNotFrozen(p, what = "业务数据") {
  * 必须用同一把尺子 —— 两边各算一份，迟早算出不同的数。
  */
 function committed(pid) {
-  return Number(db.prepare(
-    "SELECT COALESCE(SUM(amount),0) AS s FROM payments WHERE pid = ? AND status IN ('待审批','已审批','已付款')"
-  ).get(pid).s) || 0;
+  // ROUND(...,2) 不能省：SUM 出来是 3580.2300000000005 这种尾巴，
+  // 预算门禁拿它跟预算比，会把「正好用尽」判成超预算。
+  return yuan(db.prepare(
+    "SELECT COALESCE(ROUND(SUM(amount),2),0) AS s FROM payments WHERE pid = ? AND status IN ('待审批','已审批','已付款')"
+  ).get(pid).s);
 }
 
 /** 门禁：所有前置条件 */
@@ -217,15 +219,19 @@ function transition(projectId, action, user, payload = {}, ip = "") {
     }
     case "settle": {
       const at = now();
-      const income = Number(p.budget) || 0;
-      const expense = db
-        .prepare("SELECT COALESCE(SUM(amount),0) AS s FROM payments WHERE pid = ? AND status = '已付款'")
-        .get(p.id).s;
+      // 三个数都必须落在「分」上：140000 - 135580.6 = 4419.399999999994，
+      // 不收敛的话结算单 profit 会带着 12 位小数入库，导出 CSV 也是这个数。
+      const income = yuan(p.budget);
+      const expense = yuan(
+        db.prepare("SELECT COALESCE(ROUND(SUM(amount),2),0) AS s FROM payments WHERE pid = ? AND status = '已付款'")
+          .get(p.id).s
+      );
+      const profit = yuan(income - expense);
       const id = nextId(db, "settlements", "id", "ST");
       db.prepare(
         "INSERT INTO settlements (id,pid,income,expense,profit,status,created_by,created_at) VALUES (?,?,?,?,?,?,?,?)"
-      ).run(id, p.id, income, expense, income - expense, "已生成", user.name, at);
-      setStatus(p, "已结算", user, ip, `生成结算单 ${id}：收入 ¥${income.toLocaleString("zh-CN")} / 支出 ¥${Number(expense).toLocaleString("zh-CN")} / 结余 ¥${(income - expense).toLocaleString("zh-CN")}`);
+      ).run(id, p.id, income, expense, profit, "已生成", user.name, at);
+      setStatus(p, "已结算", user, ip, `生成结算单 ${id}：收入 ¥${income.toLocaleString("zh-CN")} / 支出 ¥${expense.toLocaleString("zh-CN")} / 结余 ¥${profit.toLocaleString("zh-CN")}`);
       return { project: getProject(p.id), message: `结算单 ${id} 已生成，结论冻结` };
     }
     case "archive": {
