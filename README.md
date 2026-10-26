@@ -34,8 +34,8 @@ npm start            # 等价于 node --experimental-sqlite server/index.js
 
 ```bash
 npm run seed         # 重置数据库并重建种子数据
-npm test             # 255 条接口回归测试（每文件自起服务 + 独立库，不影响主库）
-npm run test:cf      # 同一批 255 条，跑在「Durable Object SQL」后端语义下
+npm test             # 260 条接口回归测试（每文件自起服务 + 独立库，不影响主库）
+npm run test:cf      # 同一批 260 条，跑在「Durable Object SQL」后端语义下
 ERP_PORT=9000 npm start
 ERP_DB=/path/to/erp.db npm start
 ```
@@ -87,7 +87,7 @@ wrangler r2 bucket create erp-workbanch-files
 ### 本地为什么不能预览
 
 `wrangler dev` 依赖 workerd，要求 **macOS 13.5+**；本机是 12.7.6，起不来。
-所以本地用 `npm run test:cf` 把同一批 255 条测试跑在「模拟的 DO SQL 后端」上
+所以本地用 `npm run test:cf` 把同一批 260 条测试跑在「模拟的 DO SQL 后端」上
 （`test/lib/do-sqlite-mock.js`），确认 SQL 语义一致后再部署。
 
 ### 已知限制
@@ -260,7 +260,7 @@ erp-app/
 ## 6. 测试
 
 ```bash
-npm test        # 255 条：api 26 + edge 26 + matrix 11 + hardening 19 + abuse 28 + stateless 6 + demand 9 + material 5 + password 6 + paging 8 + upload 11 + storage 4 + contract-file 9 + freeze 9 + id-sequence 7 + business-rules 47 + workflow-chain 12 + todo-flag 5 + money-precision 7
+npm test        # 260 条：api 26 + edge 26 + matrix 11 + hardening 19 + abuse 28 + stateless 6 + demand 9 + material 5 + password 6 + paging 8 + upload 11 + storage 4 + contract-file 9 + freeze 9 + id-sequence 7 + business-rules 47 + workflow-chain 12 + todo-flag 5 + money-precision 7 + scope-owner 5
 ```
 
 | 文件 | 关注点 |
@@ -422,11 +422,28 @@ Serverless 每个实例的 `/tmp` 独立，会话表只能在本实例查到。�
 `node --test` 默认并行跑文件，谁先绑上谁赢，另一个 EADDRINUSE 或**打到别人的库上**。
 后者更糟 —— 报错会指向完全无关的用例。`stateless` 挪到 8817。
 
+**D. 数据范围按姓名认人（越权 + 失联，各一处）**
+
+`exec` / `finance` 的数据范围一直是 `p.owner = ?` —— 拿**姓名**比。两个后果都实测到了：
+
+| 场景 | 实测 |
+|---|---|
+| 重名即越权 | 新建一个 `username=zhangwei2`、`name=张伟` 的执行账号，它没有任何项目成员关系，却立刻看到张伟名下 4 个项目 |
+| 改名即失联 | 只靠「负责人」这一条关系可见的项目（`owner=张伟`、无成员），把张伟改名后从他的列表里消失 —— 项目还在，负责人自己再也看不见 |
+
+改法：`projects` 加 `owner_id`，创建 / 修改负责人时解析成用户 id
+（**优先认当前操作者**，重名时不会把自己的项目绑到别人头上），
+数据范围改成 `owner_id = ? OR (owner_id IS NULL AND owner = ?) OR 成员`。
+`owner_id IS NULL` 那条是给老数据留的退路：查不到人（例如负责人填「待定」）时行为与以前一致，
+不会因为这次改动让历史项目集体失联。启动时按姓名回填一次，种子数据也直接写 `owner_id`。
+
 **新增测试**
 
 - `test/money-precision.test.js` **7 条**：预算正好用尽、`profit` 落在分位、导出 CSV 无长小数、
   预算下调到刚好、重复不通过只开一张单、改判通过自动撤销、已撤销单不可再审批
-- 全量 248 → **255**，Node 与 DO SQL 语义双跑 255/255
+- `test/scope-owner.test.js` **5 条**：同名账号看不到别人的项目、重名时绑到操作者本人、
+  负责人填不存在的名字不报错、改负责人同步换 owner_id、改名后项目不失联
+- 全量 248 → **260**，Node 与 DO SQL 语义双跑 260/260
 
 ### V1.2.5（核销 6 步加「详情」· 判定前必须看得到原始数据）
 

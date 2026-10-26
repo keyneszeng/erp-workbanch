@@ -147,20 +147,23 @@ function seed({ reset = false } = {}) {
     "INSERT INTO users (username,name,role,assoc,dept,phone,pass_salt,pass_hash,active,created_at) VALUES (?,?,?,?,?,?,?,?,1,?)"
   );
   const userId = {};
+  const userIdByName = {};
   for (const u of USERS) {
     const { salt, hash } = hashPassword(PASS);
     insUser.run(u.username, u.name, u.role, u.assoc, u.dept, u.phone, salt, hash, at);
     userId[u.username] = db.prepare("SELECT id FROM users WHERE username = ?").get(u.username).id;
+    userIdByName[u.name] = userId[u.username];
   }
 
   const insProj = db.prepare(
-    `INSERT INTO projects (id,name,assoc,form,date,days,budget,people,owner,phone,dept,agenda,status,status_at,created_by,created_at,updated_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+    `INSERT INTO projects (id,name,assoc,form,date,days,budget,people,owner,owner_id,phone,dept,agenda,status,status_at,created_by,created_at,updated_at)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
   );
   let pi = 0;
   for (const [id, name, assoc, form, date, budget, people, owner, status] of PROJECTS) {
     const created = minutesAgo((PROJECTS.length - pi) * 60 * 26);
-    insProj.run(id, name, assoc, form, date, 2, budget, people, owner, "021-60000000", "会务部",
+    insProj.run(id, name, assoc, form, date, 2, budget, people, owner,
+      userIdByName[owner] || null, "021-60000000", "会务部",
       AGENDA, status, created, userId["assoc"], created, created);
     pi++;
   }

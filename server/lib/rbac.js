@@ -96,9 +96,15 @@ function scopeFilter(user) {
       return { sql: "p.assoc = ?", params: [user.assoc || ""] };
     case "exec":
     case "finance":
+      // 「本人负责」按 user_id 认人，不再比对姓名 ——
+      // 姓名可以重名（新建一个同名账号就能看到别人名下的项目），
+      // 也可以被改（负责人一改名，名下项目全部从视野消失）。
+      // 只有老数据 owner_id 为空时才退回姓名比对，避免历史项目直接失联。
       return {
-        sql: "(p.owner = ? OR EXISTS (SELECT 1 FROM project_members m WHERE m.project_id = p.id AND m.user_id = ?))",
-        params: [user.name, user.id]
+        sql:
+          "(p.owner_id = ? OR (p.owner_id IS NULL AND p.owner = ?)" +
+          " OR EXISTS (SELECT 1 FROM project_members m WHERE m.project_id = p.id AND m.user_id = ?))",
+        params: [user.id, user.name, user.id]
       };
     case "user":
       // 普通用户 / 嘉宾：只看被授权（成员关系）的项目，不看负责人字段

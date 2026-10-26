@@ -30,6 +30,20 @@ function checkLength(body) {
   }
 }
 
+/**
+ * 负责人姓名 → 用户 id。
+ * 优先认「就是当前操作者」—— 执行人员给自己建项目是最常见的情形，
+ * 重名时也不该被绑到别人头上；否则取系统里同名的第一个账号。
+ * 查不到（例如负责人填「待定」）返回 null，此时数据范围退回姓名比对。
+ */
+function resolveOwnerId(name, actor) {
+  const n = String(name || "").trim();
+  if (!n) return null;
+  if (actor && actor.name === n) return actor.id;
+  const row = db.prepare("SELECT id FROM users WHERE name = ? ORDER BY id LIMIT 1").get(n);
+  return row ? row.id : null;
+}
+
 function validate(body, partial = false) {
   const need = { name: "会议名称", assoc: "所属协会", form: "会议形式", date: "会议日期", budget: "预算", owner: "项目负责人", agenda: "初版议程要点" };
   for (const [k, label] of Object.entries(need)) {
@@ -175,10 +189,10 @@ function register(router) {
     const at = now();
     const id = nextId(db, "projects", "id", "MP");
     db.prepare(
-      `INSERT INTO projects (id,name,assoc,form,date,days,budget,people,owner,phone,dept,agenda,status,status_at,created_by,created_at,updated_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+      `INSERT INTO projects (id,name,assoc,form,date,days,budget,people,owner,owner_id,phone,dept,agenda,status,status_at,created_by,created_at,updated_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
     ).run(id, b.name, b.assoc, b.form, b.date, Number(b.days) || 1, Number(b.budget), Number(b.people) || 0,
-      b.owner, b.phone || "", b.dept || "会务部", b.agenda, "草稿", at, ctx.user.id, at, at);
+      b.owner, resolveOwnerId(b.owner, ctx.user), b.phone || "", b.dept || "会务部", b.agenda, "草稿", at, ctx.user.id, at, at);
     db.prepare("INSERT OR IGNORE INTO project_members (project_id,user_id,role) VALUES (?,?,?)").run(id, ctx.user.id, "创建人");
     logAudit({
       user: ctx.user, module: "项目管理", action: "立项申请", target: id,
@@ -253,6 +267,8 @@ function register(router) {
       }
     }
 
+    // 负责人改名时同步重算 owner_id，否则数据范围还挂在旧的人身上
+    if ("owner" in patch) patch.owner_id = resolveOwnerId(patch.owner, ctx.user);
     const sets = Object.keys(patch).map((k) => `${k} = ?`).join(", ");
     db.prepare(`UPDATE projects SET ${sets}, updated_at = ? WHERE id = ?`)
       .run(...Object.values(patch).map((v, i) => {

@@ -435,6 +435,20 @@ function migrate() {
     /* 索引已存在 */
   }
 
+  // V1.2.6：项目负责人改为按 user_id 认人
+  // 原来 exec / finance 的数据范围是 `p.owner = ?`（比对姓名），
+  // 于是新建一个同名账号就能看到别人名下的项目；负责人改名后又把自己名下的项目全丢了。
+  addColumn("projects", "owner_id", "owner_id INTEGER");
+  try {
+    db.exec(
+      `UPDATE projects
+          SET owner_id = (SELECT u.id FROM users u WHERE u.name = projects.owner ORDER BY u.id LIMIT 1)
+        WHERE owner_id IS NULL AND owner IS NOT NULL AND owner <> ''`
+    );
+  } catch {
+    /* users 表为空或旧库缺列，忽略 */
+  }
+
   // V1.2.6：结算单金额定点自愈
   // 旧版本 profit 是 `income - expense` 直接算的，浮点会留下尾巴
   // （140000 - 135580.6 = 4419.399999999994），已经入库的老数据不会自己变干净，
