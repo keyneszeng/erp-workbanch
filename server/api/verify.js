@@ -74,13 +74,24 @@ function register(router) {
     assertProjectVisible(ctx.user, p);
     assertCan(ctx.user, "verify:exception", "当前角色无例外单提交权限");
     const { step_no, reason } = ctx.body || {};
-    if (["已结算", "已归档"].includes(p.status)) {
-      throw conflict(`项目已「${p.status}」，核销结论已冻结，不可再提交例外单`, "FROZEN", { status: p.status });
-    }
+    // 参数校验放在阶段校验之前：参数本身就是错的（步骤越界、原因超长）应当直接 400，
+    // 不该被「项目阶段不对」的 409 盖掉 —— 否则前端拿到的错误原因会误导人。
     const no = Number(step_no);
     if (!(no >= 1 && no <= 6)) throw bad("例外步骤编号应为 1~6");
     if (!String(reason || "").trim()) throw bad("必须说明例外原因");
     if (String(reason).trim().length > 500) throw bad(`例外原因不能超过 500 字（当前 ${String(reason).trim().length} 字）`);
+
+    // 例外单是核销环节的产物。核销还没开始（草稿 / 待审批 / 已立项 / 筹备中 / 执行中）
+    // 就提例外，只会生成一张永远没机会处理的审批单，把审批中心搅浑。
+    if (["已结算", "已归档"].includes(p.status)) {
+      throw conflict(`项目已「${p.status}」，核销结论已冻结，不可再提交例外单`, "FROZEN", { status: p.status });
+    }
+    if (!["待核销", "已核销"].includes(p.status)) {
+      throw conflict(
+        `「${p.status}」阶段还不能提交核销例外单，只有「待核销」「已核销」项目可提交`,
+        "ILLEGAL_STATE", { status: p.status }
+      );
+    }
     const at = now();
     const id = nextId(db, "exceptions", "id", "EX");
     db.prepare("INSERT INTO exceptions (id,pid,step_no,reason,status,created_by,created_at) VALUES (?,?,?,?,?,?,?)")

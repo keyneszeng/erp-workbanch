@@ -56,6 +56,33 @@ function settlementOf(pid) {
   return db.prepare("SELECT * FROM settlements WHERE pid = ?").get(pid) || null;
 }
 
+/**
+ * 冻结判定：已归档 = 卷宗封存；有结算单 = 账目封账。
+ *
+ * 用「有没有结算单」而不是只看 status —— 状态可能被人为改过，
+ * 但结算单存在与否是硬事实。材料删除、需求单、项目成员等
+ * 「结算后不该再动」的写操作统一走这里，避免每个接口各写一套判断。
+ */
+function assertNotFrozen(p, what = "业务数据") {
+  if (p.status === "已归档") {
+    throw conflict(`项目已归档，${what}已封存，不可修改`, "ARCHIVED", { status: p.status });
+  }
+  if (settlementOf(p.id)) {
+    throw conflict(`结算单已生成，${what}已冻结，不可修改`, "FROZEN", { status: p.status });
+  }
+}
+
+/**
+ * 已占用预算：待审批 + 已审批 + 已付款（驳回的不占）。
+ * 放在这里而不是 finance.js，是因为改预算（projects.js）与付款申请（finance.js）
+ * 必须用同一把尺子 —— 两边各算一份，迟早算出不同的数。
+ */
+function committed(pid) {
+  return Number(db.prepare(
+    "SELECT COALESCE(SUM(amount),0) AS s FROM payments WHERE pid = ? AND status IN ('待审批','已审批','已付款')"
+  ).get(pid).s) || 0;
+}
+
 /** 门禁：所有前置条件 */
 const GUARDS = {
   submit(p) {
@@ -206,4 +233,4 @@ function transition(projectId, action, user, payload = {}, ip = "") {
   }
 }
 
-module.exports = { getProject, verification, materialsStatus, settlementOf, availableActions, transition, GUARDS };
+module.exports = { getProject, verification, materialsStatus, settlementOf, assertNotFrozen, committed, availableActions, transition, GUARDS };

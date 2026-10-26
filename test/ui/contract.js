@@ -140,7 +140,14 @@ let proc = null;
   await page.waitForTimeout(4500);
   check("提交后弹窗关闭", !(await page.$("#modal.open")));
   const t1 = await toasts();
-  check("提示含「原件已附上」", t1.some((t) => /原件已附上/.test(t)), JSON.stringify(t1).slice(0, 100));
+  const msg = t1.find((t) => /原件已附上/.test(t)) || "";
+  check("提示含「原件已附上」", !!msg, JSON.stringify(t1).slice(0, 140));
+  // 这份合同金额会触发超预算预警，预警不能把附件回执顶掉 —— 两个信息必须在同一条提示里
+  check(
+    "超预算预警与附件回执并存",
+    !t1.some((t) => /已超项目预算/.test(t)) || /已超项目预算/.test(msg),
+    msg.slice(0, 160)
+  );
 
   console.log("\n[6] 列表出现 PDF 原件入口");
   const pdfLink = await page.$('a.link[href^="/api/uploads/"]');

@@ -3,7 +3,7 @@ const { db } = require("../lib/db");
 const { now, nextId, bad, notFound, conflict, forbidden } = require("../lib/util");
 const { assertCan, assertProjectVisible, scopeFilter, can, isSuper } = require("../lib/rbac");
 const { logAudit } = require("../lib/audit");
-const { getProject, verification } = require("../lib/workflow");
+const { getProject, verification, committed } = require("../lib/workflow");
 const { PAYMENT_TYPES } = require("../lib/constants");
 const { readPaging, countOf } = require("../lib/paginate");
 const { transition } = require("../lib/workflow");
@@ -14,12 +14,25 @@ const PAYABLE_STATUS = ["已核销"];
 /** 与 server/api/files.js 生成的 key 格式保持一致，避免任意字符串被写进 file_key */
 const FILE_KEY_RE = /^[a-f0-9]{32}\.(jpg|png|webp|gif|pdf)$/;
 
-/** 已占用预算：待审批 + 已审批 + 已付款（驳回的不占） */
-function committed(pid) {
-  return Number(db.prepare(
-    "SELECT COALESCE(SUM(amount),0) AS s FROM payments WHERE pid = ? AND status IN ('待审批','已审批','已付款')"
-  ).get(pid).s) || 0;
+/**
+ * 合同状态白名单。
+ * 前端录入弹窗只给这三个选项，台账 KPI「已签署金额」也按 "已签署" 精确匹配，
+ * 后端不校验的话，任意字符串都能进库 —— 既不进任何统计，也会渲染成未知色标签。
+ */
+const CONTRACT_STATUS = ["草稿", "待签署", "已签署"];
+
+/** 合同文本字段长度上限，防止超长内容撑爆台账与 CSV 导出 */
+const CONTRACT_MAX = { name: 80, vendor: 80, remark: 500, sign_date: 10 };
+
+/** 校验 YYYY-MM-DD 且必须是真实存在的日期（2026-02-30 这类要拦掉） */
+function checkDate(s, label) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) throw bad(`${label}格式应为 YYYY-MM-DD`);
+  const d = new Date(`${s}T00:00:00Z`);
+  if (Number.isNaN(d.getTime()) || d.toISOString().slice(0, 10) !== s) throw bad(`${label} ${s} 不是有效日期`);
 }
+
+/** 已占用预算：待审批 + 已审批 + 已付款（驳回的不占） */
+// 实现已上移到 lib/workflow.js —— 改预算与付款申请必须共用同一套口径
 
 function register(router) {
   /* ---------------- 合同 ---------------- */
@@ -51,13 +64,24 @@ function register(router) {
     if (p.status === "已归档") throw conflict("项目已归档，合同台账已封存，不可再录入合同", "ARCHIVED", { status: p.status });
     if (p.status === "已结算") throw conflict("项目已结算，合同台账已封账，不可再录入合同", "FROZEN", { status: p.status });
     if (!String(b.name || "").trim()) throw bad("合同名称为必填项");
-    if (String(b.name).length > 80) throw bad("合同名称不能超过 80 字");
+    if (String(b.name).length > CONTRACT_MAX.name) throw bad(`合同名称不能超过 ${CONTRACT_MAX.name} 字`);
     if (!String(b.vendor || "").trim()) throw bad("签约方为必填项");
-    if (String(b.vendor).length > 80) throw bad("签约方不能超过 80 字");
+    if (String(b.vendor).length > CONTRACT_MAX.vendor) throw bad(`签约方不能超过 ${CONTRACT_MAX.vendor} 字`);
     const amount = Number(b.amount);
     if (!Number.isFinite(amount) || !(amount > 0)) throw bad("合同金额必须大于 0");
     if (amount > 1e9) throw bad("合同金额不能超过 10 亿元");
     if (Number(amount.toFixed(2)) !== amount) throw bad("合同金额最多保留两位小数");
+
+    // 状态必须是白名单内的值，否则「已签署金额」KPI 会漏算，badge 也会渲染成未知态
+    const st = String(b.status || "草稿").trim();
+    if (!CONTRACT_STATUS.includes(st)) throw bad(`合同状态必须是：${CONTRACT_STATUS.join(" / ")}`);
+
+    // 签署日期可以为空（草稿尚未签），一旦填了就必须是合法日期
+    const signDate = String(b.sign_date || "").trim();
+    if (signDate) checkDate(signDate, "签署日期");
+
+    const remark = String(b.remark || "");
+    if (remark.length > CONTRACT_MAX.remark) throw bad(`备注不能超过 ${CONTRACT_MAX.remark} 字`);
 
     // 合同原件（扫描件 PDF / 拍照件）：只接受上传接口发下来的 key 格式，
     // 防止把任意字符串写进 file_key 后拼到下载 URL 上。
@@ -72,12 +96,27 @@ function register(router) {
 
     const id = nextId(db, "contracts", "id", "HT");
     db.prepare("INSERT INTO contracts (id,pid,name,vendor,amount,sign_date,status,remark,created_by,created_at,file_key,file_name,file_size,file_mime) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
-      .run(id, p.id, b.name, b.vendor, amount, b.sign_date || "", b.status || "草稿", b.remark || "", ctx.user.id, now(), fk, fname, fsize, fmime);
+      .run(id, p.id, b.name, b.vendor, amount, signDate, st, remark, ctx.user.id, now(), fk, fname, fsize, fmime);
     logAudit({
       user: ctx.user, module: "筹备管理", action: "合同录入", target: p.id,
       detail: `${id} ${b.name} / ${b.vendor} / ¥${amount.toLocaleString("zh-CN")}${fk ? "（含原件）" : ""}`, ip: ctx.ip
     });
-    return { contract: db.prepare("SELECT * FROM contracts WHERE id = ?").get(id), message: `合同 ${id} 已保存` };
+
+    // 合同总额超预算是要预警的业务事实（不是错误，可能确需超支）。
+    // 硬拦会让人没法录真实合同，所以只回一个 warning 让前端提示，不阻断。
+    const contractSum = Number(db.prepare("SELECT COALESCE(SUM(amount),0) AS s FROM contracts WHERE pid = ?").get(p.id).s) || 0;
+    const budget = Number(p.budget) || 0;
+    let warning = "";
+    if (budget > 0 && contractSum > budget) {
+      warning = `合同总额 ¥${contractSum.toLocaleString("zh-CN")} 已超项目预算 ¥${budget.toLocaleString("zh-CN")} ` +
+        `¥${(contractSum - budget).toLocaleString("zh-CN")}，请确认是否需要走变更审批`;
+    }
+
+    return {
+      contract: db.prepare("SELECT * FROM contracts WHERE id = ?").get(id),
+      message: `合同 ${id} 已保存`,
+      warning
+    };
   });
 
   /* ---------------- 付款 ---------------- */
@@ -145,7 +184,13 @@ function register(router) {
     assertProjectVisible(ctx.user, p);
     assertCan(ctx.user, "payment:create", "当前角色无付款申请权限");
     if (!PAYMENT_TYPES.includes(b.type)) throw bad(`付款类型必须是：${PAYMENT_TYPES.join(" / ")}`);
-    if (!String(b.payee || "").trim()) throw bad("收款方为必填项");
+    const payee = String(b.payee || "").trim();
+    if (!payee) throw bad("收款方为必填项");
+    if (payee.length > 60) throw bad("收款方不能超过 60 字");
+    const invoiceNo = String(b.invoice_no || "").trim();
+    if (invoiceNo.length > 40) throw bad("发票号不能超过 40 字");
+    const remark = String(b.remark || "");
+    if (remark.length > 300) throw bad("付款说明不能超过 300 字");
     const amount = Number(b.amount);
     if (!Number.isFinite(amount) || !(amount > 0)) throw bad("付款金额必须大于 0");
     if (amount > 1e9) throw bad("单笔付款金额不能超过 10 亿元");
@@ -177,9 +222,24 @@ function register(router) {
       );
     }
     const at = now();
+
+    // 一票一付：同项目 + 同收款方 + 同发票号 已有有效付款单，说明这张票已经报过账。
+    // 只按发票号拦会误伤（不同收款方各自开票，号段可能撞），所以三个条件一起判。
+    if (invoiceNo) {
+      const dup = db.prepare(
+        "SELECT id FROM payments WHERE pid = ? AND invoice_no = ? AND payee = ? AND status <> '已驳回'"
+      ).get(p.id, invoiceNo, payee);
+      if (dup) {
+        throw conflict(
+          `发票号 ${invoiceNo} 已用于付款单 ${dup.id}（同项目、同收款方），不可重复挂账`,
+          "DUPLICATE_INVOICE", { payment: dup.id }
+        );
+      }
+    }
+
     const id = nextId(db, "payments", "id", "PY");
     db.prepare("INSERT INTO payments (id,pid,type,payee,amount,invoice_no,req_user,status,remark,created_by,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)")
-      .run(id, p.id, b.type, b.payee, amount, b.invoice_no || "", ctx.user.name, "待审批", b.remark || "", ctx.user.id, at);
+      .run(id, p.id, b.type, payee, amount, invoiceNo, ctx.user.name, "待审批", remark, ctx.user.id, at);
     const apId = nextId(db, "approvals", "id", "AP");
     db.prepare("INSERT INTO approvals (id,type,title,pid,ref_id,amount,by_user,sla,status,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)")
       .run(apId, "付款审批", `${b.type} ¥${amount.toLocaleString("zh-CN")}`, p.id, id, amount, ctx.user.name, "1 个工作日", "待审批", at);
@@ -284,9 +344,18 @@ function register(router) {
   router.post("/api/projects/:id/change", async (ctx) => {
     const p = getProject(ctx.params.id);
     assertProjectVisible(ctx.user, p);
+    // 变更申请会生成待审批单，属于写操作，必须过权限；原来只查了数据范围，
+    // 结果是项目成员里的「普通用户 / 嘉宾」也能提交变更并进审批中心。
+    assertCan(ctx.user, "project:change", "只有协会管理员 / 会务执行可以提交变更申请");
     if (!["已立项", "筹备中", "执行中"].includes(p.status)) throw conflict(`「${p.status}」项目不可提交变更`);
     const title = String(ctx.body?.title || "").trim();
     if (!title) throw bad("请填写变更内容");
+    if (title.length > 500) throw bad("变更内容不能超过 500 字");
+    // 同一项目堆一屏待审批变更单没有意义，也容易让人漏看真正要批的那张
+    const pending = db.prepare(
+      "SELECT COUNT(*) AS c FROM approvals WHERE pid = ? AND type = '变更审批' AND status = '待审批'"
+    ).get(p.id).c;
+    if (pending >= 3) throw conflict(`该项目已有 ${pending} 张待审批的变更单，请先处理完再提交`, "TOO_MANY_PENDING");
     const id = nextId(db, "approvals", "id", "AP");
     db.prepare("INSERT INTO approvals (id,type,title,pid,ref_id,amount,by_user,sla,status,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)")
       .run(id, "变更审批", title, p.id, p.id, 0, ctx.user.name, "2 个工作日", "待审批", now());

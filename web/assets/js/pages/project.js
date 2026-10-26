@@ -368,7 +368,9 @@ function openContract(root, pid) {
       }
       btn.textContent = "保存中…";
       const r = await api.post("/api/contracts", { ...v, ...meta, pid });
-      toast(picked ? `${r.message}，原件已附上` : r.message, "ok");
+      // 附件回执和超预算预警都要说，不能因为预警把「原件已附上」吞掉
+      const base = picked ? `${r.message}，原件已附上` : r.message;
+      toast(r.warning ? `${base}；${r.warning}` : base, r.warning ? "warn" : "ok");
       m.classList.remove("open");
       tab = "contracts";
       await refresh(root, pid);

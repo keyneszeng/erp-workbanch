@@ -80,6 +80,20 @@ function alerts(user) {
   return out;
 }
 
+/**
+ * 工作台「最近动态」。
+ * 审计日志的 target 可能是项目编号，也可能是用户 id（系统配置类）。
+ * 非超管只能看到自己数据范围内项目的记录，系统级审计不给看 ——
+ * 这和 GET /api/audit 对非 audit:read 角色只返回本人记录是同一个口径。
+ */
+function recentAudits(user) {
+  if (isSuper(user)) return db.prepare("SELECT * FROM audit_logs ORDER BY id DESC LIMIT 8").all();
+  const { sql, params } = scopeFilter(user);
+  return db.prepare(
+    `SELECT a.* FROM audit_logs a JOIN projects p ON p.id = a.target WHERE ${sql} ORDER BY a.id DESC LIMIT 8`
+  ).all(...params);
+}
+
 function dashboard(user) {
   const { map, rows } = countsByStatus(user);
   const todos = myTodos(user);
@@ -88,20 +102,28 @@ function dashboard(user) {
     `SELECT * FROM projects p WHERE ${sql} AND p.date >= ? AND p.status IN ('已立项','筹备中','执行中','待核销')
      ORDER BY p.date ASC LIMIT 6`
   ).all(...params, today());
-  const money = db.prepare(
-    `SELECT COALESCE(SUM(p.budget),0) AS budget,
-            (SELECT COALESCE(SUM(y.amount),0) FROM payments y JOIN projects p2 ON p2.id=y.pid WHERE y.status='已付款' AND ${sql}) AS paid
-     FROM projects p WHERE ${sql}`
-  ).get(...params, ...params);
+
+  // 预算与已付款必须各自独立聚合。
+  // 原来把已付款写成 SELECT 列表里的标量子查询，子查询里 JOIN 用的是 p2 别名、
+  // 而数据范围条件用的是 p. —— SQLite 把 p 当成外层引用，条件恒真，
+  // 于是协会管理员看到的是全平台已付款（实测 ¥698,600 vs 本协会 ¥364,000）。
+  const budget = Number(db.prepare(
+    `SELECT COALESCE(SUM(p.budget),0) AS v FROM projects p WHERE ${sql}`
+  ).get(...params).v) || 0;
+  const paid = Number(db.prepare(
+    `SELECT COALESCE(SUM(y.amount),0) AS v FROM payments y JOIN projects p ON p.id = y.pid
+     WHERE y.status = '已付款' AND ${sql}`
+  ).get(...params).v) || 0;
+
   return {
     counts: map,
     statusRows: rows,
-    budget: money.budget,
-    paid: money.paid,
+    budget,
+    paid,
     todos,
     upcoming,
     alerts: alerts(user),
-    recent: db.prepare("SELECT * FROM audit_logs ORDER BY id DESC LIMIT 8").all()
+    recent: recentAudits(user)
   };
 }
 

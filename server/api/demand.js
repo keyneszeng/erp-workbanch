@@ -5,7 +5,7 @@ const { bad, notFound, forbidden, conflict } = require("../lib/util");
 const { assertCan, assertProjectVisible, scopeFilter, ROLES } = require("../lib/rbac");
 const { logAudit } = require("../lib/audit");
 const { listProjects } = require("./projects");
-const { getProject } = require("../lib/workflow");
+const { getProject, assertNotFrozen } = require("../lib/workflow");
 const { DEMAND_GROUPS, DEMAND_TEMPLATE, DEMAND_NEED_OPTIONS, DEMAND_STATUS_OPTIONS } = require("../lib/constants");
 const { toCsv } = require("../lib/util");
 
@@ -134,6 +134,8 @@ function register(router) {
     const p = getProject(ctx.params.id);
     if (!p) throw notFound("会议项目不存在");
     assertProjectVisible(ctx.user, p);
+    // 结算后需求单是执行依据的原始记录，归档后更属封存卷宗，都不该再改
+    assertNotFrozen(p, "会务需求");
     const b = ctx.body || {};
     if (!Array.isArray(b.items)) throw bad("缺少 items 数组");
     if (b.items.length > 200) throw bad("需求条目过多");
@@ -158,6 +160,7 @@ function register(router) {
     const p = getProject(ctx.params.id);
     if (!p) throw notFound("会议项目不存在");
     assertProjectVisible(ctx.user, p);
+    assertNotFrozen(p, "会务需求");
     const at = now();
     ensureSheet(p.id);
     // 若尚未建条目，先按模板落库再确认
@@ -176,6 +179,8 @@ function register(router) {
     const p = getProject(ctx.params.id);
     if (!p) throw notFound("会议项目不存在");
     assertProjectVisible(ctx.user, p);
+    // 重置会 DELETE 全部条目，冻结后执行等于销毁历史，比「修改」更该拦
+    assertNotFrozen(p, "会务需求");
     db.prepare("DELETE FROM demand_items WHERE pid = ?").run(p.id);
     db.prepare("DELETE FROM demand_sheets WHERE pid = ?").run(p.id);
     logAudit({ user: ctx.user, module: "会务需求", action: "重置需求单", target: p.id, detail: "清空需求明细与确认状态", ip: ctx.ip });

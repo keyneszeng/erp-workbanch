@@ -3,7 +3,7 @@ const { db } = require("../lib/db");
 const { now, nextId, bad, notFound, conflict, forbidden } = require("../lib/util");
 const { assertCan, assertProjectVisible, can, isSuper, scopeFilter, ROLES } = require("../lib/rbac");
 const { logAudit } = require("../lib/audit");
-const { getProject, verification, materialsStatus, settlementOf, availableActions, transition } = require("../lib/workflow");
+const { getProject, verification, materialsStatus, settlementOf, assertNotFrozen, committed, availableActions, transition } = require("../lib/workflow");
 const { ASSOCS, FORMS, DEPTS } = require("../lib/constants");
 const { readPaging, countOf } = require("../lib/paginate");
 
@@ -208,16 +208,23 @@ function register(router) {
     }
     const b = ctx.body || {};
 
+    // 超管用 force 越过任何一道账目检查，都必须在审计里能看出来。
+    // 只有「真的绕过了检查」才算 force，随手带个 force 标记的正常修改不该被标成纠错。
+    let forced = false;
+
     // 金额类字段是结算单的计算基准，已结算 / 已归档后改动会让账实不符。
     // 保留总管理员的纠错能力，但必须显式带 force，和付款超预算的特批口径一致。
     if (["已结算", "已归档"].includes(p.status)) {
       const touched = MONEY_FIELDS.filter((k) => k in b && Number(b[k]) !== Number(p[k]));
-      if (touched.length && !(b.force && isSuper(ctx.user))) {
-        throw conflict(
-          `项目已「${p.status}」，${touched.map((k) => MONEY_LABEL[k] || k).join("、")} 属于账目基准数据，` +
-          `改动会与已生成的结算单不一致；如确需纠错，请由总管理员携带 force 标记提交`,
-          "FROZEN", { status: p.status, fields: touched }
-        );
+      if (touched.length) {
+        if (!(b.force && isSuper(ctx.user))) {
+          throw conflict(
+            `项目已「${p.status}」，${touched.map((k) => MONEY_LABEL[k] || k).join("、")} 属于账目基准数据，` +
+            `改动会与已生成的结算单不一致；如确需纠错，请由总管理员携带 force 标记提交`,
+            "FROZEN", { status: p.status, fields: touched }
+          );
+        }
+        forced = true;
       }
     }
 
@@ -225,6 +232,26 @@ function register(router) {
     for (const k of EDITABLE) if (k in b && String(b[k] ?? "") !== String(p[k] ?? "")) patch[k] = b[k];
     if (!Object.keys(patch).length) return { project: p, message: "没有需要修改的字段" };
     validate({ ...p, ...patch }, true);
+
+    // 预算下调到低于已占用金额（待审批 + 已审批 + 已付款）会让账实直接打架：
+    // 结算单 income 取 projects.budget、expense 取已付款，income < expense 就是负结余。
+    // 上调不拦（只会更宽松），只有下调且低于已占用才卡；超管可 force 纠错。
+    if ("budget" in patch) {
+      const next = Number(patch.budget);
+      const used = committed(p.id);
+      if (next < used) {
+        if (!(b.force && isSuper(ctx.user))) {
+          throw conflict(
+            `新预算 ¥${next.toLocaleString("zh-CN")} 低于该项目已占用金额 ¥${used.toLocaleString("zh-CN")}` +
+            `（含待审批 / 已审批 / 已付款），下调后会与已挂账的付款冲突；` +
+            `如确需纠错，请由总管理员携带 force 标记提交`,
+            "BUDGET_BELOW_COMMITTED", { budget: next, used }
+          );
+        }
+        forced = true;
+      }
+    }
+
     const sets = Object.keys(patch).map((k) => `${k} = ?`).join(", ");
     db.prepare(`UPDATE projects SET ${sets}, updated_at = ? WHERE id = ?`)
       .run(...Object.values(patch).map((v, i) => {
@@ -232,8 +259,9 @@ function register(router) {
         return ["days", "budget", "people"].includes(k) ? Number(v) || 0 : v;
       }), now(), p.id);
     logAudit({
-      user: ctx.user, module: "项目管理", action: "资料修改", target: p.id,
-      detail: Object.entries(patch).map(([k, v]) => `${k}: ${p[k] ?? "空"} → ${v}`).join("；"), ip: ctx.ip
+      user: ctx.user, module: "项目管理", action: forced ? "资料修改（强制纠错）" : "资料修改", target: p.id,
+      detail: Object.entries(patch).map(([k, v]) => `${k}: ${p[k] ?? "空"} → ${v}`).join("；")
+        + (forced ? `（${p.status}项目，总管理员 force）` : ""), ip: ctx.ip
     });
     return { project: getProject(p.id), message: "资料已更新" };
   });
@@ -251,6 +279,9 @@ function register(router) {
     const p = getProject(ctx.params.id);
     assertProjectVisible(ctx.user, p);
     assertCan(ctx.user, "project:member", "只有协会管理员或总管理员可以调整项目成员");
+    // 成员关系直接决定数据范围：结算 / 归档后再加人，
+    // 等于让新人凭一次操作就能看到已经封账的项目与封存的卷宗。
+    assertNotFrozen(p, "项目成员");
     const { user_id, remove } = ctx.body || {};
     const u = db.prepare("SELECT * FROM users WHERE id = ?").get(Number(user_id));
     if (!u) throw notFound("用户不存在");
