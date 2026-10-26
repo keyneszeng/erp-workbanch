@@ -34,8 +34,8 @@ npm start            # 等价于 node --experimental-sqlite server/index.js
 
 ```bash
 npm run seed         # 重置数据库并重建种子数据
-npm test             # 226 条接口回归测试（每文件自起服务 + 独立库，不影响主库）
-npm run test:cf      # 同一批 226 条，跑在「Durable Object SQL」后端语义下
+npm test             # 231 条接口回归测试（每文件自起服务 + 独立库，不影响主库）
+npm run test:cf      # 同一批 231 条，跑在「Durable Object SQL」后端语义下
 ERP_PORT=9000 npm start
 ERP_DB=/path/to/erp.db npm start
 ```
@@ -87,7 +87,7 @@ wrangler r2 bucket create erp-workbanch-files
 ### 本地为什么不能预览
 
 `wrangler dev` 依赖 workerd，要求 **macOS 13.5+**；本机是 12.7.6，起不来。
-所以本地用 `npm run test:cf` 把同一批 226 条测试跑在「模拟的 DO SQL 后端」上
+所以本地用 `npm run test:cf` 把同一批 231 条测试跑在「模拟的 DO SQL 后端」上
 （`test/lib/do-sqlite-mock.js`），确认 SQL 语义一致后再部署。
 
 ### 已知限制
@@ -260,7 +260,7 @@ erp-app/
 ## 6. 测试
 
 ```bash
-npm test        # 226 条：api 26 + edge 26 + matrix 11 + hardening 19 + abuse 28 + stateless 6 + demand 9 + material 5 + password 6 + paging 8 + upload 11 + storage 4 + contract-file 9 + freeze 9 + id-sequence 7 + business-rules 42
+npm test        # 226 条：api 26 + edge 26 + matrix 11 + hardening 19 + abuse 28 + stateless 6 + demand 9 + material 5 + password 6 + paging 8 + upload 11 + storage 4 + contract-file 9 + freeze 9 + id-sequence 7 + business-rules 47
 ```
 
 | 文件 | 关注点 |
@@ -374,7 +374,7 @@ Serverless 每个实例的 `/tmp` 独立，会话表只能在本实例查到。�
 
 ## 9. 变更记录
 
-### V1.2.3（业务规则补全 · 13 项实测缺陷）
+### V1.2.3（业务规则补全 · 16 项实测缺陷）
 
 第三轮对抗性测试，专打「业务规则该拦却没拦」和「数据自相矛盾」。全部先复现、再修、再固化成回归。
 
@@ -396,7 +396,7 @@ Serverless 每个实例的 `/tmp` 独立，会话表只能在本实例查到。�
 | 7 | **同发票号可重复挂账** | 同项目 + 同收款方 + 同发票号可提交多笔付款，重复报销无法拦截 | 拒绝重复 → 409 `DUPLICATE_INVOICE`；已驳回的不占号；不同收款方各自开票不误伤 |
 | 8 | **合同总额超预算静默通过** | 录一笔远超预算的合同，接口 200 且无任何提示 | 返回 `warning` 字段，前端与「原件已附上」合并成一条提示（不硬拦，超支可能是真实业务选择） |
 
-**C. 冻结状态（6 项）**
+**C. 冻结状态（4 项）**
 
 统一改用 `assertNotFrozen(p, what)`：**已归档 = 卷宗封存；有结算单 = 账目封账**。用「有没有结算单」而不是只看 `status`，因为状态可能被人为改过。
 
@@ -407,7 +407,7 @@ Serverless 每个实例的 `/tmp` 独立，会话表只能在本实例查到。�
 | 11 | `POST /api/demand/:id/confirm` | 已封存项目仍可被重新确认 |
 | 12 | `POST /api/projects/:id/members` | 成员关系决定数据范围，结算 / 归档后仍能加人 → 新人一次操作就能看到封账项目与封存卷宗 |
 
-**D. 工作台数据范围（3 项）**
+**D. 工作台数据范围（2 项）**
 
 | # | 问题 | 影响 | 修复 |
 |---|---|---|---|
@@ -416,14 +416,21 @@ Serverless 每个实例的 `/tmp` 独立，会话表只能在本实例查到。�
 
 **顺带修**：超管用 `force` 越过「预算低于已占用」检查时，审计原本**没有标注**（只在已结算 / 已归档分支标了）。现在任何一处 `force` 生效都会写「资料修改（强制纠错）」并在 detail 里带 `force` 标记。
 
+**E. 静默丢数据与字段卫生（2 项）**
+
+| # | 问题 | 影响 | 修复 |
+|---|---|---|---|
+| 15 | **需求单重复条目被静默丢弃** | `demand_items` 有 `UNIQUE(pid, grp, item)`，后端靠 `seen` 集合跳过重复项。用户提交 10 条只存 9 条，接口返回 200，**审计还写「更新 10 条」** —— 账实不符且用户无从察觉 | 直接 400 `DUPLICATE_ITEM` 并指出是哪一条；条目名统一 `trim` 后比较，避免「台卡」与「台卡 」存成两条视觉重复 |
+| 16 | **用户资料无长度上限** | 姓名 / 部门 / 联系电话可写超长文本，通讯录列表与成员选择器布局被撑坏 | 姓名 ≤30、部门 ≤40、电话 ≤20，新建与修改两条路径共用同一个校验 |
+
 **已知差异，未改（需产品决策）**
 
 管理员重置密码只要求 ≥6 位，而用户自助改密要求 ≥8 位 + 字母数字 + 非弱口令。两条路径强度不一致，管理员可把密码重置成 `123456`，让自助改密的强度要求形同虚设。未改的原因：管理员重置是应急手段，通常给临时密码，且改严会破坏现有「重置后用户用 123456 登录」的运维习惯。要统一请明确：重置也走强口令，还是加「首次登录强制改密」。
 
 **测试**
 
-- 新增 `test/business-rules.test.js` **42 条**，逐条对应上面每个缺陷（含正向用例：待核销项目仍可维护需求单、未结算项目仍可调成员、不同收款方同发票号不误伤）
-- 全量 184 → **226**，Node 与 DO SQL 语义双跑 226/226
+- 新增 `test/business-rules.test.js` **47 条**，逐条对应上面每个缺陷（含正向用例：待核销项目仍可维护需求单、未结算项目仍可调成员、不同收款方同发票号不误伤）
+- 全量 184 → **231**，Node 与 DO SQL 语义双跑 231/231
 - UI 全绿：smoke / e2e（立项→归档全链路）/ edge / upload 17 / contract 21 / paging-edge 11
 
 ### V1.2.2（冻结漏洞与单号缺陷修复）

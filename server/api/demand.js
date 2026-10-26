@@ -80,10 +80,13 @@ function replaceItems(pid, items, at) {
   let order = 0;
   const seen = new Set();
   for (const it of items) {
-    const key = `${it.grp}@@${it.item}`;
+    // 条目名统一 trim 后再算唯一键：否则「台卡」和「台卡 」会被当成两条，
+    // 存进库里视觉上完全重复，而 UNIQUE 约束又拦不住（精确比较）。
+    const item = String(it.item).trim();
+    const key = `${it.grp}@@${item}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    ins.run(pid, it.grp, it.item, it.note || "", it.need || "需要", it.spec || "", it.owner || "",
+    ins.run(pid, it.grp, item, it.note || "", it.need || "需要", it.spec || "", it.owner || "",
       it.due || "", it.budget || "", it.attach || "", it.status || "未开始", order++, at);
   }
   db.prepare("UPDATE demand_sheets SET updated_at = ? WHERE pid = ?").run(at, pid);
@@ -139,9 +142,18 @@ function register(router) {
     const b = ctx.body || {};
     if (!Array.isArray(b.items)) throw bad("缺少 items 数组");
     if (b.items.length > 200) throw bad("需求条目过多");
+    // demand_items 有 UNIQUE(pid, grp, item)，同一分组内条目名必须唯一。
+    // 原来靠 replaceItems 里的 seen 集合静默跳过重复项 —— 用户提交 10 条只存 9 条，
+    // 接口返回 200、审计还写「更新 10 条」，账实不符。这里直接拒绝并指出是哪一条。
+    const seen = new Set();
     for (const it of b.items) {
       if (!DEMAND_GROUPS.includes(it.grp)) throw bad(`分组「${it.grp || ""}」非法`);
       if (!it.item || !String(it.item).trim()) throw bad("存在未命名的需求条目");
+      const key = `${it.grp}@@${String(it.item).trim()}`;
+      if (seen.has(key)) {
+        throw bad(`「${it.grp}」分组下存在重复条目「${String(it.item).trim()}」，同一分组内条目名必须唯一`, "DUPLICATE_ITEM");
+      }
+      seen.add(key);
       checkItem(it);
     }
     const at = ensureSheet(p.id);

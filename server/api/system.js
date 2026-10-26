@@ -206,6 +206,18 @@ const EXPORTS = {
   }
 };
 
+/* ---------------- 账号 ---------------- */
+
+/** 账号资料字段长度上限：通讯录会渲染到列表与成员选择器，超长文本会把布局撑坏 */
+const USER_MAX = { name: 30, dept: 40, phone: 20 };
+const USER_LABEL = { name: "姓名", dept: "部门", phone: "联系电话" };
+function checkUserLen(b) {
+  for (const [k, max] of Object.entries(USER_MAX)) {
+    if (!(k in b) || b[k] === undefined || b[k] === null) continue;
+    if (String(b[k]).length > max) throw bad(`${USER_LABEL[k]}不能超过 ${max} 字（当前 ${String(b[k]).length} 字）`);
+  }
+}
+
 function register(router) {
   router.get("/api/dashboard", async (ctx) => dashboard(ctx.user));
 
@@ -228,6 +240,7 @@ function register(router) {
     if (!/^[a-zA-Z0-9_.-]{3,20}$/.test(String(b.username || ""))) throw bad("账号需 3~20 位字母/数字");
     if (!String(b.name || "").trim()) throw bad("请填写姓名");
     if (!ROLES[b.role]) throw bad("角色不合法");
+    checkUserLen(b);
     if (db.prepare("SELECT 1 FROM users WHERE username = ?").get(b.username)) throw conflict("账号已存在");
     const { salt, hash } = hashPassword(b.password || "123456");
     db.prepare("INSERT INTO users (username,name,role,assoc,dept,phone,pass_salt,pass_hash,active,created_at) VALUES (?,?,?,?,?,?,?,?,1,?)")
@@ -247,6 +260,7 @@ function register(router) {
       if (k in b && String(b[k] ?? "") !== String(u[k] ?? "")) patch[k] = b[k];
     }
     if (patch.role && !ROLES[patch.role]) throw bad("角色不合法");
+    checkUserLen(patch);
     if (u.id === ctx.user.id) {
       if ("active" in patch && !Number(patch.active)) throw bad("不能停用当前登录的账号");
       if ("role" in patch && patch.role !== u.role) throw bad("不能修改自己的角色，请由其他总管理员操作");

@@ -435,3 +435,43 @@ test("工作台状态计数与项目列表一致", async () => {
     assert.equal(dash.counts[st] || 0, n, `${st} 计数不一致`);
   }
 });
+
+/* ---------------- 静默丢数据 ---------------- */
+
+test("需求单同分组重复条目被拒，不再静默丢弃", async () => {
+  const items = await demandItems(admin, VERIFYING);
+  items.push({ ...items[0] });   // 原样再塞一条
+  const r = await admin("PATCH", `/api/demand/${VERIFYING}`, { items });
+  assert.equal(r.status, 400, "原来会静默跳过重复项、返回 200，审计却写「更新 N 条」");
+  assert.equal(r.code, "DUPLICATE_ITEM");
+  assert.match(r.msg, /重复条目/);
+});
+
+test("条目名首尾空格视为同一条", async () => {
+  const items = await demandItems(admin, VERIFYING);
+  const first = items[0];
+  items.push({ ...first, item: `${first.item} ` });
+  const r = await admin("PATCH", `/api/demand/${VERIFYING}`, { items });
+  assert.equal(r.status, 400, "「台卡」与「台卡 」视觉相同，不该存成两条");
+  assert.equal(r.code, "DUPLICATE_ITEM");
+});
+
+test("用户姓名超长被拒", async () => {
+  const r = await admin("POST", "/api/users", { username: "lencheck1", name: "名".repeat(31), role: "user" });
+  assert.equal(r.status, 400);
+  assert.match(r.msg, /姓名不能超过/);
+});
+
+test("用户部门超长被拒", async () => {
+  const r = await admin("POST", "/api/users", { username: "lencheck2", name: "测试", role: "user", dept: "部".repeat(41) });
+  assert.equal(r.status, 400);
+  assert.match(r.msg, /部门不能超过/);
+});
+
+test("修改用户资料同样受长度限制", async () => {
+  const users = (await admin("GET", "/api/users")).data.rows;
+  const target = users.find((u) => u.username === "exec");
+  const r = await admin("PATCH", `/api/users/${target.id}`, { phone: "1".repeat(21) });
+  assert.equal(r.status, 400);
+  assert.match(r.msg, /联系电话不能超过/);
+});
