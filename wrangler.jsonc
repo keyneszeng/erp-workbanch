@@ -24,14 +24,23 @@
     ]
   },
   // 材料附件（照片 / PDF）存 R2。
-  // 首次部署前必须先建桶：wrangler r2 bucket create erp-workbanch-files
-  // 若暂时不建桶，把下面这段删掉即可部署，上传接口会返回 503，其余功能不受影响。
-  "r2_buckets": [
-    {
-      "binding": "ERP_FILES",
-      "bucket_name": "erp-workbanch-files"
-    }
-  ],
+  //
+  // ⚠️ 当前默认**关闭**，两个原因：
+  //   1) R2 需要在 dashboard 手动启用（同意条款 + 绑支付方式），未启用时 deploy 会报 code 10042；
+  //   2) 会议照片含嘉宾人脸，属个人信息。存境外 R2 的出境风险高于文字数据，
+  //      而境内服务器版本用本地磁盘（ERP_UPLOAD_DIR）零成本且合规。
+  //
+  // 若确定要在 Cloudflare 上开照片上传：
+  //   wrangler r2 bucket create erp-workbanch-files
+  //   然后取消下面 r2_buckets 的注释并重新 deploy。
+  // 不开时上传接口返回 503 STORAGE_UNAVAILABLE，其余功能不受影响。
+  //
+  // "r2_buckets": [
+  //   {
+  //     "binding": "ERP_FILES",
+  //     "bucket_name": "erp-workbanch-files"
+  //   }
+  // ],
   "migrations": [
     {
       "tag": "v1",

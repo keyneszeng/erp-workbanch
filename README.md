@@ -34,8 +34,8 @@ npm start            # 等价于 node --experimental-sqlite server/index.js
 
 ```bash
 npm run seed         # 重置数据库并重建种子数据
-npm test             # 155 条接口回归测试（每文件自起服务 + 独立库，不影响主库）
-npm run test:cf      # 同一批 155 条，跑在「Durable Object SQL」后端语义下
+npm test             # 159 条接口回归测试（每文件自起服务 + 独立库，不影响主库）
+npm run test:cf      # 同一批 159 条，跑在「Durable Object SQL」后端语义下
 ERP_PORT=9000 npm start
 ERP_DB=/path/to/erp.db npm start
 ```
@@ -87,7 +87,7 @@ wrangler r2 bucket create erp-workbanch-files
 ### 本地为什么不能预览
 
 `wrangler dev` 依赖 workerd，要求 **macOS 13.5+**；本机是 12.7.6，起不来。
-所以本地用 `npm run test:cf` 把同一批 155 条测试跑在「模拟的 DO SQL 后端」上
+所以本地用 `npm run test:cf` 把同一批 159 条测试跑在「模拟的 DO SQL 后端」上
 （`test/lib/do-sqlite-mock.js`），确认 SQL 语义一致后再部署。
 
 ### 已知限制
@@ -260,7 +260,7 @@ erp-app/
 ## 6. 测试
 
 ```bash
-npm test        # 155 条：api 26 + edge 26 + matrix 11 + hardening 19 + abuse 28 + stateless 6 + demand 9 + material 5 + password 6 + paging 8 + upload 11
+npm test        # 159 条：api 26 + edge 26 + matrix 11 + hardening 19 + abuse 28 + stateless 6 + demand 9 + material 5 + password 6 + paging 8 + upload 11 + storage 4
 ```
 
 | 文件 | 关注点 |
@@ -383,7 +383,7 @@ Serverless 每个实例的 `/tmp` 独立，会话表只能在本实例查到。�
 | 4 | **安全** | 类型白名单 + **文件头嗅探**（不信 Content-Type，防改名上传可执行文件）；key 严格匹配 `^[a-f0-9]{32}\.(jpg|png|webp|gif|pdf)$` 防路径穿越；下载时按材料所属项目校验数据范围 |
 | 5 | **列表分页** | `server/lib/paginate.js`。`page` / `size`（默认 50，上限 200）。**不传 `page` 时完全退回全量返回**，旧调用方零影响。预算 / 已付款 / 付款状态分布等汇总改为**独立聚合**——否则分页后金额只剩当前页的数；材料齐备度同理 |
 | 6 | **自助改密** | `POST /api/auth/password`：校验原密码 → 新密码 ≥8 位且含字母数字 → 拦弱口令 → `token_ver + 1` 吊销所有已签发令牌 → 重签当前会话，改完自己不被踢 |
-| 7 | 测试 | 新增 `test/password.test.js`(6) / `test/paging.test.js`(8) / `test/upload.test.js`(11) / `test/ui/upload.js`(17 项 UI)。全量 130 → **155 条**，Node 与 DO 语义双跑全过 |
+| 7 | 测试 | 新增 `test/password.test.js`(6) / `test/paging.test.js`(8) / `test/upload.test.js`(11) / `test/ui/upload.js`(17 项 UI)。全量 130 → **159 条**，Node 与 DO 语义双跑全过 |
 
 ### V1.0.5（修复会务执行人员无材料录入入口）
 | # | 问题 | 修复 |

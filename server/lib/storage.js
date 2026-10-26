@@ -114,7 +114,12 @@ function useBackend(b) {
 }
 
 function ensure() {
-  if (!backend) backend = nodeStorage();
+  if (!backend) {
+    // 测试用：模拟「未配置存储」的部署（Cloudflare 未绑 R2 时的状态）
+    const forced =
+      typeof process !== "undefined" && process.env && process.env.ERP_STORAGE === "unavailable";
+    backend = forced ? unavailableStorage() : nodeStorage();
+  }
   return backend;
 }
 

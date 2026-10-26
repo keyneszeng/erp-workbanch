@@ -116,6 +116,16 @@ async function handle(req, res) {
       });
       return;
     }
+    /**
+     * 存储层等基础设施模块抛的是普通 Error（storage.js 不想反向依赖 util.js 的 HttpError），
+     * 但会带上 status + code。这类错误语义明确、消息是给用户看的，要原样返回，
+     * 否则「未绑定 R2」会变成一句没用的「服务器内部错误」。
+     * 只放行明确带 code 的，避免把未预期的异常细节泄露出去。
+     */
+    if (Number.isInteger(err.status) && err.status >= 400 && err.status < 600 && err.code) {
+      sendJson(res, err.status, { error: { code: err.code, message: err.message } });
+      return;
+    }
     console.error("[500]", req.method, pathname, err);
     sendJson(res, 500, { error: { code: "INTERNAL", message: "服务器内部错误：" + err.message } });
   }
