@@ -137,7 +137,7 @@ export function formHtml(fields, values = {}) {
     } else if (f.t === "textarea") {
       input = `<textarea name="${f.k}" rows="${f.rows || 3}" placeholder="${esc(f.ph || "")}">${esc(v)}</textarea>`;
     } else if (f.t === "file") {
-      input = `<label class="upload"><input type="file" name="${f.k}" style="display:none">
+      input = `<label class="upload"><input type="file" name="${f.k}"${f.accept ? ` accept="${esc(f.accept)}"` : ""} style="display:none">
         <span>选择文件</span><span class="fn" style="color:var(--mute)">未选择</span></label>`;
     } else {
       input = `<input type="${f.t || "text"}" name="${f.k}" value="${esc(v)}" placeholder="${esc(f.ph || "")}"
@@ -176,4 +176,56 @@ export function validate(root, fields) {
 export function progressBar(pct, color = "var(--blue)") {
   return `<div class="bar-wrap" style="background:#eef2f7;border-radius:4px;height:6px;overflow:hidden">
     <div class="bar-in" style="width:${Math.min(100, Math.max(0, pct))}%;height:100%;background:${color}"></div></div>`;
+}
+
+/* ---------------- 分页 ---------------- */
+function pageWindow(cur, total) {
+  if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1);
+  const out = [1];
+  const start = Math.max(2, cur - 2);
+  const end = Math.min(total - 1, cur + 2);
+  if (start > 2) out.push("…");
+  for (let i = start; i <= end; i++) out.push(i);
+  if (end < total - 1) out.push("…");
+  out.push(total);
+  return out;
+}
+
+/**
+ * 渲染分页条。data 为接口返回体（含 total / page / size / pages / paged）。
+ * 未启用分页时只显示总数，不显示按钮。
+ */
+export function pager(data, opt = {}) {
+  if (!data) return "";
+  const unit = opt.unit || "条";
+  const total = data.total ?? (data.rows || []).length;
+  const pages = data.pages || 1;
+  const page = data.page || 1;
+
+  // 未分页、或总共只有一页时，只显示总数——翻页按钮没有意义还占地方
+  if (!data.paged || pages <= 1) {
+    return `<div class="pager"><span class="pg-info">共 ${total} ${unit}</span></div>`;
+  }
+  const nums = pageWindow(page, pages);
+  return `<div class="pager">
+    <span class="pg-info">共 ${total} ${unit} · 第 ${page} / ${pages} 页</span>
+    <div class="pg-btns">
+      <button class="btn btn-o btn-sm" data-pg="${page - 1}"${page <= 1 ? " disabled" : ""}>上一页</button>
+      ${nums.map((n) => n === "…"
+        ? '<span class="pg-gap">…</span>'
+        : `<button class="btn btn-sm ${n === page ? "btn-p" : "btn-o"}" data-pg="${n}">${n}</button>`).join("")}
+      <button class="btn btn-o btn-sm" data-pg="${page + 1}"${page >= pages ? " disabled" : ""}>下一页</button>
+    </div>
+  </div>`;
+}
+
+/** 绑定分页点击。回调收到目标页码。 */
+export function bindPager(root, onGo) {
+  root.querySelectorAll("[data-pg]").forEach((b) => {
+    if (b.disabled) return;
+    b.addEventListener("click", () => {
+      const n = Number(b.dataset.pg);
+      if (Number.isFinite(n) && n > 0) onGo(n);
+    });
+  });
 }

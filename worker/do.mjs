@@ -14,6 +14,7 @@ import { attachDurableObject, migrate } from "../server/lib/db.js";
 import { seed } from "../server/lib/seed.js";
 import { pruneSessions } from "../server/lib/auth.js";
 import { handle } from "../server/lib/app.js";
+import { attachR2, attachStorage, unavailableStorage } from "../server/lib/storage.js";
 import { makeReq, makeRes, toResponse } from "./adapter.mjs";
 
 const WRITE_METHODS = new Set(["POST", "PATCH", "PUT", "DELETE"]);
@@ -25,6 +26,16 @@ export class ErpDatabase {
 
     // 把 DO 的 SQL 存储挂到 db 层，之后所有 db.prepare() 都落到这里
     attachDurableObject(ctx);
+
+    // 文件存储：绑了 R2 就用 R2，否则挂一个明确报错的后端。
+    // 不能让默认的 nodeStorage 兜底——Workers 里没有真实文件系统，
+    // 那样报出来的错会是一段看不懂的 fs 堆栈。
+    if (env && env.ERP_FILES) {
+      attachR2(env.ERP_FILES);
+    } else {
+      attachStorage(unavailableStorage("当前 Cloudflare 部署未绑定 R2 存储桶，照片上传暂不可用"));
+    }
+
     migrate();
     this.seeded = seed();
     try {
@@ -35,8 +46,9 @@ export class ErpDatabase {
   }
 
   async fetch(request) {
-    const bodyText = WRITE_METHODS.has(request.method) ? await request.text() : "";
-    const req = makeReq(request, bodyText);
+    // 必须用 arrayBuffer：request.text() 会按 utf8 解码，二进制文件直接损坏
+    const bodyBuffer = WRITE_METHODS.has(request.method) ? await request.arrayBuffer() : null;
+    const req = makeReq(request, bodyBuffer);
     const res = makeRes();
     await handle(req, res);
     return toResponse(res);

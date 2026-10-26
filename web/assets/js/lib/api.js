@@ -35,6 +35,35 @@ export const api = {
   post: (p, body) => request(p, { method: "POST", body }),
   patch: (p, body) => request(p, { method: "PATCH", body }),
   del: (p) => request(p, { method: "DELETE" }),
+  /**
+   * 上传单个文件（原始二进制，非 multipart）。
+   * 用 XHR 而不是 fetch：fetch 拿不到上传进度，几 MB 的照片没有进度条体验很差。
+   */
+  upload(file, { onProgress } = {}) {
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open("POST", "/api/uploads");
+      xhr.withCredentials = true;
+      xhr.setRequestHeader("Content-Type", file.type || "application/octet-stream");
+      xhr.setRequestHeader("x-file-name", encodeURIComponent(file.name || "file"));
+      if (onProgress) {
+        xhr.upload.onprogress = (e) => {
+          if (e.lengthComputable) onProgress(e.loaded / e.total);
+        };
+      }
+      xhr.onload = () => {
+        let data = null;
+        try { data = JSON.parse(xhr.responseText); } catch { data = null; }
+        if (xhr.status >= 200 && xhr.status < 300) return resolve(data);
+        const err = data?.error || {};
+        if (xhr.status === 401) window.dispatchEvent(new CustomEvent("erp:unauthorized"));
+        reject(new ApiError(xhr.status, err.code || "UPLOAD_FAILED", err.message || `上传失败（${xhr.status}）`));
+      };
+      xhr.onerror = () => reject(new ApiError(0, "NETWORK", "网络异常，上传失败"));
+      xhr.ontimeout = () => reject(new ApiError(0, "TIMEOUT", "上传超时，请重试"));
+      xhr.send(file);
+    });
+  },
   async download(path) {
     const res = await request(path, { raw: true });
     if (!res.ok) {

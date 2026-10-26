@@ -1,4 +1,4 @@
-# 协会会议执行 ERP · 生产版代码 V1.1.0
+# 协会会议执行 ERP · 生产版代码 V1.2.0
 
 > 依据《协会会议执行 ERP 交付版整合包 V1.0.2 · 09_可点击演示版》研发的可运行工程。
 > 演示版验证的是「流程与交互是否成立」，本工程把它落成**真实后端 + 真实数据库 + 真实权限与门禁**。
@@ -34,8 +34,8 @@ npm start            # 等价于 node --experimental-sqlite server/index.js
 
 ```bash
 npm run seed         # 重置数据库并重建种子数据
-npm test             # 130 条接口回归测试（每文件自起服务 + 独立库，不影响主库）
-npm run test:cf      # 同一批 130 条，跑在「Durable Object SQL」后端语义下
+npm test             # 155 条接口回归测试（每文件自起服务 + 独立库，不影响主库）
+npm run test:cf      # 同一批 155 条，跑在「Durable Object SQL」后端语义下
 ERP_PORT=9000 npm start
 ERP_DB=/path/to/erp.db npm start
 ```
@@ -51,6 +51,7 @@ ERP_DB=/path/to/erp.db npm start
 ```
 浏览器 ──► Worker（静态资源走 Assets；/api/* 转发）
               └──► Durable Object「ErpDatabase」（全部业务逻辑 + 私有 SQLite）
+                        └──► R2 bucket（照片 / PDF 附件）
 ```
 
 | 文件 | 作用 |
@@ -58,7 +59,7 @@ ERP_DB=/path/to/erp.db npm start
 | `worker/index.mjs` | Worker 入口，`/api/*` 转发给唯一的 DO 实例 |
 | `worker/do.mjs` | DO 类：注入 SQL 存储 → migrate → seed → 跑既有 handler |
 | `worker/adapter.mjs` | 把 Web `Request` 伪装成 node 风格 `req/res`，业务代码零改动 |
-| `wrangler.jsonc` | Assets 绑定、DO 绑定与 migration 声明 |
+| `wrangler.jsonc` | Assets 绑定、DO 绑定与 migration 声明、R2 绑定 |
 
 ```bash
 npm run cf:build     # 只打包不发布，检查产物（本机可跑，无需登录）
@@ -66,12 +67,27 @@ npm run cf:deploy    # 真正发布（需先 wrangler login 或设 CLOUDFLARE_AP
 npm run cf:tail      # 实时日志
 ```
 
-首次部署会在第一个请求到达时自动建表并写入种子数据。
+### 附件存储：必须先建 R2 桶
+
+照片和 PDF 存 R2，**不存数据库**（DO 单值上限 2 MB，一张手机照片就超了）。
+
+```bash
+wrangler r2 bucket create erp-workbanch-files
+```
+
+`wrangler.jsonc` 里对应的绑定：
+
+```jsonc
+"r2_buckets": [{ "binding": "ERP_FILES", "bucket_name": "erp-workbanch-files" }]
+```
+
+**没绑 R2 也能部署**，但上传接口会返回 `503 STORAGE_UNAVAILABLE`，前端上传按钮点了会提示未配置。
+其余功能（登记材料元数据、核销、付款、归档）不受影响。
 
 ### 本地为什么不能预览
 
 `wrangler dev` 依赖 workerd，要求 **macOS 13.5+**；本机是 12.7.6，起不来。
-所以本地用 `npm run test:cf` 把同一批 130 条测试跑在「模拟的 DO SQL 后端」上
+所以本地用 `npm run test:cf` 把同一批 155 条测试跑在「模拟的 DO SQL 后端」上
 （`test/lib/do-sqlite-mock.js`），确认 SQL 语义一致后再部署。
 
 ### 已知限制
@@ -202,6 +218,7 @@ erp-app/
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | POST | `/api/auth/login` `/api/auth/logout` | 登录 / 登出 |
+| POST | `/api/auth/password` | 自助修改密码（校验原密码，改后其它设备立即失效） |
 | GET | `/api/auth/me` `/api/meta` | 当前用户与权限、枚举元数据 |
 | GET | `/api/dashboard` | 看板：计数、待办、预警、近期会议 |
 | GET/POST | `/api/projects` | 列表（scope 过滤）/ 新建立项 |
@@ -218,7 +235,10 @@ erp-app/
 | GET | `/api/approvals` | 审批中心（立项 / 例外 / 付款 / 变更） |
 | POST | `/api/approvals/:id/decide` | 统一审批入口，按类型分派 |
 | POST | `/api/projects/:id/change` | 变更申请 |
-| GET/POST/DELETE | `/api/materials` `/api/projects/:id/materials` | 材料登记与删除 |
+| GET/POST/DELETE | `/api/materials` `/api/projects/:id/materials` | 材料登记与删除（可选挂附件） |
+| POST | `/api/uploads` | 文件上传（裸二进制，非 multipart；限 8 MB，JPG/PNG/WebP/GIF/PDF） |
+| GET | `/api/uploads/:key` | 文件下载（按材料所属项目校验数据范围） |
+| GET | `/api/uploads/capability` | 上传能力探测（后端类型、大小上限） |
 | GET | `/api/demand` | 会务需求确认：按数据范围列出会议 + 各会议需求汇总 |
 | GET | `/api/demand/:id` | 单会议需求单（首次打开按四组模板生成） |
 | PATCH | `/api/demand/:id` | 整单保存（协会管理员 / 会务执行可写） |
@@ -240,7 +260,7 @@ erp-app/
 ## 6. 测试
 
 ```bash
-npm test        # 130 条：api 26 + edge 26 + matrix 11 + hardening 19 + abuse 28 + stateless 6 + demand 9 + material 5
+npm test        # 155 条：api 26 + edge 26 + matrix 11 + hardening 19 + abuse 28 + stateless 6 + demand 9 + material 5 + password 6 + paging 8 + upload 11
 ```
 
 | 文件 | 关注点 |
@@ -354,6 +374,17 @@ Serverless 每个实例的 `/tmp` 独立，会话表只能在本实例查到。�
 
 ## 9. 变更记录
 
+### V1.2.0（照片上传 · 列表分页 · 自助改密）
+| # | 内容 | 说明 |
+|---|---|---|
+| 1 | **材料附件上传** | 新增 `server/lib/storage.js` 双后端（Node 本地磁盘 / Cloudflare R2）+ `server/api/files.js`。上传走**裸二进制**而非 multipart：一次只传一个文件，不需要为边界解析写几百行。`materials` 表加 `file_key / file_name / file_size / file_mime`，删除材料时附件一并删除 |
+| 2 | **二进制通道** | `readBody` 加 `raw` 模式（原实现一律 `toString("utf8")`，3 MB 照片会被 2 MB 上限挡掉且解码损坏）；新增 `sendBinary`；Worker 端 `request.text()` 改为 `request.arrayBuffer()`，否则照片到 DO 时已被 utf8 解码破坏 |
+| 3 | **前端压缩** | `web/assets/js/lib/upload.js`：canvas 长边压到 2000px、质量 0.85，实测 735 KB → 63 KB。放前端做是因为服务端压图要引 sharp，3 MB JPEG 解码后约 36 MB 像素，4 个并发上传就 144 MB，2 GB 机器直接 OOM。PNG 转 JPEG 前铺白底避免透明区变黑；压完更大则退回原图 |
+| 4 | **安全** | 类型白名单 + **文件头嗅探**（不信 Content-Type，防改名上传可执行文件）；key 严格匹配 `^[a-f0-9]{32}\.(jpg|png|webp|gif|pdf)$` 防路径穿越；下载时按材料所属项目校验数据范围 |
+| 5 | **列表分页** | `server/lib/paginate.js`。`page` / `size`（默认 50，上限 200）。**不传 `page` 时完全退回全量返回**，旧调用方零影响。预算 / 已付款 / 付款状态分布等汇总改为**独立聚合**——否则分页后金额只剩当前页的数；材料齐备度同理 |
+| 6 | **自助改密** | `POST /api/auth/password`：校验原密码 → 新密码 ≥8 位且含字母数字 → 拦弱口令 → `token_ver + 1` 吊销所有已签发令牌 → 重签当前会话，改完自己不被踢 |
+| 7 | 测试 | 新增 `test/password.test.js`(6) / `test/paging.test.js`(8) / `test/upload.test.js`(11) / `test/ui/upload.js`(17 项 UI)。全量 130 → **155 条**，Node 与 DO 语义双跑全过 |
+
 ### V1.0.5（修复会务执行人员无材料录入入口）
 | # | 问题 | 修复 |
 |---|---|---|
@@ -419,8 +450,9 @@ Serverless 每个实例的 `/tmp` 独立，会话表只能在本实例查到。�
 
 ## 10. 尚未落地（下一阶段）
 
-- 文件真实上传：当前材料为元数据登记，接对象存储（S3/OSS/MinIO）后替换 `materials` 的 `url` 字段。
 - 通知：待办目前是查询派生，未做站内信/企微/短信推送。
 - 并发与审批流配置：审批链目前按类型固定，后续可做成可配置多级审批。
-- 数据库迁移工具：现为幂等 DDL，字段演进需要引入版本化 migration。
-- 附件与卷宗打包下载：现为 CSV 明细，后续可出 PDF 卷宗。
+- 数据库迁移工具：现为幂等 DDL + `ALTER` 补列，字段演进多了需要引入版本化 migration。
+- 附件与卷宗打包下载：现为 CSV 明细 + 单个附件，后续可出 PDF 卷宗（含照片排版）。
+- 附件多文件：当前一条材料只能挂一个附件，现场照片按 40 张/场时需要「一条材料挂多图」或「批量上传」。
+- 图片自动生成缩略图：现在列表直接加载原图（压缩后约 60 KB–1 MB），量大后可加服务端缩略图。

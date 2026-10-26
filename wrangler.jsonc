@@ -23,6 +23,15 @@
       }
     ]
   },
+  // 材料附件（照片 / PDF）存 R2。
+  // 首次部署前必须先建桶：wrangler r2 bucket create erp-workbanch-files
+  // 若暂时不建桶，把下面这段删掉即可部署，上传接口会返回 503，其余功能不受影响。
+  "r2_buckets": [
+    {
+      "binding": "ERP_FILES",
+      "bucket_name": "erp-workbanch-files"
+    }
+  ],
   "migrations": [
     {
       "tag": "v1",

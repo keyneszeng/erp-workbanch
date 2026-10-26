@@ -165,7 +165,11 @@ CREATE TABLE IF NOT EXISTS materials (
   name        TEXT NOT NULL,
   version     TEXT,
   uploader    TEXT,
-  created_at  TEXT NOT NULL
+  created_at  TEXT NOT NULL,
+  file_key    TEXT,
+  file_name   TEXT,
+  file_size   INTEGER,
+  file_mime   TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_materials_pid ON materials(pid);
 
@@ -384,19 +388,37 @@ function transaction(fn) {
 function migrate() {
   const b = ensure();
   b.exec(SCHEMA);
-  // 兼容旧库：users.token_ver 是 V1.0.3 新增列（用于跨实例吊销签名令牌）
-  let cols = [];
-  try {
-    cols = db.prepare("PRAGMA table_info(users)").all().map((c) => c.name);
-  } catch {
-    cols = [];
-  }
-  if (cols.length && !cols.includes("token_ver")) {
+
+  // 兼容旧库：后加的列用 ALTER 补。CREATE TABLE IF NOT EXISTS 不会给已存在的表加列。
+  const addColumn = (table, col, ddl) => {
+    let cols = [];
     try {
-      db.exec("ALTER TABLE users ADD COLUMN token_ver INTEGER NOT NULL DEFAULT 0");
+      cols = db.prepare(`PRAGMA table_info(${table})`).all().map((c) => c.name);
     } catch {
-      /* 列已存在或后端不支持 ALTER，忽略 */
+      return;
     }
+    if (cols.length && !cols.includes(col)) {
+      try {
+        db.exec(`ALTER TABLE ${table} ADD COLUMN ${ddl}`);
+      } catch {
+        /* 列已存在或后端不支持 ALTER，忽略 */
+      }
+    }
+  };
+
+  // V1.0.3：跨实例吊销签名令牌
+  addColumn("users", "token_ver", "token_ver INTEGER NOT NULL DEFAULT 0");
+  // V1.2.0：材料附件
+  addColumn("materials", "file_key", "file_key TEXT");
+  addColumn("materials", "file_name", "file_name TEXT");
+  addColumn("materials", "file_size", "file_size INTEGER");
+  addColumn("materials", "file_mime", "file_mime TEXT");
+
+  // 附件查询走 file_key，补索引（旧库没有）
+  try {
+    db.exec("CREATE INDEX IF NOT EXISTS idx_materials_file ON materials(file_key)");
+  } catch {
+    /* 索引已存在 */
   }
 }
 

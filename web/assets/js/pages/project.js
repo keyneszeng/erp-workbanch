@@ -2,6 +2,7 @@ import { api, can, state } from "../lib/api.js";
 import {
   badge, confirmBox, esc, formHtml, kv, modal, money, panel, promptBox, readForm, table, timeline, toast, validate, yuan
 } from "../lib/ui.js";
+import { bindFilePicker, fileUrl } from "../lib/upload.js";
 
 const ORDER = ["草稿", "待审批", "已立项", "筹备中", "执行中", "待核销", "已核销", "已结算", "已归档"];
 const PAYABLE = ["已核销"];
@@ -186,9 +187,20 @@ function tabMaterials(d, p) {
   return panel("归档材料（必备 8 类）", `${8 - ms.missing.length}/8 齐备`, `
     <div class="chips">${ms.required.map((k) => `<span class="chip" style="${ms.have.includes(k) ? "border-color:#c9e8d4;background:#f4fbf6" : "border-color:#efdcc8;background:#fdf7f1"}">
       <i>${ms.have.includes(k) ? "✅" : "⛔"}</i><b>${esc(k)}</b></span>`).join("")}</div>
-    ${table([{ t: "类别", w: "110px" }, { t: "材料名称" }, { t: "版本", w: "60px" }, { t: "上传人", w: "80px" }, { t: "时间", w: "130px" }, { t: "操作", w: "60px" }],
-      d.materials.map((m) => ({ c: [esc(m.kind), esc(m.name), esc(m.version || ""), esc(m.uploader || ""), `<span class="mono">${esc(m.created_at)}</span>`,
-        can("material:write") && p.status !== "已归档" ? `<button class="link danger" data-del-mat="${m.id}">删除</button>` : "—"] })),
+    ${table([{ t: "类别", w: "104px" }, { t: "材料名称" }, { t: "附件", w: "84px" }, { t: "版本", w: "56px" },
+      { t: "上传人", w: "76px" }, { t: "时间", w: "130px" }, { t: "操作", w: "56px" }],
+      d.materials.map((m) => ({
+        c: [
+          esc(m.kind), esc(m.name),
+          m.file_key
+            ? (m.file_mime === "application/pdf"
+                ? `<a class="link" href="${fileUrl(m.file_key)}" target="_blank" rel="noopener">PDF</a>`
+                : `<a href="${fileUrl(m.file_key)}" target="_blank" rel="noopener"><img class="thumb" src="${fileUrl(m.file_key)}" alt=""></a>`)
+            : '<span style="color:var(--mute)">—</span>',
+          esc(m.version || ""), esc(m.uploader || ""), `<span class="mono">${esc(m.created_at)}</span>`,
+          can("material:write") && p.status !== "已归档" ? `<button class="link danger" data-del-mat="${m.id}">删除</button>` : "—"
+        ]
+      })),
       { empty: "暂无材料" })}`,
     can("material:write") && p.status !== "已归档" ? '<button class="btn btn-p btn-sm" id="addMat">+ 登记材料</button>' : "");
 }
@@ -375,19 +387,56 @@ function openMaterial(root, pid) {
   const fields = [
     { k: "kind", l: "材料类别", t: "select", req: 1, opts: state.meta.materialKinds },
     { k: "name", l: "材料名称", req: 1, ph: "如：签到表-终版.pdf" },
-    { k: "version", l: "版本", v: "v1" }
+    { k: "version", l: "版本", v: "v1" },
+    {
+      k: "file", l: "附件", t: "file", full: 1,
+      accept: "image/jpeg,image/png,image/webp,image/gif,application/pdf",
+      tip: "支持 JPG / PNG / WebP / PDF，单张不超过 8 MB。图片会在本地自动压缩后再上传。"
+    }
   ];
-  const m = modal({ title: "登记材料", body: `<div class="hint" style="margin-bottom:12px">生产环境接入对象存储后可直接上传文件；当前版本登记材料元数据并计入 8 类齐备校验。</div>${formHtml(fields)}`,
-    footer: `<button class="btn btn-o" data-x="0">取消</button><button class="btn btn-p" data-x="1">保存</button>` });
+  const m = modal({
+    title: "登记材料",
+    width: "620px",
+    body: `<div class="hint" style="margin-bottom:12px">登记后即计入 8 类齐备校验；带附件的材料可在列表中直接预览或下载。</div>${formHtml(fields)}`,
+    footer: `<button class="btn btn-o" data-x="0">取消</button><button class="btn btn-p" data-x="1">保存</button>`
+  });
+
+  let picked = null;
+  bindFilePicker(m, "file", (f, err) => {
+    if (err) { picked = null; toast(err, "warn"); return; }
+    picked = f;
+    const nameInput = m.querySelector('[name="name"]');
+    if (nameInput && !nameInput.value.trim()) nameInput.value = f.name;
+  });
+
   m.querySelector('[data-x="0"]').onclick = () => m.classList.remove("open");
-  m.querySelector('[data-x="1"]').onclick = async () => {
+  const btn = m.querySelector('[data-x="1"]');
+  btn.onclick = async () => {
     if (!validate(m, fields)) return;
+    const v = readForm(m);
+    if (!v.name && picked) v.name = picked.name;
+    if (!String(v.name || "").trim()) { toast("请填写材料名称或选择附件", "warn"); return; }
+
+    btn.disabled = true;
     try {
-      const r = await api.post(`/api/projects/${pid}/materials`, readForm(m));
-      toast(r.message, "ok");
+      let meta = {};
+      if (picked) {
+        btn.textContent = "上传中 0%";
+        const up = await api.upload(picked, {
+          onProgress: (p) => { btn.textContent = `上传中 ${Math.round(p * 100)}%`; }
+        });
+        meta = { file_key: up.key, file_name: up.name, file_size: up.size, file_mime: up.mime };
+      }
+      btn.textContent = "保存中…";
+      const r = await api.post(`/api/projects/${pid}/materials`, { ...v, ...meta });
+      toast(r.message || "已登记", "ok");
       m.classList.remove("open");
       await refresh(root, pid);
-    } catch (e) { toast(e.message, "warn"); }
+    } catch (e) {
+      toast(e.message, "warn");
+      btn.disabled = false;
+      btn.textContent = "保存";
+    }
   };
 }
 

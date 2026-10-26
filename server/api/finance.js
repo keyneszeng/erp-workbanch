@@ -5,6 +5,7 @@ const { assertCan, assertProjectVisible, scopeFilter, can, isSuper } = require("
 const { logAudit } = require("../lib/audit");
 const { getProject, verification } = require("../lib/workflow");
 const { PAYMENT_TYPES } = require("../lib/constants");
+const { readPaging, countOf } = require("../lib/paginate");
 const { transition } = require("../lib/workflow");
 
 // 只有「已核销」可新增付款：结算后账目已封账，归档后卷宗已封存，均不得再挂账
@@ -21,11 +22,22 @@ function register(router) {
   /* ---------------- 合同 ---------------- */
   router.get("/api/contracts", async (ctx) => {
     const { sql, params } = scopeFilter(ctx.user);
+    const where = [sql];
+    const args = [...params];
+    if (ctx.query.pid) { where.push("c.pid = ?"); args.push(ctx.query.pid); }
+    const whereSql = where.join(" AND ");
+    const base = `FROM contracts c JOIN projects p ON p.id = c.pid WHERE ${whereSql}`;
+    const paging = readPaging(ctx.query);
+
+    if (!paging) {
+      const rows = db.prepare(`SELECT c.*, p.name AS pname ${base} ORDER BY c.id DESC`).all(...args);
+      return { rows, total: rows.length };
+    }
+    const total = countOf(db.prepare(`SELECT COUNT(*) AS c ${base}`).get(...args));
     const rows = db.prepare(
-      `SELECT c.*, p.name AS pname FROM contracts c JOIN projects p ON p.id = c.pid
-       WHERE ${sql} ${ctx.query.pid ? "AND c.pid = ?" : ""} ORDER BY c.id DESC`
-    ).all(...params, ...(ctx.query.pid ? [ctx.query.pid] : []));
-    return { rows };
+      `SELECT c.*, p.name AS pname ${base} ORDER BY c.id DESC LIMIT ? OFFSET ?`
+    ).all(...args, paging.size, paging.offset);
+    return { rows, total, page: paging.page, size: paging.size, pages: Math.max(1, Math.ceil(total / paging.size)), paged: true };
   });
 
   router.post("/api/contracts", async (ctx) => {
@@ -57,15 +69,55 @@ function register(router) {
     const args = [...params];
     if (ctx.query.status) { where.push("y.status = ?"); args.push(ctx.query.status); }
     if (ctx.query.pid) { where.push("y.pid = ?"); args.push(ctx.query.pid); }
-    const rows = db.prepare(
-      `SELECT y.*, p.name AS pname, p.status AS pstatus FROM payments y JOIN projects p ON p.id = y.pid
-       WHERE ${where.join(" AND ")} ORDER BY y.created_at DESC, y.id DESC`
-    ).all(...args);
-    return { rows, summary: {
-      total: rows.length,
-      amount: rows.reduce((s, r) => s + r.amount, 0),
-      pending: rows.filter((r) => r.status === "待审批").length
-    } };
+    const whereSql = where.join(" AND ");
+    const base = `FROM payments y JOIN projects p ON p.id = y.pid WHERE ${whereSql}`;
+    const paging = readPaging(ctx.query);
+
+    let rows;
+    let total;
+    if (paging) {
+      total = countOf(db.prepare(`SELECT COUNT(*) AS c ${base}`).get(...args));
+      rows = db.prepare(
+        `SELECT y.*, p.name AS pname, p.status AS pstatus ${base} ORDER BY y.created_at DESC, y.id DESC LIMIT ? OFFSET ?`
+      ).all(...args, paging.size, paging.offset);
+    } else {
+      rows = db.prepare(
+        `SELECT y.*, p.name AS pname, p.status AS pstatus ${base} ORDER BY y.created_at DESC, y.id DESC`
+      ).all(...args);
+      total = rows.length;
+    }
+
+    // 汇总必须独立聚合：拿当前页的 rows 去 reduce，分页后金额就只剩一页的数
+    const agg = db.prepare(
+      `SELECT COUNT(*) AS n,
+              COALESCE(SUM(y.amount),0) AS s,
+              COALESCE(SUM(CASE WHEN y.status = '待审批' THEN 1 ELSE 0 END),0) AS n_pending,
+              COALESCE(SUM(CASE WHEN y.status = '已审批' THEN 1 ELSE 0 END),0) AS n_approved,
+              COALESCE(SUM(CASE WHEN y.status = '已付款' THEN 1 ELSE 0 END),0) AS n_paid,
+              COALESCE(SUM(CASE WHEN y.status = '待审批' THEN y.amount ELSE 0 END),0) AS a_pending,
+              COALESCE(SUM(CASE WHEN y.status = '已审批' THEN y.amount ELSE 0 END),0) AS a_approved,
+              COALESCE(SUM(CASE WHEN y.status = '已付款' THEN y.amount ELSE 0 END),0) AS a_paid
+       ${base}`
+    ).get(...args);
+
+    return {
+      rows,
+      total,
+      page: paging ? paging.page : 1,
+      size: paging ? paging.size : total,
+      pages: paging ? Math.max(1, Math.ceil(total / paging.size)) : 1,
+      paged: !!paging,
+      summary: {
+        total: Number(agg.n) || 0,
+        amount: Number(agg.s) || 0,
+        pending: Number(agg.n_pending) || 0,
+        approved: Number(agg.n_approved) || 0,
+        paid: Number(agg.n_paid) || 0,
+        pendingAmount: Number(agg.a_pending) || 0,
+        approvedAmount: Number(agg.a_approved) || 0,
+        paidAmount: Number(agg.a_paid) || 0
+      }
+    };
   });
 
   /** 付款申请 —— 核销是唯一前置门 */

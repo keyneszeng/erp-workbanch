@@ -5,6 +5,8 @@ const { assertCan, assertProjectVisible, isSuper } = require("../lib/rbac");
 const { logAudit } = require("../lib/audit");
 const { getProject, verification, materialsStatus, settlementOf } = require("../lib/workflow");
 const { MATERIAL_KINDS } = require("../lib/constants");
+const { readPaging, countOf } = require("../lib/paginate");
+const { storage } = require("../lib/storage");
 
 function register(router) {
   /** 核销看板：6 步 + 例外 + 结算 + 材料 */
@@ -124,33 +126,79 @@ function register(router) {
   /** 材料总览（跨项目） */
   router.get("/api/materials", async (ctx) => {
     const { sql, params } = require("../lib/rbac").scopeFilter(ctx.user);
-    const rows = db.prepare(
-      `SELECT m.*, p.name AS pname, p.status AS pstatus FROM materials m JOIN projects p ON p.id = m.pid
-       WHERE ${sql} ORDER BY m.id DESC`
-    ).all(...params);
+    const paging = readPaging(ctx.query);
+
+    const base = `FROM materials m JOIN projects p ON p.id = m.pid WHERE ${sql}`;
+    let rows;
+    let total;
+    if (paging) {
+      total = countOf(db.prepare(`SELECT COUNT(*) AS c ${base}`).get(...params));
+      rows = db.prepare(
+        `SELECT m.*, p.name AS pname, p.status AS pstatus ${base} ORDER BY m.id DESC LIMIT ? OFFSET ?`
+      ).all(...params, paging.size, paging.offset);
+    } else {
+      rows = db.prepare(`SELECT m.*, p.name AS pname, p.status AS pstatus ${base} ORDER BY m.id DESC`).all(...params);
+      total = rows.length;
+    }
+
+    // 齐备度必须用独立聚合算：分页后的 rows 只是当前页，拿它算会漏掉其它页的材料
+    const kindsByPid = new Map();
+    for (const r of db.prepare(`SELECT DISTINCT m.pid, m.kind ${base}`).all(...params)) {
+      if (!kindsByPid.has(r.pid)) kindsByPid.set(r.pid, []);
+      kindsByPid.get(r.pid).push(r.kind);
+    }
+
     // 已归档项目卷宗封存，不再出现在可登记列表
     const projects = db.prepare(
       `SELECT p.id, p.name, p.status FROM projects p WHERE ${sql} AND p.status IN ('筹备中','执行中','待核销','已核销','已结算') ORDER BY p.date DESC`
     ).all(...params).map((p) => {
-      const have = [...new Set(rows.filter((r) => r.pid === p.id).map((r) => r.kind))];
+      const have = kindsByPid.get(p.id) || [];
       return { ...p, have, missing: MATERIAL_KINDS.filter((k) => !have.includes(k)) };
     });
-    return { rows, projects, kinds: MATERIAL_KINDS };
+
+    return {
+      rows,
+      total,
+      page: paging ? paging.page : 1,
+      size: paging ? paging.size : total,
+      pages: paging ? Math.max(1, Math.ceil(total / paging.size)) : 1,
+      paged: !!paging,
+      projects,
+      kinds: MATERIAL_KINDS
+    };
   });
 
-  /** 材料登记（归档 8 类） */
+  /** 材料登记（归档 8 类，可选挂一个附件） */
   router.post("/api/projects/:id/materials", async (ctx) => {
     const p = getProject(ctx.params.id);
     assertProjectVisible(ctx.user, p);
     assertCan(ctx.user, "material:write", "当前角色无材料登记权限");
     if (p.status === "已归档") throw conflict("项目已归档，材料清单已封存，不可再登记", "ARCHIVED", { status: p.status });
-    const { kind, name, version } = ctx.body || {};
+    const { kind, name, version, file_key, file_name, file_size, file_mime } = ctx.body || {};
     if (!MATERIAL_KINDS.includes(kind)) throw bad(`材料类别必须是：${MATERIAL_KINDS.join(" / ")}`);
     if (!String(name || "").trim()) throw bad("请填写材料名称");
     if (String(name).trim().length > 120) throw bad("材料名称不能超过 120 字");
-    db.prepare("INSERT INTO materials (pid,kind,name,version,uploader,created_at) VALUES (?,?,?,?,?,?)")
-      .run(p.id, kind, String(name).trim(), version || "v1", ctx.user.name, now());
-    logAudit({ user: ctx.user, module: "材料中心", action: "上传", target: p.id, detail: `${kind}：${name}`, ip: ctx.ip });
+
+    // 附件 key 必须是本系统签发的格式，否则等于允许把任意字符串写进库
+    let fk = null;
+    if (file_key) {
+      if (!/^[a-f0-9]{32}\.(jpg|png|webp|gif|pdf)$/.test(String(file_key))) throw bad("附件标识不合法");
+      fk = String(file_key);
+    }
+
+    db.prepare(
+      `INSERT INTO materials (pid,kind,name,version,uploader,created_at,file_key,file_name,file_size,file_mime)
+       VALUES (?,?,?,?,?,?,?,?,?,?)`
+    ).run(
+      p.id, kind, String(name).trim(), version || "v1", ctx.user.name, now(),
+      fk, fk ? String(file_name || "").slice(0, 120) : null,
+      fk ? Number(file_size) || null : null, fk ? String(file_mime || "").slice(0, 60) : null
+    );
+
+    logAudit({
+      user: ctx.user, module: "材料中心", action: "上传", target: p.id,
+      detail: `${kind}：${name}${fk ? "（含附件）" : ""}`, ip: ctx.ip
+    });
     return { materialsStatus: materialsStatus(p.id), message: `${kind} 已登记` };
   });
 
@@ -161,18 +209,34 @@ function register(router) {
     assertProjectVisible(ctx.user, p);
     assertCan(ctx.user, "material:write", "当前角色无材料删除权限");
     if (p.status === "已归档") throw conflict("已归档项目材料不可删除");
+
     db.prepare("DELETE FROM materials WHERE id = ?").run(m.id);
+
+    // 附件一起删，但要先确认没有别的材料行还引用同一个 key
+    if (m.file_key) {
+      const still = db.prepare("SELECT COUNT(*) AS c FROM materials WHERE file_key = ?").get(m.file_key);
+      if (!(Number(still?.c) > 0)) {
+        try { await storage().del(m.file_key); } catch { /* 文件删除失败不回滚记录，避免留下删不掉的条目 */ }
+      }
+    }
+
     logAudit({ user: ctx.user, module: "材料中心", action: "删除", target: p.id, detail: `删除 ${m.kind}：${m.name}`, ip: ctx.ip });
     return { materialsStatus: materialsStatus(p.id), message: "已删除" };
   });
 
   router.get("/api/settlements", async (ctx) => {
     const { sql, params } = require("../lib/rbac").scopeFilter(ctx.user);
+    const base = `FROM settlements s JOIN projects p ON p.id = s.pid WHERE ${sql}`;
+    const paging = readPaging(ctx.query);
+    if (!paging) {
+      const rows = db.prepare(`SELECT s.*, p.name, p.assoc, p.status AS pstatus ${base} ORDER BY s.created_at DESC`).all(...params);
+      return { rows, total: rows.length };
+    }
+    const total = countOf(db.prepare(`SELECT COUNT(*) AS c ${base}`).get(...params));
     const rows = db.prepare(
-      `SELECT s.*, p.name, p.assoc, p.status AS pstatus FROM settlements s JOIN projects p ON p.id = s.pid
-       WHERE ${sql} ORDER BY s.created_at DESC`
-    ).all(...params);
-    return { rows };
+      `SELECT s.*, p.name, p.assoc, p.status AS pstatus ${base} ORDER BY s.created_at DESC LIMIT ? OFFSET ?`
+    ).all(...params, paging.size, paging.offset);
+    return { rows, total, page: paging.page, size: paging.size, pages: Math.max(1, Math.ceil(total / paging.size)), paged: true };
   });
 
   return router;

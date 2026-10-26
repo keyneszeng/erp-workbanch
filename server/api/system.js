@@ -6,6 +6,7 @@ const { logAudit } = require("../lib/audit");
 const { hashPassword } = require("../lib/auth");
 const { listProjects } = require("./projects");
 const { VERIFY_STEPS } = require("../lib/constants");
+const { readPaging, countOf } = require("../lib/paginate");
 
 function countsByStatus(user) {
   const { sql, params } = scopeFilter(user);
@@ -251,16 +252,34 @@ function register(router) {
     if (!can(ctx.user, "audit:read")) {
       // 非审计角色仅可看自己
       const rows = db.prepare("SELECT * FROM audit_logs WHERE user_id = ? ORDER BY id DESC LIMIT 200").all(ctx.user.id);
-      return { rows, limited: true };
+      return { rows, total: rows.length, limited: true, paged: false };
     }
     const where = [];
     const args = [];
     if (ctx.query.module) { where.push("module = ?"); args.push(ctx.query.module); }
     if (ctx.query.q) { where.push("(detail LIKE ? OR target LIKE ? OR user_name LIKE ?)"); args.push(`%${ctx.query.q}%`, `%${ctx.query.q}%`, `%${ctx.query.q}%`); }
+    const whereSql = where.length ? "WHERE " + where.join(" AND ") : "";
+    const paging = readPaging(ctx.query);
+
+    if (!paging) {
+      const rows = db.prepare(
+        `SELECT * FROM audit_logs ${whereSql} ORDER BY id DESC LIMIT 500`
+      ).all(...args);
+      return { rows, total: rows.length, limited: false, paged: false };
+    }
+    const total = countOf(db.prepare(`SELECT COUNT(*) AS c FROM audit_logs ${whereSql}`).get(...args));
     const rows = db.prepare(
-      `SELECT * FROM audit_logs ${where.length ? "WHERE " + where.join(" AND ") : ""} ORDER BY id DESC LIMIT 500`
-    ).all(...args);
-    return { rows, limited: false };
+      `SELECT * FROM audit_logs ${whereSql} ORDER BY id DESC LIMIT ? OFFSET ?`
+    ).all(...args, paging.size, paging.offset);
+    return {
+      rows,
+      total,
+      page: paging.page,
+      size: paging.size,
+      pages: Math.max(1, Math.ceil(total / paging.size)),
+      limited: false,
+      paged: true
+    };
   });
 
   router.get("/api/exports", async (ctx) => {

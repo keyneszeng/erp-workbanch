@@ -18,7 +18,7 @@ const MIME = {
   ".csv": "text/csv; charset=utf-8"
 };
 
-function readBody(req, limit = 2 * 1024 * 1024) {
+function readBody(req, limit = 2 * 1024 * 1024, { raw = false } = {}) {
   return new Promise((resolve, reject) => {
     let size = 0;
     let settled = false;
@@ -43,21 +43,40 @@ function readBody(req, limit = 2 * 1024 * 1024) {
     req.on("end", () => {
       if (settled) return;
       settled = true;
-      const raw = Buffer.concat(chunks).toString("utf8");
-      if (!raw) return resolve({});
+      const buf = Buffer.concat(chunks);
+      // raw 模式：原样返回二进制，不做任何编码转换（照片 / PDF 走这条路）
+      if (raw) return resolve(buf);
+      const rawText = buf.toString("utf8");
+      if (!rawText) return resolve({});
       const type = req.headers["content-type"] || "";
       try {
-        if (type.includes("application/json")) return resolve(JSON.parse(raw));
+        if (type.includes("application/json")) return resolve(JSON.parse(rawText));
         if (type.includes("application/x-www-form-urlencoded")) {
-          return resolve(Object.fromEntries(new URLSearchParams(raw)));
+          return resolve(Object.fromEntries(new URLSearchParams(rawText)));
         }
-        return resolve(JSON.parse(raw));
+        return resolve(JSON.parse(rawText));
       } catch {
         return resolve({});
       }
     });
     req.on("error", (err) => fail(err));
   });
+}
+
+/** 二进制响应（文件下载） */
+function sendBinary(res, status, buffer, { mime = "application/octet-stream", name = "", cache = "private, max-age=86400" } = {}) {
+  const headers = {
+    "Content-Type": mime,
+    "Content-Length": buffer.length,
+    "Cache-Control": cache,
+    // 图片是用户上传的内容，禁止浏览器猜类型，避免把 HTML 当图片执行
+    "X-Content-Type-Options": "nosniff"
+  };
+  if (name) {
+    headers["Content-Disposition"] = `inline; filename="${encodeURIComponent(name)}"; filename*=UTF-8''${encodeURIComponent(name)}`;
+  }
+  res.writeHead(status, headers);
+  res.end(buffer);
 }
 
 function sendJson(res, status, data, headers = {}) {
@@ -148,4 +167,4 @@ class Router {
   }
 }
 
-module.exports = { readBody, sendJson, sendText, parseCookies, cookieHeader, serveStatic, Router, MIME };
+module.exports = { readBody, sendJson, sendText, sendBinary, parseCookies, cookieHeader, serveStatic, Router, MIME };

@@ -1,12 +1,15 @@
 import { api, state } from "../lib/api.js";
-import { esc, panel, table, toast } from "../lib/ui.js";
+import { bindPager, esc, pager, panel, table, toast } from "../lib/ui.js";
 
-let filter = { module: "", q: "" };
+const PAGE_SIZE = 100;
+let filter = { module: "", q: "", page: 1 };
 
 export async function render(root) {
   const qs = new URLSearchParams();
   if (filter.module) qs.set("module", filter.module);
   if (filter.q) qs.set("q", filter.q);
+  qs.set("page", filter.page);
+  qs.set("size", PAGE_SIZE);
   const d = await api.get("/api/audit?" + qs.toString());
   const mods = ["项目管理", "筹备管理", "材料中心", "会后核销", "财务结算", "档案中心", "系统配置"];
 
@@ -21,7 +24,7 @@ export async function render(root) {
         </select>
         <input type="search" id="q" placeholder="搜索详情 / 对象 / 操作人" value="${esc(filter.q)}">
         <div class="sp"></div>
-        <span class="hint">${d.rows.length} 条</span>
+        <span class="hint">共 ${d.total} 条</span>
       </div>
       ${table([{ t: "时间", w: "130px" }, { t: "操作人", w: "82px" }, { t: "角色", w: "110px" }, { t: "模块", w: "92px" },
         { t: "动作", w: "92px" }, { t: "对象", w: "112px" }, { t: "详情" }],
@@ -31,13 +34,15 @@ export async function render(root) {
             r.target && r.target.startsWith("MP-") ? `<a class="link" data-go="projects/${r.target}">${esc(r.target)}</a>` : `<span class="mono">${esc(r.target || "—")}</span>`,
             `<span style="font-size:12.5px">${esc(r.detail || "")}</span>`]
         })), { empty: "暂无日志" })}
+      ${pager(d, { unit: "条" })}
     </div>`;
 
-  root.querySelector("#mod").onchange = (e) => { filter.module = e.target.value; render(root); };
+  bindPager(root, (n) => { filter.page = n; render(root); });
+  root.querySelector("#mod").onchange = (e) => { filter.module = e.target.value; filter.page = 1; render(root); };
   const q = root.querySelector("#q");
   q.addEventListener("input", () => {
     clearTimeout(q._t);
-    q._t = setTimeout(() => { filter.q = q.value.trim(); render(root); }, 350);
+    q._t = setTimeout(() => { filter.q = q.value.trim(); filter.page = 1; render(root); }, 350);
   });
   const exp = root.querySelector("#exp");
   if (exp) exp.onclick = async () => {

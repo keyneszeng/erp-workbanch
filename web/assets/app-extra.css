@@ -126,3 +126,36 @@ td .mono, td.mono{white-space:nowrap}
   .login-box{grid-template-columns:1fr}
   .login-left{display:none}
 }
+
+/* ---------- 分页条 ---------- */
+.pager{display:flex;align-items:center;justify-content:space-between;gap:12px;
+  flex-wrap:wrap;padding:12px 2px 2px;border-top:1px solid var(--line);margin-top:10px}
+.pager .pg-info{font-size:12px;color:var(--sub);font-variant-numeric:tabular-nums}
+.pager .pg-btns{display:flex;align-items:center;gap:4px;flex-wrap:wrap}
+.pager .pg-btns .btn{min-width:30px;justify-content:center}
+.pager .pg-btns .btn[disabled]{opacity:.42;cursor:not-allowed}
+.pager .pg-gap{color:var(--mute);padding:0 2px;font-size:12px}
+
+/* ---------- 照片上传 ---------- */
+.upload{display:flex;align-items:center;gap:10px;border:1px dashed var(--line2);border-radius:8px;
+  padding:10px 12px;cursor:pointer;background:#fafbfd;transition:border-color .15s,background .15s}
+.upload:hover{border-color:var(--blue);background:#f5f9ff}
+.upload .fn{font-size:12px;color:var(--sub);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.upload.has{border-style:solid;border-color:#c9e8d4;background:#f4fbf6}
+.thumb{width:38px;height:38px;border-radius:5px;object-fit:cover;border:1px solid var(--line);
+  background:#fff;vertical-align:middle}
+.thumb-lg{width:120px;height:90px;border-radius:7px;object-fit:cover;border:1px solid var(--line);background:#fff}
+.file-chip{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;color:var(--sub)}
+.up-progress{height:4px;background:#eef2f7;border-radius:3px;overflow:hidden;margin-top:8px}
+.up-progress i{display:block;height:100%;background:var(--blue);transition:width .2s}
+
+/* ---------- 照片网格 ---------- */
+.photos{display:grid;grid-template-columns:repeat(auto-fill,minmax(132px,1fr));gap:10px;margin-top:12px}
+.photos .ph{border:1px solid var(--line);border-radius:8px;overflow:hidden;background:#fff;position:relative}
+.photos .ph img{width:100%;height:96px;object-fit:cover;display:block;background:#f2f5f9}
+.photos .ph .cap{padding:6px 8px;font-size:11.5px;color:var(--sub);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.photos .ph .del{position:absolute;top:4px;right:4px;width:20px;height:20px;border-radius:50%;
+  border:none;background:rgba(20,30,45,.62);color:#fff;font-size:13px;line-height:1;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;opacity:0;transition:opacity .15s}
+.photos .ph:hover .del{opacity:1}

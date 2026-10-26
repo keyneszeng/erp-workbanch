@@ -5,6 +5,7 @@ const { assertCan, assertProjectVisible, can, isSuper, scopeFilter, ROLES } = re
 const { logAudit } = require("../lib/audit");
 const { getProject, verification, materialsStatus, settlementOf, availableActions, transition } = require("../lib/workflow");
 const { ASSOCS, FORMS, DEPTS } = require("../lib/constants");
+const { readPaging, countOf } = require("../lib/paginate");
 
 const EDITABLE = ["name", "assoc", "form", "date", "days", "budget", "people", "owner", "phone", "dept", "agenda"];
 
@@ -57,7 +58,7 @@ function validate(body, partial = false) {
   }
 }
 
-function listProjects(user, { status, q, assoc, stage } = {}) {
+function listProjects(user, { status, q, assoc, stage, page, size } = {}) {
   const { sql, params } = scopeFilter(user);
   const where = [sql];
   const args = [...params];
@@ -72,15 +73,47 @@ function listProjects(user, { status, q, assoc, stage } = {}) {
     const arr = map[stage] || [];
     if (arr.length) { where.push(`p.status IN (${arr.map(() => "?").join(",")})`); args.push(...arr); }
   }
+  const whereSql = where.join(" AND ");
+  const paging = readPaging({ page, size });
+
+  // 未请求分页时保持原样返回数组（旧调用方零影响）
+  if (!paging) {
+    return db.prepare(
+      `SELECT p.*, (SELECT COUNT(*) FROM payments y WHERE y.pid = p.id) AS pay_cnt,
+              (SELECT COALESCE(SUM(y.amount),0) FROM payments y WHERE y.pid = p.id AND y.status='已付款') AS paid_amt,
+              (SELECT COUNT(*) FROM verify_steps v WHERE v.pid = p.id AND v.result IN ('通过','已解例外')) AS v_passed,
+              (SELECT COUNT(*) FROM exceptions e WHERE e.pid = p.id AND e.status='待审批') AS ex_open,
+              (SELECT id FROM settlements s WHERE s.pid = p.id) AS st_id
+       FROM projects p WHERE ${whereSql} ORDER BY p.date DESC, p.id`
+    ).all(...args);
+  }
+
+  // COUNT 只数主表，四个相关子查询不影响行数
+  const total = countOf(db.prepare(`SELECT COUNT(*) AS c FROM projects p WHERE ${whereSql}`).get(...args));
+  // 预算 / 已付款的全量汇总：分页后前端只拿得到一页，合计必须由后端给
+  const agg = db.prepare(
+    `SELECT COALESCE(SUM(p.budget),0) AS budget,
+            COALESCE(SUM((SELECT COALESCE(SUM(y.amount),0) FROM payments y WHERE y.pid = p.id AND y.status='已付款')),0) AS paid
+     FROM projects p WHERE ${whereSql}`
+  ).get(...args);
   const rows = db.prepare(
     `SELECT p.*, (SELECT COUNT(*) FROM payments y WHERE y.pid = p.id) AS pay_cnt,
             (SELECT COALESCE(SUM(y.amount),0) FROM payments y WHERE y.pid = p.id AND y.status='已付款') AS paid_amt,
             (SELECT COUNT(*) FROM verify_steps v WHERE v.pid = p.id AND v.result IN ('通过','已解例外')) AS v_passed,
             (SELECT COUNT(*) FROM exceptions e WHERE e.pid = p.id AND e.status='待审批') AS ex_open,
             (SELECT id FROM settlements s WHERE s.pid = p.id) AS st_id
-     FROM projects p WHERE ${where.join(" AND ")} ORDER BY p.date DESC, p.id`
-  ).all(...args);
-  return rows;
+     FROM projects p WHERE ${whereSql} ORDER BY p.date DESC, p.id LIMIT ? OFFSET ?`
+  ).all(...args, paging.size, paging.offset);
+
+  return {
+    rows,
+    total,
+    page: paging.page,
+    size: paging.size,
+    pages: Math.max(1, Math.ceil(total / paging.size)),
+    paged: true,
+    summary: { budget: Number(agg.budget) || 0, paid: Number(agg.paid) || 0 }
+  };
 }
 
 function detail(project, user) {
@@ -121,8 +154,10 @@ function detail(project, user) {
 
 function register(router) {
   router.get("/api/projects", async (ctx) => {
-    const rows = listProjects(ctx.user, ctx.query);
-    return { rows, total: rows.length };
+    const r = listProjects(ctx.user, ctx.query);
+    // 未请求分页时 listProjects 返回数组，保持旧返回结构
+    if (Array.isArray(r)) return { rows: r, total: r.length };
+    return r;
   });
 
   router.post("/api/projects", async (ctx) => {

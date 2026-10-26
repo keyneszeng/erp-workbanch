@@ -1,21 +1,26 @@
 import { api, can, state } from "../lib/api.js";
-import { badge, confirmBox, esc, formHtml, modal, money, panel, readForm, table, toast, validate } from "../lib/ui.js";
+import { badge, bindPager, confirmBox, esc, formHtml, modal, money, pager, panel, readForm, table, toast, validate } from "../lib/ui.js";
 
+const PAGE_SIZE = 50;
 let filterStatus = "";
+let curPage = 1;
 // 只有「已核销」可付款：已结算 = 账目封账，已归档 = 卷宗封存
 const PAYABLE = ["已核销"];
 
 export async function render(root) {
+  const qs = new URLSearchParams();
+  if (filterStatus) qs.set("status", filterStatus);
+  qs.set("page", curPage);
+  qs.set("size", PAGE_SIZE);
+
   const [pay, st, proj] = await Promise.all([
-    api.get("/api/payments" + (filterStatus ? `?status=${encodeURIComponent(filterStatus)}` : "")),
+    api.get("/api/payments?" + qs.toString()),
     api.get("/api/settlements"),
     api.get("/api/projects")
   ]);
   const payableProjects = proj.rows.filter((p) => PAYABLE.includes(p.status));
-  const all = pay.rows;
-  const pendingAmt = all.filter((r) => r.status === "待审批").reduce((s, r) => s + r.amount, 0);
-  const approvedAmt = all.filter((r) => r.status === "已审批").reduce((s, r) => s + r.amount, 0);
-  const paidAmt = all.filter((r) => r.status === "已付款").reduce((s, r) => s + r.amount, 0);
+  // KPI 全部用后端全量汇总：pay.rows 只是当前页
+  const s = pay.summary || { pending: 0, approved: 0, pendingAmount: 0, approvedAmount: 0, paidAmount: 0 };
   const blocked = proj.rows.filter((p) => ["待核销", "执行中", "筹备中"].includes(p.status)).length;
 
   root.innerHTML = `<div class="phead">
@@ -28,24 +33,24 @@ export async function render(root) {
     </div>
 
     <div class="grid g4">
-      <div class="kpi k3"><div class="t">待审批</div><div class="v">${all.filter((r) => r.status === "待审批").length}<span class="u">笔</span></div>
-        <div style="font-size:12px;color:var(--sub);margin-top:4px">¥${money(pendingAmt)}</div></div>
-      <div class="kpi"><div class="t">已审批待付</div><div class="v">${all.filter((r) => r.status === "已审批").length}<span class="u">笔</span></div>
-        <div style="font-size:12px;color:var(--sub);margin-top:4px">¥${money(approvedAmt)}</div></div>
-      <div class="kpi k2"><div class="t">已付款</div><div class="v">¥${money(paidAmt)}</div></div>
+      <div class="kpi k3"><div class="t">待审批</div><div class="v">${s.pending}<span class="u">笔</span></div>
+        <div style="font-size:12px;color:var(--sub);margin-top:4px">¥${money(s.pendingAmount)}</div></div>
+      <div class="kpi"><div class="t">已审批待付</div><div class="v">${s.approved}<span class="u">笔</span></div>
+        <div style="font-size:12px;color:var(--sub);margin-top:4px">¥${money(s.approvedAmount)}</div></div>
+      <div class="kpi k2"><div class="t">已付款</div><div class="v">¥${money(s.paidAmount)}</div></div>
       <div class="kpi k4"><div class="t">付款门禁锁定中</div><div class="v">${blocked}<span class="u">个项目</span></div>
         <div style="font-size:12px;color:var(--sub);margin-top:4px">未核销不可付款</div></div>
     </div>
 
     <div class="panel mt">
-      <div class="panel-h"><h2>付款记录</h2><div><span class="hint">${all.length} 笔</span></div></div>
-      <div class="tabs">${["", "待审批", "已审批", "已付款", "已驳回"].map((s) =>
-        `<button data-st="${s}" class="${filterStatus === s ? "on" : ""}">${s || "全部"}</button>`).join("")}</div>
+      <div class="panel-h"><h2>付款记录</h2><div><span class="hint">共 ${pay.total} 笔</span></div></div>
+      <div class="tabs">${["", "待审批", "已审批", "已付款", "已驳回"].map((x) =>
+        `<button data-st="${x}" class="${filterStatus === x ? "on" : ""}">${x || "全部"}</button>`).join("")}</div>
       ${table(
         [{ t: "付款单号", w: "112px" }, { t: "项目" }, { t: "类型", w: "84px" }, { t: "收款方", w: "150px" },
          { t: "金额", w: "96px", cls: "num" }, { t: "发票号", w: "96px" }, { t: "申请人", w: "70px" },
          { t: "状态", w: "78px" }, { t: "操作", w: "120px" }],
-        all.map((y) => ({
+        pay.rows.map((y) => ({
           c: [`<span class="mono">${y.id}</span>`,
             `<a class="link" data-go="projects/${y.pid}">${esc(y.pname)}</a>
              <div style="font-size:11px;color:var(--mute)">${esc(y.pstatus)}</div>`,
@@ -57,26 +62,28 @@ export async function render(root) {
               ${y.status === "已付款" ? `<span style="font-size:11.5px;color:var(--mute)">${esc(y.paid_at || "")}</span>` : ""}
             </div>`]
         })), { empty: "暂无付款记录" })}
+      ${pager(pay, { unit: "笔" })}
     </div>
 
     <div class="panel">
-      <div class="panel-h"><h2>结算单</h2><div><span class="hint">${st.rows.length} 张 · 生成即冻结核销结论</span></div></div>
+      <div class="panel-h"><h2>结算单</h2><div><span class="hint">${st.total ?? st.rows.length} 张 · 生成即冻结核销结论</span></div></div>
       ${table(
         [{ t: "结算单号", w: "112px" }, { t: "项目" }, { t: "收入", w: "100px", cls: "num" },
          { t: "支出", w: "100px", cls: "num" }, { t: "结余", w: "100px", cls: "num" },
          { t: "生成人", w: "76px" }, { t: "时间", w: "130px" }],
-        st.rows.map((s) => ({
-          c: [`<span class="mono">${s.id}</span>`, `<a class="link" data-go="projects/${s.pid}">${esc(s.name)}</a>`,
-            `¥${money(s.income)}`, `¥${money(s.expense)}`,
-            `<span class="${s.profit >= 0 ? "pos" : "neg"}">¥${money(s.profit)}</span>`,
-            esc(s.created_by || ""), `<span class="mono">${esc(s.created_at)}</span>`]
+        st.rows.map((x) => ({
+          c: [`<span class="mono">${x.id}</span>`, `<a class="link" data-go="projects/${x.pid}">${esc(x.name)}</a>`,
+            `¥${money(x.income)}`, `¥${money(x.expense)}`,
+            `<span class="${x.profit >= 0 ? "pos" : "neg"}">¥${money(x.profit)}</span>`,
+            esc(x.created_by || ""), `<span class="mono">${esc(x.created_at)}</span>`]
         })), { empty: "暂无结算单" })}
     </div>
 
     <div class="foot-note">门禁说明：未通过 6 步核销的项目，付款接口会返回 <code>VERIFY_GATE</code> 并记录审计；
       已生成结算单的项目，核销结论与资料修改均被冻结（总管理员可例外操作，同样留痕）。</div>`;
 
-  root.querySelectorAll("[data-st]").forEach((b) => b.onclick = () => { filterStatus = b.dataset.st; render(root); });
+  bindPager(root, (n) => { curPage = n; render(root); });
+  root.querySelectorAll("[data-st]").forEach((b) => b.onclick = () => { filterStatus = b.dataset.st; curPage = 1; render(root); });
   root.querySelectorAll("[data-ok]").forEach((b) => b.onclick = () => act(root, b.dataset.ok, "approve"));
   root.querySelectorAll("[data-no]").forEach((b) => b.onclick = () => act(root, b.dataset.no, "reject"));
   root.querySelectorAll("[data-pay]").forEach((b) => b.onclick = () => act(root, b.dataset.pay, "pay"));

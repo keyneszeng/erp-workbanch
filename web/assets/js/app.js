@@ -1,5 +1,5 @@
 import { api, state, can } from "./lib/api.js";
-import { esc, toast } from "./lib/ui.js";
+import { esc, toast, modal, formHtml, readForm, validate } from "./lib/ui.js";
 import * as login from "./pages/login.js";
 import * as dashboard from "./pages/dashboard.js";
 import * as projects from "./pages/projects.js";
@@ -80,6 +80,7 @@ function topHtml(r) {
       ${state.super ? '<span class="super-tag">全部权限 · 全平台</span>' : ""}
       <span class="role-tag ${state.super ? "super" : ""}">${esc(role.name || "")}</span>
       <span style="font-size:12.5px;color:var(--sub)">${esc(state.user.name)}</span>
+      <button class="btn btn-o btn-sm" id="pwdBtn">修改密码</button>
       <button class="btn btn-o btn-sm" id="logoutBtn">退出</button>
     </div>`;
 }
@@ -115,6 +116,7 @@ async function route() {
   document.getElementById("nav").innerHTML = navHtml(hit.nav);
   document.getElementById("top").innerHTML = topHtml(hit);
   document.getElementById("logoutBtn").onclick = doLogout;
+  document.getElementById("pwdBtn").onclick = openPassword;
 
   const content = document.getElementById("content");
   content.innerHTML = '<div class="empty" style="padding:60px">加载中…</div>';
@@ -132,6 +134,41 @@ async function route() {
     </div>`;
   }
   content.scrollTop = 0;
+}
+
+/* ---------------- 修改密码 ---------------- */
+function openPassword() {
+  const fields = [
+    { k: "oldPassword", l: "原密码", t: "password", req: 1, full: 1 },
+    { k: "newPassword", l: "新密码", t: "password", req: 1, full: 1, tip: "至少 8 位，需同时包含字母和数字" },
+    { k: "confirmPassword", l: "确认新密码", t: "password", req: 1, full: 1 }
+  ];
+  const m = modal({
+    title: "修改密码",
+    body: formHtml(fields) +
+      '<div class="tip" style="margin-top:10px;color:var(--mute);line-height:1.7">' +
+      "修改成功后，该账号在其它设备上的登录会立即失效，本机保持登录。</div>",
+    footer: `<button class="btn btn-o" data-x="0">取消</button><button class="btn btn-p" data-x="1">确认修改</button>`
+  });
+  m.querySelector('[data-x="0"]').onclick = () => m.classList.remove("open");
+  m.querySelector('[data-x="1"]').onclick = async () => {
+    if (!validate(m, fields)) return;
+    const v = readForm(m);
+    if (v.newPassword !== v.confirmPassword) { toast("两次输入的新密码不一致", "warn"); return; }
+    if (v.newPassword === v.oldPassword) { toast("新密码不能与原密码相同", "warn"); return; }
+    const btn = m.querySelector('[data-x="1"]');
+    btn.disabled = true;
+    btn.textContent = "提交中…";
+    try {
+      const r = await api.post("/api/auth/password", v);
+      m.classList.remove("open");
+      toast(r.message || "密码已修改", "ok");
+    } catch (e) {
+      toast(e.message, "warn");
+      btn.disabled = false;
+      btn.textContent = "确认修改";
+    }
+  };
 }
 
 async function doLogout() {

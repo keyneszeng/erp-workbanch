@@ -18,12 +18,13 @@ function toHeaderObject(headers) {
 
 /**
  * @param {Request} request 原始 Web Request
- * @param {string} bodyText 已读出的请求体（GET 等为空串）
+ * @param {ArrayBuffer|null} bodyBuffer 已读出的请求体原始字节（GET 等为 null）
  */
-export function makeReq(request, bodyText) {
+export function makeReq(request, bodyBuffer) {
   const url = new URL(request.url);
   const headers = toHeaderObject(request.headers);
-  const chunks = bodyText ? [Buffer.from(bodyText, "utf8")] : [];
+  // 必须是原始字节：照片 / PDF 走二进制上传，转成 utf8 字符串会把文件损坏
+  const chunks = bodyBuffer && bodyBuffer.byteLength ? [Buffer.from(bodyBuffer)] : [];
   const clientIp = headers["cf-connecting-ip"] || headers["x-forwarded-for"] || "";
 
   return {

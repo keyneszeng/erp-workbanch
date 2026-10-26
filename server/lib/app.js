@@ -10,7 +10,7 @@
 const path = require("node:path");
 const { URL } = require("node:url");
 
-const { readBody, sendJson, sendText, parseCookies, serveStatic, Router } = require("./http");
+const { readBody, sendJson, sendText, sendBinary, parseCookies, serveStatic, Router } = require("./http");
 const { userByToken, COOKIE } = require("./auth");
 const { HttpError } = require("./util");
 
@@ -19,6 +19,13 @@ const HERE = typeof __dirname === "string" ? __dirname : "";
 const WEB_DIR = path.join(HERE, "..", "..", "web");
 
 const PUBLIC = new Set(["/api/auth/login", "/api/health", "/api/auth/me"]);
+
+/**
+ * 二进制上传通道：POST /api/uploads
+ * 照片走这条路，不经过 JSON 解析——3 MB 的 JPEG 转成 JSON base64 会膨胀到 4 MB 且毫无必要。
+ */
+const UPLOAD_PATH = "/api/uploads";
+const UPLOAD_LIMIT = 10 * 1024 * 1024;
 
 function buildRouter() {
   const router = new Router();
@@ -30,7 +37,8 @@ function buildRouter() {
     require("../api/verify"),
     require("../api/finance"),
     require("../api/system"),
-    require("../api/demand")
+    require("../api/demand"),
+    require("../api/files")
   ];
   for (const mod of modules) mod.register(router);
   return router;
@@ -72,10 +80,22 @@ async function handle(req, res) {
   }
 
   try {
-    const body = ["POST", "PATCH", "PUT", "DELETE"].includes(req.method) ? await readBody(req) : {};
+    let body;
+    if (req.method === "POST" && pathname === UPLOAD_PATH) {
+      body = await readBody(req, UPLOAD_LIMIT, { raw: true });
+    } else if (["POST", "PATCH", "PUT", "DELETE"].includes(req.method)) {
+      body = await readBody(req);
+    } else {
+      body = {};
+    }
     const ctx = { req, res, params: match.params, query: Object.fromEntries(url.searchParams), body, user, token, ip };
     const out = await match.handler(ctx);
 
+    if (out && out.__file !== undefined) {
+      const f = out.__file;
+      sendBinary(res, 200, f.buffer, { mime: f.mime, name: f.name });
+      return;
+    }
     if (out && out.__csv !== undefined) {
       sendText(res, 200, out.__csv, "text/csv; charset=utf-8", {
         "Content-Disposition": `attachment; filename="${encodeURIComponent(out.__filename)}"; filename*=UTF-8''${encodeURIComponent(out.__filename)}`,

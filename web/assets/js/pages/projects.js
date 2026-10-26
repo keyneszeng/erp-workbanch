@@ -1,5 +1,5 @@
 import { api, can, state } from "../lib/api.js";
-import { badge, esc, formHtml, modal, money, panel, readForm, table, toast, validate, yuan } from "../lib/ui.js";
+import { badge, bindPager, esc, formHtml, modal, money, pager, panel, readForm, table, toast, validate, yuan } from "../lib/ui.js";
 
 const TABS = [
   { k: "", n: "全部" },
@@ -10,7 +10,8 @@ const TABS = [
   { k: "done", n: "已核销及以后" }
 ];
 
-let filter = { stage: "", q: "", assoc: "" };
+const PAGE_SIZE = 50;
+let filter = { stage: "", q: "", assoc: "", page: 1 };
 
 export async function render(root) {
   root.innerHTML = `<div class="phead">
@@ -35,12 +36,13 @@ export async function render(root) {
 
   root.querySelectorAll("#tabs button").forEach((b) => b.addEventListener("click", () => {
     filter.stage = b.dataset.stage;
+    filter.page = 1;
     render(root);
   }));
   const q = root.querySelector("#q");
-  q.addEventListener("keydown", (e) => { if (e.key === "Enter") { filter.q = q.value.trim(); render(root); } });
-  q.addEventListener("input", debounce(() => { filter.q = q.value.trim(); load(root); }, 300));
-  root.querySelector("#assoc").addEventListener("change", (e) => { filter.assoc = e.target.value; render(root); });
+  q.addEventListener("keydown", (e) => { if (e.key === "Enter") { filter.q = q.value.trim(); filter.page = 1; render(root); } });
+  q.addEventListener("input", debounce(() => { filter.q = q.value.trim(); filter.page = 1; load(root); }, 300));
+  root.querySelector("#assoc").addEventListener("change", (e) => { filter.assoc = e.target.value; filter.page = 1; render(root); });
   root.querySelector("#expBtn").addEventListener("click", async () => {
     try {
       const r = await api.download("/api/export/projects");
@@ -63,11 +65,14 @@ async function load(root) {
   if (filter.stage) qs.set("stage", filter.stage);
   if (filter.q) qs.set("q", filter.q);
   if (filter.assoc) qs.set("assoc", filter.assoc);
+  qs.set("page", filter.page);
+  qs.set("size", PAGE_SIZE);
   const d = await api.get("/api/projects?" + qs.toString());
   const list = root.querySelector("#list");
   root.querySelector("#cnt").textContent = d.total;
-  const budget = d.rows.reduce((s, r) => s + r.budget, 0);
-  const paid = d.rows.reduce((s, r) => s + (r.paid_amt || 0), 0);
+  // 分页后本页行只含当前页金额，合计必须用后端给的全量 summary
+  const budget = d.summary ? d.summary.budget : d.rows.reduce((s, r) => s + r.budget, 0);
+  const paid = d.summary ? d.summary.paid : d.rows.reduce((s, r) => s + (r.paid_amt || 0), 0);
   root.querySelector("#sum").textContent = `预算合计 ¥${money(budget)} · 已付款 ¥${money(paid)}`;
 
   list.innerHTML = table(
@@ -86,7 +91,8 @@ async function load(root) {
       ]
     })),
     { empty: "没有符合条件的项目" }
-  );
+  ) + pager(d, { unit: "场" });
+  bindPager(list, (n) => { filter.page = n; load(root); });
   list.querySelectorAll("[data-pid]").forEach((tr) => {
     tr.addEventListener("click", (e) => {
       if (e.target.closest("[data-go]")) return;
