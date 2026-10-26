@@ -9,6 +9,10 @@ const { handle } = require("./lib/app");
 
 const PORT = Number(process.env.ERP_PORT || 8787);
 const HOST = process.env.ERP_HOST || "127.0.0.1";
+// 版本号只认 package.json，避免启动横幅和 package.json 各说各话
+const VERSION = (() => {
+  try { return require("../package.json").version; } catch { return "?"; }
+})();
 
 migrate();
 const seeded = seed();
@@ -22,7 +26,7 @@ function startLocalServer() {
   server.listen(PORT, HOST, () => {
     const line = [
       "",
-      "  协会会议执行 ERP  ·  v1.1.0",
+      "  协会会议执行 ERP  ·  v" + VERSION,
       `  服务地址   http://${HOST}:${PORT}`,
       `  数据库     ${DB_FILE}`,
       `  种子数据   ${seeded.skipped ? "已存在，跳过" : `已初始化（${seeded.projects} 个项目 / ${seeded.users} 个账号）`}`,
