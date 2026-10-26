@@ -1,5 +1,6 @@
 import { api, can, state } from "../lib/api.js";
 import { badge, confirmBox, esc, modal, money, panel, readForm, table, toast } from "../lib/ui.js";
+import { openStepDetail } from "../lib/verify-detail.js";
 
 export async function render(root, params) {
   if (params && params[0]) return renderOne(root, params[0]);
@@ -79,6 +80,7 @@ async function renderOne(root, pid) {
           ${s.remark ? `<span class="rm">${esc(s.remark)}</span>` : ""}
           ${s.checked_by ? `<span style="color:var(--mute)">· ${esc(s.checked_by)} ${esc(s.checked_at)}</span>` : ""}
           <div style="flex:1"></div>
+          <button class="btn btn-o btn-sm" data-detail="${s.no}">详情</button>
           ${canJudge && s.result === "待判定" ? `<button class="btn btn-o btn-sm" data-judge="${s.no}" ${prevUnjudged ? 'disabled title="必须按顺序判定"' : ""}>判定</button>` : ""}
           ${canJudge && s.result !== "待判定" ? `<button class="btn btn-o btn-sm" data-judge="${s.no}">重新判定</button>` : ""}
         </div></div>`;
@@ -100,6 +102,11 @@ async function renderOne(root, pid) {
     ${d.materialsStatus.missing.length ? `<div class="gate"><b>归档材料缺 ${d.materialsStatus.missing.length} 类</b>${d.materialsStatus.missing.join("、")}（归档前必须补齐）</div>` : ""}`)}`;
 
   root.querySelectorAll("[data-judge]").forEach((b) => b.onclick = () => openJudge(root, pid, Number(b.dataset.judge), d));
+  root.querySelectorAll("[data-detail]").forEach((b) => b.onclick = () =>
+    openStepDetail(d, Number(b.dataset.detail), {
+      canJudge,
+      onJudge: (no) => openJudge(root, pid, no, d)
+    }));
   root.querySelectorAll("[data-ex]").forEach((b) => b.onclick = () => decideEx(root, pid, b.dataset.ex, b.dataset.ok === "1"));
   const pb = root.querySelector("#passBtn");
   if (pb) pb.onclick = async () => {

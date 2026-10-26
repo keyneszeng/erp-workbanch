@@ -1,4 +1,4 @@
-# 协会会议执行 ERP · 生产版代码 V1.2.4
+# 协会会议执行 ERP · 生产版代码 V1.2.5
 
 > 依据《协会会议执行 ERP 交付版整合包 V1.0.2 · 09_可点击演示版》研发的可运行工程。
 > 演示版验证的是「流程与交互是否成立」，本工程把它落成**真实后端 + 真实数据库 + 真实权限与门禁**。
@@ -34,8 +34,8 @@ npm start            # 等价于 node --experimental-sqlite server/index.js
 
 ```bash
 npm run seed         # 重置数据库并重建种子数据
-npm test             # 246 条接口回归测试（每文件自起服务 + 独立库，不影响主库）
-npm run test:cf      # 同一批 246 条，跑在「Durable Object SQL」后端语义下
+npm test             # 248 条接口回归测试（每文件自起服务 + 独立库，不影响主库）
+npm run test:cf      # 同一批 248 条，跑在「Durable Object SQL」后端语义下
 ERP_PORT=9000 npm start
 ERP_DB=/path/to/erp.db npm start
 ```
@@ -87,7 +87,7 @@ wrangler r2 bucket create erp-workbanch-files
 ### 本地为什么不能预览
 
 `wrangler dev` 依赖 workerd，要求 **macOS 13.5+**；本机是 12.7.6，起不来。
-所以本地用 `npm run test:cf` 把同一批 246 条测试跑在「模拟的 DO SQL 后端」上
+所以本地用 `npm run test:cf` 把同一批 248 条测试跑在「模拟的 DO SQL 后端」上
 （`test/lib/do-sqlite-mock.js`），确认 SQL 语义一致后再部署。
 
 ### 已知限制
@@ -260,7 +260,7 @@ erp-app/
 ## 6. 测试
 
 ```bash
-npm test        # 246 条：api 26 + edge 26 + matrix 11 + hardening 19 + abuse 28 + stateless 6 + demand 9 + material 5 + password 6 + paging 8 + upload 11 + storage 4 + contract-file 9 + freeze 9 + id-sequence 7 + business-rules 47 + workflow-chain 10 + todo-flag 5
+npm test        # 246 条：api 26 + edge 26 + matrix 11 + hardening 19 + abuse 28 + stateless 6 + demand 9 + material 5 + password 6 + paging 8 + upload 11 + storage 4 + contract-file 9 + freeze 9 + id-sequence 7 + business-rules 47 + workflow-chain 12 + todo-flag 5
 ```
 
 | 文件 | 关注点 |
@@ -286,6 +286,14 @@ ERP_PORT=8787 npm run test:ui    # 14 页冒烟 → 全链路 E2E → 11 项 UI 
 | `test/ui/smoke.js` | 14 个页面逐页渲染，控制台 0 报错 |
 | `test/ui/e2e.js` | 全链路：立项 → 提交 → 审批 → 加成员 → 推进 → 付款门禁 → 核销不通过 → 例外审批 → 核销通过 → 付款 → 结算 → 补 8 类材料 → 归档 → 导出 |
 | `test/ui/edge.js` | UI 边界：XSS 注入、超长名称布局、404/空态、必填校验、双击提交幂等、越权直链、登录错误与限流 |
+| `test/ui/upload.js` | 材料附件：选文件 → 前端压缩 → 进度 → 列表缩略图 → 原图可取（17 项） |
+| `test/ui/contract.js` | 合同原件：选 PDF → 名称带出 → 上传 → 台账出原件入口（21 项） |
+| `test/ui/paging-edge.js` | 分页越界：停在第 N 页数据变少时能回到第 1 页（11 项） |
+| `test/ui/verify-detail.js` | 核销 6 步「详情」：逐步核对数据、原件可取、详情→判定串联、顺序限制（37 项） |
+| `test/ui/cf-live.js` / `cf-v12.js` | 线上冒烟（需部署后跑，见第 7 节） |
+
+其中 `upload` / `contract` / `verify-detail` **自带服务**，直接 `node test/ui/xxx.js` 即可；
+`smoke` / `e2e` / `edge` / `paging-edge` 需要先起服务并设 `ERP_PORT`。
 
 端到端（`test/ui/e2e.js`，需本机 Chrome）另跑通：立项 → 提交 → 审批 → 加成员 → 推进 →
 付款门禁提示 → 判定不通过 → 例外审批 → 核销通过 → 付款 → 结算 → 补 8 类材料 → 归档 → 导出下载，
@@ -373,6 +381,41 @@ Serverless 每个实例的 `/tmp` 独立，会话表只能在本实例查到。�
 ---
 
 ## 9. 变更记录
+
+### V1.2.5（核销 6 步加「详情」· 判定前必须看得到原始数据）
+
+原来的核销页每一步只有一句描述和「判定」按钮 —— **判定人看不到任何实际数据就得下判断**，
+核销等于凭印象盖章。现在每一步都有「详情」，点开就是这一步要核的东西。
+
+**各步「详情」里摆什么**
+
+| 步骤 | 详情内容 |
+|---|---|
+| 1 议程与课件核对 | 项目登记的议程环节（自动按 `/`、`、`、`；`、换行拆分）+ 议程材料 + 课件材料，各带原件链接 |
+| 2 签到人数与报名核对 | 报名人数、**自动算出的 85% 达标门槛**、签到表材料；提示「实际签到 ≥ N 人」 |
+| 3 现场费用凭证 | 费用构成（按付款类型聚合，不含已驳回）+ 票据材料 + 现场照片 |
+| 4 课件与议程课题一致性 | 议程环节清单 vs 课件清单，提示数量不等不一定有问题、但课件必须能对上课题 |
+| 5 劳务与专家费核对 | 劳务表材料 + 合同清单（含金额）+ 专家费 / 个人报销类付款明细 |
+| 6 发票与合同金额核对 | **三方金额对照**：合同总额 / 已付款合计 / 差额（不一致时高亮）+ 发票材料 |
+
+**几个刻意的设计**
+
+- **数据由核销接口一次给全**：`GET /api/projects/:id/verify` 现在额外返回 `materials` /
+  `contracts` / `payments` / `paidTotal`。不让弹窗再打三个接口，也避免两处口径各算一套。
+- **详情底部可直接判定**：看完数据点「判定」就进判定弹窗，不用关掉再回列表找按钮。
+  但前面还有未判定的步骤时不给入口 —— 顺序限制不能从侧门绕过去。
+- **共用一份实现**：抽成 `web/assets/js/lib/verify-detail.js`，核销看板与项目详情页的
+  核销页签用同一份代码，避免两处慢慢分叉。
+- **原件链接直连 `/api/uploads/:key`**：下载走原有的「按所属项目校验数据范围」，
+  不会因为加了详情面板而放宽权限。
+
+**新增测试**
+
+- `test/ui/verify-detail.js` **37 项**（真实 Chrome）：6 步逐个打开验标题与关键数据、
+  原件 HTTP 200 + `application/pdf` + 非空、详情→判定串联、顺序限制、项目页同步、无 JS 报错
+- `test/workflow-chain.test.js` 新增 2 条：`/verify` 必须带核对数据且 `paidTotal` 与明细一致、
+  合同/付款按项目隔离不串项目
+- 全量 246 → **248**，Node 与 DO SQL 语义双跑 248/248
 
 ### V1.2.4（状态机穷举 · 全链路勾稽 · 待办口径）
 

@@ -3,6 +3,7 @@ import {
   badge, confirmBox, esc, formHtml, kv, modal, money, panel, promptBox, readForm, table, timeline, toast, validate, yuan
 } from "../lib/ui.js";
 import { bindFilePicker, fileUrl } from "../lib/upload.js";
+import { openStepDetail } from "../lib/verify-detail.js";
 
 const ORDER = ["草稿", "待审批", "已立项", "筹备中", "执行中", "待核销", "已核销", "已结算", "已归档"];
 const PAYABLE = ["已核销"];
@@ -171,6 +172,7 @@ function tabVerify(d, p) {
           ${s.remark ? `<span class="rm">${esc(s.remark)}</span>` : ""}
           ${s.checked_by ? `<span style="color:var(--mute)">· ${esc(s.checked_by)} ${esc(s.checked_at)}</span>` : ""}
           <div style="flex:1"></div>
+          <button class="btn btn-o btn-sm" data-detail="${s.no}">详情</button>
           ${canJudge && s.result === "待判定" ? `<button class="btn btn-o btn-sm" data-judge="${s.no}" ${prevUnjudged ? "disabled title=\"必须按顺序判定\"" : ""}>判定</button>` : ""}
           ${canJudge && s.result !== "待判定" ? `<button class="btn btn-o btn-sm" data-judge="${s.no}">重新判定</button>` : ""}
         </div></div>`;
@@ -240,6 +242,14 @@ function wire(root, pid, d, body) {
   body.querySelectorAll("[data-pay-reject]").forEach((b) => b.onclick = () => payAct(root, pid, b.dataset.payReject, "reject"));
   body.querySelectorAll("[data-pay-pay]").forEach((b) => b.onclick = () => payAct(root, pid, b.dataset.payPay, "pay"));
   body.querySelectorAll("[data-judge]").forEach((b) => b.onclick = () => openJudge(root, pid, Number(b.dataset.judge), d));
+  // 核销 6 步的「详情」：判定前先把该核对的原始数据摆出来（与核销看板共用同一份实现）
+  const canJudgeHere = can("verify:check") && !d.settlement
+    && (d.project.status === "待核销" || (d.project.status === "已核销" && state.super));
+  body.querySelectorAll("[data-detail]").forEach((b) => b.onclick = () =>
+    openStepDetail(d, Number(b.dataset.detail), {
+      canJudge: canJudgeHere,
+      onJudge: (no) => openJudge(root, pid, no, d)
+    }));
   body.querySelectorAll("[data-ex-ok]").forEach((b) => b.onclick = () => exDecide(root, pid, b.dataset.exOk, true));
   body.querySelectorAll("[data-ex-no]").forEach((b) => b.onclick = () => exDecide(root, pid, b.dataset.exNo, false));
   body.querySelectorAll("[data-del-mat]").forEach((b) => b.onclick = () => delMaterial(root, pid, b.dataset.delMat));

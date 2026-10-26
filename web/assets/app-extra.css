@@ -159,3 +159,23 @@ td .mono, td.mono{white-space:nowrap}
   border:none;background:rgba(20,30,45,.62);color:#fff;font-size:13px;line-height:1;cursor:pointer;
   display:flex;align-items:center;justify-content:center;opacity:0;transition:opacity .15s}
 .photos .ph:hover .del{opacity:1}
+
+/* ---------- 核销步骤详情（判定前的核对面板） ---------- */
+.dsec{margin-bottom:18px}
+.dsec h4{font-size:12.5px;color:var(--sub);font-weight:600;margin:0 0 9px}
+.dgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+.dcell{border:1px solid var(--line2);border-radius:8px;padding:10px 13px;background:#fafbfd}
+.dcell .k{font-size:11.5px;color:var(--mute);margin-bottom:5px}
+.dcell .v{font-size:17px;font-weight:700;font-variant-numeric:tabular-nums;line-height:1.2}
+.dcell.warn{border-color:#e0c07a;background:#fffdf5}
+.dcell.warn .v{color:#8a6412}
+.dlist{list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:7px}
+.dlist li{display:flex;align-items:center;gap:8px;flex-wrap:wrap;border:1px solid var(--line2);
+  border-radius:7px;padding:8px 11px;background:#fff;font-size:12.5px;line-height:1.4}
+.dlist li b{font-weight:600}
+.dlist .dm{font-size:11.5px;color:var(--mute);margin-left:auto}
+.dhint{font-size:12px;color:var(--mute);padding:8px 2px}
+.dtag{font-size:11px;padding:1px 8px;border-radius:20px;background:#eef2f7;color:var(--sub);white-space:nowrap}
+.dchk{font-size:12.5px;color:var(--sub);background:#f6f8fb;border-left:3px solid var(--blue);
+  border-radius:0 6px 6px 0;padding:10px 13px;line-height:1.65}
+.dchk b{color:var(--txt)}

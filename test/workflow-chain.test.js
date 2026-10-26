@@ -259,6 +259,33 @@ test("事后勾稽：6 步核销全通过，8 类材料齐备", async () => {
   assert.equal(d.materialsStatus.have.length, 8);
 });
 
+test("核销接口自带核对原始数据（材料 / 合同 / 付款 / 已付合计）", async () => {
+  // 「详情」面板要能当场看到这一步要核的东西，所以这些字段必须由核销接口一并给出，
+  // 不能让前端再打三个接口、也不能让两处口径各算一套。
+  const v = (await admin("GET", `/api/projects/${pid}/verify`)).data;
+  for (const k of ["materials", "contracts", "payments"]) {
+    assert.ok(Array.isArray(v[k]), `/verify 应返回 ${k} 数组`);
+  }
+  assert.ok(v.materials.length >= 8, `材料应至少 8 条，实际 ${v.materials.length}`);
+  assert.ok(v.materials.some((m) => m.kind === "签到表"), "应有签到表材料");
+  assert.ok(v.contracts.length >= 1, "应有合同");
+  assert.ok(v.payments.length >= 1, "应有付款记录");
+
+  // 已付合计必须与 payments 里状态为「已付款」的合计一致
+  const paid = v.payments.filter((y) => y.status === "已付款").reduce((s, y) => s + Number(y.amount), 0);
+  assert.equal(Number(v.paidTotal), paid, "paidTotal 与已付款明细不一致");
+});
+
+test("核销接口的合同与付款按项目隔离，不串项目", async () => {
+  const a = (await admin("GET", `/api/projects/${pid}/verify`)).data;
+  const b = (await admin("GET", "/api/projects/MP-2026-017/verify")).data;
+  const idsA = new Set(a.contracts.map((c) => c.id));
+  const overlap = b.contracts.filter((c) => idsA.has(c.id));
+  assert.deepEqual(overlap, [], `合同跨项目串了：${overlap.map((c) => c.id).join(",")}`);
+  assert.ok(a.materials.every((m) => m.pid === pid), "材料里混入了其它项目的记录");
+  assert.ok(a.payments.every((y) => y.pid === pid), "付款里混入了其它项目的记录");
+});
+
 test("归档后 9 类写操作全部被拒", async () => {
   const cases = [
     ["材料登记", () => executor("POST", `/api/projects/${pid}/materials`, { kind: "发票", name: "归档后补" })],

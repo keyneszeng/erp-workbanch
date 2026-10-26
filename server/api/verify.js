@@ -9,15 +9,29 @@ const { readPaging, countOf } = require("../lib/paginate");
 const { storage } = require("../lib/storage");
 
 function register(router) {
-  /** 核销看板：6 步 + 例外 + 结算 + 材料 */
+  /**
+   * 核销看板：6 步 + 例外 + 结算 + 材料。
+   *
+   * 同时把「核对所需的原始数据」一并带出去（材料 / 合同 / 付款）：
+   * 判定人点「详情」时要能当场看到议程、签到表、票据、合同与付款金额，
+   * 否则只能凭印象点「通过」—— 核销就退化成橡皮图章。
+   * 一次请求取全，避免弹窗再打三个接口、也避免各接口口径不一致。
+   */
   router.get("/api/projects/:id/verify", async (ctx) => {
     const p = getProject(ctx.params.id);
     assertProjectVisible(ctx.user, p);
+    const materials = db.prepare("SELECT * FROM materials WHERE pid = ? ORDER BY kind, id").all(p.id);
+    const contracts = db.prepare("SELECT * FROM contracts WHERE pid = ? ORDER BY id").all(p.id);
+    const payments = db.prepare("SELECT * FROM payments WHERE pid = ? ORDER BY created_at DESC, id DESC").all(p.id);
     return {
       project: p,
       verification: verification(p.id),
       materialsStatus: materialsStatus(p.id),
-      settlement: settlementOf(p.id)
+      settlement: settlementOf(p.id),
+      materials,
+      contracts,
+      payments,
+      paidTotal: payments.filter((y) => y.status === "已付款").reduce((s, y) => s + Number(y.amount), 0)
     };
   });
 
