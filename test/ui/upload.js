@@ -7,7 +7,9 @@
  */
 const { chromium } = require("playwright");
 
-const BASE = process.env.ERP_BASE || "http://127.0.0.1:8899";
+// 与 smoke / e2e / edge 保持同一套约定：ERP_BASE 优先，否则按 ERP_PORT（默认 8787）。
+// 原来写死 8899，只有碰巧在那个端口起了服务才跑得起来。
+const BASE = process.env.ERP_BASE || `http://127.0.0.1:${process.env.ERP_PORT || 8787}`;
 const PHOTO = "/tmp/erp-upload-test/photo-small.jpg";
 const BIG = "/tmp/erp-upload-test/big.jpg";
 

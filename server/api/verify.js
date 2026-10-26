@@ -209,6 +209,12 @@ function register(router) {
     assertProjectVisible(ctx.user, p);
     assertCan(ctx.user, "material:write", "当前角色无材料删除权限");
     if (p.status === "已归档") throw conflict("已归档项目材料不可删除");
+    // 结算单一旦生成，材料就是结算与核销的原始凭证，删了等于销毁证据链。
+    // 这里用「有没有结算单」判断而不是只看 status：状态可能被人为改过，
+    // 但结算单存在与否是硬事实。
+    if (settlementOf(p.id)) {
+      throw conflict("结算单已生成，材料作为核销凭证已冻结，不可删除", "FROZEN", { status: p.status });
+    }
 
     db.prepare("DELETE FROM materials WHERE id = ?").run(m.id);
 

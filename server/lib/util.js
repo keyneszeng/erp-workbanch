@@ -13,14 +13,22 @@ function nowIso() {
   return new Date().toISOString();
 }
 
-/** 生成业务单号：MP-2026-019 / PY-2026-041 */
+/**
+ * 生成业务单号：MP-2026-019 / PY-2026-041
+ *
+ * 序号一律取「最后一个 - 之后」的整段数字。
+ * 不能用 slice(-width)：序号一旦超过 999（如 HT-2026-1000），
+ * slice(-3) 会得到 "000"，max 回退成 999，于是又生成 HT-2026-1000，
+ * 与已存在的记录撞号并触发 UNIQUE 约束，接口直接 500。
+ * 付款单一年上千笔对协会是常态，这个坑必须堵。
+ */
 function nextId(db, table, column, prefix, width = 3) {
   const year = new Date().getFullYear();
   const like = `${prefix}-${year}-%`;
   const rows = db.prepare(`SELECT ${column} AS id FROM ${table} WHERE ${column} LIKE ?`).all(like);
   let max = 0;
   for (const r of rows) {
-    const n = parseInt(String(r.id).slice(-width), 10);
+    const n = parseInt(String(r.id).split("-").pop(), 10);
     if (!Number.isNaN(n) && n > max) max = n;
   }
   return `${prefix}-${year}-${String(max + 1).padStart(width, "0")}`;

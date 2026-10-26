@@ -9,6 +9,14 @@ const { readPaging, countOf } = require("../lib/paginate");
 
 const EDITABLE = ["name", "assoc", "form", "date", "days", "budget", "people", "owner", "phone", "dept", "agenda"];
 
+/**
+ * 账目基准字段：结算单的 income 直接取 projects.budget，
+ * 结算后改预算会让 settlements.income 与 projects.budget 永久对不上。
+ * 只列真正进结算的字段，别把 days / people 也算进来（它们不影响金额）。
+ */
+const MONEY_FIELDS = ["budget"];
+const MONEY_LABEL = { budget: "预算" };
+
 /** 字段长度上限（字符数），防止超长文本撑爆列表 / 导出 / 前端渲染 */
 const MAX_LEN = { name: 80, assoc: 40, owner: 20, phone: 20, dept: 40, agenda: 2000 };
 const LEN_LABEL = { name: "会议名称", assoc: "所属协会", owner: "项目负责人", phone: "联系电话", dept: "承办部门", agenda: "初版议程要点" };
@@ -188,12 +196,31 @@ function register(router) {
   router.patch("/api/projects/:id", async (ctx) => {
     const p = getProject(ctx.params.id);
     assertProjectVisible(ctx.user, p);
-    // 资料修改：总管理员恒可；其余需协会管理员及以上，且已归档项目不可改
+    // 资料修改：总管理员恒可；其余需协会管理员及以上，且已结算 / 已归档项目不可改
     if (!isSuper(ctx.user)) {
       if (!["assoc"].includes(ctx.user.role)) throw forbidden("资料修改需要协会管理员或总管理员权限");
       if (p.status === "已归档") throw conflict("已归档项目资料已封存，不可修改");
+      // 已结算 = 账目封账，结算单已按当时的预算与合同算完。
+      // 此处若不拦，改完预算就和结算单永久对不上了（原来只拦了「已归档」）。
+      if (p.status === "已结算") {
+        throw conflict("已结算项目账目已封账，不可修改资料；如需纠错请联系总管理员", "FROZEN", { status: p.status });
+      }
     }
     const b = ctx.body || {};
+
+    // 金额类字段是结算单的计算基准，已结算 / 已归档后改动会让账实不符。
+    // 保留总管理员的纠错能力，但必须显式带 force，和付款超预算的特批口径一致。
+    if (["已结算", "已归档"].includes(p.status)) {
+      const touched = MONEY_FIELDS.filter((k) => k in b && Number(b[k]) !== Number(p[k]));
+      if (touched.length && !(b.force && isSuper(ctx.user))) {
+        throw conflict(
+          `项目已「${p.status}」，${touched.map((k) => MONEY_LABEL[k] || k).join("、")} 属于账目基准数据，` +
+          `改动会与已生成的结算单不一致；如确需纠错，请由总管理员携带 force 标记提交`,
+          "FROZEN", { status: p.status, fields: touched }
+        );
+      }
+    }
+
     const patch = {};
     for (const k of EDITABLE) if (k in b && String(b[k] ?? "") !== String(p[k] ?? "")) patch[k] = b[k];
     if (!Object.keys(patch).length) return { project: p, message: "没有需要修改的字段" };

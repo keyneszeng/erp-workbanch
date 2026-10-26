@@ -202,9 +202,15 @@ export function pager(data, opt = {}) {
   const pages = data.pages || 1;
   const page = data.page || 1;
 
-  // 未分页、或总共只有一页时，只显示总数——翻页按钮没有意义还占地方
+  // 未分页、或总共只有一页时，只显示总数——翻页按钮没有意义还占地方。
+  // 但页码可能因数据变少而越界（用户停在第 3 页，删了几条后只剩 1 页），
+  // 此时若不给出口，用户会看到一张空表且没有任何按钮可点，只能刷新页面。
   if (!data.paged || pages <= 1) {
-    return `<div class="pager"><span class="pg-info">共 ${total} ${unit}</span></div>`;
+    const overflow = page > 1;
+    return `<div class="pager">
+      <span class="pg-info">共 ${total} ${unit}${overflow ? " · 当前页已超出范围" : ""}</span>
+      ${overflow ? '<div class="pg-btns"><button class="btn btn-o btn-sm" data-pg="1">回到第 1 页</button></div>' : ""}
+    </div>`;
   }
   const nums = pageWindow(page, pages);
   return `<div class="pager">
