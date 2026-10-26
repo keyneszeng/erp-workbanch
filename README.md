@@ -67,6 +67,14 @@ npm run cf:deploy    # 真正发布（需先 wrangler login 或设 CLOUDFLARE_AP
 npm run cf:tail      # 实时日志
 ```
 
+> ⚠️ **线上 https://erp.aibuild.work 不会自动跟随本地改动。**
+> 本地改完代码只是「代码库里有」，浏览器打开线上站点看到的仍是上一次部署的版本 ——
+> 2026-10-26 就出现过一次：本地核销 6 步早已有「详情」按钮，线上还停在 v1.0.5，
+> 用户看不到还以为功能没做。**改完要 `npm run cf:deploy` 才生效。**
+>
+> 部署时 DO 会重启，`migrate()` 自动补新列（`owner_id` 等）并回填，数据不会丢；
+> 部署完用 `curl https://erp.aibuild.work/api/health` 和登录页版本号确认一下。
+
 ### 附件存储：必须先建 R2 桶
 
 照片和 PDF 存 R2，**不存数据库**（DO 单值上限 2 MB，一张手机照片就超了）。
