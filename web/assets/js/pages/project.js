@@ -110,8 +110,16 @@ const CONTRACT_LOCKED = ["已结算", "已归档"];
 function tabContracts(d, p) {
   const locked = CONTRACT_LOCKED.includes(p.status);
   return panel("合同台账", `${d.contracts.length} 份${locked ? " · 已封存" : ""}`, table(
-    [{ t: "合同编号", w: "112px" }, { t: "合同名称" }, { t: "签约方", w: "160px" }, { t: "金额", w: "100px", cls: "num" }, { t: "签署日期", w: "100px" }, { t: "状态", w: "80px" }],
-    d.contracts.map((c) => ({ c: [`<span class="mono">${c.id}</span>`, esc(c.name), esc(c.vendor), `¥${money(c.amount)}`, `<span class="mono">${esc(c.sign_date || "—")}</span>`, badge(c.status)] })),
+    [{ t: "合同编号", w: "112px" }, { t: "合同名称" }, { t: "签约方", w: "150px" }, { t: "金额", w: "100px", cls: "num" }, { t: "签署日期", w: "100px" }, { t: "状态", w: "80px" }, { t: "原件", w: "70px" }],
+    d.contracts.map((c) => ({
+      c: [`<span class="mono">${c.id}</span>`, esc(c.name), esc(c.vendor), `¥${money(c.amount)}`,
+        `<span class="mono">${esc(c.sign_date || "—")}</span>`, badge(c.status),
+        c.file_key
+          ? (c.file_mime === "application/pdf"
+              ? `<a class="link" href="${fileUrl(c.file_key)}" target="_blank" rel="noopener" title="${esc(c.file_name || "合同原件")}">PDF</a>`
+              : `<a href="${fileUrl(c.file_key)}" target="_blank" rel="noopener" title="${esc(c.file_name || "合同原件")}"><img class="thumb" src="${fileUrl(c.file_key)}" alt=""></a>`)
+          : '<span style="color:var(--mute)">—</span>']
+    })),
     { empty: "暂无合同" }),
     locked ? `<span class="foot-note">项目${p.status === "已归档" ? "已归档，卷宗封存" : "已结算，台账封账"}，不可再录入合同</span>`
       : can("contract:write") ? '<button class="btn btn-p btn-sm" id="addContract">+ 录入合同</button>' : "");
@@ -321,20 +329,54 @@ function openContract(root, pid) {
     { k: "vendor", l: "签约方", req: 1 },
     { k: "amount", l: "合同金额（元）", t: "number", req: 1 },
     { k: "sign_date", l: "签署日期", t: "date" },
-    { k: "status", l: "状态", t: "select", opts: ["草稿", "待签署", "已签署"] }
+    { k: "status", l: "状态", t: "select", opts: ["草稿", "待签署", "已签署"] },
+    {
+      k: "file", l: "合同原件", t: "file", full: 1,
+      accept: "image/jpeg,image/png,image/webp,image/gif,application/pdf",
+      tip: "可上传盖章扫描件 PDF 或手机拍照件，单个不超过 8 MB。图片会在本地压缩后上传，PDF 原样保存。"
+    }
   ];
-  const m = modal({ title: "录入合同", body: formHtml(fields),
-    footer: `<button class="btn btn-o" data-x="0">取消</button><button class="btn btn-p" data-x="1">保存</button>` });
+  const m = modal({
+    title: "录入合同", width: "620px", body: formHtml(fields),
+    footer: `<button class="btn btn-o" data-x="0">取消</button><button class="btn btn-p" data-x="1">保存</button>`
+  });
+
+  let picked = null;
+  bindFilePicker(m, "file", (f, err) => {
+    if (err) { picked = null; toast(err, "warn"); return; }
+    picked = f;
+    const nameInput = m.querySelector('[name="name"]');
+    if (nameInput && !nameInput.value.trim()) {
+      nameInput.value = f.name.replace(/\.[^.]+$/, "").slice(0, 80);
+    }
+  });
+
   m.querySelector('[data-x="0"]').onclick = () => m.classList.remove("open");
-  m.querySelector('[data-x="1"]').onclick = async () => {
+  const btn = m.querySelector('[data-x="1"]');
+  btn.onclick = async () => {
     if (!validate(m, fields)) return;
+    const v = readForm(m);
+    btn.disabled = true;
     try {
-      const r = await api.post("/api/contracts", { ...readForm(m), pid });
-      toast(r.message, "ok");
+      let meta = {};
+      if (picked) {
+        btn.textContent = "上传中 0%";
+        const up = await api.upload(picked, {
+          onProgress: (p) => { btn.textContent = `上传中 ${Math.round(p * 100)}%`; }
+        });
+        meta = { file_key: up.key, file_name: up.name, file_size: up.size, file_mime: up.mime };
+      }
+      btn.textContent = "保存中…";
+      const r = await api.post("/api/contracts", { ...v, ...meta, pid });
+      toast(picked ? `${r.message}，原件已附上` : r.message, "ok");
       m.classList.remove("open");
       tab = "contracts";
       await refresh(root, pid);
-    } catch (e) { toast(e.message, "warn"); }
+    } catch (e) {
+      toast(e.message, "warn");
+      btn.disabled = false;
+      btn.textContent = "保存";
+    }
   };
 }
 

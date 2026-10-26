@@ -11,6 +11,9 @@ const { transition } = require("../lib/workflow");
 // 只有「已核销」可新增付款：结算后账目已封账，归档后卷宗已封存，均不得再挂账
 const PAYABLE_STATUS = ["已核销"];
 
+/** 与 server/api/files.js 生成的 key 格式保持一致，避免任意字符串被写进 file_key */
+const FILE_KEY_RE = /^[a-f0-9]{32}\.(jpg|png|webp|gif|pdf)$/;
+
 /** 已占用预算：待审批 + 已审批 + 已付款（驳回的不占） */
 function committed(pid) {
   return Number(db.prepare(
@@ -55,10 +58,25 @@ function register(router) {
     if (!Number.isFinite(amount) || !(amount > 0)) throw bad("合同金额必须大于 0");
     if (amount > 1e9) throw bad("合同金额不能超过 10 亿元");
     if (Number(amount.toFixed(2)) !== amount) throw bad("合同金额最多保留两位小数");
+
+    // 合同原件（扫描件 PDF / 拍照件）：只接受上传接口发下来的 key 格式，
+    // 防止把任意字符串写进 file_key 后拼到下载 URL 上。
+    let fk = null, fname = null, fsize = null, fmime = null;
+    if (b.file_key) {
+      if (!FILE_KEY_RE.test(String(b.file_key))) throw bad("附件标识不合法");
+      fk = String(b.file_key);
+      fname = String(b.file_name || "").slice(0, 120) || fk;
+      fsize = Number(b.file_size) || null;
+      fmime = String(b.file_mime || "").slice(0, 60) || null;
+    }
+
     const id = nextId(db, "contracts", "id", "HT");
-    db.prepare("INSERT INTO contracts (id,pid,name,vendor,amount,sign_date,status,remark,created_by,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)")
-      .run(id, p.id, b.name, b.vendor, amount, b.sign_date || "", b.status || "草稿", b.remark || "", ctx.user.id, now());
-    logAudit({ user: ctx.user, module: "筹备管理", action: "合同录入", target: p.id, detail: `${id} ${b.name} / ${b.vendor} / ¥${amount.toLocaleString("zh-CN")}`, ip: ctx.ip });
+    db.prepare("INSERT INTO contracts (id,pid,name,vendor,amount,sign_date,status,remark,created_by,created_at,file_key,file_name,file_size,file_mime) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
+      .run(id, p.id, b.name, b.vendor, amount, b.sign_date || "", b.status || "草稿", b.remark || "", ctx.user.id, now(), fk, fname, fsize, fmime);
+    logAudit({
+      user: ctx.user, module: "筹备管理", action: "合同录入", target: p.id,
+      detail: `${id} ${b.name} / ${b.vendor} / ¥${amount.toLocaleString("zh-CN")}${fk ? "（含原件）" : ""}`, ip: ctx.ip
+    });
     return { contract: db.prepare("SELECT * FROM contracts WHERE id = ?").get(id), message: `合同 ${id} 已保存` };
   });
 

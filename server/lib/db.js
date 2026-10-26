@@ -103,7 +103,11 @@ CREATE TABLE IF NOT EXISTS contracts (
   status      TEXT NOT NULL DEFAULT '草稿',
   remark      TEXT,
   created_by  INTEGER,
-  created_at  TEXT NOT NULL
+  created_at  TEXT NOT NULL,
+  file_key    TEXT,
+  file_name   TEXT,
+  file_size   INTEGER,
+  file_mime   TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_contracts_pid ON contracts(pid);
 
@@ -413,10 +417,20 @@ function migrate() {
   addColumn("materials", "file_name", "file_name TEXT");
   addColumn("materials", "file_size", "file_size INTEGER");
   addColumn("materials", "file_mime", "file_mime TEXT");
+  // V1.2.1：合同原件附件（扫描件 PDF / 拍照件）
+  addColumn("contracts", "file_key", "file_key TEXT");
+  addColumn("contracts", "file_name", "file_name TEXT");
+  addColumn("contracts", "file_size", "file_size INTEGER");
+  addColumn("contracts", "file_mime", "file_mime TEXT");
 
   // 附件查询走 file_key，补索引（旧库没有）
   try {
     db.exec("CREATE INDEX IF NOT EXISTS idx_materials_file ON materials(file_key)");
+  } catch {
+    /* 索引已存在 */
+  }
+  try {
+    db.exec("CREATE INDEX IF NOT EXISTS idx_contracts_file ON contracts(file_key)");
   } catch {
     /* 索引已存在 */
   }

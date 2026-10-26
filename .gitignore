@@ -2,7 +2,7 @@ data/*.db
 data/*.db-wal
 data/*.db-shm
 data/uploads/
-data/test*-uploads/
+data/*-uploads/
 node_modules/
 .DS_Store
 *.log

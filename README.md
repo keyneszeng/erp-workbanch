@@ -1,4 +1,4 @@
-# 协会会议执行 ERP · 生产版代码 V1.2.0
+# 协会会议执行 ERP · 生产版代码 V1.2.1
 
 > 依据《协会会议执行 ERP 交付版整合包 V1.0.2 · 09_可点击演示版》研发的可运行工程。
 > 演示版验证的是「流程与交互是否成立」，本工程把它落成**真实后端 + 真实数据库 + 真实权限与门禁**。
@@ -34,8 +34,8 @@ npm start            # 等价于 node --experimental-sqlite server/index.js
 
 ```bash
 npm run seed         # 重置数据库并重建种子数据
-npm test             # 159 条接口回归测试（每文件自起服务 + 独立库，不影响主库）
-npm run test:cf      # 同一批 159 条，跑在「Durable Object SQL」后端语义下
+npm test             # 168 条接口回归测试（每文件自起服务 + 独立库，不影响主库）
+npm run test:cf      # 同一批 168 条，跑在「Durable Object SQL」后端语义下
 ERP_PORT=9000 npm start
 ERP_DB=/path/to/erp.db npm start
 ```
@@ -87,7 +87,7 @@ wrangler r2 bucket create erp-workbanch-files
 ### 本地为什么不能预览
 
 `wrangler dev` 依赖 workerd，要求 **macOS 13.5+**；本机是 12.7.6，起不来。
-所以本地用 `npm run test:cf` 把同一批 159 条测试跑在「模拟的 DO SQL 后端」上
+所以本地用 `npm run test:cf` 把同一批 168 条测试跑在「模拟的 DO SQL 后端」上
 （`test/lib/do-sqlite-mock.js`），确认 SQL 语义一致后再部署。
 
 ### 已知限制
@@ -229,7 +229,7 @@ erp-app/
 | POST | `/api/projects/:id/verify/steps/:no` | 单步判定 |
 | POST | `/api/projects/:id/exceptions` | 提交例外单 |
 | POST | `/api/exceptions/:id/decide` | 例外单审批 |
-| GET/POST | `/api/contracts` | 合同台账 / 录入 |
+| GET/POST | `/api/contracts` | 合同台账 / 录入（可选挂合同原件：扫描件 PDF 或拍照件） |
 | GET/POST | `/api/payments` | 付款列表 / 付款申请（核销门禁） |
 | POST | `/api/payments/:id/approve` `/pay` | 付款审批 / 付款 |
 | GET | `/api/approvals` | 审批中心（立项 / 例外 / 付款 / 变更） |
@@ -237,7 +237,7 @@ erp-app/
 | POST | `/api/projects/:id/change` | 变更申请 |
 | GET/POST/DELETE | `/api/materials` `/api/projects/:id/materials` | 材料登记与删除（可选挂附件） |
 | POST | `/api/uploads` | 文件上传（裸二进制，非 multipart；限 8 MB，JPG/PNG/WebP/GIF/PDF） |
-| GET | `/api/uploads/:key` | 文件下载（按材料所属项目校验数据范围） |
+| GET | `/api/uploads/:key` | 文件下载（按材料 / 合同所属项目校验数据范围） |
 | GET | `/api/uploads/capability` | 上传能力探测（后端类型、大小上限） |
 | GET | `/api/demand` | 会务需求确认：按数据范围列出会议 + 各会议需求汇总 |
 | GET | `/api/demand/:id` | 单会议需求单（首次打开按四组模板生成） |
@@ -260,7 +260,7 @@ erp-app/
 ## 6. 测试
 
 ```bash
-npm test        # 159 条：api 26 + edge 26 + matrix 11 + hardening 19 + abuse 28 + stateless 6 + demand 9 + material 5 + password 6 + paging 8 + upload 11 + storage 4
+npm test        # 168 条：api 26 + edge 26 + matrix 11 + hardening 19 + abuse 28 + stateless 6 + demand 9 + material 5 + password 6 + paging 8 + upload 11 + storage 4 + contract-file 9
 ```
 
 | 文件 | 关注点 |
@@ -374,6 +374,17 @@ Serverless 每个实例的 `/tmp` 独立，会话表只能在本实例查到。�
 
 ## 9. 变更记录
 
+### V1.2.1（合同原件上传）
+| # | 内容 | 说明 |
+|---|---|---|
+| 1 | **录入合同可挂原件** | 「录入合同」弹窗新增文件控件，可直接上传盖章扫描件 PDF 或手机拍照件。`contracts` 表加 `file_key / file_name / file_size / file_mime`（旧库走 `ALTER` 补列）。附件是**可选的**，不传照旧手工填六个字段 |
+| 2 | **复用材料那套上传链路** | 不新增接口：仍走 `POST /api/uploads`（裸二进制 + 文件头嗅探 + 8 MB 上限），前端仍用 `upload.js` 的 canvas 压缩与 XHR 进度。合同与材料的区别只在「保存时把 key 写到哪张表」 |
+| 3 | **下载权限扩到合同** | `GET /api/uploads/:key` 原先只查 `materials` 做数据范围校验，合同附件会因此打不开。改为材料 / 合同两张表都查，按所属项目校验；上传接口的权限从 `material:write` 放宽为 `material:write` **或** `contract:write`，避免「能录合同但不能登记材料」的角色传不了原件 |
+| 4 | **合同台账加「原件」列** | 图片出缩略图、PDF 出 `PDF` 标签，均新窗口打开；KPI 增加「已传原件 n/总数」。项目详情页合同页签同步加上 |
+| 5 | **名称自动带出** | 选了文件而「合同名称」为空时，用文件名去掉扩展名自动填，省一次输入（材料登记同款行为） |
+| 6 | 测试 | 新增 `test/contract-file.test.js`(9) + `test/ui/contract.js`(20 项 UI，自带服务)。全量 159 → **168 条**，Node 与 DO 语义双跑全过 |
+| 7 | **未做 OCR** | 本轮只落「上传 + 存档」。将来接识别时在 `POST /api/contracts` 保存前插一步解析即可，数据结构不用改 |
+
 ### V1.2.0（照片上传 · 列表分页 · 自助改密）
 | # | 内容 | 说明 |
 |---|---|---|
@@ -454,5 +465,12 @@ Serverless 每个实例的 `/tmp` 独立，会话表只能在本实例查到。�
 - 并发与审批流配置：审批链目前按类型固定，后续可做成可配置多级审批。
 - 数据库迁移工具：现为幂等 DDL + `ALTER` 补列，字段演进多了需要引入版本化 migration。
 - 附件与卷宗打包下载：现为 CSV 明细 + 单个附件，后续可出 PDF 卷宗（含照片排版）。
-- 附件多文件：当前一条材料只能挂一个附件，现场照片按 40 张/场时需要「一条材料挂多图」或「批量上传」。
+- 附件多文件：当前一条材料 / 一份合同只能挂一个附件，现场照片按 40 张/场时需要「一条材料挂多图」或「批量上传」。
 - 图片自动生成缩略图：现在列表直接加载原图（压缩后约 60 KB–1 MB），量大后可加服务端缩略图。
+- **合同 OCR 自动录入**：合同原件已能上传存档，但字段仍需手工填。要做「上传即自动填表」有两条路——
+  本地 `tesseract.js`（零成本，中文印刷体约 85–92%，字段靠正则）或云端 OCR / 多模态大模型
+  （准确率高，需开通服务与 key）。**前置约束**：Cloudflare Workers 跑不了 OCR，
+  必须落在 Node 后端；扫描件 PDF 还需先转图（本机无 poppler，`qlmanage` 只能出首页）。
+  实现时在 `POST /api/contracts` 保存前插一步解析，把结果回填表单让用户核对，**不要直接入库**。
+- **合同附件删除**：合同目前没有删除接口（台账只增不改），所以附件不会成为孤儿文件；
+  将来加删除时要照材料那样先确认无其它行引用再删物理文件。

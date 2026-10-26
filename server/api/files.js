@@ -10,11 +10,11 @@
  * 安全上有三道：
  *   1) 类型白名单 + 文件头嗅探（不信 Content-Type，防改名上传可执行文件）；
  *   2) 单文件 8 MB 上限；
- *   3) 下载时按材料所属项目校验数据范围，不是登录就能看任意 key。
+ *   3) 下载时按文件所属单据（材料 / 合同）的项目校验数据范围，不是登录就能看任意 key。
  */
 const { db } = require("../lib/db");
 const { now, bad, notFound, forbidden } = require("../lib/util");
-const { assertCan, assertProjectVisible, can } = require("../lib/rbac");
+const { assertProjectVisible, can } = require("../lib/rbac");
 const { logAudit } = require("../lib/audit");
 const { getProject } = require("../lib/workflow");
 const { HttpError } = require("../lib/util");
@@ -33,7 +33,11 @@ const KEY_RE = /^[a-f0-9]{32}\.(jpg|png|webp|gif|pdf)$/;
 
 function register(router) {
   router.post("/api/uploads", async (ctx) => {
-    assertCan(ctx.user, "material:write", "当前角色无文件上传权限");
+    // 上传是所有附件类操作的公共入口，材料登记和合同录入都要用。
+    // 只卡 material:write 会让「能录合同但不能登记材料」的角色传不了合同原件。
+    if (!can(ctx.user, "material:write") && !can(ctx.user, "contract:write")) {
+      throw forbidden("当前角色无文件上传权限");
+    }
 
     const buf = ctx.body;
     if (!Buffer.isBuffer(buf) || buf.length === 0) throw bad("未收到文件内容");
@@ -72,13 +76,13 @@ function register(router) {
     const key = String(ctx.params.key || "");
     if (!KEY_RE.test(key)) throw bad("文件标识不合法");
 
-    // 已关联材料的文件，按材料所属项目校验数据范围；
-    // 尚未关联的（刚上传、还没提交材料登记）只要求登录，key 本身是 32 位随机串。
-    const m = db.prepare("SELECT * FROM materials WHERE file_key = ?").get(key);
-    if (m) {
-      const p = getProject(m.pid);
-      assertProjectVisible(ctx.user, p);
-    }
+    // 已关联业务单据的文件，按单据所属项目校验数据范围。
+    // 一个 key 理论上只属于一处，但材料与合同分表存，两处都要查。
+    // 尚未关联的（刚上传、还没提交单据）只要求登录，key 本身是 32 位随机串。
+    const m = db.prepare("SELECT pid FROM materials WHERE file_key = ?").get(key);
+    const c = m ? null : db.prepare("SELECT pid FROM contracts WHERE file_key = ?").get(key);
+    const owner = m || c;
+    if (owner) assertProjectVisible(ctx.user, getProject(owner.pid));
 
     const obj = await storage().get(key);
     if (!obj) throw notFound("文件不存在或已删除");
