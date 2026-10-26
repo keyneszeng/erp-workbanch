@@ -1,4 +1,4 @@
-# 协会会议执行 ERP · 生产版代码 V1.2.3
+# 协会会议执行 ERP · 生产版代码 V1.2.4
 
 > 依据《协会会议执行 ERP 交付版整合包 V1.0.2 · 09_可点击演示版》研发的可运行工程。
 > 演示版验证的是「流程与交互是否成立」，本工程把它落成**真实后端 + 真实数据库 + 真实权限与门禁**。
@@ -34,8 +34,8 @@ npm start            # 等价于 node --experimental-sqlite server/index.js
 
 ```bash
 npm run seed         # 重置数据库并重建种子数据
-npm test             # 231 条接口回归测试（每文件自起服务 + 独立库，不影响主库）
-npm run test:cf      # 同一批 231 条，跑在「Durable Object SQL」后端语义下
+npm test             # 246 条接口回归测试（每文件自起服务 + 独立库，不影响主库）
+npm run test:cf      # 同一批 246 条，跑在「Durable Object SQL」后端语义下
 ERP_PORT=9000 npm start
 ERP_DB=/path/to/erp.db npm start
 ```
@@ -87,7 +87,7 @@ wrangler r2 bucket create erp-workbanch-files
 ### 本地为什么不能预览
 
 `wrangler dev` 依赖 workerd，要求 **macOS 13.5+**；本机是 12.7.6，起不来。
-所以本地用 `npm run test:cf` 把同一批 231 条测试跑在「模拟的 DO SQL 后端」上
+所以本地用 `npm run test:cf` 把同一批 246 条测试跑在「模拟的 DO SQL 后端」上
 （`test/lib/do-sqlite-mock.js`），确认 SQL 语义一致后再部署。
 
 ### 已知限制
@@ -260,7 +260,7 @@ erp-app/
 ## 6. 测试
 
 ```bash
-npm test        # 226 条：api 26 + edge 26 + matrix 11 + hardening 19 + abuse 28 + stateless 6 + demand 9 + material 5 + password 6 + paging 8 + upload 11 + storage 4 + contract-file 9 + freeze 9 + id-sequence 7 + business-rules 47
+npm test        # 246 条：api 26 + edge 26 + matrix 11 + hardening 19 + abuse 28 + stateless 6 + demand 9 + material 5 + password 6 + paging 8 + upload 11 + storage 4 + contract-file 9 + freeze 9 + id-sequence 7 + business-rules 47 + workflow-chain 10 + todo-flag 5
 ```
 
 | 文件 | 关注点 |
@@ -373,6 +373,48 @@ Serverless 每个实例的 `/tmp` 独立，会话表只能在本实例查到。�
 ---
 
 ## 9. 变更记录
+
+### V1.2.4（状态机穷举 · 全链路勾稽 · 待办口径）
+
+第四、五轮测试换了靶子：不再重复打越权和注入，而是**穷举状态机**、**走完整业务流程后重新勾稽**、
+**交叉比对统计口径**。共 5 项实测缺陷。
+
+**A. 状态机与审计**
+
+1. `reject` 走的是独立分支，非「待审批」状态驳回时抛的是通用 `CONFLICT`，
+   而其它非法跳转一律 `ILLEGAL_TRANSITION` + `detail.allowed`。
+   前端要为一个动作单独写分支，`code` 也失去「可据此判断状态不合法」的意义。已统一。
+
+2. **核销「不通过」自动生成的例外单没有审计**。系统会建一条 `exceptions` 记录和一条待审批项，
+   但审计只记「结论」，且 `detail` 里连例外单号都没有 —— 事后拿 `EX-xxx` 去追，
+   找不到它是怎么产生的。现在补一条 `action=「例外单」` 的审计并标注「自动生成」，
+   同时「结论」那条也带上单号，两条记录互相指认。
+
+**B. 统计口径**
+
+3. **工作台待办被提前截断**。`myTodos()` 的 SQL 带 `LIMIT 20`，而角色过滤在 JS 里做 ——
+   被截掉的可能全是别的角色该处理的单子，本角色的待办就凭空少几条，
+   而工作台显示「N 项」看起来又像全量。实测 29 条待审批只显示 17 条。
+   已去掉 `LIMIT`（待审批这个状态本身兜住了数据量）。
+
+**C. 接口健壮性**
+
+4. `PATCH /api/users/:id` 直接接收 `active`。JSON 客户端很自然会传 `{ active: false }`，
+   但 `node:sqlite` 不接受布尔绑定，抛
+   `Provided value cannot be bound to SQLite parameter 1` → **500**，
+   还把这句话原样透给用户。现在统一归一化：`true/false`、`1/0`、`"1"/"0"`、`"true"/"false"`
+   都接受，非法值返回 400。
+
+5. **测试基础设施**：`freeze.test.js` 和 `business-rules.test.js` 都用 8812 端口，
+   而 `node --test` 默认并行跑多个文件 —— 随时可能随机 `EADDRINUSE`。已把前者挪到 8813。
+
+**新增测试**
+
+- `test/workflow-chain.test.js` **10 条**：9 状态 × 9 动作穷举（72 次非法跳转全部
+  `ILLEGAL_TRANSITION` 且状态不变）+ 全链路立项→归档 + 事后勾稽（结算单三项、
+  核销 6/6、材料 8/8、归档后 9 类写操作全拒）+ 审计完整性
+- `test/todo-flag.test.js` **5 条**：待办口径、`active` 各种取值、停用/登出后令牌失效
+- 全量 231 → **246**，Node 与 DO SQL 语义双跑 246/246
 
 ### V1.2.3（业务规则补全 · 16 项实测缺陷）
 
@@ -566,3 +608,7 @@ Serverless 每个实例的 `/tmp` 独立，会话表只能在本实例查到。�
   实现时在 `POST /api/contracts` 保存前插一步解析，把结果回填表单让用户核对，**不要直接入库**。
 - **合同附件删除**：合同目前没有删除接口（台账只增不改），所以附件不会成为孤儿文件；
   将来加删除时要照材料那样先确认无其它行引用再删物理文件。
+- **未登记的上传会留孤儿文件（2026-10-26 实测确认）**：`POST /api/uploads` 先落盘、再返回 `key`，
+  用户如果选了文件但最终取消登记，这个文件会永久留在 `data/uploads/` 且无人引用。
+  目前只是磁盘占用，不影响数据正确性；量大了需要加一个定期清理任务
+  （扫 `uploads/` 里超过 24 小时且不在 `materials.file_key` / `contracts.file_key` 中的文件）。

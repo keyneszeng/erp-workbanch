@@ -46,7 +46,7 @@ export function render(root, onSuccess) {
         <div class="demo-users">${DEMO.map(([u, n, d]) =>
           `<button class="demo-user" data-u="${u}"><b>${esc(n)}</b><span>${u} · ${esc(d)}</span></button>`).join("")}</div>
       </div>
-      <div class="login-foot">生产版 v1.2.1 · 数据存储于 SQLite · 所有操作写入审计日志</div>
+      <div class="login-foot">生产版 v1.2.4 · 数据存储于 SQLite · 所有操作写入审计日志</div>
     </div>
   </div>`;
 

@@ -19,9 +19,16 @@ function countsByStatus(user) {
 function myTodos(user) {
   const { sql, params } = scopeFilter(user);
   const todos = [];
+  /**
+   * 注意：这里不能加 LIMIT。
+   * 待审批列表是「先按状态取一批，再按角色过滤」，如果 LIMIT 加在 SQL 上，
+   * 被截掉的可能全是别的角色该处理的单子，本角色的待办就会凭空少几条，
+   * 而工作台显示的「N 项」看起来又像全量 —— 用户会以为没事了。
+   * 数据量由「待审批」这个状态本身兜住，不会无限增长。
+   */
   const pendingAp = db.prepare(
     `SELECT a.*, p.name AS pname FROM approvals a JOIN projects p ON p.id = a.pid
-     WHERE a.status = '待审批' AND ${sql} ORDER BY a.created_at DESC LIMIT 20`
+     WHERE a.status = '待审批' AND ${sql} ORDER BY a.created_at DESC`
   ).all(...params);
 
   for (const a of pendingAp) {
@@ -218,6 +225,18 @@ function checkUserLen(b) {
   }
 }
 
+/**
+ * 0/1 开关字段归一化。
+ * JSON 客户端很自然会传 `{ active: false }`，但 node:sqlite 不接受布尔绑定，
+ * 会抛 "Provided value cannot be bound to SQLite parameter 1"，最终变成 500 并把
+ * 这句内部实现细节透给用户。凡是布尔语义的字段一律先归一成 0/1 再落库。
+ */
+function toFlag(v) {
+  if (v === true || v === 1 || v === "1" || v === "true") return 1;
+  if (v === false || v === 0 || v === "0" || v === "false") return 0;
+  return null;
+}
+
 function register(router) {
   router.get("/api/dashboard", async (ctx) => dashboard(ctx.user));
 
@@ -255,6 +274,12 @@ function register(router) {
     const u = db.prepare("SELECT * FROM users WHERE id = ?").get(Number(ctx.params.id));
     if (!u) throw notFound("用户不存在");
     const b = ctx.body || {};
+    // active 先归一成 0/1，否则 `{ active: false }` 会在绑定参数时抛 500
+    if ("active" in b) {
+      const flag = toFlag(b.active);
+      if (flag === null) throw bad("账号状态只能是启用或停用");
+      b.active = flag;
+    }
     const patch = {};
     for (const k of ["name", "role", "assoc", "dept", "phone", "active"]) {
       if (k in b && String(b[k] ?? "") !== String(u[k] ?? "")) patch[k] = b[k];

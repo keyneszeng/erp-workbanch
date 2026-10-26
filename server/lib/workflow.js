@@ -160,7 +160,15 @@ function transition(projectId, action, user, payload = {}, ip = "") {
   const p = getProject(projectId);
 
   if (action === "reject") {
-    if (p.status !== "待审批") throw conflict("只有「待审批」的项目可以驳回");
+    // 错误码必须和 FLOW 里其它非法跳转一致（ILLEGAL_TRANSITION + allowed 列表），
+    // 否则前端要为一个动作单独写分支，code 也失去「可据此判断状态不合法」的意义。
+    if (p.status !== "待审批") {
+      throw conflict(
+        `只有「待审批」的项目可以驳回，当前状态「${p.status}」`,
+        "ILLEGAL_TRANSITION",
+        { status: p.status, allowed: FLOW.filter((f) => f.from === p.status).map((f) => f.action) }
+      );
+    }
     if (!can(user, "project:approve")) throw forbidden("需要协会管理员权限");
     const reason = String(payload.comment || "").trim();
     if (!reason) throw bad("驳回必须填写理由");

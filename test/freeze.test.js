@@ -14,7 +14,9 @@ const { spawn } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 
-const PORT = 8812;
+// 端口必须与其它测试文件唯一：node --test 默认并行跑多个文件，
+// 两个文件抢同一个端口会随机 EADDRINUSE（曾经和 business-rules 都用了 8812）。
+const PORT = 8813;
 const BASE = `http://127.0.0.1:${PORT}`;
 const DB = path.join(__dirname, "..", "data", "test12.db");
 const UP = path.join(__dirname, "..", "data", "test12-uploads");

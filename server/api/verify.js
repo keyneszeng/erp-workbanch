@@ -51,8 +51,9 @@ function register(router) {
     ).run(p.id, no, def.name, result, String(remark || ""), ctx.user.name, at);
 
     let message = `第 ${no} 步「${def.name}」判定：${result}`;
+    let exId = "";
     if (result === "不通过") {
-      const exId = nextId(db, "exceptions", "id", "EX");
+      exId = nextId(db, "exceptions", "id", "EX");
       db.prepare("INSERT INTO exceptions (id,pid,step_no,reason,status,created_by,created_at) VALUES (?,?,?,?,?,?,?)")
         .run(exId, p.id, no, String(remark).trim(), "待审批", ctx.user.name, at);
       db.prepare(
@@ -63,8 +64,17 @@ function register(router) {
     }
     logAudit({
       user: ctx.user, module: "会后核销", action: "结论", target: p.id,
-      detail: `第 ${no} 步「${def.name}」判定${result}${remark ? "：" + remark : ""}`, ip: ctx.ip
+      detail: `第 ${no} 步「${def.name}」判定${result}${remark ? "：" + remark : ""}${exId ? `；已生成例外单 ${exId}` : ""}`,
+      ip: ctx.ip
     });
+    // 判定「不通过」会自动生成例外单（一条待审批的审批项），必须和手工提交走同一条审计口径。
+    // 否则事后拿 EX-xxx 去追，只能靠时间猜它从哪来，审计链就断了。
+    if (exId) {
+      logAudit({
+        user: ctx.user, module: "会后核销", action: "例外单", target: p.id,
+        detail: `${exId}（第 ${no} 步判定不通过自动生成）：${String(remark).trim()}`, ip: ctx.ip
+      });
+    }
     return { verification: verification(p.id), message };
   });
 

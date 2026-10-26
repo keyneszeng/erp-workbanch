@@ -1,6 +1,6 @@
 {
   "name": "assoc-meeting-erp",
-  "version": "1.2.3",
+  "version": "1.2.4",
   "private": true,
   "description": "协会会议执行 ERP —— 依据《会务执行 ERP V1.0.2 可点击演示版》研发的生产版代码",
   "type": "commonjs",
@@ -11,8 +11,8 @@
     "start": "node --experimental-sqlite server/index.js",
     "dev": "node --experimental-sqlite --watch server/index.js",
     "seed": "node --experimental-sqlite server/scripts/seed.js --reset",
-    "test": "node --experimental-sqlite --test test/api.test.js test/edge.test.js test/matrix.test.js test/hardening.test.js test/abuse.test.js test/stateless.test.js test/demand.test.js test/material.test.js test/password.test.js test/paging.test.js test/upload.test.js test/storage-unavailable.test.js test/contract-file.test.js test/freeze.test.js test/id-sequence.test.js test/business-rules.test.js",
-    "test:cf": "ERP_DB_BACKEND=do-sqlite node --experimental-sqlite --test test/api.test.js test/edge.test.js test/matrix.test.js test/hardening.test.js test/abuse.test.js test/stateless.test.js test/demand.test.js test/material.test.js test/password.test.js test/paging.test.js test/upload.test.js test/storage-unavailable.test.js test/contract-file.test.js test/freeze.test.js test/id-sequence.test.js test/business-rules.test.js",
+    "test": "node --experimental-sqlite --test test/api.test.js test/edge.test.js test/matrix.test.js test/hardening.test.js test/abuse.test.js test/stateless.test.js test/demand.test.js test/material.test.js test/password.test.js test/paging.test.js test/upload.test.js test/storage-unavailable.test.js test/contract-file.test.js test/freeze.test.js test/id-sequence.test.js test/business-rules.test.js test/workflow-chain.test.js test/todo-flag.test.js",
+    "test:cf": "ERP_DB_BACKEND=do-sqlite node --experimental-sqlite --test test/api.test.js test/edge.test.js test/matrix.test.js test/hardening.test.js test/abuse.test.js test/stateless.test.js test/demand.test.js test/material.test.js test/password.test.js test/paging.test.js test/upload.test.js test/storage-unavailable.test.js test/contract-file.test.js test/freeze.test.js test/id-sequence.test.js test/business-rules.test.js test/workflow-chain.test.js test/todo-flag.test.js",
     "test:ui": "node test/ui/smoke.js && node test/ui/e2e.js && node test/ui/edge.js",
     "cf:build": "wrangler deploy --dry-run --outdir .cf-dist",
     "cf:deploy": "wrangler deploy",
