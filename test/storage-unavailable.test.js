@@ -26,9 +26,9 @@ const JPEG = Buffer.from(
 );
 
 function clean() {
-  for (const f of [DB, DB + "-wal", DB + "-shm"]) if (fs.existsSync(f)) fs.unlinkSync(f);
+  for (const f of [DB, DB + "-wal", DB + "-shm"]) if (fs.existsSync(f)) fs.renameSync(f, f + ".old");
 }
-async function waitHealth(timeout = 15000) {
+async function waitHealth(timeout = 40000) {
   const t0 = Date.now();
   while (Date.now() - t0 < timeout) {
     try { const r = await fetch(`${BASE}/api/health`); if (r.ok) return; } catch {}

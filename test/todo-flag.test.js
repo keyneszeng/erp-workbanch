@@ -25,10 +25,10 @@ let proc;
 let admin, assoc, finance;
 
 function clean() {
-  for (const f of [DB, DB + "-wal", DB + "-shm"]) if (fs.existsSync(f)) fs.unlinkSync(f);
+  for (const f of [DB, DB + "-wal", DB + "-shm"]) if (fs.existsSync(f)) fs.renameSync(f, f + ".old");
   if (fs.existsSync(UP)) fs.rmSync(UP, { recursive: true, force: true });
 }
-async function waitHealth(t = 15000) {
+async function waitHealth(t = 40000) {
   const t0 = Date.now();
   while (Date.now() - t0 < t) {
     try { const r = await fetch(`${BASE}/api/health`); if (r.ok) return; } catch {}

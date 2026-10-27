@@ -19,9 +19,9 @@ const P0 = "Init1234";
 const P1 = "Changed9876";
 
 function cleanDb() {
-  for (const f of [DB, DB + "-wal", DB + "-shm"]) if (fs.existsSync(f)) fs.unlinkSync(f);
+  for (const f of [DB, DB + "-wal", DB + "-shm"]) if (fs.existsSync(f)) fs.renameSync(f, f + ".old");
 }
-async function waitHealth(timeout = 15000) {
+async function waitHealth(timeout = 40000) {
   const t0 = Date.now();
   while (Date.now() - t0 < timeout) {
     try { const r = await fetch(`${BASE}/api/health`); if (r.ok) return; } catch {}

@@ -1,22 +1,48 @@
 "use strict";
 const { db, transaction } = require("../lib/db");
-const { now } = require("../lib/util");
-const { bad, notFound, forbidden, conflict } = require("../lib/util");
-const { assertCan, assertProjectVisible, scopeFilter, ROLES } = require("../lib/rbac");
+const { now, bad, notFound, conflict, yuan, toCsv } = require("../lib/util");
+const { assertCan, assertProjectVisible } = require("../lib/rbac");
 const { logAudit } = require("../lib/audit");
 const { listProjects } = require("./projects");
 const { getProject, assertNotFrozen } = require("../lib/workflow");
-const { DEMAND_GROUPS, DEMAND_TEMPLATE, DEMAND_NEED_OPTIONS, DEMAND_STATUS_OPTIONS } = require("../lib/constants");
-const { toCsv } = require("../lib/util");
+const { DEMAND_GROUPS, DEMAND_TEMPLATE, DEMAND_NEED_OPTIONS } = require("../lib/constants");
 
-const MAX_LEN = { spec: 200, owner: 20, due: 20, budget: 40, attach: 120, status: 20, need: 20, note: 120 };
+const MAX_LEN = { item: 40, spec: 200, owner: 20, due: 20, note: 120 };
+
+const money2 = (n) => Number(n || 0).toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+/**
+ * 预算金额只收数字。
+ * 「预算归属」改成「预算金额」之后，这一列要能合计、能跟核销的费用构成对照，
+ * 混进「会务预算」这种文字就失去意义了。
+ * 空值合法（这一项还没定价），非空必须是 ≤2 位小数的非负数。
+ */
+function parseAmount(v, itemName) {
+  const s = String(v === undefined || v === null ? "" : v).trim();
+  if (!s) return "";
+  if (!/^\d+(\.\d{1,2})?$/.test(s)) {
+    throw bad(`「${itemName}」的预算金额只能填数字（最多两位小数），当前填的是「${s}」`);
+  }
+  if (Number(s) > 1e9) throw bad(`「${itemName}」的预算金额过大`);
+  return s;
+}
 
 function checkItem(it) {
   if (it.need !== undefined && !DEMAND_NEED_OPTIONS.includes(it.need)) throw bad(`「${it.item || ""}」的「是否需要」取值非法`);
-  if (it.status !== undefined && !DEMAND_STATUS_OPTIONS.includes(it.status)) throw bad(`「${it.item || ""}」的「执行状态」取值非法`);
   for (const [k, max] of Object.entries(MAX_LEN)) {
     if (it[k] === undefined || it[k] === null) continue;
     if (String(it[k]).length > max) throw bad(`「${it.item || ""}」的${k}字段不能超过 ${max} 字`);
+  }
+}
+
+/** 归档后是否允许再改：确认即归档，需求单从此是核销的执行依据 */
+function assertNotArchived(sheet) {
+  if (sheet && sheet.confirmed) {
+    throw conflict(
+      "会务需求已归档，不能再修改。如需调整请先「撤销归档」",
+      "DEMAND_ARCHIVED",
+      { confirmed_by: sheet.confirmed_by || "", confirmed_at: sheet.confirmed_at || "" }
+    );
   }
 }
 
@@ -31,33 +57,36 @@ function loadSheet(pid) {
     for (const r of rows) {
       if (!groups[r.grp]) groups[r.grp] = [];
       groups[r.grp].push({
-        item: r.item, note: r.note, need: r.need, spec: r.spec || "", owner: r.owner || "",
-        due: r.due || "", budget: r.budget || "", attach: r.attach || "", status: r.status
+        item: r.item, note: r.note, need: r.need, spec: r.spec || "",
+        owner: r.owner || "", due: r.due || "", budget: r.budget || ""
       });
     }
   } else {
-    // 按模板生成（带默认 需要 / 未开始）
-    let order = 0;
+    // 按模板生成（带默认 需要）
     for (const g of DEMAND_GROUPS) {
       for (const t of (DEMAND_TEMPLATE[g] || [])) {
         groups[g].push({
-          item: t.item, note: t.note || "", need: "需要", spec: "", owner: "", due: "",
-          budget: "", attach: "", status: "未开始"
+          item: t.item, note: t.note || "", need: "需要", spec: "", owner: "", due: "", budget: ""
         });
-        order++;
       }
     }
     built = true;
   }
+  // 预算合计只算「需要」项：选了不需要的条目，钱不花，不该进合计
+  let total = 0;
+  for (const g of DEMAND_GROUPS) {
+    for (const it of groups[g]) if (it.need === "需要") total += Number(it.budget) || 0;
+  }
   return {
     pid,
     confirmed: sheet ? !!sheet.confirmed : false,
+    archived: sheet ? !!sheet.confirmed : false,
     confirmed_by: sheet ? sheet.confirmed_by : null,
     confirmed_at: sheet ? sheet.confirmed_at : null,
     groups: DEMAND_GROUPS,
     items: groups,
     needOptions: DEMAND_NEED_OPTIONS,
-    statusOptions: DEMAND_STATUS_OPTIONS,
+    budgetTotal: yuan(total),
     isTemplate: built
   };
 }
@@ -86,8 +115,9 @@ function replaceItems(pid, items, at) {
     const key = `${it.grp}@@${item}`;
     if (seen.has(key)) continue;
     seen.add(key);
+    // attach / status 已从业务上取消，列保留给旧数据，新写入统一置空
     ins.run(pid, it.grp, item, it.note || "", it.need || "需要", it.spec || "", it.owner || "",
-      it.due || "", it.budget || "", it.attach || "", it.status || "未开始", order++, at);
+      it.due || "", it.budget || "", "", "未开始", order++, at);
   }
   db.prepare("UPDATE demand_sheets SET updated_at = ? WHERE pid = ?").run(at, pid);
 }
@@ -99,26 +129,30 @@ function register(router) {
     const agg = db.prepare(
       `SELECT pid,
               SUM(CASE WHEN need='需要' THEN 1 ELSE 0 END) AS need_cnt,
-              SUM(CASE WHEN need='需要' AND status='已完成' THEN 1 ELSE 0 END) AS done_cnt,
-              COUNT(*) AS total
+              COUNT(*) AS total,
+              COALESCE(ROUND(SUM(CASE WHEN need='需要' THEN CAST(budget AS REAL) ELSE 0 END),2),0) AS budget_sum
        FROM demand_items GROUP BY pid`
     ).all();
     const map = {};
     for (const a of agg) map[a.pid] = a;
-    const confirmedSet = new Set(
-      db.prepare("SELECT pid FROM demand_sheets WHERE confirmed=1").all().map((r) => r.pid)
-    );
+    const sheetMap = {};
+    for (const r of db.prepare("SELECT pid, confirmed, confirmed_by, confirmed_at FROM demand_sheets").all()) {
+      sheetMap[r.pid] = r;
+    }
     const projects = rows.map((p) => {
       const a = map[p.id];
+      const s = sheetMap[p.id];
       return {
         id: p.id, name: p.name, assoc: p.assoc, status: p.status, date: p.date,
         demandBuilt: !!a,
         needCount: a ? a.need_cnt : 0,
-        doneCount: a ? a.done_cnt : 0,
-        confirmed: confirmedSet.has(p.id)
+        budgetTotal: a ? yuan(a.budget_sum) : 0,
+        confirmed: !!(s && s.confirmed),
+        confirmedBy: s && s.confirmed ? s.confirmed_by : "",
+        confirmedAt: s && s.confirmed ? s.confirmed_at : ""
       };
     });
-    return { projects, groups: DEMAND_GROUPS, needOptions: DEMAND_NEED_OPTIONS, statusOptions: DEMAND_STATUS_OPTIONS };
+    return { projects, groups: DEMAND_GROUPS, needOptions: DEMAND_NEED_OPTIONS };
   });
 
   // 详情：单项目的需求单（首次打开返回模板）
@@ -139,6 +173,7 @@ function register(router) {
     assertProjectVisible(ctx.user, p);
     // 结算后需求单是执行依据的原始记录，归档后更属封存卷宗，都不该再改
     assertNotFrozen(p, "会务需求");
+    assertNotArchived(db.prepare("SELECT * FROM demand_sheets WHERE pid = ?").get(p.id));
     const b = ctx.body || {};
     if (!Array.isArray(b.items)) throw bad("缺少 items 数组");
     if (b.items.length > 200) throw bad("需求条目过多");
@@ -154,25 +189,30 @@ function register(router) {
         throw bad(`「${it.grp}」分组下存在重复条目「${String(it.item).trim()}」，同一分组内条目名必须唯一`, "DUPLICATE_ITEM");
       }
       seen.add(key);
+      it.budget = parseAmount(it.budget, String(it.item).trim());
       checkItem(it);
     }
     const at = ensureSheet(p.id);
     // 事务走 db 层统一入口：Node 用 BEGIN/COMMIT，Cloudflare 用 transactionSync
     transaction(() => replaceItems(p.id, b.items, at));
+    const needCnt = b.items.filter((x) => x.need === "需要").length;
+    const total = yuan(b.items.filter((x) => x.need === "需要").reduce((s, x) => s + (Number(x.budget) || 0), 0));
     logAudit({
       user: ctx.user, module: "会务需求", action: "保存需求单", target: p.id,
-      detail: `更新 ${b.items.length} 条需求（需要 ${b.items.filter((x) => x.need === "需要").length} 项）`, ip: ctx.ip
+      detail: `更新 ${b.items.length} 条需求（需要 ${needCnt} 项，预算合计 ¥${money2(total)}）`, ip: ctx.ip
     });
     return { sheet: loadSheet(p.id), message: "会务需求已保存" };
   });
 
-  // 确认需求单
+  // 确认需求单 = 归档：确认后这份单子就是后续核销的执行依据，不再随手改
   router.post("/api/demand/:id/confirm", async (ctx) => {
     assertCan(ctx.user, "demand:write", "只有协会管理员 / 会务执行可以确认会务需求");
     const p = getProject(ctx.params.id);
     if (!p) throw notFound("会议项目不存在");
     assertProjectVisible(ctx.user, p);
     assertNotFrozen(p, "会务需求");
+    const sheetRow = db.prepare("SELECT * FROM demand_sheets WHERE pid = ?").get(p.id);
+    if (sheetRow && sheetRow.confirmed) throw conflict("会务需求已归档，无需重复确认", "DEMAND_ARCHIVED");
     const at = now();
     ensureSheet(p.id);
     // 若尚未建条目，先按模板落库再确认
@@ -181,8 +221,34 @@ function register(router) {
     }
     db.prepare("UPDATE demand_sheets SET confirmed=1, confirmed_by=?, confirmed_at=?, updated_at=? WHERE pid=?")
       .run(ctx.user.name, at, at, p.id);
-    logAudit({ user: ctx.user, module: "会务需求", action: "确认需求单", target: p.id, detail: "会务需求确认完毕", ip: ctx.ip });
-    return { sheet: loadSheet(p.id), message: "已确认会务需求" };
+    const s = loadSheet(p.id);
+    const needCnt = Object.values(s.items).flat().filter((x) => x.need === "需要").length;
+    logAudit({
+      user: ctx.user, module: "会务需求", action: "归档需求单", target: p.id,
+      detail: `会务需求确认并归档：需要 ${needCnt} 项，预算合计 ¥${money2(s.budgetTotal)}（后续核销以此为依据）`,
+      ip: ctx.ip
+    });
+    return { sheet: s, message: "已确认并归档会务需求" };
+  });
+
+  // 撤销归档：填错了总得能改，但每次撤销都留痕
+  router.post("/api/demand/:id/unarchive", async (ctx) => {
+    assertCan(ctx.user, "demand:write", "只有协会管理员 / 会务执行可以撤销归档");
+    const p = getProject(ctx.params.id);
+    if (!p) throw notFound("会议项目不存在");
+    assertProjectVisible(ctx.user, p);
+    assertNotFrozen(p, "会务需求");
+    const sheetRow = db.prepare("SELECT * FROM demand_sheets WHERE pid = ?").get(p.id);
+    if (!sheetRow || !sheetRow.confirmed) throw conflict("会务需求尚未归档，无需撤销", "NOT_ARCHIVED");
+    const at = now();
+    db.prepare("UPDATE demand_sheets SET confirmed=0, confirmed_by=NULL, confirmed_at=NULL, updated_at=? WHERE pid=?")
+      .run(at, p.id);
+    logAudit({
+      user: ctx.user, module: "会务需求", action: "撤销归档", target: p.id,
+      detail: `撤销会务需求归档（原确认人 ${sheetRow.confirmed_by || "—"} 于 ${sheetRow.confirmed_at || "—"} 确认）`,
+      ip: ctx.ip
+    });
+    return { sheet: loadSheet(p.id), message: "已撤销归档，需求单回到草稿可编辑" };
   });
 
   // 重置需求单（清空条目与确认状态，回到模板）
@@ -193,6 +259,7 @@ function register(router) {
     assertProjectVisible(ctx.user, p);
     // 重置会 DELETE 全部条目，冻结后执行等于销毁历史，比「修改」更该拦
     assertNotFrozen(p, "会务需求");
+    assertNotArchived(db.prepare("SELECT * FROM demand_sheets WHERE pid = ?").get(p.id));
     db.prepare("DELETE FROM demand_items WHERE pid = ?").run(p.id);
     db.prepare("DELETE FROM demand_sheets WHERE pid = ?").run(p.id);
     logAudit({ user: ctx.user, module: "会务需求", action: "重置需求单", target: p.id, detail: "清空需求明细与确认状态", ip: ctx.ip });
@@ -205,13 +272,15 @@ function register(router) {
     if (!p) throw notFound("会议项目不存在");
     assertProjectVisible(ctx.user, p);
     const sheet = loadSheet(p.id);
-    const headers = ["分组", "项目", "业务提示", "是否需要", "规格数量", "负责人", "交付时间", "预算归属", "附件", "执行状态"];
+    const headers = ["分组", "项目", "业务提示", "是否需要", "规格数量", "负责人", "交付时间", "预算金额"];
     const rows = [];
     for (const g of DEMAND_GROUPS) {
       for (const it of (sheet.items[g] || [])) {
-        rows.push([g, it.item, it.note || "", it.need, it.spec || "", it.owner || "", it.due || "", it.budget || "", it.attach || "", it.status]);
+        rows.push([g, it.item, it.note || "", it.need, it.spec || "", it.owner || "", it.due || "",
+          it.budget ? Number(it.budget).toFixed(2) : ""]);
       }
     }
+    rows.push(["合计", "", "", "", "", "", "预算合计", Number(sheet.budgetTotal).toFixed(2)]);
     const csv = toCsv(headers, rows);
     return { __csv: csv, __filename: `会务需求_${p.id}.csv` };
   });
@@ -224,7 +293,7 @@ function flattenTemplate() {
   let order = 0;
   for (const g of DEMAND_GROUPS) {
     for (const t of (DEMAND_TEMPLATE[g] || [])) {
-      out.push({ grp: g, item: t.item, note: t.note || "", need: "需要", spec: "", owner: "", due: "", budget: "", attach: "", status: "未开始", ordering: order++ });
+      out.push({ grp: g, item: t.item, note: t.note || "", need: "需要", spec: "", owner: "", due: "", budget: "", ordering: order++ });
     }
   }
   return out;

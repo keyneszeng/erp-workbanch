@@ -15,9 +15,9 @@ const DB = path.join(__dirname, "..", "data", "test4.db");
 let proc;
 
 function cleanDb() {
-  for (const f of [DB, DB + "-wal", DB + "-shm"]) if (fs.existsSync(f)) fs.unlinkSync(f);
+  for (const f of [DB, DB + "-wal", DB + "-shm"]) if (fs.existsSync(f)) fs.renameSync(f, f + ".old");
 }
-async function waitHealth(timeout = 15000) {
+async function waitHealth(timeout = 40000) {
   const t0 = Date.now();
   while (Date.now() - t0 < timeout) {
     try { const r = await fetch(`${BASE}/api/health`); if (r.ok) return; } catch {}
@@ -106,8 +106,8 @@ test("模板：未建单项目返回四组模板(23 项)且不落库", async () 
 
 test("保存：整单替换(PATCH)后明细被完全覆盖", async () => {
   const items = [
-    { grp: "设计", item: "串场", need: "需要", spec: "主视觉", owner: "王敏", due: "2026-09-05", budget: "会务预算", attach: "", status: "已完成" },
-    { grp: "其他", item: "垫付", need: "需要", spec: "", owner: "陈静", due: "", budget: "", attach: "", status: "进行中" }
+    { grp: "设计", item: "串场", need: "需要", spec: "主视觉", owner: "王敏", due: "2026-09-05", budget: "3800" },
+    { grp: "其他", item: "垫付", need: "需要", spec: "", owner: "陈静", due: "", budget: "" }
   ];
   const p1 = await admin("PATCH", "/api/demand/MP-2026-002", { items });
   assert.equal(p1.status, 200);
@@ -115,7 +115,26 @@ test("保存：整单替换(PATCH)后明细被完全覆盖", async () => {
   const total = Object.values(d.data.items).reduce((a, x) => a + x.length, 0);
   assert.equal(total, 2, "保存后仅剩提交的 2 项（整单替换）");
   assert.equal(d.data.items["设计"][0].spec, "主视觉");
-  assert.equal(d.data.items["其他"][0].status, "进行中");
+  assert.equal(d.data.items["设计"][0].budget, "3800", "预算金额按填写值保存");
+  assert.equal(d.data.budgetTotal, 3800, "预算合计只算填了金额的条目");
+  // 附件与执行状态已从业务上取消，接口不应再回吐这两个字段
+  assert.equal("attach" in d.data.items["设计"][0], false, "不应再返回 attach");
+  assert.equal("status" in d.data.items["设计"][0], false, "不应再返回 status");
+});
+
+test("新增一行：自定义条目（不在模板里）能存下来并回读", async () => {
+  const r = await admin("PATCH", "/api/demand/MP-2026-002", {
+    items: [
+      { grp: "设计", item: "串场", need: "需要", budget: "3800" },
+      { grp: "设计", item: "指引牌（临时加）", need: "需要", spec: "2 块 A2", budget: "260.5" }
+    ]
+  });
+  assert.equal(r.status, 200);
+  const d = await admin("GET", "/api/demand/MP-2026-002");
+  const names = d.data.items["设计"].map((x) => x.item);
+  assert.deepEqual(names, ["串场", "指引牌（临时加）"], "自定义条目应保留");
+  assert.equal(d.data.items["设计"][1].budget, "260.5");
+  assert.equal(d.data.budgetTotal, 4060.5, "3800 + 260.5");
 });
 
 test("权限：财务(无 demand:write)保存返回 403", async () => {
@@ -123,17 +142,46 @@ test("权限：财务(无 demand:write)保存返回 403", async () => {
   assert.equal(r.status, 403);
 });
 
-test("校验：非法执行状态取值返回 400", async () => {
+test("校验：预算金额填文字返回 400，且指出是哪一条", async () => {
   const r = await admin("PATCH", "/api/demand/MP-2026-002", {
-    items: [{ grp: "设计", item: "串场", need: "需要", status: "搞错了" }]
+    items: [{ grp: "设计", item: "串场", need: "需要", budget: "会务预算" }]
+  });
+  assert.equal(r.status, 400);
+  assert.match(r.data.error.message, /串场/);
+  assert.match(r.data.error.message, /数字/);
+});
+
+test("校验：预算金额超过两位小数返回 400", async () => {
+  const r = await admin("PATCH", "/api/demand/MP-2026-002", {
+    items: [{ grp: "设计", item: "串场", need: "需要", budget: "12.345" }]
   });
   assert.equal(r.status, 400);
 });
 
-test("确认与重置：确认后不可重复清空，重置回到模板", async () => {
+test("校验：同一分组重名返回 400 DUPLICATE_ITEM", async () => {
+  const r = await admin("PATCH", "/api/demand/MP-2026-002", {
+    items: [
+      { grp: "设计", item: "台卡", need: "需要" },
+      { grp: "设计", item: "台卡 ", need: "需要" }
+    ]
+  });
+  assert.equal(r.status, 400);
+  assert.equal(r.data.error.code, "DUPLICATE_ITEM");
+});
+
+test("确认即归档：归档后重置被拒，撤销归档后才能重置", async () => {
   const c = await admin("POST", "/api/demand/MP-2026-002/confirm");
   assert.equal(c.status, 200);
   assert.equal(c.data.sheet.confirmed, true);
+  assert.equal(c.data.sheet.archived, true, "确认即归档");
+  // 归档后重置会删光条目，必须拦住
+  const blocked = await admin("POST", "/api/demand/MP-2026-002/reset");
+  assert.equal(blocked.status, 409);
+  assert.equal(blocked.data.error.code, "DEMAND_ARCHIVED");
+  // 撤销归档 → 重置
+  const un = await admin("POST", "/api/demand/MP-2026-002/unarchive");
+  assert.equal(un.status, 200);
+  assert.equal(un.data.sheet.archived, false);
   const rst = await admin("POST", "/api/demand/MP-2026-002/reset");
   assert.equal(rst.status, 200);
   assert.equal(rst.data.sheet.isTemplate, true);

@@ -31,6 +31,30 @@ function register(router) {
       materials,
       contracts,
       payments,
+      /**
+       * 归档的会务需求单 —— 核销第 3 步的费用对照基准。
+       * 需求单确认后即归档，它记的是「当初答应花多少钱」，
+       * 核销要核的是「实际花了多少」，两者摆在一起才看得出超没超。
+       * 未归档时也返回（archived=false），让判定人知道这份单子还没定稿。
+       */
+      demand: (() => {
+        const sheet = db.prepare("SELECT * FROM demand_sheets WHERE pid = ?").get(p.id);
+        if (!sheet) return null;
+        const items = db.prepare(
+          "SELECT grp,item,need,budget FROM demand_items WHERE pid = ? ORDER BY ordering, id"
+        ).all(p.id);
+        if (!items.length) return null;
+        const need = items.filter((x) => x.need === "需要");
+        return {
+          archived: !!sheet.confirmed,
+          confirmedBy: sheet.confirmed_by || "",
+          confirmedAt: sheet.confirmed_at || "",
+          total: items.length,
+          needCount: need.length,
+          budgetTotal: yuan(need.reduce((s, x) => s + (Number(x.budget) || 0), 0)),
+          items: need.map((x) => ({ grp: x.grp, item: x.item, budget: x.budget || "" }))
+        };
+      })(),
       // 逐笔 reduce 会累积浮点尾巴，收敛到「分」再给前端
       paidTotal: yuan(payments.filter((y) => y.status === "已付款").reduce((s, y) => s + Number(y.amount), 0))
     };

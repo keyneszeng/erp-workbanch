@@ -106,7 +106,31 @@ export function stepBody(d, no) {
       if (y.status === "已驳回") continue;
       byType[y.type] = round2((byType[y.type] || 0) + Number(y.amount));
     }
+    // 需求单确认后即归档，记的是「当初答应花多少」；费用构成是「实际花了多少」。
+    // 两者摆在一起，判定人才看得出钱花超没超、超在哪。
+    const dm = d.demand;
+    const spent = round2(Object.values(byType).reduce((s, v) => s + v, 0));
+    const dmTotal = dm ? round2(dm.budgetTotal) : 0;
+    const gap = round2(dmTotal - spent);
+    const dmItems = dm && dm.items && dm.items.length
+      ? table([{ t: "分组", w: "90px" }, { t: "条目" }, { t: "预算金额", w: "110px", cls: "num" }],
+        dm.items.map((x) => ({
+          c: [esc(x.grp), esc(x.item), x.budget ? fmt(x.budget) : `<span class="dm">未定价</span>`]
+        })))
+      : "";
+    const dmBlock = !dm
+      ? `<div class="dhint">该项目没有建过会务需求单 —— 没有「当初答应花多少」的基准，只能按票据本身判断合理性</div>`
+      : dm.archived
+        ? `<div class="dgrid">
+             ${cell("需求单预算合计（归档）", fmt(dmTotal))}
+             ${cell("已发生费用（不含已驳回）", fmt(spent))}
+             ${cell(gap < 0 ? "超支" : "结余", fmt(Math.abs(gap)), gap < 0)}
+           </div>
+           <div class="dhint">需要 ${dm.needCount} 项 / 共 ${dm.total} 条 · 由 ${esc(dm.confirmedBy || "—")} 于 ${esc(dt(dm.confirmedAt))} 确认归档</div>
+           ${dmItems}`
+        : `<div class="dhint">需求单尚未归档（需要 ${dm.needCount} 项）—— 这份清单还没定稿，本次核销缺少「当初答应花多少」的基准</div>`;
     return `
+      <div class="dsec"><h4>会务需求预算对照</h4>${dmBlock}</div>
       <div class="dsec"><h4>费用构成（按付款类型，不含已驳回）</h4>
         ${Object.keys(byType).length
           ? `<div class="dgrid">${Object.entries(byType).map(([k, v]) => cell(esc(k), fmt(v))).join("")}</div>`
@@ -115,7 +139,12 @@ export function stepBody(d, no) {
       <div class="dsec"><h4>发票 / 票据材料（${inv.length} 份）</h4>${matList(inv, "尚未登记「发票」材料")}</div>
       <div class="dsec"><h4>现场照片（${pic.length} 份）</h4>${matList(pic, "尚未登记「现场照片」材料")}</div>
       <div class="dchk">核对要点：<b>场地、餐饮、物料</b>三类支出是否都有对应票据，票据金额能否与上面的费用构成对上。
-        现场照片用于佐证活动确实举办，本身不是金额凭证。</div>`;
+        现场照片用于佐证活动确实举办，本身不是金额凭证。
+        ${dm && dm.archived
+          ? `归档预算 ${fmt(dmTotal)}、实际发生 ${fmt(spent)}，${gap < 0
+              ? `已<b>超支 ${fmt(Math.abs(gap))}</b>，超的部分要有正当理由并在备注写清`
+              : `尚在预算内，结余 ${fmt(gap)}`}。`
+          : ""}</div>`;
   }
 
   if (no === 4) {

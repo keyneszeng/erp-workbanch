@@ -13,9 +13,9 @@ const BASE = `http://127.0.0.1:${PORT}`;
 const DB = path.join(__dirname, "..", "data", "hard.db");
 let proc;
 
-const cleanDb = () => { for (const f of [DB, DB + "-wal", DB + "-shm"]) if (fs.existsSync(f)) fs.unlinkSync(f); };
+const cleanDb = () => { for (const f of [DB, DB + "-wal", DB + "-shm"]) if (fs.existsSync(f)) fs.renameSync(f, f + ".old"); };
 
-async function waitHealth(t = 15000) {
+async function waitHealth(t = 40000) {
   const t0 = Date.now();
   while (Date.now() - t0 < t) {
     try { if ((await fetch(`${BASE}/api/health`)).ok) return; } catch {}

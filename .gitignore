@@ -1,6 +1,9 @@
 data/*.db
 data/*.db-wal
 data/*.db-shm
+data/*.db.old
+data/*.db-wal.old
+data/*.db-shm.old
 data/uploads/
 data/*-uploads/
 data/ui-up/

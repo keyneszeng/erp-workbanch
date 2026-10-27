@@ -1,4 +1,4 @@
-# 协会会议执行 ERP · 生产版代码 V1.2.6
+# 协会会议执行 ERP · 生产版代码 V1.2.7
 
 > 依据《协会会议执行 ERP 交付版整合包 V1.0.2 · 09_可点击演示版》研发的可运行工程。
 > 演示版验证的是「流程与交互是否成立」，本工程把它落成**真实后端 + 真实数据库 + 真实权限与门禁**。
@@ -34,8 +34,8 @@ npm start            # 等价于 node --experimental-sqlite server/index.js
 
 ```bash
 npm run seed         # 重置数据库并重建种子数据
-npm test             # 260 条接口回归测试（每文件自起服务 + 独立库，不影响主库）
-npm run test:cf      # 同一批 260 条，跑在「Durable Object SQL」后端语义下
+npm test             # 274 条接口回归测试（每文件自起服务 + 独立库，不影响主库）
+npm run test:cf      # 同一批 274 条，跑在「Durable Object SQL」后端语义下
 ERP_PORT=9000 npm start
 ERP_DB=/path/to/erp.db npm start
 ```
@@ -95,7 +95,7 @@ wrangler r2 bucket create erp-workbanch-files
 ### 本地为什么不能预览
 
 `wrangler dev` 依赖 workerd，要求 **macOS 13.5+**；本机是 12.7.6，起不来。
-所以本地用 `npm run test:cf` 把同一批 260 条测试跑在「模拟的 DO SQL 后端」上
+所以本地用 `npm run test:cf` 把同一批 274 条测试跑在「模拟的 DO SQL 后端」上
 （`test/lib/do-sqlite-mock.js`），确认 SQL 语义一致后再部署。
 
 ### 已知限制
@@ -247,10 +247,12 @@ erp-app/
 | POST | `/api/uploads` | 文件上传（裸二进制，非 multipart；限 8 MB，JPG/PNG/WebP/GIF/PDF） |
 | GET | `/api/uploads/:key` | 文件下载（按材料 / 合同所属项目校验数据范围） |
 | GET | `/api/uploads/capability` | 上传能力探测（后端类型、大小上限） |
-| GET | `/api/demand` | 会务需求确认：按数据范围列出会议 + 各会议需求汇总 |
-| GET | `/api/demand/:id` | 单会议需求单（首次打开按四组模板生成） |
-| PATCH | `/api/demand/:id` | 整单保存（协会管理员 / 会务执行可写；结算 / 归档后冻结） |
-| POST | `/api/demand/:id/confirm` `/reset` | 确认需求单 / 重置回模板（结算 / 归档后均冻结） |
+| GET | `/api/demand` | 会务需求确认：按数据范围列出会议 + 需要项数 / 预算合计 / 归档状态 |
+| GET | `/api/demand/:id` | 单会议需求单（首次打开按四组模板生成，不落库） |
+| PATCH | `/api/demand/:id` | 整单保存（协会管理员 / 会务执行可写；**已归档或已结算即冻结**） |
+| POST | `/api/demand/:id/confirm` | 确认需求单 = **归档**，此后不可修改（`DEMAND_ARCHIVED`） |
+| POST | `/api/demand/:id/unarchive` | 撤销归档，回到草稿可编辑（写审计） |
+| POST | `/api/demand/:id/reset` | 重置回模板（已归档 / 已结算均冻结，会 DELETE 全部条目） |
 | GET | `/api/demand/:id/export` | 需求单 CSV 导出 |
 | GET | `/api/settlements` | 结算单 |
 | GET/POST/PATCH | `/api/users` `/api/users/:id` | 账号与角色 |
@@ -268,8 +270,17 @@ erp-app/
 ## 6. 测试
 
 ```bash
-npm test        # 260 条：api 26 + edge 26 + matrix 11 + hardening 19 + abuse 28 + stateless 6 + demand 9 + material 5 + password 6 + paging 8 + upload 11 + storage 4 + contract-file 9 + freeze 9 + id-sequence 7 + business-rules 47 + workflow-chain 12 + todo-flag 5 + money-precision 7 + scope-owner 5
+npm test        # 274 条：api 26 + edge 26 + matrix 11 + hardening 19 + abuse 28 + stateless 6 + demand 12 + demand-archive 11 + material 5 + password 6 + paging 8 + upload 11 + storage 4 + contract-file 9 + freeze 9 + id-sequence 7 + business-rules 47 + workflow-chain 12 + todo-flag 5 + money-precision 7 + scope-owner 5
 ```
+
+每个测试文件自带脚手架：**独立端口 + 独立数据库 + 自起服务**，跑完即杀，不碰主库。
+
+> **并发与端口**：脚本固定 `--test-concurrency=2`。这台机器 4 核（2 物理），21 个文件
+> 若按默认并发跑，会同时起十几个 Node 服务，`migrate + seed` 被拖慢后触发启动超时，
+> 表现成「随机几个文件全红」，很容易被误当成代码缺陷。各测试的 `waitHealth` 默认等待也
+> 从 15s 提到 40s。**端口必须全局唯一**（当前占用 8799–8821）——
+> 两个测试同端口但各用各的库时，`node --test` 并行跑会随机 EADDRINUSE，
+> 或者更糟：打到别人的库上，报错指向完全无关的用例。
 
 | 文件 | 关注点 |
 |---|---|
@@ -279,7 +290,8 @@ npm test        # 260 条：api 26 + edge 26 + matrix 11 + hardening 19 + abuse 
 | `test/hardening.test.js` | 加固：路径穿越多形态、HEAD/畸形 JSON、请求体 413、字段长度、会话生命周期、CSV 转义与公式注入、超预算、并发状态机幂等 |
 | `test/abuse.test.js` | 滥用与越权：SQL 注入、IDOR、状态机全枚举、审批/付款/结算/归档幂等、金额与日期脏数据、多端会话、封账封存、导出范围一致性 |
 | `test/stateless.test.js` | 无状态会话兜底：模拟 Serverless「换实例」（清空 sessions 表），签名令牌仍可放行；伪造签名 / 篡改 uid / 过期 / 改密吊销 / 未知令牌均 401 |
-| `test/demand.test.js` | 会务需求模块：列表 / 种子+模板详情 / 整单替换 / 财务越权 403 / 非法枚举 400 / 确认+重置 / CSV 导出 BOM |
+| `test/demand.test.js` | 会务需求模块：列表 / 种子+模板详情 / 整单替换 / **新增自定义条目** / 财务越权 403 / **预算金额非数字与超两位小数 400** / 重名 `DUPLICATE_ITEM` / 归档后重置被拒 / CSV 导出 BOM |
+| `test/demand-archive.test.js` | **确认即归档**：归档后保存 409、重复确认不刷新时间、重置被拒、撤销归档不丢数据、未归档撤销 409、财务 403、归档与撤销各留审计、**核销侧预算合计与需求单一致**、未归档时核销标记 `archived=false`、已结算项目冻结优先 |
 | `test/material.test.js` | 材料写入权限：exec 可登记/删除材料但不可归档；assoc/finance 可写；guest 403 |
 
 浏览器层（Playwright + 本机 Chrome，需先起服务）：
@@ -389,6 +401,42 @@ Serverless 每个实例的 `/tmp` 独立，会话表只能在本实例查到。�
 ---
 
 ## 9. 变更记录
+
+### V1.2.7（需求单确认即归档 · 新增行 · 精简字段）
+
+按业务反馈调整会务需求的形态。核心变化是**这份清单不再是填完就完的记录，
+而是核销时的费用对照基准** —— 确认后归档，后续拿发票收据核销时以它为准。
+
+**A. 确认即归档（原来确认只是个标记，没有任何约束力）**
+
+| 原来 | 现在 |
+|---|---|
+| 确认只写 `confirmed=1`，合同、付款、材料、核销全都不读这个字段 | 确认 = 归档，需求单锁定 |
+| 归档后还能随便改，还能「重置」把条目全删光 | 保存 / 重置 / 重复确认 一律 409 `DEMAND_ARCHIVED` |
+| 填错了没有回头路 | 新增「撤销归档」回到草稿，每次撤销写审计（带原确认人与时间） |
+
+核销第 3 步（费用凭证）现在先给一块 **会务需求预算对照**：
+归档预算合计 / 已发生费用 / 结余或超支，下面是「需要」项的逐条预算金额。
+判定人一眼看得出钱花超没超、超在哪 —— 这就是「确认后归档，后续提供发票收据核销」的落地。
+需求单没归档时不给对照，只提示「这份清单还没定稿」，避免拿草稿当依据。
+
+**B. 新增一行**
+
+每组底部有「+ 新增一行」，可以加模板里没有的条目（例如临时加的指引牌）。
+条目名改成无边框输入框，模板条目也能改名。每行有 `×` 删除，删模板行要二次确认
+（删错了用「重置」回模板）。新增行没填名称时保存会跳过并提示，不会让整单保存失败。
+
+**C. 精简字段**
+
+- 删掉「附件」「执行状态」两列。状态没了，列表页的「需要 / 已完成」完成率也就没意义，
+  改成「需要 N 项 + 预算合计」；KPI 从「需要 / 已完成」换成「已归档 / 需求预算合计」
+- 「预算归属」→「预算金额」，并且**只收数字**（≤2 位小数）。
+  原来这一列是自由文本（「会务预算」），既没法合计也没法跟费用对照。
+  现在页头、每组表头、列表页都显示合计，导出 CSV 也带一行合计
+- 数据库 `attach` / `status` 列保留给旧数据，新写入统一置空，不删列（避免老库迁移风险）
+
+**新增测试**：`test/demand-archive.test.js` 11 条；`test/demand.test.js` 9 → 12 条。
+全量 260 → **274**，Node 与 DO SQL 语义双跑 274/274。
 
 ### V1.2.6（金额定点 · 例外单联动 · 分页与并发复查）
 
