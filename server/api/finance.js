@@ -42,16 +42,20 @@ function register(router) {
     const args = [...params];
     if (ctx.query.pid) { where.push("c.pid = ?"); args.push(ctx.query.pid); }
     const whereSql = where.join(" AND ");
-    const base = `FROM contracts c JOIN projects p ON p.id = c.pid WHERE ${whereSql}`;
+    // pstatus / created_by_name 是给「合同详情」弹窗用的：
+    // 详情里要显示所属项目状态（决定能不能流转）和录入人（责任追溯）。
+    // LEFT JOIN users 不会放大行数（u.id 是主键），COUNT 那条不受影响。
+    const base = `FROM contracts c JOIN projects p ON p.id = c.pid LEFT JOIN users u ON u.id = c.created_by WHERE ${whereSql}`;
+    const cols = "c.*, p.name AS pname, p.status AS pstatus, u.name AS created_by_name";
     const paging = readPaging(ctx.query);
 
     if (!paging) {
-      const rows = db.prepare(`SELECT c.*, p.name AS pname ${base} ORDER BY c.id DESC`).all(...args);
+      const rows = db.prepare(`SELECT ${cols} ${base} ORDER BY c.id DESC`).all(...args);
       return { rows, total: rows.length };
     }
     const total = countOf(db.prepare(`SELECT COUNT(*) AS c ${base}`).get(...args));
     const rows = db.prepare(
-      `SELECT c.*, p.name AS pname ${base} ORDER BY c.id DESC LIMIT ? OFFSET ?`
+      `SELECT ${cols} ${base} ORDER BY c.id DESC LIMIT ? OFFSET ?`
     ).all(...args, paging.size, paging.offset);
     return { rows, total, page: paging.page, size: paging.size, pages: Math.max(1, Math.ceil(total / paging.size)), paged: true };
   });

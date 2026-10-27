@@ -145,7 +145,10 @@ function detail(project, user) {
      JOIN users u ON u.id = m.user_id WHERE m.project_id = ?`
   ).all(pid);
   const approvals = db.prepare("SELECT * FROM approvals WHERE pid = ? ORDER BY created_at DESC, id DESC").all(pid);
-  const contracts = db.prepare("SELECT * FROM contracts WHERE pid = ? ORDER BY id").all(pid);
+  // created_by_name 给合同详情弹窗显示录入人（责任追溯），只是 LEFT JOIN，不影响行数
+  const contracts = db.prepare(
+    "SELECT c.*, u.name AS created_by_name FROM contracts c LEFT JOIN users u ON u.id = c.created_by WHERE c.pid = ? ORDER BY c.id"
+  ).all(pid);
   const payments = db.prepare("SELECT * FROM payments WHERE pid = ? ORDER BY created_at DESC, id DESC").all(pid);
   const guests = db.prepare("SELECT * FROM guests WHERE pid = ? ORDER BY id").all(pid);
   const tasks = db.prepare("SELECT * FROM tasks WHERE pid = ? ORDER BY id").all(pid);

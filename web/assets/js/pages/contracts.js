@@ -1,34 +1,35 @@
 import { api, can, state } from "../lib/api.js";
 import { badge, confirmBox, esc, formHtml, modal, money, panel, readForm, table, toast, validate } from "../lib/ui.js";
-import { bindFilePicker, fileUrl } from "../lib/upload.js";
+import { bindFilePicker } from "../lib/upload.js";
+import { flowHint, flowOf, openContractDetail } from "../lib/contract-detail.js";
 
 let q = "";
 
 /**
  * 合同状态流转按钮：草稿 → 待签署（提交）→ 已签署（确认）。
- * 提交归录入人（contract:write），确认归协会管理员（contract:approve）。
+ * 判断走 lib/contract-detail.js 的 flowOf —— 详情弹窗、台账、项目详情三处同源，
+ * 否则改了权限口径很容易只改一处，出现「列表能点、弹窗不能点」。
  */
 function flowBtn(c) {
-  if (c.status === "草稿" && can("contract:write")) {
-    return `<button class="link" data-cflow="${c.id}" data-caction="submit">提交签署</button>`;
-  }
-  if (c.status === "待签署") {
-    return can("contract:approve")
-      ? `<button class="link" data-cflow="${c.id}" data-caction="sign">确认签署</button>`
-      : '<span style="color:var(--mute)" title="需要协会管理员确认">待协会确认</span>';
-  }
-  return '<span style="color:var(--mute)">—</span>';
+  const f = flowOf(c);
+  if (f) return `<button class="link" data-cflow="${c.id}" data-caction="${f.action}">${f.label}</button>`;
+  const hint = flowHint(c);
+  return hint
+    ? `<span style="color:var(--mute)" title="${esc(hint)}">${c.status === "待签署" ? "待协会确认" : "—"}</span>`
+    : '<span style="color:var(--mute)">—</span>';
 }
 
-/** 合同原件单元格：图片出缩略图，PDF 出标签，都能新窗口打开 */
+/**
+ * 原件列：给一个明确的「详情」入口。
+ *
+ * 原来这里只有一个「PDF」二字或 40px 缩略图，点开是新窗口里的裸文件 ——
+ * 责任人要核对条款时，得自己把「哪份合同、跟谁签、多少钱」重新对一遍。
+ * 现在点详情直接在弹窗里看原件（PDF 内嵌、图片铺开），上下文和下一步动作都在同一屏。
+ */
 function fileCell(c) {
-  if (!c.file_key) return '<span style="color:var(--mute)">—</span>';
-  const url = fileUrl(c.file_key);
-  if (c.file_mime === "application/pdf") {
-    return `<a class="link" href="${url}" target="_blank" rel="noopener" title="${esc(c.file_name || "合同原件")}">PDF</a>`;
-  }
-  return `<a href="${url}" target="_blank" rel="noopener" title="${esc(c.file_name || "合同原件")}">
-    <img class="thumb" src="${url}" alt=""></a>`;
+  const tag = !c.file_key ? "无原件" : c.file_mime === "application/pdf" ? "PDF" : "图片";
+  return `<button class="link" data-cdet="${c.id}"
+    title="${esc(c.file_key ? c.file_name || "查看合同原件" : "查看合同详情")}">详情<span class="ftag${c.file_key ? "" : " off"}">${tag}</span></button>`;
 }
 
 export async function render(root) {
@@ -57,7 +58,7 @@ export async function render(root) {
       ${table(
         [{ t: "合同编号", w: "112px" }, { t: "项目", w: "170px" }, { t: "合同名称" }, { t: "签约方", w: "150px" },
          { t: "金额", w: "104px", cls: "num" }, { t: "签署日期", w: "100px" }, { t: "状态", w: "80px" },
-         { t: "原件", w: "70px" }, { t: "操作", w: "96px" }],
+         { t: "原件", w: "104px" }, { t: "操作", w: "96px" }],
         rows.map((r) => ({
           c: [`<span class="mono">${r.id}</span>`, `<a class="link" data-go="projects/${r.pid}">${esc(r.pname)}</a>`,
             `${esc(r.name)}<span class="cat">${esc(r.category || "未分类")}</span>`,
@@ -75,6 +76,13 @@ export async function render(root) {
   const nb = root.querySelector("#newC");
   if (nb) nb.onclick = () => openCreate(root, proj.rows);
   root.querySelectorAll("[data-cflow]").forEach((b) => b.onclick = () => contractFlow(root, b.dataset.cflow, b.dataset.caction));
+  // 详情弹窗：从当前过滤后的 rows 里取，避免为了看一眼原件再打一次接口
+  root.querySelectorAll("[data-cdet]").forEach((b) => {
+    b.onclick = () => {
+      const row = rows.find((r) => r.id === b.dataset.cdet);
+      if (row) openContractDetail(row, { onDone: () => render(root) });
+    };
+  });
 }
 
 /** 合同两步流转：提交签署 → 确认签署（确认时签署日期记为今天，可在台账核对） */

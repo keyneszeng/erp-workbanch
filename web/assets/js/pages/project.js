@@ -4,6 +4,7 @@ import {
 } from "../lib/ui.js";
 import { bindFilePicker, fileUrl } from "../lib/upload.js";
 import { exStepLabel, openStepDetail } from "../lib/verify-detail.js";
+import { flowHint, flowOf, openContractDetail } from "../lib/contract-detail.js";
 
 const ORDER = ["草稿", "待审批", "已立项", "筹备中", "执行中", "待核销", "已核销", "已结算", "已归档"];
 const PAYABLE = ["已核销"];
@@ -156,36 +157,39 @@ const CONTRACT_LOCKED = ["已结算", "已归档"];
  */
 function contractFlowBtn(c, locked) {
   if (locked) return '<span style="color:var(--mute)">封存</span>';
-  if (c.status === "草稿" && can("contract:write")) {
-    return `<button class="link" data-cflow="${c.id}" data-caction="submit">提交签署</button>`;
-  }
-  if (c.status === "待签署") {
-    return can("contract:approve")
-      ? `<button class="link" data-cflow="${c.id}" data-caction="sign">确认签署</button>`
-      : '<span style="color:var(--mute)" title="需要协会管理员确认">待协会确认</span>';
-  }
-  return '<span style="color:var(--mute)">—</span>';
+  const f = flowOf(c);
+  if (f) return `<button class="link" data-cflow="${c.id}" data-caction="${f.action}">${f.label}</button>`;
+  const hint = flowHint(c);
+  return hint
+    ? `<span style="color:var(--mute)" title="${esc(hint)}">${c.status === "待签署" ? "待协会确认" : "—"}</span>`
+    : '<span style="color:var(--mute)">—</span>';
 }
 
 function tabContracts(d, p) {
   const locked = CONTRACT_LOCKED.includes(p.status);
   return panel("合同台账", `${d.contracts.length} 份${locked ? " · 已封存" : ""}`, table(
-    [{ t: "合同编号", w: "112px" }, { t: "合同名称" }, { t: "签约方", w: "150px" }, { t: "金额", w: "100px", cls: "num" }, { t: "签署日期", w: "100px" }, { t: "状态", w: "80px" }, { t: "原件", w: "70px" }, { t: "操作", w: "96px" }],
+    [{ t: "合同编号", w: "112px" }, { t: "合同名称" }, { t: "签约方", w: "150px" }, { t: "金额", w: "100px", cls: "num" }, { t: "签署日期", w: "100px" }, { t: "状态", w: "80px" }, { t: "原件", w: "104px" }, { t: "操作", w: "96px" }],
     d.contracts.map((c) => ({
       c: [`<span class="mono">${c.id}</span>`,
         `${esc(c.name)}<span class="cat">${esc(c.category || "未分类")}</span>`,
         esc(c.vendor), `¥${money(c.amount)}`,
         `<span class="mono">${esc(c.sign_date || "—")}</span>`, badge(c.status),
-        c.file_key
-          ? (c.file_mime === "application/pdf"
-              ? `<a class="link" href="${fileUrl(c.file_key)}" target="_blank" rel="noopener" title="${esc(c.file_name || "合同原件")}">PDF</a>`
-              : `<a href="${fileUrl(c.file_key)}" target="_blank" rel="noopener" title="${esc(c.file_name || "合同原件")}"><img class="thumb" src="${fileUrl(c.file_key)}" alt=""></a>`)
-          : '<span style="color:var(--mute)">—</span>',
+        contractFileCell(c),
         contractFlowBtn(c, locked)]
     })),
     { empty: "暂无合同" }),
     locked ? `<span class="foot-note">项目${p.status === "已归档" ? "已归档，卷宗封存" : "已结算，台账封账"}，不可再录入合同</span>`
       : can("contract:write") ? '<button class="btn btn-p btn-sm" id="addContract">+ 录入合同</button>' : "");
+}
+
+/**
+ * 原件列：详情入口。与合同台账共用同一个弹窗（lib/contract-detail.js），
+ * 避免「台账里能看原件、项目里只能看文件名」这种口径分叉。
+ */
+function contractFileCell(c) {
+  const tag = !c.file_key ? "无原件" : c.file_mime === "application/pdf" ? "PDF" : "图片";
+  return `<button class="link" data-cdet="${c.id}"
+    title="${esc(c.file_key ? c.file_name || "查看合同原件" : "查看合同详情")}">详情<span class="ftag${c.file_key ? "" : " off"}">${tag}</span></button>`;
 }
 
 /* ---------------- 付款 ---------------- */
@@ -319,6 +323,18 @@ function wire(root, pid, d, body) {
   // 变更落账（双人复核）与合同两步流转
   body.querySelectorAll("[data-exec]").forEach((b) => b.onclick = () => execChange(root, pid, b.dataset.exec));
   body.querySelectorAll("[data-cflow]").forEach((b) => b.onclick = () => contractFlow(root, pid, b.dataset.cflow, b.dataset.caction));
+  // 合同详情：原件预览 + 基本信息 + 下一步动作，三样在同一屏
+  body.querySelectorAll("[data-cdet]").forEach((b) => {
+    b.onclick = () => {
+      const c = d.contracts.find((x) => x.id === b.dataset.cdet);
+      if (!c) return;
+      openContractDetail(c, {
+        pname: d.project.name,
+        locked: CONTRACT_LOCKED.includes(d.project.status),
+        onDone: () => refresh(root, pid)
+      });
+    };
+  });
 
   const ac = body.querySelector("#addContract"); if (ac) ac.onclick = () => openContract(root, pid);
   const ap = body.querySelector("#addPay"); if (ap) ap.onclick = () => openPay(root, pid, d);

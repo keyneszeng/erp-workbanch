@@ -44,6 +44,28 @@ function clean() {
   if (fs.existsSync(UP)) fs.rmSync(UP, { recursive: true, force: true });
 }
 
+/**
+ * 跳路由 —— 先把弹窗彻底拆掉，再走 domcontentloaded。
+ *
+ * V1.2.14 踩的坑：详情弹窗里挂着 PDF iframe，只要它还在 DOM 上，
+ * 浏览器就一直流式加载那份 PDF，`networkidle` 永远等不到，
+ * [7] 这一步直接 30 秒超时挂掉。所以统一先清 #modal 再导航，
+ * 并且不用 networkidle（本应用页面里还有上传进度、预览之类长连接）。
+ */
+async function goHash(page, hash) {
+  await page
+    .evaluate(() => {
+      const m = document.getElementById("modal");
+      if (m) {
+        m.classList.remove("open");
+        m.innerHTML = "";
+      }
+    })
+    .catch(() => {});
+  await page.goto(`${BASE}/${hash}`, { waitUntil: "domcontentloaded" });
+  await page.waitForTimeout(1500);
+}
+
 async function waitHealth(timeout = 20000) {
   const t0 = Date.now();
   while (Date.now() - t0 < timeout) {
@@ -149,23 +171,31 @@ let proc = null;
     msg.slice(0, 160)
   );
 
-  console.log("\n[6] 列表出现 PDF 原件入口");
-  const pdfLink = await page.$('a.link[href^="/api/uploads/"]');
-  check("有 PDF 原件链接", !!pdfLink);
-  const href = pdfLink ? await pdfLink.getAttribute("href") : "";
-  check("链接指向上传接口", /^\/api\/uploads\/[a-f0-9]{32}\.pdf$/.test(href || ""), href || "");
-  if (href) {
-    const r = await page.request.get(BASE + href);
+  console.log("\n[6] 原件列给出「详情」入口，点开在弹窗里看原件");
+  // V1.2.14：原件列从「PDF 二字 + 新窗口裸文件」改成「详情」按钮 + 类型标签，
+  // 点开是详情弹窗，原件内嵌在里面 —— 断言随之改成新口径。
+  const cdetBtn = page.locator("[data-cdet]").first();
+  check("原件列有「详情」按钮", (await cdetBtn.count()) > 0);
+  const cdetTxt = (await cdetBtn.textContent()) || "";
+  check("详情旁标出原件类型 PDF", /PDF/.test(cdetTxt), cdetTxt);
+  await cdetBtn.click();
+  await page.waitForTimeout(1000);
+  const iframeSrc = await page.getAttribute("#modal iframe.cdpdf", "src");
+  const cleanSrc = String(iframeSrc || "").split("#")[0];
+  check("弹窗里内嵌 PDF 原件", /^\/api\/uploads\/[a-f0-9]{32}\.pdf$/.test(cleanSrc), iframeSrc || "无 iframe");
+  if (cleanSrc) {
+    const r = await page.request.get(BASE + cleanSrc);
     check("原件 HTTP 200", r.status() === 200, `status=${r.status()}`);
     const ct = r.headers()["content-type"];
     check("返回 application/pdf", ct === "application/pdf", ct || "");
     const buf = await r.body();
     check("字节数 > 0", buf.length > 0, `${buf.length} bytes`);
   }
+  await page.click('#modal [data-x="0"]');
+  await page.waitForTimeout(400);
 
   console.log("\n[7] 拍照件（图片）也能挂");
-  await page.goto(`${BASE}/#/contracts`, { waitUntil: "networkidle" });
-  await page.waitForTimeout(1500);
+  await goHash(page, "#/contracts");
   await page.click("#newC");
   await page.waitForTimeout(600);
   await page.setInputFiles('#modal input[type="file"]', IMG_FILE);
@@ -177,13 +207,23 @@ let proc = null;
   await page.click('#modal [data-x="1"]');
   await page.waitForTimeout(4500);
   check("图片合同提交成功", !(await page.$("#modal.open")));
-  check("列表出现缩略图", (await page.$$("img.thumb")).length > 0);
-  const thumbSrc = await page.getAttribute("img.thumb", "src").catch(() => "");
-  if (thumbSrc) {
-    const r = await page.request.get(BASE + thumbSrc);
-    check("缩略图地址可访问", r.status() === 200 && r.headers()["content-type"] === "image/jpeg",
+  const imgRow = page.locator("[data-cdet]").first();
+  check("原件列标出「图片」", /图片/.test((await imgRow.textContent()) || ""));
+  await imgRow.click();
+  await page.waitForTimeout(1000);
+  const imgSrc = await page.getAttribute("#modal img.cdimg", "src");
+  check("详情里图片直接铺开", !!imgSrc && /^\/api\/uploads\//.test(imgSrc), imgSrc || "无 img");
+  check("图片有实际尺寸", await page.evaluate(() => {
+    const el = document.querySelector("#modal img.cdimg");
+    return !!el && el.naturalWidth > 0;
+  }));
+  if (imgSrc) {
+    const r = await page.request.get(BASE + imgSrc);
+    check("图片地址可访问", r.status() === 200 && /image\//.test(r.headers()["content-type"] || ""),
       `status=${r.status()} ct=${r.headers()["content-type"]}`);
   }
+  await page.click('#modal [data-x="0"]');
+  await page.waitForTimeout(400);
 
   console.log("\n[8] 不带原件仍可录合同");
   await page.click("#newC");
@@ -200,8 +240,7 @@ let proc = null;
   console.log("\n[9] 项目详情页合同页签");
   const firstProj = await page.getAttribute('a.link[data-go^="projects/"]', "data-go").catch(() => "");
   if (firstProj) {
-    await page.goto(`${BASE}/#/${firstProj}`, { waitUntil: "networkidle" });
-    await page.waitForTimeout(1500);
+    await goHash(page, `#/${firstProj}`);
     const tab = await page.$('[data-tab="contracts"]');
     if (tab) {
       await tab.click();
