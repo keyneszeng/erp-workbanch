@@ -1,4 +1,4 @@
-import { api } from "../lib/api.js";
+import { api, can } from "../lib/api.js";
 import { badge, esc, money, panel, table, toast } from "../lib/ui.js";
 
 let q = "";
@@ -12,7 +12,7 @@ export async function render(root) {
 
   root.innerHTML = `<div class="phead">
       <div><h2>数字卷宗</h2><p>归档前置：结算单已生成 + 材料 8/8 齐备；归档后卷宗封存</p></div>
-      <div class="acts"><button class="btn btn-o" id="exp">导出核销卷宗</button></div>
+      <div class="acts">${can("export:any") ? '<button class="btn btn-o" id="exp">导出核销卷宗</button>' : ""}</div>
     </div>
     <div class="grid g3">
       <div class="kpi"><div class="t">已归档项目</div><div class="v">${archived.length}<span class="u">个</span></div></div>
@@ -44,7 +44,8 @@ export async function render(root) {
     </div>`;
 
   root.querySelector("#q").addEventListener("input", (e) => { q = e.target.value.trim(); render(root); });
-  root.querySelector("#exp").onclick = async () => {
+  const expBtn = root.querySelector("#exp");
+  if (expBtn) expBtn.onclick = async () => {
     try { const r = await api.download("/api/export/verify"); toast(`已导出 ${r.name}`, "ok"); }
     catch (e) { toast(e.message, "warn"); }
   };

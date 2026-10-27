@@ -1,6 +1,6 @@
 {
   "name": "assoc-meeting-erp",
-  "version": "1.2.10",
+  "version": "1.2.11",
   "private": true,
   "description": "协会会议执行 ERP —— 依据《会务执行 ERP V1.0.2 可点击演示版》研发的生产版代码",
   "type": "commonjs",

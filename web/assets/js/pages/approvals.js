@@ -25,7 +25,7 @@ export async function render(root, params = []) {
   }
   root.innerHTML = `<div class="phead">
       <div><h2>审批中心</h2><p>立项 / 例外单 / 付款 / 变更 四类审批统一入口</p></div>
-      <div class="acts"><button class="btn btn-o" id="exp">导出 CSV</button></div>
+      <div class="acts">${can("export:any") ? '<button class="btn btn-o" id="exp">导出 CSV</button>' : ""}</div>
     </div>
     <div class="panel">
       <div class="tabs">
@@ -35,7 +35,8 @@ export async function render(root, params = []) {
       <div id="body"></div>
     </div>`;
   root.querySelectorAll("[data-v]").forEach((b) => b.addEventListener("click", () => { view = b.dataset.v; render(root, params); }));
-  root.querySelector("#exp").onclick = async () => {
+  const expBtn = root.querySelector("#exp");
+  if (expBtn) expBtn.onclick = async () => {
     try { const r = await api.download("/api/export/projects"); toast(`已导出 ${r.name}`, "ok"); }
     catch (e) { toast(e.message, "warn"); }
   };

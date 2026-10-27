@@ -31,7 +31,11 @@ export async function render(root) {
         d.rows.map((r) => ({
           c: [`<span class="mono">${esc(r.at)}</span>`, esc(r.user_name), esc(r.role), esc(r.module),
             `<b style="font-size:12.5px">${esc(r.action)}</b>`,
-            r.target && r.target.startsWith("MP-") ? `<a class="link" data-go="projects/${r.target}">${esc(r.target)}</a>` : `<span class="mono">${esc(r.target || "—")}</span>`,
+            // 有 audit:read 的角色看到的是全平台留痕，但别家协会的项目号他打不开 ——
+            // 渲染成链接点进去就是 403。target_visible 由接口按数据范围算好。
+            r.target && r.target.startsWith("MP-") && r.target_visible
+              ? `<a class="link" data-go="projects/${r.target}">${esc(r.target)}</a>`
+              : `<span class="mono"${r.target && r.target.startsWith("MP-") ? ' title="不在你的数据范围内"' : ""}>${esc(r.target || "—")}</span>`,
             `<span style="font-size:12.5px">${esc(r.detail || "")}</span>`]
         })), { empty: "暂无日志" })}
       ${pager(d, { unit: "条" })}

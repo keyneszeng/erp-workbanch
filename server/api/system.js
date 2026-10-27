@@ -1,7 +1,7 @@
 "use strict";
 const { db } = require("../lib/db");
 const { now, today, nextId, toCsv, bad, notFound, conflict } = require("../lib/util");
-const { assertCan, scopeFilter, isSuper, ROLES, can, STATUSES } = require("../lib/rbac");
+const { assertCan, scopeFilter, isSuper, ROLES, can, canVisitNav, STATUSES } = require("../lib/rbac");
 const { logAudit } = require("../lib/audit");
 const { hashPassword } = require("../lib/auth");
 const { listProjects } = require("./projects");
@@ -66,24 +66,41 @@ function myTodos(user) {
   return todos;
 }
 
+/**
+ * 异常预警 —— 每一条都必须是「当前角色点进去就能动手」的。
+ *
+ * 原来只按数据范围过滤：会务执行能看到「有 3 笔付款待审批」和「例外单待审批」，
+ * 但这两个动作的权限（payment:approve / verify:exception_approve）他都没有，
+ * 模块里也没有财务结算和审批中心 —— 点「去处理」直接被路由守卫弹回工作台，
+ * 表现就是「按钮点了没反应」。所以每条预警先问两个问题：
+ *   1. 这个动作是不是归你管（权限）
+ *   2. 目标页面你进不进得去（模块）
+ * 两个都过才生成。预警面板写的是「N 条需要处理」，不能放处理不了的进来。
+ */
 function alerts(user) {
   const { sql, params } = scopeFilter(user);
   const out = [];
-  const blocked = db.prepare(
-    `SELECT p.*, (SELECT MIN(v.step_no) FROM verify_steps v WHERE v.pid=p.id AND v.result='不通过') AS failed_step
-     FROM projects p WHERE p.status='待核销' AND ${sql}`
-  ).all(...params);
-  for (const p of blocked) {
-    if (p.failed_step) out.push({ level: "紧急", pid: p.id, text: `${p.name}：第 ${p.failed_step} 步核销不通过，付款已锁定`, go: "verify" });
+  if (can(user, "verify:check") && canVisitNav(user, "verify")) {
+    const blocked = db.prepare(
+      `SELECT p.*, (SELECT MIN(v.step_no) FROM verify_steps v WHERE v.pid=p.id AND v.result='不通过') AS failed_step
+       FROM projects p WHERE p.status='待核销' AND ${sql}`
+    ).all(...params);
+    for (const p of blocked) {
+      if (p.failed_step) out.push({ level: "紧急", pid: p.id, text: `${p.name}：第 ${p.failed_step} 步核销不通过，付款已锁定`, go: "verify" });
+    }
   }
-  const openEx = db.prepare(
-    `SELECT e.*, p.name AS pname FROM exceptions e JOIN projects p ON p.id=e.pid WHERE e.status='待审批' AND ${sql}`
-  ).all(...params);
-  for (const e of openEx) out.push({ level: "重要", pid: e.pid, text: `${e.pname}：例外单 ${e.id} 待审批`, go: "approvals" });
-  const unpaid = db.prepare(
-    `SELECT COUNT(*) AS c FROM payments y JOIN projects p ON p.id=y.pid WHERE y.status='待审批' AND ${sql}`
-  ).get(...params).c;
-  if (unpaid) out.push({ level: "一般", pid: "", text: `有 ${unpaid} 笔付款待审批`, go: "finance" });
+  if (can(user, "verify:exception_approve") && canVisitNav(user, "approvals")) {
+    const openEx = db.prepare(
+      `SELECT e.*, p.name AS pname FROM exceptions e JOIN projects p ON p.id=e.pid WHERE e.status='待审批' AND ${sql}`
+    ).all(...params);
+    for (const e of openEx) out.push({ level: "重要", pid: e.pid, text: `${e.pname}：例外单 ${e.id} 待审批`, go: "approvals" });
+  }
+  if (can(user, "payment:approve") && canVisitNav(user, "finance")) {
+    const unpaid = db.prepare(
+      `SELECT COUNT(*) AS c FROM payments y JOIN projects p ON p.id=y.pid WHERE y.status='待审批' AND ${sql}`
+    ).get(...params).c;
+    if (unpaid) out.push({ level: "一般", pid: "", text: `有 ${unpaid} 笔付款待审批`, go: "finance" });
+  }
   return out;
 }
 
@@ -99,6 +116,26 @@ function recentAudits(user) {
   return db.prepare(
     `SELECT a.* FROM audit_logs a JOIN projects p ON p.id = a.target WHERE ${sql} ORDER BY a.id DESC LIMIT 8`
   ).all(...params);
+}
+
+/**
+ * 本角色可见的项目号集合。null 表示超管，全部可见。
+ * 只给审计日志用：日志按设计是全量留痕，但里面的项目号得先判可见性，
+ * 否则页面上会出现一批点进去 403 的链接。
+ */
+function visibleProjectIds(user) {
+  if (isSuper(user)) return null;
+  const { sql, params } = scopeFilter(user);
+  return new Set(db.prepare(`SELECT p.id FROM projects p WHERE ${sql}`).all(...params).map((r) => r.id));
+}
+
+/** 给审计行标「这个项目号当前角色点得开吗」；非项目号（用户 id 等）恒为 1 */
+function markTargets(rows, vis) {
+  return rows.map((r) => {
+    const t = String(r.target || "");
+    const isProject = t.startsWith("MP-");
+    return { ...r, target_visible: !isProject || !vis || vis.has(t) ? 1 : 0 };
+  });
 }
 
 function dashboard(user) {
@@ -310,10 +347,18 @@ function register(router) {
   });
 
   router.get("/api/audit", async (ctx) => {
+    /**
+     * 审计日志里的项目号不是每个角色都点得开。
+     * 协会管理员有 audit:read，看到的是全平台留痕（审计的意义就在这，不能按协会切），
+     * 但点别家协会的项目号会 403「该项目不在你的数据范围内」——
+     * 页面上就是一个死链。所以给每行打一个 target_visible，
+     * 前端只对可见的项目号渲染成链接，不可见的显示成纯文本。
+     */
+    const vis = visibleProjectIds(ctx.user);
     if (!can(ctx.user, "audit:read")) {
       // 非审计角色仅可看自己
       const rows = db.prepare("SELECT * FROM audit_logs WHERE user_id = ? ORDER BY id DESC LIMIT 200").all(ctx.user.id);
-      return { rows, total: rows.length, limited: true, paged: false };
+      return { rows: markTargets(rows, vis), total: rows.length, limited: true, paged: false };
     }
     const where = [];
     const args = [];
@@ -326,14 +371,14 @@ function register(router) {
       const rows = db.prepare(
         `SELECT * FROM audit_logs ${whereSql} ORDER BY id DESC LIMIT 500`
       ).all(...args);
-      return { rows, total: rows.length, limited: false, paged: false };
+      return { rows: markTargets(rows, vis), total: rows.length, limited: false, paged: false };
     }
     const total = countOf(db.prepare(`SELECT COUNT(*) AS c FROM audit_logs ${whereSql}`).get(...args));
     const rows = db.prepare(
       `SELECT * FROM audit_logs ${whereSql} ORDER BY id DESC LIMIT ? OFFSET ?`
     ).all(...args, paging.size, paging.offset);
     return {
-      rows,
+      rows: markTargets(rows, vis),
       total,
       page: paging.page,
       size: paging.size,

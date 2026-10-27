@@ -14,7 +14,7 @@ async function renderList(root) {
 
   root.innerHTML = `<div class="phead">
       <div><h2>核销看板</h2><p>6 步 SOP 顺序判定 · 例外单闭环 · 核销是付款的唯一前置门</p></div>
-      <div class="acts"><button class="btn btn-o" id="exp">导出核销明细</button></div>
+      <div class="acts">${can("export:any") ? '<button class="btn btn-o" id="exp">导出核销明细</button>' : ""}</div>
     </div>
     <div class="grid g4">
       <div class="kpi k3"><div class="t">待核销</div><div class="v">${pending}<span class="u">个</span></div></div>
@@ -42,7 +42,8 @@ async function renderList(root) {
           };
         }), { empty: "暂无进入核销阶段的项目" })}
     </div>`;
-  root.querySelector("#exp").onclick = async () => {
+  const expBtn = root.querySelector("#exp");
+  if (expBtn) expBtn.onclick = async () => {
     try { const r = await api.download("/api/export/verify"); toast(`已导出 ${r.name}`, "ok"); }
     catch (e) { toast(e.message, "warn"); }
   };

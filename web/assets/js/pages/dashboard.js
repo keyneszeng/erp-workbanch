@@ -1,5 +1,6 @@
 import { api, state } from "../lib/api.js";
 import { badge, esc, kpi, money, panel, table } from "../lib/ui.js";
+import { reachable } from "../lib/nav.js";
 
 /**
  * 我的工作台。
@@ -23,20 +24,35 @@ import { badge, esc, kpi, money, panel, table } from "../lib/ui.js";
  *   结算 / 归档 → 项目详情页（「生成结算单」「归档」按钮在那里）
  */
 function todoHref(t) {
+  let target;
   switch (t.kind) {
-    case "审批": return `approvals/${t.ref || t.pid}`;
-    case "核销": return `verify/${t.pid}`;
-    case "付款": return `finance/${t.pid}`;
+    case "审批": target = `approvals/${t.ref || t.pid}`; break;
+    case "核销": target = `verify/${t.pid}`; break;
+    case "付款": target = `finance/${t.pid}`; break;
     case "结算":
-    case "归档": return `projects/${t.pid}`;
-    default: return t.go || "dashboard";
+    case "归档": target = `projects/${t.pid}`; break;
+    default: target = t.go || "dashboard";
   }
+  return safeTarget(target, t.pid);
 }
 
 /** 预警同理：例外单待审批要落到审批中心并定位到该项目 */
 function alertHref(a) {
-  if (a.go === "approvals") return `approvals/${a.pid}`;
-  return `${a.go}${a.pid ? "/" + a.pid : ""}`;
+  const target = a.go === "approvals" ? `approvals/${a.pid}` : `${a.go}${a.pid ? "/" + a.pid : ""}`;
+  return safeTarget(target, a.pid);
+}
+
+/**
+ * 兜底：目标页面这个角色进不去就别给按钮。
+ *
+ * 后端已经按「权限 + 模块」把预警收过一遍了，但前端不能只靠后端 ——
+ * 角色矩阵一改、或者哪天新加一类待办，这里就会重新冒出「点了没反应」的死按钮。
+ * 进不去的时候退到项目详情页（信息还在，能看能查），连项目详情都进不去就不渲染按钮。
+ */
+function safeTarget(target, pid) {
+  if (reachable(target)) return target;
+  const fallback = pid ? `projects/${pid}` : "";
+  return reachable(fallback) ? fallback : "";
 }
 
 export async function render(root) {
@@ -54,10 +70,13 @@ export async function render(root) {
   ${d.alerts.length ? `<div class="panel mt"><div class="panel-h"><h2>异常预警</h2>
       <div><span class="hint">${d.alerts.length} 条需要处理</span></div></div>
     <div style="display:flex;flex-direction:column;gap:8px">
-      ${d.alerts.map((a) => `<div class="alert ${a.level === "紧急" ? "alert-r" : a.level === "重要" ? "alert-w" : "alert-g"}">
+      ${d.alerts.map((a) => {
+        const href = alertHref(a);
+        return `<div class="alert ${a.level === "紧急" ? "alert-r" : a.level === "重要" ? "alert-w" : "alert-g"}">
         <div style="flex:1"><b>${esc(a.level)}</b> · ${esc(a.text)}</div>
-        <button class="btn btn-o btn-sm" data-go="${alertHref(a)}">去处理</button>
-      </div>`).join("")}
+        ${href ? `<button class="btn btn-o btn-sm" data-go="${href}">去处理</button>` : ""}
+      </div>`;
+      }).join("")}
     </div></div>` : ""}
 
   <div class="mt">${panel("我的待办", `${d.todos.length} 项`, d.todos.length ? table(
@@ -67,7 +86,7 @@ export async function render(root) {
         `<b style="font-size:12.8px">${esc(t.title)}</b>`,
         `<span class="mono">${esc(t.pname || t.pid || "—")}</span>`,
         `<span style="font-size:12px;color:var(--sub)">${esc(t.sla || "")}</span>`,
-        `<button class="link" data-go="${todoHref(t)}">处理</button>`],
+        todoHref(t) ? `<button class="link" data-go="${todoHref(t)}">处理</button>` : `<span style="color:var(--mute)">—</span>`],
       attrs: ""
     })), { empty: "当前没有待办，保持这个状态" }) : `<div class="empty">当前没有待办</div>`,
     `<button class="btn btn-o btn-sm" data-go="flow">看全流程</button>`)}</div>

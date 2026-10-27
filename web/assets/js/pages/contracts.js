@@ -25,7 +25,7 @@ export async function render(root) {
   root.innerHTML = `<div class="phead">
       <div><h2>合同台账</h2><p>合同金额是核销第 6 步与付款金额的比对基准</p></div>
       <div class="acts">
-        <button class="btn btn-o" id="exp">导出 CSV</button>
+        ${can("export:any") ? '<button class="btn btn-o" id="exp">导出 CSV</button>' : ""}
         ${can("contract:write") ? '<button class="btn btn-p" id="newC">+ 录入合同</button>' : ""}
       </div>
     </div>
@@ -50,7 +50,8 @@ export async function render(root) {
     </div>`;
 
   root.querySelector("#q").addEventListener("input", (e) => { q = e.target.value.trim(); render(root); });
-  root.querySelector("#exp").onclick = async () => {
+  const expBtn = root.querySelector("#exp");
+  if (expBtn) expBtn.onclick = async () => {
     try { const r = await api.download("/api/export/contracts"); toast(`已导出 ${r.name}`, "ok"); }
     catch (e) { toast(e.message, "warn"); }
   };

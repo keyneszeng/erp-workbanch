@@ -75,6 +75,34 @@ const MODULES = [
 
 const STATUSES = ["草稿", "待审批", "已立项", "筹备中", "执行中", "待核销", "已核销", "已结算", "已归档"];
 
+/**
+ * 页面 → 所属模块。与前端 `web/assets/js/lib/nav.js` 的 NAV 是同一张表。
+ *
+ * 为什么要放在后端也算一遍：工作台的「异常预警 / 我的待办」每条都带一个 `go` 目标，
+ * 如果这个角色根本进不去那个页面，前端点下去会被路由守卫弹回工作台 ——
+ * 用户看到的就是「按钮点了没反应」。所以生成预警时先问一遍可达性，
+ * 不可达的预警干脆不生成（它本来也处理不了）。
+ * 改前端 NAV 的 need 条件时，这里必须同步改。
+ */
+const NAV_MODULE = {
+  dashboard: "dashboard", flow: "dashboard",
+  projects: "projects", approvals: "projects", contracts: "prep",
+  demand: "demand", verify: "verify", finance: "finance",
+  materials: "materials", archive: "archive", audit: "audit", users: "system"
+};
+
+/** 这个角色能不能打开某个页面（含审批中心的动作级条件） */
+function canVisitNav(user, nav) {
+  if (!user || !ROLES[user.role]) return false;
+  const need = NAV_MODULE[nav];
+  if (!need) return false;
+  if (!ROLES[user.role].modules.includes(need)) return false;
+  if (nav === "approvals") {
+    return can(user, "project:approve") || can(user, "verify:exception_approve") || can(user, "payment:approve");
+  }
+  return true;
+}
+
 const isSuper = (user) => !!(user && ROLES[user.role] && ROLES[user.role].super);
 
 function can(user, perm) {
@@ -127,4 +155,4 @@ function assertProjectVisible(user, project) {
   if (!row) throw forbidden("该项目不在你的数据范围内");
 }
 
-module.exports = { ROLES, PERMS, MODULES, STATUSES, isSuper, can, assertCan, scopeFilter, assertProjectVisible };
+module.exports = { ROLES, PERMS, MODULES, STATUSES, isSuper, can, assertCan, scopeFilter, assertProjectVisible, canVisitNav };

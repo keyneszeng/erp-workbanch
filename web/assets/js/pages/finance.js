@@ -35,8 +35,8 @@ export async function render(root, params = []) {
   root.innerHTML = `<div class="phead">
       <div><h2>付款与结算</h2><p>付款门禁：项目必须「已核销」才可提交付款；结算单生成后核销结论冻结</p></div>
       <div class="acts">
-        <button class="btn btn-o" id="expPay">导出付款明细</button>
-        <button class="btn btn-o" id="expSt">导出结算汇总</button>
+        ${can("export:any") ? `<button class="btn btn-o" id="expPay">导出付款明细</button>
+        <button class="btn btn-o" id="expSt">导出结算汇总</button>` : ""}
         ${can("payment:create") ? '<button class="btn btn-p" id="newPay">+ 付款申请</button>' : ""}
       </div>
     </div>
@@ -100,8 +100,10 @@ export async function render(root, params = []) {
   root.querySelectorAll("[data-ok]").forEach((b) => b.onclick = () => act(root, b.dataset.ok, "approve"));
   root.querySelectorAll("[data-no]").forEach((b) => b.onclick = () => act(root, b.dataset.no, "reject"));
   root.querySelectorAll("[data-pay]").forEach((b) => b.onclick = () => act(root, b.dataset.pay, "pay"));
-  root.querySelector("#expPay").onclick = () => dl("/api/export/payments");
-  root.querySelector("#expSt").onclick = () => dl("/api/export/settlements");
+  const ep = root.querySelector("#expPay");
+  if (ep) ep.onclick = () => dl("/api/export/payments");
+  const es = root.querySelector("#expSt");
+  if (es) es.onclick = () => dl("/api/export/settlements");
   const np = root.querySelector("#newPay");
   if (np) np.onclick = () => openPay(root, payableProjects);
 

@@ -17,7 +17,7 @@ export async function render(root) {
   root.innerHTML = `<div class="phead">
       <div><h2>会议项目</h2><p>按数据范围「${esc(state.role.scope)}」展示，共 <b id="cnt">0</b> 场</p></div>
       <div class="acts">
-        <button class="btn btn-o" id="expBtn">导出 CSV</button>
+        ${can("export:any") ? '<button class="btn btn-o" id="expBtn">导出 CSV</button>' : ""}
         ${can("project:create") ? '<button class="btn btn-p" id="newBtn">+ 新建立项</button>' : ""}
       </div>
     </div>
@@ -43,7 +43,9 @@ export async function render(root) {
   q.addEventListener("keydown", (e) => { if (e.key === "Enter") { filter.q = q.value.trim(); filter.page = 1; render(root); } });
   q.addEventListener("input", debounce(() => { filter.q = q.value.trim(); filter.page = 1; load(root); }, 300));
   root.querySelector("#assoc").addEventListener("change", (e) => { filter.assoc = e.target.value; filter.page = 1; render(root); });
-  root.querySelector("#expBtn").addEventListener("click", async () => {
+  // 导出接口按 export:any 收口，按钮也要跟着收 —— 否则嘉宾能看到按钮，点了 403
+  const eb = root.querySelector("#expBtn");
+  if (eb) eb.addEventListener("click", async () => {
     try {
       const r = await api.download("/api/export/projects");
       toast(`已导出 ${r.name}（${(r.size / 1024).toFixed(1)} KB）`, "ok");
@@ -87,7 +89,7 @@ async function load(root) {
         esc(p.assoc), esc(p.form), `<span class="mono">${esc(p.date)}</span>`,
         `¥${money(p.budget)}`, esc(p.owner || "—"), badge(p.status),
         `<div class="tacts"><button class="link" data-go="projects/${p.id}">详情</button>
-         ${p.status === "待核销" ? `<button class="link" data-go="verify/${p.id}">核销</button>` : ""}</div>`
+         ${p.status === "待核销" && can("verify:check") ? `<button class="link" data-go="verify/${p.id}">核销</button>` : ""}</div>`
       ]
     })),
     { empty: "没有符合条件的项目" }

@@ -1,5 +1,8 @@
 import { api, state, can } from "./lib/api.js";
 import { esc, toast, modal, formHtml, readForm, validate } from "./lib/ui.js";
+// 侧栏结构与页面可达性抽到 lib/nav.js —— 工作台也要用同一套判断，
+// 否则它会给出「去处理」指向当前角色进不去的模块，点了被弹回工作台。
+import { NAV, canVisit } from "./lib/nav.js";
 import * as login from "./pages/login.js";
 import * as dashboard from "./pages/dashboard.js";
 import * as projects from "./pages/projects.js";
@@ -14,22 +17,6 @@ import * as archive from "./pages/archive.js";
 import * as audit from "./pages/audit.js";
 import * as users from "./pages/users.js";
 import * as flow from "./pages/flow.js";
-
-const NAV = [
-  { k: "dashboard", n: "工作台", items: [{ k: "dashboard", n: "我的工作台" }, { k: "flow", n: "全流程总览" }] },
-  { k: "projects", n: "项目管理", items: [
-    { k: "projects", n: "会议项目" },
-    { k: "approvals", n: "审批中心", need: () => can("project:approve") || can("verify:exception_approve") || can("payment:approve") },
-    { k: "contracts", n: "合同台账", need: () => state.role.modules.includes("prep") }
-  ] },
-  { k: "demand", n: "会务需求", items: [{ k: "demand", n: "需求确认" }] },
-  { k: "verify", n: "会后核销", items: [{ k: "verify", n: "核销看板" }] },
-  { k: "finance", n: "财务结算", items: [{ k: "finance", n: "付款与结算" }] },
-  { k: "materials", n: "材料中心", items: [{ k: "materials", n: "归档材料" }] },
-  { k: "archive", n: "档案中心", items: [{ k: "archive", n: "数字卷宗" }] },
-  { k: "audit", n: "审计日志", items: [{ k: "audit", n: "操作留痕" }] },
-  { k: "system", n: "系统配置", items: [{ k: "users", n: "用户与权限" }] }
-];
 
 const ROUTES = [
   { re: /^dashboard$/, page: dashboard, nav: "dashboard", title: "我的工作台", sub: "待办、会议与异常预警" },
@@ -90,16 +77,6 @@ function topHtml(r) {
 }
 
 /** 该页面当前角色是否可访问（模块白名单 + 条目级权限） */
-function canVisit(nav) {
-  const mods = state.role?.modules || [];
-  for (const g of NAV) {
-    if (!mods.includes(g.k)) continue;
-    const it = g.items.find((x) => x.k === nav);
-    if (it) return !it.need || it.need();
-  }
-  return false;
-}
-
 async function route() {
   if (!state.user) return;
   const path = parseHash();
