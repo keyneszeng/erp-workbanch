@@ -37,9 +37,13 @@ const ROUTES = [
   { re: /^projects$/, page: projects, nav: "projects", title: "会议项目", sub: "按数据范围列出全部会议" },
   { re: /^projects\/([\w-]+)$/, page: project, nav: "projects", title: "项目详情", sub: "全生命周期作业台" },
   { re: /^approvals$/, page: approvals, nav: "approvals", title: "审批中心", sub: "立项 / 例外单 / 付款 / 变更" },
+  // 带目标：从工作台待办/预警点进来时定位到具体那一条（审批单号或项目号）
+  { re: /^approvals\/([\w-]+)$/, page: approvals, nav: "approvals", title: "审批中心", sub: "已定位到待处理事项" },
   { re: /^verify$/, page: verify, nav: "verify", title: "核销看板", sub: "6 步 SOP · 付款唯一前置门" },
   { re: /^verify\/([\w-]+)$/, page: verify, nav: "verify", title: "核销作业", sub: "6 步判定与例外单闭环" },
   { re: /^finance$/, page: finance, nav: "finance", title: "付款与结算", sub: "付款申请、审批、付款与结算单" },
+  // 带项目：从「待付款」待办点进来时只列该项目的付款，直接能看到付款按钮
+  { re: /^finance\/([\w-]+)$/, page: finance, nav: "finance", title: "付款与结算", sub: "已定位到指定项目" },
   { re: /^contracts$/, page: contracts, nav: "contracts", title: "合同台账", sub: "合同金额与签署状态" },
   { re: /^demand$/, page: demand, nav: "demand", title: "会务需求确认", sub: "四组清单：设计 / 制作 / 现场执行 / 其他" },
   { re: /^demand\/([\w-]+)$/, page: demand, nav: "demand", title: "需求单", sub: "逐条确认会务需求" },
@@ -104,7 +108,16 @@ async function route() {
     const m = r.re.exec(path);
     if (m) { hit = { ...r, params: m.slice(1) }; break; }
   }
-  if (!hit) { location.hash = "#/dashboard"; return; }
+  /**
+   * 匹配不到路由时原来只是 `location.hash = "#/dashboard"`，一声不响地把人丢回工作台 ——
+   * 用户点了个按钮，页面闪一下还在原地，看起来就是「按钮坏了」。
+   * 现在明确告诉他链接失效，再回工作台。
+   */
+  if (!hit) {
+    toast("页面不存在或链接已失效，已返回工作台", "warn");
+    location.hash = "#/dashboard";
+    return;
+  }
 
   if (!canVisit(hit.nav)) {
     toast("当前角色无权访问该页面", "warn");

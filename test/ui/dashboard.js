@@ -6,7 +6,8 @@
  *   1. 「阶段分布」「最近操作」两块已删掉，页面上再也找不到
  *   2. 「我的待办」独占整行，且面板里只有待办（一张表、五列，行数 = 接口 todos 数）
  *   3. 「近期会议」下移到待办之后，信息没丢
- *   4. 全程无 JS 报错
+ *   4. 待办「处理」每条都能跳转（审批/核销/付款各验一条，且不弹回工作台）
+ *   5. 全程无 JS 报错
  *
  * 脚本自带服务（设 ERP_BASE 可指向已有服务）。
  */
@@ -56,8 +57,13 @@ async function apiLogin() {
   return r.headers.get("set-cookie").split(";")[0];
 }
 
-async function api(method, url) {
-  const r = await fetch(BASE + url, { method, headers: { cookie } });
+async function api(method, url, body) {
+  const opt = { method, headers: { cookie } };
+  if (body !== undefined) {
+    opt.body = JSON.stringify(body);
+    opt.headers["Content-Type"] = "application/json";
+  }
+  const r = await fetch(BASE + url, opt);
   const text = await r.text();
   let data; try { data = JSON.parse(text); } catch { data = text; }
   return { status: r.status, data };
@@ -160,8 +166,61 @@ async function api(method, url) {
     check("会议条数等于接口", (upText.match(/20\d\d-\d\d-\d\d/g) || []).length === dash.upcoming.length,
       `${(upText.match(/20\d\d-\d\d-\d\d/g) || []).length} vs ${dash.upcoming.length}`);
 
+    /* ---------- 待办「处理」能跳转 ---------- */
+    console.log("\n[5] 待办「处理」：每条都能跳到能动手的页面");
+    // 造一笔「已审批待付款」，让待办里出现付款类 —— 种子数据里没有，不造就测不到 finance 路由
+    const pc = await api("POST", "/api/payments", {
+      pid: "MP-2026-008", type: "学会公付", payee: "定位测试收款方", amount: 1234.5, invoice_no: ""
+    });
+    const payId = pc.data?.payment?.id;
+    check("造一笔待付款", pc.status === 200 && !!payId, JSON.stringify(pc.data).slice(0, 80));
+    const ap = payId ? await api("POST", `/api/payments/${payId}/approve`, { approve: true }) : { status: 0, data: {} };
+    check("付款审批通过（待办里才会出现「待付款」）", ap.status === 200, JSON.stringify(ap.data).slice(0, 100));
+
+    // 当前已经在工作台，goto 同一个 hash 不会重新加载 —— 必须 reload 才拿得到刚造的待办
+    await page.goto(`${BASE}/#/dashboard`, { waitUntil: "networkidle" });
+    await page.reload({ waitUntil: "networkidle" });
+    await page.waitForTimeout(1800);
+    const gos = await page.$$eval(".panel tbody [data-go]", (els) => els.map((e) => e.dataset.go));
+    check("每条待办都带跳转目标", gos.length > 0 && gos.every(Boolean), `${gos.length} 条`);
+    /**
+     * 这里守的是本次的 bug：目标原来是 `${go}/${pid}` 硬拼，approvals/MP-xxx、finance/MP-xxx
+     * 在路由表里根本不存在，点下去 route() 匹配不到就把人丢回工作台 —— 「点了处理没反应」。
+     * 所以要求每个目标都是路由认得的形态（前缀 + 可选 id）。
+     */
+    const badGo = gos.filter((g) => !/^(approvals|verify|finance|projects|demand)(\/[\w-]+)?$/.test(g));
+    check("目标都是合法路由形态", badGo.length === 0, badGo.join(" / "));
+
+    const cases = [
+      { name: "审批", hit: (g) => g.startsWith("approvals/"), expect: /审批中心/ },
+      { name: "核销", hit: (g) => g.startsWith("verify/"), expect: /核销作业/ },
+      { name: "付款", hit: (g) => g.startsWith("finance/"), expect: /付款与结算/ }
+    ];
+    for (const cs of cases) {
+      const idx = gos.findIndex(cs.hit);
+      if (idx < 0) { check(`${cs.name}：有待办可点`, false, "待办里没有这类"); continue; }
+      await page.goto(`${BASE}/#/dashboard`, { waitUntil: "networkidle" });
+      await page.waitForTimeout(1200);
+      const btns = await page.$$(".panel tbody [data-go]");
+      await btns[idx].click();
+      await page.waitForTimeout(1700);
+      const hash = await page.evaluate(() => location.hash);
+      const top = await page.textContent("#top");
+      check(`${cs.name}：跳到 ${gos[idx]}，没被弹回工作台`,
+        hash.includes(gos[idx]) && cs.expect.test(top), `hash=${hash}`);
+      if (cs.name === "审批") {
+        const n = await page.evaluate(() => document.querySelectorAll("tr.row-focus").length);
+        check("审批：目标行高亮", n === 1, `${n} 行`);
+      }
+      if (cs.name === "付款") {
+        const loc = await page.evaluate(() => !!document.querySelector(".locate"));
+        const n = await page.evaluate(() => document.querySelectorAll("tr.row-focus").length);
+        check("付款：有定位条且目标行高亮", loc && n === 1, `定位条 ${loc} / 高亮 ${n}`);
+      }
+    }
+
     /* ---------- 无报错 ---------- */
-    console.log("\n[5] 控制台");
+    console.log("\n[6] 控制台");
     check("无 JS 报错", errs.length === 0, errs.join(" | ").slice(0, 200));
   } finally {
     await browser.close();

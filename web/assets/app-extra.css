@@ -201,3 +201,13 @@ tr td select.mini:disabled{
 tr td select.mini:disabled{appearance:none;-webkit-appearance:none;text-align:left;padding-left:0}
 tr td .dmv{font-size:12.5px;color:var(--txt)}
 tr td .dash{color:var(--mute)}
+
+/* ---------- 从工作台待办/预警跳转过来的定位 ---------- */
+/* 目标行给一层暖色底 + 左侧色条：一眼看出「要处理的就是这一条」 */
+tr.row-focus td{background:#fff6e8}
+tr.row-focus td:first-child{box-shadow:inset 3px 0 0 var(--orange)}
+tr.row-focus td .mono{font-weight:600}
+.locate{display:flex;align-items:center;gap:10px;margin-bottom:12px;padding:9px 13px;
+  background:#f1f6fd;border:1px solid #dbe7f7;border-radius:8px;font-size:12.5px;color:var(--sub)}
+.locate b{color:var(--txt);font-weight:600}
+.locate .link{margin-left:auto}
