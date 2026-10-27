@@ -1,4 +1,4 @@
-# 协会会议执行 ERP · 生产版代码 V1.2.7
+# 协会会议执行 ERP · 生产版代码 V1.2.8
 
 > 依据《协会会议执行 ERP 交付版整合包 V1.0.2 · 09_可点击演示版》研发的可运行工程。
 > 演示版验证的是「流程与交互是否成立」，本工程把它落成**真实后端 + 真实数据库 + 真实权限与门禁**。
@@ -34,8 +34,8 @@ npm start            # 等价于 node --experimental-sqlite server/index.js
 
 ```bash
 npm run seed         # 重置数据库并重建种子数据
-npm test             # 274 条接口回归测试（每文件自起服务 + 独立库，不影响主库）
-npm run test:cf      # 同一批 274 条，跑在「Durable Object SQL」后端语义下
+npm test             # 279 条接口回归测试（每文件自起服务 + 独立库，不影响主库）
+npm run test:cf      # 同一批 279 条，跑在「Durable Object SQL」后端语义下
 ERP_PORT=9000 npm start
 ERP_DB=/path/to/erp.db npm start
 ```
@@ -95,7 +95,7 @@ wrangler r2 bucket create erp-workbanch-files
 ### 本地为什么不能预览
 
 `wrangler dev` 依赖 workerd，要求 **macOS 13.5+**；本机是 12.7.6，起不来。
-所以本地用 `npm run test:cf` 把同一批 274 条测试跑在「模拟的 DO SQL 后端」上
+所以本地用 `npm run test:cf` 把同一批 279 条测试跑在「模拟的 DO SQL 后端」上
 （`test/lib/do-sqlite-mock.js`），确认 SQL 语义一致后再部署。
 
 ### 已知限制
@@ -270,7 +270,7 @@ erp-app/
 ## 6. 测试
 
 ```bash
-npm test        # 274 条：api 26 + edge 26 + matrix 11 + hardening 19 + abuse 28 + stateless 6 + demand 12 + demand-archive 11 + material 5 + password 6 + paging 8 + upload 11 + storage 4 + contract-file 9 + freeze 9 + id-sequence 7 + business-rules 47 + workflow-chain 12 + todo-flag 5 + money-precision 7 + scope-owner 5
+npm test        # 279 条：api 26 + edge 26 + matrix 11 + hardening 19 + abuse 28 + stateless 6 + demand 14 + demand-archive 13 + material 5 + password 6 + paging 8 + upload 11 + storage 4 + contract-file 9 + freeze 9 + id-sequence 7 + business-rules 47 + workflow-chain 12 + todo-flag 5 + money-precision 8 + scope-owner 5
 ```
 
 每个测试文件自带脚手架：**独立端口 + 独立数据库 + 自起服务**，跑完即杀，不碰主库。
@@ -402,6 +402,27 @@ Serverless 每个实例的 `/tmp` 独立，会话表只能在本实例查到。�
 
 ## 9. 变更记录
 
+### V1.2.8（V1.2.7 的对抗性复查修复）
+
+V1.2.7 上线后回头打了一遍边界，四处「接口 200 但结果不对」的问题：
+
+| 缺陷 | 症状 | 改法 |
+|---|---|---|
+| 保存空数组 = 静默重置 | `PATCH {items:[]}` 返回 200，条目全删，`loadSheet` 见无条目就返回 23 条模板，列表页 `demandBuilt` 变 `false`、审计写「更新 0 条」 | 整单替换拒绝空数组（`EMPTY_SHEET`），要清空走「重置」（那条路有独立审计与归档/冻结拦截） |
+| 项目详情页核销页签误报「没建过需求单」 | 页签读 `/api/projects/:id`，但 `demand` 只在 `/api/projects/:id/verify` 返回 | `demandSummary()` 抽到 `lib/workflow.js`（放 `api/demand.js` 会与 `projects.js` 循环 require），两个接口共用；测试逐字段断言两边一致 |
+| 报名人数 0 时门槛形同虚设 | `ceil(0×85%)=0`，「实际签到 ≥ 0」永远成立，第 2 步变成点一下通过 | 显示「未登记 / 无法核算」，核对要点写清「要么补登记报名人数，要么数实际到场人数并写依据」 |
+| 两处 `paidTotal` 口径不同 | 详情接口裸 `reduce`、核销接口 `ROUND` 到分；付款只有小数时详情给 `0.30000000000000004`、核销给 `0.3` —— 同一笔「已付款」在两个页面显示两个数 | `detail()` 的 `paidTotal` 也过 `yuan()`；补一条「两接口同口径」断言 |
+
+顺手补了两处测试基建：`test/ui/upload.js` 的夹具（照片 / 超大文件）改成脚本自己造
+（原来靠 `/tmp` 里上一次跑剩的文件，机器一重启就 `ENOENT` 崩在选文件那步）；
+照片用浏览器 canvas 现画 1200×900 噪点，否则 1×1 图压缩后只有几百字节，
+「原件 > 10KB」这条断言永远过不去。
+
+**新增测试**：`test/demand-archive.test.js` 13 条；`test/demand.test.js` 9 → 14 条；
+`test/money-precision.test.js` 7 → 8 条；`test/ui/verify-detail.js` 37 → 51 项
+（预算对照 8 项 + 0 人门槛 6 项）。
+全量 260 → **279**，Node 与 DO SQL 语义双跑 279/279。
+
 ### V1.2.7（需求单确认即归档 · 新增行 · 精简字段）
 
 按业务反馈调整会务需求的形态。核心变化是**这份清单不再是填完就完的记录，
@@ -416,9 +437,12 @@ Serverless 每个实例的 `/tmp` 独立，会话表只能在本实例查到。�
 | 填错了没有回头路 | 新增「撤销归档」回到草稿，每次撤销写审计（带原确认人与时间） |
 
 核销第 3 步（费用凭证）现在先给一块 **会务需求预算对照**：
-归档预算合计 / 已发生费用 / 结余或超支，下面是「需要」项的逐条预算金额。
+归档预算合计 / 已申请费用 / 其中已付款 / 结余或超支，下面是「需要」项的逐条预算金额。
 判定人一眼看得出钱花超没超、超在哪 —— 这就是「确认后归档，后续提供发票收据核销」的落地。
 需求单没归档时不给对照，只提示「这份清单还没定稿」，避免拿草稿当依据。
+
+> 口径说明：「费用构成」里含待审批 / 已审批的付款，叫「已发生」会让人以为钱都付了。
+> 所以拆成 **已申请费用（不含已驳回）** 与 **其中已付款** 两格，差额才是真的还没付。
 
 **B. 新增一行**
 

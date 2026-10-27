@@ -6,12 +6,54 @@
  * 选文件 → 压缩提示 → 上传进度 → 列表出缩略图 → 点开能看原图。
  */
 const { chromium } = require("playwright");
+const fs = require("node:fs");
 
 // 与 smoke / e2e / edge 保持同一套约定：ERP_BASE 优先，否则按 ERP_PORT（默认 8787）。
 // 原来写死 8899，只有碰巧在那个端口起了服务才跑得起来。
 const BASE = process.env.ERP_BASE || `http://127.0.0.1:${process.env.ERP_PORT || 8787}`;
-const PHOTO = "/tmp/erp-upload-test/photo-small.jpg";
-const BIG = "/tmp/erp-upload-test/big.jpg";
+const DIR = "/tmp/erp-upload-test";
+const PHOTO = `${DIR}/photo-small.jpg`;
+const BIG = `${DIR}/big.jpg`;
+
+/**
+ * 夹具自己造。
+ * 原来这两个文件靠上一次跑剩在 /tmp 里，机器一重启就 ENOENT，
+ * 表现成「测试崩了」，其实跟产品无关。
+ */
+function makeFixtures() {
+  fs.mkdirSync(DIR, { recursive: true });
+  if (!fs.existsSync(BIG)) {
+    // 前端只看 file.size，内容不必是真图；8.5MB 刚好越过 8MB 上限
+    const buf = Buffer.alloc(Math.round(8.5 * 1024 * 1024));
+    buf.write("\xFF\xD8\xFF\xE0", 0, "binary");
+    fs.writeFileSync(BIG, buf);
+  }
+}
+
+/**
+ * 照片夹具用浏览器自己画：1200×900 噪点，压缩后稳定 > 10KB。
+ * 用 1×1 的图片不行 —— 前端 canvas 压缩后只剩几百字节，
+ * 「原件 > 10KB」这条断言就永远过不去（断言本身是对的，是夹具太小）。
+ */
+async function makePhoto(page) {
+  if (fs.existsSync(PHOTO)) return;
+  const dataUrl = await page.evaluate(() => {
+    const c = document.createElement("canvas");
+    c.width = 1200; c.height = 900;
+    const g = c.getContext("2d");
+    const img = g.createImageData(c.width, c.height);
+    for (let i = 0; i < img.data.length; i += 4) {
+      const v = Math.floor(Math.random() * 200);
+      img.data[i] = v;
+      img.data[i + 1] = Math.min(255, v + 40);
+      img.data[i + 2] = Math.min(255, 255 - v);
+      img.data[i + 3] = 255;
+    }
+    g.putImageData(img, 0, 0);
+    return c.toDataURL("image/jpeg", 0.9);
+  });
+  fs.writeFileSync(PHOTO, Buffer.from(dataUrl.split(",")[1], "base64"));
+}
 
 let pass = 0, fail = 0;
 const check = (name, ok, extra = "") => {
@@ -20,8 +62,10 @@ const check = (name, ok, extra = "") => {
 };
 
 (async () => {
+  makeFixtures();
   const browser = await chromium.launch({ channel: "chrome", headless: true });
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  await makePhoto(page);
   const errs = [];
   page.on("pageerror", (e) => errs.push(e.message));
   page.on("console", (m) => { if (m.type() === "error") errs.push(m.text()); });

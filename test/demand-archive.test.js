@@ -169,6 +169,26 @@ test("核销接口带上归档需求单：预算合计与需求单一致", async
   assert.equal(v.demand.budgetTotal, sheet.budgetTotal, "两处口径必须一致");
 });
 
+test("项目详情接口也带 demand，且与核销接口完全一致", async () => {
+  // 核销页签在项目详情页读的是 /api/projects/:id，不是 /verify。
+  // 两处只要有一边没带，同一个第 3 步在两个页面就会给出不同答案。
+  await admin("POST", `/api/demand/${PID}/confirm`);
+  const detail = (await admin("GET", `/api/projects/${PID}`)).data;
+  const verify = (await admin("GET", `/api/projects/${PID}/verify`)).data;
+  assert.ok(detail.demand, "项目详情接口应带 demand");
+  assert.deepEqual(detail.demand, verify.demand, "两个接口的 demand 必须一模一样");
+  assert.equal(detail.demand.archived, true);
+  assert.equal(detail.demand.budgetTotal, verify.demand.budgetTotal);
+  await admin("POST", `/api/demand/${PID}/unarchive`);
+});
+
+test("没有需求单的项目，两个接口都返回 demand=null（而不是 {}）", async () => {
+  const detail = (await admin("GET", "/api/projects/MP-2026-005")).data;
+  const verify = (await admin("GET", "/api/projects/MP-2026-005/verify")).data;
+  assert.equal(detail.demand, null);
+  assert.equal(verify.demand, null);
+});
+
 test("撤销归档后核销侧标记为未归档（判定人知道这份单子没定稿）", async () => {
   await admin("POST", `/api/demand/${PID}/unarchive`);
   const v = (await admin("GET", `/api/projects/${PID}/verify`)).data;

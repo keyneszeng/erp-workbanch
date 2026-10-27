@@ -13,7 +13,9 @@
  *   4. 详情弹窗底部可直接进「判定」，不必关掉再回列表找按钮
  *   5. 必须按顺序判定时（前面还有未判定的步骤），详情里不给判定入口
  *   6. 项目详情页的核销页签也有同样的「详情」
- *   7. 全程无 JS 报错
+ *   7. 第 3 步把「归档预算 / 已申请费用 / 其中已付款 / 超支或结余」摆在一起
+ *   8. 第 2 步报名人数为 0 时显示「无法核算」，不给「≥ 0」这种永远成立的门槛
+ *   9. 全程无 JS 报错
  *
  * 脚本自带服务（设 ERP_BASE 可指向已有服务）。
  */
@@ -112,6 +114,23 @@ async function seedVerifyData() {
   return { pdfKey: upPdf.data.key, jpgKey: upJpg.data.key };
 }
 
+/**
+ * 给 MP-2026-003 建一张需求单并确认归档。
+ * 第 3 步的「预算对照」只有归档后才给基准，不建单就永远测不到那一段。
+ * 预算 10 万；该项目已申请 8.4 万（待审批，算「已申请」不算「已付」）→ 结余 1.6 万。
+ */
+async function seedDemand() {
+  const items = [
+    { grp: "设计", item: "主视觉与串场", need: "需要", spec: "16:9 含 5 个环节页", owner: "张伟", due: "2026-08-20", budget: "40000" },
+    { grp: "制作", item: "物料制作", need: "需要", spec: "台卡 40 个 / 横幅 1 条", owner: "李强", due: "2026-08-28", budget: "60000" },
+    { grp: "其他", item: "茶歇", need: "不需要", spec: "", owner: "", due: "", budget: "" }
+  ];
+  const r = await api("PATCH", `/api/demand/${PID}`, { items });
+  if (r.status !== 200) throw new Error("建需求单失败：" + JSON.stringify(r.data));
+  const c = await api("POST", `/api/demand/${PID}/confirm`);
+  if (c.status !== 200) throw new Error("归档需求单失败：" + JSON.stringify(c.data));
+}
+
 const modalTitle = (page) => page.textContent("#modal .mh h3").catch(() => "");
 const modalBody = (page) => page.textContent("#modal .mb").catch(() => "");
 const openDetail = async (page, no) => {
@@ -144,6 +163,7 @@ const closeModal = async (page) => {
   }
   cookie = await apiLogin();
   const keys = await seedVerifyData();
+  await seedDemand();
 
   const browser = await chromium.launch({ channel: "chrome", headless: true });
   const page = await browser.newPage({ viewport: { width: 1500, height: 1000 } });
@@ -198,6 +218,17 @@ const closeModal = async (page) => {
     check("显示费用构成", /费用构成/.test(body));
     check("列出票据材料", /发票 \/ 票据材料/.test(body));
     check("列出现场照片", /现场照片（1 份）/.test(body));
+
+    /* 归档需求单 ↔ 实际费用的对照：判定人要看得出钱花超没超 */
+    check("有「会务需求预算对照」段", /会务需求预算对照/.test(body));
+    check("显示归档预算合计 ¥100,000", /需求单预算合计（归档）/.test(body) && /¥100,000/.test(body));
+    check("显示已申请费用 ¥84,000", /已申请费用（不含已驳回）/.test(body) && /¥84,000/.test(body));
+    check("显示其中已付款 ¥0", /其中已付款/.test(body));
+    check("结余 ¥16,000 且不标超支", /结余/.test(body) && /¥16,000/.test(body) && !/超支/.test(body));
+    // 「已发生」会把待审批的付款也算进去，让人以为钱都付了 —— 口径必须拆开
+    check("不再用「已发生」这个误导口径", !/已发生/.test(body));
+    check("列出归档预算明细条目", /主视觉与串场/.test(body) && /物料制作/.test(body));
+    check("标注归档人与时间", /由\s*\S+\s*于\s*20\d\d-\d\d-\d\d/.test(body));
 
     console.log("\n[6] 第 4 步：课件与议程课题一致性");
     await closeModal(page);
@@ -275,8 +306,33 @@ const closeModal = async (page) => {
       await closeModal(page);
     }
 
+    /* ---------- 报名 0 人 ---------- */
+    console.log("\n[14] 第 2 步：报名人数为 0 时不给假门槛");
+    // MP-2026-005 报名人数是 0。ceil(0×85%)=0，「实际签到 ≥ 0」永远成立 ——
+    // 这一步就退化成点一下通过。必须显示「无法核算」而不是给个 0。
+    await page.goto(`${BASE}/#/projects/MP-2026-005`, { waitUntil: "networkidle" });
+    await page.waitForTimeout(1600);
+    const tab0 = await page.$('[data-tab="verify"]');
+    check("MP-2026-005 有核销页签", !!tab0);
+    if (tab0) {
+      await tab0.click();
+      await page.waitForTimeout(800);
+      const d0 = await page.$('[data-detail="2"]');
+      check("第 2 步有详情按钮", !!d0);
+      if (d0) {
+        await d0.click();
+        await page.waitForTimeout(500);
+        body = await modalBody(page);
+        check("报名人数显示「未登记」", /报名人数（项目资料）[\s\S]{0,40}未登记/.test(body));
+        check("门槛显示「无法核算」", /达标门槛（报名 × 85%）[\s\S]{0,40}无法核算/.test(body));
+        check("不出现「≥ 0」的假门槛", !/≥\s*0(?!\d)/.test(body));
+        check("核对要点讲清怎么处理", /没有可核算的达标门槛/.test(body));
+        await closeModal(page);
+      }
+    }
+
     /* ---------- 无报错 ---------- */
-    console.log("\n[13] 控制台");
+    console.log("\n[15] 控制台");
     check("无 JS 报错", errs.length === 0, errs.join(" | ").slice(0, 200));
   } finally {
     await browser.close();

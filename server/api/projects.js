@@ -3,7 +3,7 @@ const { db } = require("../lib/db");
 const { now, nextId, bad, notFound, conflict, forbidden, cents, yuan } = require("../lib/util");
 const { assertCan, assertProjectVisible, can, isSuper, scopeFilter, ROLES } = require("../lib/rbac");
 const { logAudit } = require("../lib/audit");
-const { getProject, verification, materialsStatus, settlementOf, assertNotFrozen, committed, availableActions, transition } = require("../lib/workflow");
+const { getProject, verification, materialsStatus, settlementOf, demandSummary, assertNotFrozen, committed, availableActions, transition } = require("../lib/workflow");
 const { ASSOCS, FORMS, DEPTS } = require("../lib/constants");
 const { readPaging, countOf } = require("../lib/paginate");
 
@@ -168,9 +168,14 @@ function detail(project, user) {
     verification: verification(pid),
     materialsStatus: materialsStatus(pid),
     settlement: settlementOf(pid),
+    // 核销第 3 步的费用对照基准。项目详情页的核销页签读的是这个接口，
+    // 之前只在 /verify 里返回，导致同一个第 3 步在两个页面给出不同答案。
+    demand: demandSummary(pid),
     actions: availableActions(project, user),
     timeline,
-    paidTotal: payments.filter((p) => p.status === "已付款").reduce((s, p) => s + p.amount, 0)
+    // 与 /verify 的 paidTotal 必须同口径：裸 reduce 会留浮点尾巴（0.1+0.2 → 0.30000000000000004），
+    // 而核销页签第 3 步的「其中已付款」直接显示这个数 —— 两个页面就会给出不同金额。
+    paidTotal: yuan(payments.filter((p) => p.status === "已付款").reduce((s, p) => s + Number(p.amount), 0))
   };
 }
 

@@ -197,13 +197,37 @@ async function seedArchivedDemand() {
     const body = await page.textContent("#modal .mb");
     check("出现「会务需求预算对照」", /会务需求预算对照/.test(body), "");
     check("显示归档预算合计", /需求单预算合计（归档）/.test(body), "");
-    check("显示已发生费用", /已发生费用（不含已驳回）/.test(body), "");
+    check("显示已申请费用与其中已付款", /已申请费用（不含已驳回）/.test(body) && /其中已付款/.test(body), "");
     check("显示归档人与时间", /确认归档/.test(body), "");
     check("列出需要的条目", /串场/.test(body) && /横幅/.test(body), "");
     check("标了不需要的条目不在核对清单", !/9999/.test(body), "");
     check("核对要点提到归档预算", /归档预算/.test(body), "");
     await page.click('#modal [data-x="0"]');
     await page.waitForTimeout(300);
+
+    console.log("\n[7b] 项目详情页的核销页签：同一个第 3 步，同样的对照");
+    await page.goto(`${BASE}/#/projects/${PID2}`, { waitUntil: "networkidle" });
+    await page.waitForTimeout(1600);
+    const vtab = await page.$('button[data-tab="verify"]');
+    check("项目详情页有核销页签", !!vtab, "");
+    if (vtab) {
+      await vtab.click();
+      await page.waitForTimeout(900);
+      const d3b = await page.$('[data-detail="3"]');
+      check("页签里的第 3 步有详情", !!d3b, "");
+      if (d3b) {
+        await d3b.click();
+        await page.waitForTimeout(700);
+        const body2 = await page.textContent("#modal .mb");
+        check("页签里也有「会务需求预算对照」", /会务需求预算对照/.test(body2), "");
+        check("页签里也显示归档预算", /需求单预算合计（归档）/.test(body2), "");
+        check("口径已拆开：申请费用 + 其中已付款",
+          /已申请费用（不含已驳回）/.test(body2) && /其中已付款/.test(body2), "");
+        check("不再出现误导性的「已发生费用」", !/已发生费用/.test(body2), "");
+        await page.click('#modal [data-x="0"]');
+        await page.waitForTimeout(300);
+      }
+    }
 
     console.log("\n[8] 撤销归档：回到可编辑");
     await page.goto(`${BASE}/#/demand/${PID}`, { waitUntil: "networkidle" });

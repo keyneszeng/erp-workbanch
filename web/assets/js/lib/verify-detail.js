@@ -85,17 +85,23 @@ export function stepBody(d, no) {
     const sign = matsOf(d, "签到表");
     const people = Number(p.people) || 0;
     const gate = Math.ceil(people * 0.85);
+    // 报名人数没登记（0）时，85% 门槛也是 0 ——「实际签到 ≥ 0」永远成立，
+    // 这一步就退化成点一下通过。这种情况必须说清「无法核算」，而不是给个 0。
+    const noPeople = people <= 0;
     return `
       <div class="dsec"><h4>人数口径</h4>
         <div class="dgrid">
-          ${cell("报名人数（项目资料）", people)}
-          ${cell("达标门槛（报名 × 85%）", gate)}
+          ${cell("报名人数（项目资料）", noPeople ? "未登记" : people, noPeople)}
+          ${cell("达标门槛（报名 × 85%）", noPeople ? "无法核算" : gate, noPeople)}
           ${cell("已登记签到表", `${sign.length} 份`, sign.length === 0)}
         </div>
       </div>
       <div class="dsec"><h4>签到表材料</h4>${matList(sign, "尚未登记「签到表」材料")}</div>
-      <div class="dchk">核对要点：打开签到表原件，<b>实际签到人数 ≥ ${gate}</b>（报名 ${people} 人的 85%），
-        且名单可与报名记录逐条对上。签到表没有附件就无法核对，应判不通过并生成例外单。</div>`;
+      <div class="dchk">核对要点：${noPeople
+        ? `项目资料里的报名人数是 0，<b>没有可核算的达标门槛</b>。要么先补登记报名人数再核，
+           要么直接打开签到表数实际到场人数、在备注里写清依据 —— 不能因为门槛是 0 就直接通过。`
+        : `打开签到表原件，<b>实际签到人数 ≥ ${gate}</b>（报名 ${people} 人的 85%），
+           且名单可与报名记录逐条对上。签到表没有附件就无法核对，应判不通过并生成例外单。`}</div>`;
   }
 
   if (no === 3) {
@@ -109,9 +115,12 @@ export function stepBody(d, no) {
     // 需求单确认后即归档，记的是「当初答应花多少」；费用构成是「实际花了多少」。
     // 两者摆在一起，判定人才看得出钱花超没超、超在哪。
     const dm = d.demand;
-    const spent = round2(Object.values(byType).reduce((s, v) => s + v, 0));
+    // 「费用构成」把待审批 / 已审批的付款也算进来了 —— 判定人需要看到全部申请，
+    // 但叫「已发生」会让人以为钱都付了。这里拆开：申请了多少、其中已付多少。
+    const applied = round2(Object.values(byType).reduce((s, v) => s + v, 0));
+    const paid = round2(d.paidTotal);
     const dmTotal = dm ? round2(dm.budgetTotal) : 0;
-    const gap = round2(dmTotal - spent);
+    const gap = round2(dmTotal - applied);
     const dmItems = dm && dm.items && dm.items.length
       ? table([{ t: "分组", w: "90px" }, { t: "条目" }, { t: "预算金额", w: "110px", cls: "num" }],
         dm.items.map((x) => ({
@@ -123,7 +132,8 @@ export function stepBody(d, no) {
       : dm.archived
         ? `<div class="dgrid">
              ${cell("需求单预算合计（归档）", fmt(dmTotal))}
-             ${cell("已发生费用（不含已驳回）", fmt(spent))}
+             ${cell("已申请费用（不含已驳回）", fmt(applied))}
+             ${cell("其中已付款", fmt(paid))}
              ${cell(gap < 0 ? "超支" : "结余", fmt(Math.abs(gap)), gap < 0)}
            </div>
            <div class="dhint">需要 ${dm.needCount} 项 / 共 ${dm.total} 条 · 由 ${esc(dm.confirmedBy || "—")} 于 ${esc(dt(dm.confirmedAt))} 确认归档</div>
@@ -141,7 +151,7 @@ export function stepBody(d, no) {
       <div class="dchk">核对要点：<b>场地、餐饮、物料</b>三类支出是否都有对应票据，票据金额能否与上面的费用构成对上。
         现场照片用于佐证活动确实举办，本身不是金额凭证。
         ${dm && dm.archived
-          ? `归档预算 ${fmt(dmTotal)}、实际发生 ${fmt(spent)}，${gap < 0
+          ? `归档预算 ${fmt(dmTotal)}、已申请 ${fmt(applied)}（其中已付 ${fmt(paid)}），${gap < 0
               ? `已<b>超支 ${fmt(Math.abs(gap))}</b>，超的部分要有正当理由并在备注写清`
               : `尚在预算内，结余 ${fmt(gap)}`}。`
           : ""}</div>`;

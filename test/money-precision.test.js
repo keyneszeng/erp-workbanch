@@ -132,6 +132,18 @@ test("预算正好用尽不被判超预算（浮点相加不得成为拒绝理�
   assert.equal(Number(s.profit), 0);
 });
 
+test("项目详情与核销接口的 paidTotal 同口径（0.1+0.2 不得漏出 0.30000000000000004）", async () => {
+  // 核销页签第 3 步的「其中已付款」直接显示 detail.paidTotal，
+  // 核销看板显示 verify.paidTotal —— 两个接口一个 ROUND 一个裸 reduce 就会对不上。
+  const pid = await projectReadyToPay("详情与核销同口径", 10);
+  await payAll(pid, [0.1, 0.2]);
+  const d = (await admin("GET", `/api/projects/${pid}`)).data;
+  const v = (await admin("GET", `/api/projects/${pid}/verify`)).data;
+  assert.equal(d.paidTotal, 0.3, `详情 paidTotal=${d.paidTotal}`);
+  assert.equal(v.paidTotal, 0.3, `核销 paidTotal=${v.paidTotal}`);
+  assert.equal(d.paidTotal, v.paidTotal, "两个接口必须给同一个数");
+});
+
 test("结算单 profit 落在「分」上，不出现 24555.559999999998", async () => {
   // 96000 - 71444.44 在浮点里是 24555.559999999998
   const pid = await projectReadyToPay("结余带尾巴", 96000);

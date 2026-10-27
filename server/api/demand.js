@@ -177,19 +177,31 @@ function register(router) {
     const b = ctx.body || {};
     if (!Array.isArray(b.items)) throw bad("缺少 items 数组");
     if (b.items.length > 200) throw bad("需求条目过多");
+    /**
+     * 空数组必须拒绝。
+     * 整单替换是「先删后插」，提交 [] 会把条目全删光，而 loadSheet 见库里没条目
+     * 就按模板返回 —— 单据从「已建」静默变回「未建单」，列表页 demandBuilt 变 false，
+     * 审计却写「更新 0 条需求」。前端有拦截，但接口不能靠前端。
+     * 真要清空，走「重置」，那条路有独立的审计和归档/冻结拦截。
+     */
+    if (b.items.length === 0) throw bad("至少要有一条需求条目；如需清空请用「重置」", "EMPTY_SHEET");
     // demand_items 有 UNIQUE(pid, grp, item)，同一分组内条目名必须唯一。
     // 原来靠 replaceItems 里的 seen 集合静默跳过重复项 —— 用户提交 10 条只存 9 条，
     // 接口返回 200、审计还写「更新 10 条」，账实不符。这里直接拒绝并指出是哪一条。
     const seen = new Set();
     for (const it of b.items) {
       if (!DEMAND_GROUPS.includes(it.grp)) throw bad(`分组「${it.grp || ""}」非法`);
-      if (!it.item || !String(it.item).trim()) throw bad("存在未命名的需求条目");
-      const key = `${it.grp}@@${String(it.item).trim()}`;
+      // 名字统一 trim 后再校验、判重、入库：三处用同一份值，
+      // 否则「台卡」与「台卡 」在长度校验上算两个长度，在唯一键上又算同一个
+      const name = String(it.item === undefined || it.item === null ? "" : it.item).trim();
+      if (!name) throw bad("存在未命名的需求条目");
+      it.item = name;
+      const key = `${it.grp}@@${name}`;
       if (seen.has(key)) {
-        throw bad(`「${it.grp}」分组下存在重复条目「${String(it.item).trim()}」，同一分组内条目名必须唯一`, "DUPLICATE_ITEM");
+        throw bad(`「${it.grp}」分组下存在重复条目「${name}」，同一分组内条目名必须唯一`, "DUPLICATE_ITEM");
       }
       seen.add(key);
-      it.budget = parseAmount(it.budget, String(it.item).trim());
+      it.budget = parseAmount(it.budget, name);
       checkItem(it);
     }
     const at = ensureSheet(p.id);

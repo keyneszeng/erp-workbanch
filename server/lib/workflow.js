@@ -57,6 +57,37 @@ function settlementOf(pid) {
 }
 
 /**
+ * 归档的会务需求单 —— 核销第 3 步的费用对照基准。
+ *
+ * 需求单确认后即归档，它记的是「当初答应花多少」；核销要核的是「实际花了多少」，
+ * 两者摆在一起才看得出超没超。
+ *
+ * 放在 workflow 里而不是 api/demand.js，是因为两个入口都要用它：
+ * GET /api/projects/:id（项目详情页的核销页签）与 GET /api/projects/:id/verify（核销看板）。
+ * 放在 demand.js 会形成 projects ↔ demand 循环 require，一边拿到 undefined。
+ * 两处必须同源，否则同一个第 3 步在两个页面给出不同答案。
+ */
+function demandSummary(pid) {
+  const sheet = db.prepare("SELECT * FROM demand_sheets WHERE pid = ?").get(pid);
+  if (!sheet) return null;
+  const items = db.prepare(
+    "SELECT grp,item,need,budget FROM demand_items WHERE pid = ? ORDER BY ordering, id"
+  ).all(pid);
+  if (!items.length) return null;
+  const need = items.filter((x) => x.need === "需要");
+  return {
+    archived: !!sheet.confirmed,
+    confirmedBy: sheet.confirmed_by || "",
+    confirmedAt: sheet.confirmed_at || "",
+    total: items.length,
+    needCount: need.length,
+    // 逐条累加会留浮点尾巴，收敛到「分」
+    budgetTotal: yuan(need.reduce((s, x) => s + (Number(x.budget) || 0), 0)),
+    items: need.map((x) => ({ grp: x.grp, item: x.item, budget: x.budget || "" }))
+  };
+}
+
+/**
  * 冻结判定：已归档 = 卷宗封存；有结算单 = 账目封账。
  *
  * 用「有没有结算单」而不是只看 status —— 状态可能被人为改过，
@@ -247,4 +278,4 @@ function transition(projectId, action, user, payload = {}, ip = "") {
   }
 }
 
-module.exports = { getProject, verification, materialsStatus, settlementOf, assertNotFrozen, committed, availableActions, transition, GUARDS };
+module.exports = { getProject, verification, materialsStatus, settlementOf, demandSummary, assertNotFrozen, committed, availableActions, transition, GUARDS };

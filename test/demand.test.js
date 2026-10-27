@@ -169,6 +169,39 @@ test("校验：同一分组重名返回 400 DUPLICATE_ITEM", async () => {
   assert.equal(r.data.error.code, "DUPLICATE_ITEM");
 });
 
+test("校验：保存空数组被拒，且不会把已建单抹回模板态", async () => {
+  // 先确保这份单有内容
+  await admin("PATCH", "/api/demand/MP-2026-002", {
+    items: [{ grp: "设计", item: "串场", need: "需要", budget: "100" }]
+  });
+  const r = await admin("PATCH", "/api/demand/MP-2026-002", { items: [] });
+  assert.equal(r.status, 400, "空数组应被拒，否则整单替换会把条目删光");
+  assert.equal(r.data.error.code, "EMPTY_SHEET");
+  // 被拒后原数据必须还在
+  const d = await admin("GET", "/api/demand/MP-2026-002");
+  const total = Object.values(d.data.items).reduce((a, x) => a + x.length, 0);
+  assert.equal(total, 1, "被拒的请求不应改动数据");
+  assert.equal(d.data.isTemplate, false, "不应退回模板态");
+  const list = await admin("GET", "/api/demand");
+  const p = list.data.projects.find((x) => x.id === "MP-2026-002");
+  assert.equal(p.demandBuilt, true, "列表页仍应显示已建单");
+});
+
+test("校验：条目名按 trim 后的长度算，前后空格不会误拒", async () => {
+  const name = "长".repeat(40);
+  const r = await admin("PATCH", "/api/demand/MP-2026-002", {
+    items: [{ grp: "设计", item: `  ${name}  `, need: "需要" }]
+  });
+  assert.equal(r.status, 200, "trim 后正好 40 字，应通过");
+  const d = await admin("GET", "/api/demand/MP-2026-002");
+  assert.equal(d.data.items["设计"][0].item, name, "入库的应是 trim 后的名字");
+  // 超过 40 字仍然要拒
+  const r2 = await admin("PATCH", "/api/demand/MP-2026-002", {
+    items: [{ grp: "设计", item: "长".repeat(41), need: "需要" }]
+  });
+  assert.equal(r2.status, 400);
+});
+
 test("确认即归档：归档后重置被拒，撤销归档后才能重置", async () => {
   const c = await admin("POST", "/api/demand/MP-2026-002/confirm");
   assert.equal(c.status, 200);
