@@ -1,8 +1,16 @@
 import { api, state } from "../lib/api.js";
-import { badge, esc, kpi, money, panel, table, timeline, yuan } from "../lib/ui.js";
+import { badge, esc, kpi, money, panel, table } from "../lib/ui.js";
 
-const STATUS_ORDER = ["草稿", "待审批", "已立项", "筹备中", "执行中", "待核销", "已核销", "已结算", "已归档"];
-
+/**
+ * 我的工作台。
+ *
+ * 只保留四块：KPI / 异常预警 / 我的待办 / 近期会议。
+ * 「阶段分布」和「最近操作」按业务要求去掉 —— 前者在项目列表里按状态筛一次就有，
+ * 后者与审计日志完全重复（审计日志还能按模块、按人、按时间查）。
+ *
+ * 「我的待办」独占整行、只放待办：待办是这一页唯一要动手的东西，
+ * 跟「近期会议」挤成两栏时列被压窄，「时限」列会折成两行。
+ */
 export async function render(root) {
   const d = await api.get("/api/dashboard");
   const total = Object.values(d.counts).reduce((a, b) => a + b, 0);
@@ -24,47 +32,26 @@ export async function render(root) {
       </div>`).join("")}
     </div></div>` : ""}
 
-  <div class="grid g2 mt">
-    <div>${panel("我的待办", `${d.todos.length} 项`, d.todos.length ? table(
-      [{ t: "类型", w: "76px" }, { t: "事项" }, { t: "项目", w: "150px" }, { t: "时限", w: "110px" }, { t: "操作", w: "70px" }],
-      d.todos.map((t) => ({
-        c: [badge(t.kind === "审批" ? "待审批" : t.kind === "核销" ? "待核销" : t.kind === "结算" ? "已核销" : t.kind === "归档" ? "已结算" : "已审批"),
-          `<b style="font-size:12.8px">${esc(t.title)}</b>`,
-          `<span class="mono">${esc(t.pname || t.pid || "—")}</span>`,
-          `<span style="font-size:12px;color:var(--sub)">${esc(t.sla || "")}</span>`,
-          `<button class="link" data-go="${t.go}${t.pid ? "/" + t.pid : ""}">处理</button>`],
-        attrs: ""
-      })), { empty: "当前没有待办，保持这个状态" }) : `<div class="empty">当前没有待办</div>`,
-      `<button class="btn btn-o btn-sm" data-go="flow">看全流程</button>`)}</div>
+  <div class="mt">${panel("我的待办", `${d.todos.length} 项`, d.todos.length ? table(
+    [{ t: "类型", w: "86px" }, { t: "事项" }, { t: "项目", w: "190px" }, { t: "时限", w: "132px" }, { t: "操作", w: "76px" }],
+    d.todos.map((t) => ({
+      c: [badge(t.kind === "审批" ? "待审批" : t.kind === "核销" ? "待核销" : t.kind === "结算" ? "已核销" : t.kind === "归档" ? "已结算" : "已审批"),
+        `<b style="font-size:12.8px">${esc(t.title)}</b>`,
+        `<span class="mono">${esc(t.pname || t.pid || "—")}</span>`,
+        `<span style="font-size:12px;color:var(--sub)">${esc(t.sla || "")}</span>`,
+        `<button class="link" data-go="${t.go}${t.pid ? "/" + t.pid : ""}">处理</button>`],
+      attrs: ""
+    })), { empty: "当前没有待办，保持这个状态" }) : `<div class="empty">当前没有待办</div>`,
+    `<button class="btn btn-o btn-sm" data-go="flow">看全流程</button>`)}</div>
 
-    <div>${panel("近期会议", "按会期排序", table(
-      [{ t: "会期", w: "92px" }, { t: "会议" }, { t: "状态", w: "76px" }],
-      d.upcoming.map((p) => ({
-        c: [`<span class="mono">${esc(p.date)}</span>`,
-          `<a class="link" data-go="projects/${p.id}">${esc(p.name)}</a>
-           <div style="font-size:11.5px;color:var(--mute)">${esc(p.assoc)} · ${esc(p.owner || "")}</div>`,
-          badge(p.status)]
-      })), { empty: "近期没有排期会议" }))}</div>
-  </div>
-
-  <div class="grid g2 mt">
-    <div>${panel("阶段分布", "点状态进列表", `<div style="display:flex;flex-direction:column;gap:9px">
-      ${STATUS_ORDER.map((s) => {
-        const c = d.counts[s] || 0;
-        const pct = total ? Math.round((c / total) * 100) : 0;
-        return `<div style="display:flex;align-items:center;gap:10px;font-size:12.5px">
-          <span style="width:76px;color:var(--sub)">${s}</span>
-          <div style="flex:1;height:7px;background:#eef2f7;border-radius:4px;overflow:hidden">
-            <div style="width:${pct}%;height:100%;background:var(--blue);opacity:${0.35 + pct / 140}"></div></div>
-          <b style="width:28px;text-align:right" class="num">${c}</b>
-          <button class="link" data-go="projects">查看</button>
-        </div>`;
-      }).join("")}
-    </div>`)}</div>
-
-    <div>${panel("最近操作", "全量留痕见审计日志", timeline(d.recent),
-      `<button class="btn btn-o btn-sm" data-go="audit">全部日志</button>`)}</div>
-  </div>
+  <div class="mt">${panel("近期会议", "按会期排序", table(
+    [{ t: "会期", w: "120px" }, { t: "会议" }, { t: "状态", w: "96px" }],
+    d.upcoming.map((p) => ({
+      c: [`<span class="mono">${esc(p.date)}</span>`,
+        `<a class="link" data-go="projects/${p.id}">${esc(p.name)}</a>
+         <div style="font-size:11.5px;color:var(--mute)">${esc(p.assoc)} · ${esc(p.owner || "")}</div>`,
+        badge(p.status)]
+    })), { empty: "近期没有排期会议" }))}</div>
 
   <div class="foot-note">当前登录：${esc(state.user.name)} · ${esc(state.role.name)} · 数据范围「${esc(state.role.scope)}」
     ${state.super ? "· 总管理员拥有全部模块与全部数据权限" : ""}</div>`;
