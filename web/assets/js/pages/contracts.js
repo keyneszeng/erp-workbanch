@@ -1,8 +1,24 @@
 import { api, can, state } from "../lib/api.js";
-import { badge, esc, formHtml, modal, money, panel, readForm, table, toast, validate } from "../lib/ui.js";
+import { badge, confirmBox, esc, formHtml, modal, money, panel, readForm, table, toast, validate } from "../lib/ui.js";
 import { bindFilePicker, fileUrl } from "../lib/upload.js";
 
 let q = "";
+
+/**
+ * 合同状态流转按钮：草稿 → 待签署（提交）→ 已签署（确认）。
+ * 提交归录入人（contract:write），确认归协会管理员（contract:approve）。
+ */
+function flowBtn(c) {
+  if (c.status === "草稿" && can("contract:write")) {
+    return `<button class="link" data-cflow="${c.id}" data-caction="submit">提交签署</button>`;
+  }
+  if (c.status === "待签署") {
+    return can("contract:approve")
+      ? `<button class="link" data-cflow="${c.id}" data-caction="sign">确认签署</button>`
+      : '<span style="color:var(--mute)" title="需要协会管理员确认">待协会确认</span>';
+  }
+  return '<span style="color:var(--mute)">—</span>';
+}
 
 /** 合同原件单元格：图片出缩略图，PDF 出标签，都能新窗口打开 */
 function fileCell(c) {
@@ -41,11 +57,11 @@ export async function render(root) {
       ${table(
         [{ t: "合同编号", w: "112px" }, { t: "项目", w: "170px" }, { t: "合同名称" }, { t: "签约方", w: "150px" },
          { t: "金额", w: "104px", cls: "num" }, { t: "签署日期", w: "100px" }, { t: "状态", w: "80px" },
-         { t: "原件", w: "70px" }],
+         { t: "原件", w: "70px" }, { t: "操作", w: "96px" }],
         rows.map((r) => ({
           c: [`<span class="mono">${r.id}</span>`, `<a class="link" data-go="projects/${r.pid}">${esc(r.pname)}</a>`,
             esc(r.name), esc(r.vendor), `¥${money(r.amount)}`, `<span class="mono">${esc(r.sign_date || "—")}</span>`,
-            badge(r.status), fileCell(r)]
+            badge(r.status), fileCell(r), flowBtn(r)]
         })), { empty: "暂无合同" })}
     </div>`;
 
@@ -57,6 +73,23 @@ export async function render(root) {
   };
   const nb = root.querySelector("#newC");
   if (nb) nb.onclick = () => openCreate(root, proj.rows);
+  root.querySelectorAll("[data-cflow]").forEach((b) => b.onclick = () => contractFlow(root, b.dataset.cflow, b.dataset.caction));
+}
+
+/** 合同两步流转：提交签署 → 确认签署（确认时签署日期记为今天，可在台账核对） */
+async function contractFlow(root, id, action) {
+  if (action === "sign") {
+    const ok = await confirmBox(
+      `确认合同 <b class="mono">${esc(id)}</b> 已签署？<br><br>签署日期默认记为今天，台账里可核对。`,
+      { title: "确认签署", ok: "确认签署" }
+    );
+    if (!ok) return;
+  }
+  try {
+    const r = await api.post(`/api/contracts/${id}/transition`, { action });
+    toast(r.message, "ok");
+    await render(root);
+  } catch (e) { toast(e.message, "warn"); }
 }
 
 function openCreate(root, projects) {
@@ -66,7 +99,9 @@ function openCreate(root, projects) {
     { k: "vendor", l: "签约方", req: 1 },
     { k: "amount", l: "合同金额（元）", t: "number", req: 1 },
     { k: "sign_date", l: "签署日期", t: "date" },
-    { k: "status", l: "状态", t: "select", opts: ["草稿", "待签署", "已签署"] },
+    // 录入只能选草稿 / 待签署：已签署必须走「确认签署」，
+    // 否则两步流转等于没做，台账上的「已签署金额」也没有可信来源
+    { k: "status", l: "状态", t: "select", opts: ["草稿", "待签署"] },
     {
       k: "file", l: "合同原件", t: "file", full: 1,
       accept: "image/jpeg,image/png,image/webp,image/gif,application/pdf",

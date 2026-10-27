@@ -89,6 +89,10 @@ CREATE TABLE IF NOT EXISTS approvals (
   decided_by  TEXT,
   decided_at  TEXT,
   comment     TEXT,
+  -- 变更单专用：审批通过 ≠ 生效。落账必须由「审批人以外的另一人」手工执行（双人复核），
+  -- 所以要多记一组执行人 / 执行时间；status 走到「已执行」才算真正改到项目上。
+  executed_by TEXT,
+  executed_at TEXT,
   created_at  TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_approvals_status ON approvals(status);
@@ -422,6 +426,9 @@ function migrate() {
   addColumn("contracts", "file_name", "file_name TEXT");
   addColumn("contracts", "file_size", "file_size INTEGER");
   addColumn("contracts", "file_mime", "file_mime TEXT");
+  // V1.2.12：变更单的「落账人」。审批通过只是批准，真正改预算要另一个人执行（双人复核）
+  addColumn("approvals", "executed_by", "executed_by TEXT");
+  addColumn("approvals", "executed_at", "executed_at TEXT");
 
   // 附件查询走 file_key，补索引（旧库没有）
   try {

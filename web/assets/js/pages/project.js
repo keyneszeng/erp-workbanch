@@ -100,18 +100,77 @@ function tabOverview(d, p) {
       </div>`)}
     </div>
   </div>
+  ${tabChanges(d, p)}
   ${panel("立项审批记录", "", table(
     [{ t: "审批单" }, { t: "类型", w: "96px" }, { t: "金额", w: "96px" }, { t: "提交人", w: "80px" }, { t: "状态", w: "80px" }, { t: "审批人", w: "80px" }, { t: "时间", w: "130px" }],
     d.approvals.map((a) => ({ c: [a.id, a.type, `¥${money(a.amount)}`, esc(a.by_user || ""), badge(a.status), esc(a.decided_by || "—"), `<span class="mono">${esc(a.created_at)}</span>`] })),
     { empty: "暂无审批记录" }))}`;
 }
 
+/* ---------------- 变更记录（审批通过 ≠ 生效，落账要第二个人） ---------------- */
+function tabChanges(d, p) {
+  const rows = d.approvals.filter((a) => a.type === "变更审批");
+  if (!rows.length) return "";
+  const waiting = rows.filter((a) => a.status === "已通过" && !a.executed_at);
+  // 落账用独立权限 change:execute（协会 / 执行 / 财务），不是 project:approve。
+  // 沿用审批权限会让「协管提交 → 超管审批」这种最常见组合没人能落账，流程直接卡死。
+  const canExec = can("change:execute");
+  const me = state.user.name;
+
+  const banner = waiting.length
+    ? `<div class="gate" style="margin-bottom:12px"><b>有 ${waiting.length} 张变更已审批，尚未落账</b>
+        审批通过只是「批准」，预算要等落账才真正生效。落账必须由审批人以外的另一人执行（双人复核），
+        系统不会自动改预算。</div>`
+    : "";
+
+  return `${banner}${panel("变更记录", `${rows.length} 张`, table(
+    [{ t: "变更单", w: "112px" }, { t: "变更内容" }, { t: "变更后预算", w: "110px", cls: "num" },
+     { t: "状态", w: "80px" }, { t: "提交人", w: "76px" }, { t: "审批人", w: "76px" },
+     { t: "落账人", w: "76px" }, { t: "操作", w: "96px" }],
+    rows.map((a) => {
+      const done = !!a.executed_at || a.status === "已执行";
+      // 双人复核：审批人和申请人都不能是自己落账
+      const why = a.decided_by === me ? "这张单是你审批的，落账需要他人执行"
+        : a.by_user === me ? "这张单是你提交的，落账需要他人执行"
+        : !canExec ? "需要协会管理员 / 会务执行 / 财务权限" : "";
+      const btn = a.status === "已通过" && !done
+        ? `<button class="link" data-exec="${a.id}" ${why ? "disabled" : ""} title="${esc(why || "执行落账")}">执行落账</button>`
+        : `<span style="color:var(--mute)">—</span>`;
+      return {
+        c: [`<span class="mono">${a.id}</span>`, esc(a.title),
+          Number(a.amount) > 0 ? `¥${money(a.amount)}` : '<span style="color:var(--mute)">不涉金额</span>',
+          badge(a.status), esc(a.by_user || ""), esc(a.decided_by || "—"),
+          esc(a.executed_by || "—"), btn]
+      };
+    }),
+    { empty: "暂无变更记录" }))}`;
+}
+
 /* ---------------- 合同 ---------------- */
 const CONTRACT_LOCKED = ["已结算", "已归档"];
+
+/**
+ * 合同状态流转按钮：草稿 → 待签署（提交）→ 已签署（确认）。
+ * 提交归录入人（contract:write），确认归协会管理员（contract:approve）——
+ * 两步分开，「谁提交、谁确认」在审计里分得清。
+ */
+function contractFlowBtn(c, locked) {
+  if (locked) return '<span style="color:var(--mute)">封存</span>';
+  if (c.status === "草稿" && can("contract:write")) {
+    return `<button class="link" data-cflow="${c.id}" data-caction="submit">提交签署</button>`;
+  }
+  if (c.status === "待签署") {
+    return can("contract:approve")
+      ? `<button class="link" data-cflow="${c.id}" data-caction="sign">确认签署</button>`
+      : '<span style="color:var(--mute)" title="需要协会管理员确认">待协会确认</span>';
+  }
+  return '<span style="color:var(--mute)">—</span>';
+}
+
 function tabContracts(d, p) {
   const locked = CONTRACT_LOCKED.includes(p.status);
   return panel("合同台账", `${d.contracts.length} 份${locked ? " · 已封存" : ""}`, table(
-    [{ t: "合同编号", w: "112px" }, { t: "合同名称" }, { t: "签约方", w: "150px" }, { t: "金额", w: "100px", cls: "num" }, { t: "签署日期", w: "100px" }, { t: "状态", w: "80px" }, { t: "原件", w: "70px" }],
+    [{ t: "合同编号", w: "112px" }, { t: "合同名称" }, { t: "签约方", w: "150px" }, { t: "金额", w: "100px", cls: "num" }, { t: "签署日期", w: "100px" }, { t: "状态", w: "80px" }, { t: "原件", w: "70px" }, { t: "操作", w: "96px" }],
     d.contracts.map((c) => ({
       c: [`<span class="mono">${c.id}</span>`, esc(c.name), esc(c.vendor), `¥${money(c.amount)}`,
         `<span class="mono">${esc(c.sign_date || "—")}</span>`, badge(c.status),
@@ -119,7 +178,8 @@ function tabContracts(d, p) {
           ? (c.file_mime === "application/pdf"
               ? `<a class="link" href="${fileUrl(c.file_key)}" target="_blank" rel="noopener" title="${esc(c.file_name || "合同原件")}">PDF</a>`
               : `<a href="${fileUrl(c.file_key)}" target="_blank" rel="noopener" title="${esc(c.file_name || "合同原件")}"><img class="thumb" src="${fileUrl(c.file_key)}" alt=""></a>`)
-          : '<span style="color:var(--mute)">—</span>']
+          : '<span style="color:var(--mute)">—</span>',
+        contractFlowBtn(c, locked)]
     })),
     { empty: "暂无合同" }),
     locked ? `<span class="foot-note">项目${p.status === "已归档" ? "已归档，卷宗封存" : "已结算，台账封账"}，不可再录入合同</span>`
@@ -254,6 +314,9 @@ function wire(root, pid, d, body) {
   body.querySelectorAll("[data-ex-no]").forEach((b) => b.onclick = () => exDecide(root, pid, b.dataset.exNo, false));
   body.querySelectorAll("[data-del-mat]").forEach((b) => b.onclick = () => delMaterial(root, pid, b.dataset.delMat));
   body.querySelectorAll("[data-del-mem]").forEach((b) => b.onclick = () => delMember(root, pid, b.dataset.delMem));
+  // 变更落账（双人复核）与合同两步流转
+  body.querySelectorAll("[data-exec]").forEach((b) => b.onclick = () => execChange(root, pid, b.dataset.exec));
+  body.querySelectorAll("[data-cflow]").forEach((b) => b.onclick = () => contractFlow(root, pid, b.dataset.cflow, b.dataset.caction));
 
   const ac = body.querySelector("#addContract"); if (ac) ac.onclick = () => openContract(root, pid);
   const ap = body.querySelector("#addPay"); if (ap) ap.onclick = () => openPay(root, pid, d);
@@ -339,7 +402,7 @@ function openContract(root, pid) {
     { k: "vendor", l: "签约方", req: 1 },
     { k: "amount", l: "合同金额（元）", t: "number", req: 1 },
     { k: "sign_date", l: "签署日期", t: "date" },
-    { k: "status", l: "状态", t: "select", opts: ["草稿", "待签署", "已签署"] },
+    { k: "status", l: "状态", t: "select", opts: ["草稿", "待签署"] },
     {
       k: "file", l: "合同原件", t: "file", full: 1,
       accept: "image/jpeg,image/png,image/webp,image/gif,application/pdf",
@@ -564,10 +627,67 @@ function openEdit(root, pid, p) {
 }
 
 async function openChange(root, pid) {
-  const v = await promptBox({ title: "提交变更申请", label: "变更内容", ph: "如：议程调整：新增 1 个圆桌环节", ok: "提交" });
-  if (!v) return;
+  const fields = [
+    { k: "title", l: "变更内容", t: "textarea", req: 1, rows: 4, full: 1, ph: "如：议程调整：新增 1 个圆桌环节" },
+    {
+      k: "budget", l: "变更后预算（元）", t: "number", ph: "留空表示不涉及金额调整",
+      tip: "填了不会立刻生效：审批通过后，还要由「审批人以外」的另一人执行落账，才写进项目（双人复核）。"
+    }
+  ];
+  const m = modal({
+    title: "提交变更申请",
+    width: "580px",
+    body: formHtml(fields),
+    footer: `<button class="btn btn-o" data-x="0">取消</button>
+             <button class="btn btn-p" data-x="1">提交</button>`
+  });
+  m.querySelector('[data-x="0"]').onclick = () => m.classList.remove("open");
+  const btn = m.querySelector('[data-x="1"]');
+  btn.onclick = async () => {
+    if (!validate(m, fields)) return;
+    const v = readForm(m);
+    const body = { title: v.title };
+    if (String(v.budget ?? "").trim()) body.budget = Number(v.budget);
+    btn.disabled = true;
+    try {
+      const r = await api.post(`/api/projects/${pid}/change`, body);
+      toast(r.message, "ok");
+      m.classList.remove("open");
+      await refresh(root, pid);
+    } catch (e) {
+      toast(e.message, "warn");
+      btn.disabled = false;
+    }
+  };
+}
+
+/** 变更落账：双人复核的「第二个人」动作 */
+async function execChange(root, pid, id) {
+  const ok = await confirmBox(
+    `执行变更落账 <b class="mono">${esc(id)}</b>？<br><br>` +
+    `落账会立刻把变更写进项目（含预算），并记入审计。<br>` +
+    `审批和落账必须是两个人 —— 这一步就是复核。`,
+    { title: "执行变更落账", ok: "确认落账" }
+  );
+  if (!ok) return;
   try {
-    const r = await api.post(`/api/projects/${pid}/change`, { title: v });
+    const r = await api.post(`/api/approvals/${id}/execute`, {});
+    toast(r.message, "ok");
+    await refresh(root, pid);
+  } catch (e) { toast(e.message, "warn"); }
+}
+
+/** 合同两步流转：提交签署 / 确认签署 */
+async function contractFlow(root, pid, id, action) {
+  if (action === "sign") {
+    const ok = await confirmBox(
+      `确认合同 <b class="mono">${esc(id)}</b> 已签署？<br><br>签署日期默认记为今天，台账里可核对。`,
+      { title: "确认签署", ok: "确认签署" }
+    );
+    if (!ok) return;
+  }
+  try {
+    const r = await api.post(`/api/contracts/${id}/transition`, { action });
     toast(r.message, "ok");
     await refresh(root, pid);
   } catch (e) { toast(e.message, "warn"); }

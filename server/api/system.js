@@ -63,6 +63,30 @@ function myTodos(user) {
     ).all(...params);
     for (const y of rows) todos.push({ kind: "付款", title: `待付款 ${y.type} ¥${Number(y.amount).toLocaleString("zh-CN")}`, pid: y.pid, pname: y.pname, ref: y.id, sla: "审批后 2 个工作日", go: "finance" });
   }
+  /**
+   * 变更落账（双人复核的第二步）。
+   *
+   * 审批通过 ≠ 生效，得由另一个人把它落进项目。这条待办是「第二个人」唯一会被通知到的地方 ——
+   * 没有它，变更批完就静静躺在项目详情里，谁也不知道还有一笔没生效，预算永远是旧的。
+   *
+   * 双人复核的两个人不推给他自己：自己提的、自己批的，点进去按钮也是灰的，
+   * 推了只会让人以为系统坏了。
+   */
+  if (can(user, "change:execute") && canVisitNav(user, "projects")) {
+    const rows = db.prepare(
+      `SELECT a.*, p.name AS pname FROM approvals a JOIN projects p ON p.id = a.pid
+       WHERE a.type='变更审批' AND a.status='已通过' AND a.executed_at IS NULL AND ${sql}
+       ORDER BY a.decided_at DESC`
+    ).all(...params);
+    for (const a of rows) {
+      if (a.by_user === user.name || a.decided_by === user.name) continue;
+      const amtNote = Number(a.amount) > 0 ? `（预算 → ¥${Number(a.amount).toLocaleString("zh-CN")}）` : "（不涉金额）";
+      todos.push({
+        kind: "变更落账", title: `变更已批准，待落账：${a.title}${amtNote}`,
+        pid: a.pid, pname: a.pname, ref: a.id, sla: "审批后 2 个工作日", go: "projects"
+      });
+    }
+  }
   return todos;
 }
 

@@ -21,7 +21,7 @@ import { reachable } from "../lib/nav.js";
  *   审批 → 审批中心，按审批单号定位到那一行
  *   核销 → 核销看板（该项目的 6 步）
  *   付款 → 财务页，只列该项目的付款，直接看到「付款」按钮
- *   结算 / 归档 → 项目详情页（「生成结算单」「归档」按钮在那里）
+ *   结算 / 归档 / 变更落账 → 项目详情页（「生成结算单」「归档」「执行落账」按钮在那里）
  */
 function todoHref(t) {
   let target;
@@ -30,7 +30,8 @@ function todoHref(t) {
     case "核销": target = `verify/${t.pid}`; break;
     case "付款": target = `finance/${t.pid}`; break;
     case "结算":
-    case "归档": target = `projects/${t.pid}`; break;
+    case "归档":
+    case "变更落账": target = `projects/${t.pid}`; break;
     default: target = t.go || "dashboard";
   }
   return safeTarget(target, t.pid);

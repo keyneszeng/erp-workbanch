@@ -39,6 +39,15 @@ const PERMS = {
   "project:approve": ["assoc"],
   "project:transition": ["assoc", "exec", "finance"],
   "project:change": ["assoc", "exec"],
+  /**
+   * 变更落账：把已审批的变更真正写进项目（含预算）。
+   *
+   * 单独一个权限，是因为它必须能交给「申请人 / 审批人以外」的人 ——
+   * 老板要求的双人复核是「批的人不落账、提的人不落账」。
+   * 如果沿用 project:approve（只有协会 + 超管），
+   * 「协会提交 → 超管审批」这种最常见的组合就没人能落账了，流程会卡死。
+   */
+  "change:execute": ["assoc", "exec", "finance"],
   "project:member": ["assoc"],
   "contract:write": ["assoc", "exec"],
   "contract:approve": ["assoc"],

@@ -1,6 +1,6 @@
 "use strict";
 const { db } = require("../lib/db");
-const { now, nextId, bad, notFound, conflict, forbidden, cents, yuan } = require("../lib/util");
+const { now, today, nextId, bad, notFound, conflict, forbidden, cents, yuan } = require("../lib/util");
 const { assertCan, assertProjectVisible, scopeFilter, can, isSuper } = require("../lib/rbac");
 const { logAudit } = require("../lib/audit");
 const { getProject, verification, committed } = require("../lib/workflow");
@@ -79,6 +79,9 @@ function register(router) {
     // 签署日期可以为空（草稿尚未签），一旦填了就必须是合法日期
     const signDate = String(b.sign_date || "").trim();
     if (signDate) checkDate(signDate, "签署日期");
+    // 「已签署」却拿不出签署日期，是台账里最常见的脏数据：核销第 6 步要拿签署日期对发票，
+    // 到时候只能靠人回忆。宁可这里拒掉，让人补一个日期。
+    if (st === "已签署" && !signDate) throw bad("状态为「已签署」时必须填写签署日期（不确定可先存为「待签署」）");
 
     const remark = String(b.remark || "");
     if (remark.length > CONTRACT_MAX.remark) throw bad(`备注不能超过 ${CONTRACT_MAX.remark} 字`);
@@ -116,6 +119,63 @@ function register(router) {
       contract: db.prepare("SELECT * FROM contracts WHERE id = ?").get(id),
       message: `合同 ${id} 已保存`,
       warning
+    };
+  });
+
+  /**
+   * 合同状态流转：草稿 → 待签署 → 已签署。
+   *
+   * 老板 2026-10-27 拍板要「提交签署 → 确认签署」两步。原来状态只能录入时选一次，
+   * 之后再也改不了 —— 合同签没签只能靠人记，台账上的「已签署金额」也就没法信。
+   *
+   * 两步分给两个权限：
+   *   提交签署 contract:write（协会 / 执行，录入人自己提交）
+   *   确认签署 contract:approve（协会管理员，代表协会落章）
+   * 这样「谁提交的、谁确认的」在审计里分得清，也符合合同的实际流程。
+   */
+  const CONTRACT_FLOW = [
+    { from: "草稿", action: "submit", to: "待签署", label: "提交签署", perm: "contract:write" },
+    { from: "待签署", action: "sign", to: "已签署", label: "确认签署", perm: "contract:approve" }
+  ];
+
+  router.post("/api/contracts/:id/transition", async (ctx) => {
+    const c = db.prepare("SELECT * FROM contracts WHERE id = ?").get(ctx.params.id);
+    if (!c) throw notFound("合同不存在");
+    const p = getProject(c.pid);
+    assertProjectVisible(ctx.user, p);
+    if (["已结算", "已归档"].includes(p.status)) {
+      throw conflict(`项目已「${p.status}」，合同台账已封存，不可再流转状态`, "FROZEN", { status: p.status });
+    }
+
+    const action = String(ctx.body?.action || "").trim();
+    const flow = CONTRACT_FLOW.find((f) => f.from === c.status && f.action === action);
+    if (!flow) {
+      const allowed = CONTRACT_FLOW.filter((f) => f.from === c.status).map((f) => f.action);
+      throw conflict(
+        allowed.length
+          ? `合同 ${c.id} 当前是「${c.status}」，不能执行该操作；可执行：${CONTRACT_FLOW.filter((f) => f.from === c.status).map((f) => f.label).join(" / ")}`
+          : `合同 ${c.id} 已是「${c.status}」，没有可继续的流转`,
+        "ILLEGAL_TRANSITION", { status: c.status, allowed }
+      );
+    }
+    assertCan(ctx.user, flow.perm, `需要「${flow.perm === "contract:approve" ? "协会管理员" : "合同录入"}」权限才能${flow.label}`);
+
+    // 确认签署时补签署日期（默认今天），这样台账上的日期一定来自「确认」这个动作
+    let signDate = null;
+    if (action === "sign") {
+      signDate = String(ctx.body?.sign_date || today()).trim();
+      checkDate(signDate, "签署日期");
+    }
+
+    db.prepare("UPDATE contracts SET status = ?, sign_date = COALESCE(?, sign_date) WHERE id = ?")
+      .run(flow.to, signDate, c.id);
+    logAudit({
+      user: ctx.user, module: "筹备管理", action: flow.label, target: p.id,
+      detail: `${c.id} ${c.name}：${c.status} → ${flow.to}${signDate ? `（签署日期 ${signDate}）` : ""}`, ip: ctx.ip
+    });
+    return {
+      contract: db.prepare("SELECT * FROM contracts WHERE id = ?").get(c.id),
+      message: `合同 ${c.id} ${flow.label}成功，状态 → ${flow.to}`
     };
   });
 
@@ -338,14 +398,24 @@ function register(router) {
       logAudit({ user: ctx.user, module: "财务结算", action: approve ? "付款审批通过" : "付款驳回", target: p.id, detail: `${y.id} ¥${Number(y.amount).toLocaleString("zh-CN")}`, ip: ctx.ip });
       return { message: `付款单 ${y.id} ${approve ? "已审批" : "已驳回"}` };
     }
-    // 变更审批等
+    // 变更审批：与立项同权（project:approve）。
+    // 原来这里没有任何权限判断 —— 任何能看见该项目的角色都能把变更批了，
+    // 与审批中心按钮的显隐规则（can("project:approve")）对不上，接口裸奔。
+    if (a.type === "变更审批" && !can(ctx.user, "project:approve")) {
+      throw forbidden("只有协会管理员（或总管理员）可以审批变更");
+    }
     db.prepare("UPDATE approvals SET status = ?, decided_by = ?, decided_at = ?, comment = ? WHERE id = ?")
       .run(approve ? "已通过" : "已驳回", ctx.user.name, now(), comment, a.id);
     logAudit({ user: ctx.user, module: "项目管理", action: approve ? "审批通过" : "审批驳回", target: p.id, detail: `${a.type}：${a.title}`, ip: ctx.ip });
-    return { message: `${a.type} ${approve ? "已通过" : "已驳回"}` };
+    return { message: `${a.type} ${approve ? "已通过" : "已驳回"}${a.type === "变更审批" && approve ? "，待另一人执行落账后生效" : ""}` };
   });
 
-  /** 变更申请 */
+  /**
+   * 变更申请。
+   *
+   * 变更单可以带「变更后预算」（存进 approvals.amount，0 表示只改内容不涉金额）。
+   * 注意：审批通过**不改项目任何字段** —— 见下面的 /execute。
+   */
   router.post("/api/projects/:id/change", async (ctx) => {
     const p = getProject(ctx.params.id);
     assertProjectVisible(ctx.user, p);
@@ -361,11 +431,120 @@ function register(router) {
       "SELECT COUNT(*) AS c FROM approvals WHERE pid = ? AND type = '变更审批' AND status = '待审批'"
     ).get(p.id).c;
     if (pending >= 3) throw conflict(`该项目已有 ${pending} 张待审批的变更单，请先处理完再提交`, "TOO_MANY_PENDING");
+    // 已批未落账的变更单也不能堆 —— 两张都批了、都改预算，谁后落账谁生效，账就说不清了。
+    // 只拦「涉及金额」的那种（amount > 0）：只改内容的变更（amount = 0）没有钱要落，
+    // 和新变更的预算打不起来，拦它只会让项目被一张陈年内容变更永久锁死。
+    const approved = db.prepare(
+      "SELECT id FROM approvals WHERE pid = ? AND type = '变更审批' AND status = '已通过'" +
+      " AND executed_at IS NULL AND COALESCE(amount, 0) > 0 LIMIT 1"
+    ).get(p.id);
+    if (approved) {
+      throw conflict(
+        `该项目有 1 张已审批但还没落账的「预算变更」（${approved.id}），请先执行落账再提交新的变更`,
+        "CHANGE_PENDING_EXECUTE", { approval: approved.id }
+      );
+    }
+
+    // 变更后预算：可选。填了就必须是合法的钱数，且不能低于已占用
+    let newBudget = 0;
+    if (ctx.body?.budget !== undefined && ctx.body?.budget !== null && String(ctx.body.budget) !== "") {
+      const n = Number(ctx.body.budget);
+      if (!Number.isFinite(n) || !(n > 0)) throw bad("变更后预算必须大于 0（不涉及金额请留空）");
+      if (n > 1e9) throw bad("变更后预算不能超过 10 亿元");
+      if (Number(n.toFixed(2)) !== n) throw bad("变更后预算最多保留两位小数");
+      const used = committed(p.id);
+      if (cents(n) < cents(used)) {
+        throw conflict(
+          `变更后预算 ¥${yuan(n).toLocaleString("zh-CN")} 低于该项目已占用金额 ¥${used.toLocaleString("zh-CN")}` +
+          `（含待审批 / 已审批 / 已付款），落账后会与已挂账的付款冲突`,
+          "BUDGET_BELOW_COMMITTED", { budget: yuan(n), used }
+        );
+      }
+      newBudget = yuan(n);
+    }
+
     const id = nextId(db, "approvals", "id", "AP");
     db.prepare("INSERT INTO approvals (id,type,title,pid,ref_id,amount,by_user,sla,status,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)")
-      .run(id, "变更审批", title, p.id, p.id, 0, ctx.user.name, "2 个工作日", "待审批", now());
-    logAudit({ user: ctx.user, module: "项目管理", action: "变更申请", target: p.id, detail: title, ip: ctx.ip });
-    return { message: `变更申请 ${id} 已提交` };
+      .run(id, "变更审批", title, p.id, p.id, newBudget, ctx.user.name, "2 个工作日", "待审批", now());
+    logAudit({
+      user: ctx.user, module: "项目管理", action: "变更申请", target: p.id,
+      detail: title + (newBudget ? `；申请预算 ¥${Number(p.budget).toLocaleString("zh-CN")} → ¥${newBudget.toLocaleString("zh-CN")}` : ""),
+      ip: ctx.ip
+    });
+    return { message: `变更申请 ${id} 已提交${newBudget ? "（含预算调整）" : ""}`, approval: { id, amount: newBudget } };
+  });
+
+  /**
+   * 变更落账 —— 双人复核。
+   *
+   * 老板 2026-10-27 拍板：变更审批通过后**不自动改预算**，必须人工再改一次，
+   * 且执行人不能是审批人（也不能是申请人）。
+   * 理由：审批和落账是两件事。一个人既批又改，等于没有复核；
+   * 系统留痕也只能证明「同一个人做了两次决定」，证明不了有人核对过。
+   *
+   * 因此：审批通过 → status='已通过'，项目一个字段都不动；
+   * 落账 → 另一人调这个接口，才真正写 projects.budget，status='已执行'。
+   */
+  router.post("/api/approvals/:id/execute", async (ctx) => {
+    const a = db.prepare("SELECT * FROM approvals WHERE id = ?").get(ctx.params.id);
+    if (!a) throw notFound("审批单不存在");
+    if (a.type !== "变更审批") throw bad(`${a.type} 审批通过即生效，不需要执行落账`);
+    if (a.status === "待审批") throw conflict("该变更单还没审批，不能执行落账", "NOT_APPROVED");
+    if (a.status === "已驳回") throw conflict("该变更单已被驳回，无需执行落账", "REJECTED");
+    if (a.executed_at || a.status === "已执行") {
+      throw conflict(`该变更单已由 ${a.executed_by || "他人"} 于 ${a.executed_at || ""} 执行落账，不可重复执行`, "ALREADY_EXECUTED");
+    }
+
+    const p = getProject(a.pid);
+    assertProjectVisible(ctx.user, p);
+    assertCan(ctx.user, "change:execute", "变更落账需要协会管理员 / 会务执行 / 财务权限");
+
+    // 双人复核：批的人不落账，落账的人不批；自己提的也不能自己落
+    const me = ctx.user.name;
+    if (a.decided_by && me === a.decided_by) {
+      throw conflict(
+        `变更单 ${a.id} 由你审批，落账必须由另一人执行（双人复核）；请让其他有权限的同事操作`,
+        "NEED_SECOND_PERSON", { decided_by: a.decided_by }
+      );
+    }
+    if (a.by_user && me === a.by_user) {
+      throw conflict(
+        `变更单 ${a.id} 由你提交，落账必须由另一人执行（双人复核）；请让其他有权限的同事操作`,
+        "NEED_SECOND_PERSON", { by_user: a.by_user }
+      );
+    }
+
+    // 已结算 / 已归档 = 账目已封，改预算会与结算单对不上
+    if (["已结算", "已归档"].includes(p.status)) {
+      throw conflict(`项目已「${p.status}」，账目已封，变更不可再落账`, "FROZEN", { status: p.status });
+    }
+
+    let detail = `${a.id}：${a.title}`;
+    let budgetInfo = null;
+    const newBudget = yuan(a.amount);
+    if (newBudget > 0) {
+      const used = committed(p.id);
+      if (cents(newBudget) < cents(used)) {
+        throw conflict(
+          `变更后预算 ¥${newBudget.toLocaleString("zh-CN")} 低于已占用金额 ¥${used.toLocaleString("zh-CN")}，落账会让账实不符`,
+          "BUDGET_BELOW_COMMITTED", { budget: newBudget, used }
+        );
+      }
+      budgetInfo = { from: yuan(p.budget), to: newBudget };
+      db.prepare("UPDATE projects SET budget = ?, updated_at = ? WHERE id = ?").run(newBudget, now(), p.id);
+      detail += `；预算 ¥${Number(p.budget).toLocaleString("zh-CN")} → ¥${newBudget.toLocaleString("zh-CN")}`;
+    }
+
+    const at = now();
+    db.prepare("UPDATE approvals SET status = '已执行', executed_by = ?, executed_at = ? WHERE id = ?")
+      .run(me, at, a.id);
+    logAudit({ user: ctx.user, module: "项目管理", action: "变更落账", target: p.id, detail, ip: ctx.ip });
+    return {
+      message: `变更 ${a.id} 已落账${budgetInfo ? `，预算已调整为 ¥${budgetInfo.to.toLocaleString("zh-CN")}` : ""}`,
+      project: getProject(p.id),
+      approval: db.prepare("SELECT * FROM approvals WHERE id = ?").get(a.id),
+      budget: budgetInfo
+    };
   });
 
   return router;
