@@ -2,7 +2,7 @@
 const { db } = require("./db");
 const { hashPassword } = require("./auth");
 const { now, today } = require("./util");
-const { VERIFY_STEPS, MATERIAL_KINDS, DEMAND_GROUPS, DEMAND_TEMPLATE } = require("./constants");
+const { VERIFY_STEPS, MATERIAL_KINDS, DEMAND_GROUPS, DEMAND_TEMPLATE, guessContractCategory } = require("./constants");
 
 const PASS = "123456";
 
@@ -182,9 +182,11 @@ function seed({ reset = false } = {}) {
   }
 
   const insC = db.prepare(
-    "INSERT INTO contracts (id,pid,name,vendor,amount,sign_date,status,created_by,created_at) VALUES (?,?,?,?,?,?,?,?,?)"
+    "INSERT INTO contracts (id,pid,name,vendor,amount,sign_date,status,category,created_by,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)"
   );
-  for (const c of CONTRACTS) insC.run(...c, userId["assoc"], at);
+  // 种子合同按名称自动归类：核销第 5 步只列「劳务专家」类，
+  // 全塞成同一类会让演示数据里第 5 步永远显示同一批合同。
+  for (const c of CONTRACTS) insC.run(...c, guessContractCategory(c[2]), userId["assoc"], at);
 
   const insP = db.prepare(
     "INSERT INTO payments (id,pid,type,payee,amount,invoice_no,req_user,status,paid_at,created_by,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)"

@@ -125,14 +125,50 @@ test("归档项目：协会管理员改资料被拒，总管理员可改", async
   assert.equal(b.data.project.people, 500);
 });
 
-test("材料类别非法被拒", async () => {
-  const r = await apis.assoc("POST", "/api/projects/MP-2026-001/materials", { kind: "随便什么", name: "x.pdf" });
-  assert.equal(r.status, 400);
+test("材料类别：自定义可登记但不顶替必备 8 类，空/超长被拒", async () => {
+  // V1.2.13 起不再要求必须是 8 类之一 —— 会议纪要、专家简历这类东西以前只能
+  // 硬塞进 8 类凑数，反而让「齐备」不可信。自定义类别能登记，但不算必备那 8 类。
+  const before = (await apis.admin("GET", "/api/projects/MP-2026-001")).data.materialsStatus.missing.length;
+  const ok = await apis.assoc("POST", "/api/projects/MP-2026-001/materials", { kind: "会议纪要", name: "自定义类别.pdf" });
+  assert.equal(ok.status, 200, JSON.stringify(ok.data));
+  assert.equal(ok.data.materialsStatus.missing.length, before, "自定义类别不应减少必备 8 类的缺口");
+
+  const blank = await apis.assoc("POST", "/api/projects/MP-2026-001/materials", { kind: "   ", name: "x.pdf" });
+  assert.equal(blank.status, 400, "空类别应被拒");
+  const tooLong = await apis.assoc("POST", "/api/projects/MP-2026-001/materials", { kind: "长".repeat(21), name: "x.pdf" });
+  assert.equal(tooLong.status, 400, "类别超过 20 字应被拒");
 });
 
 test("例外单步骤号越界被拒", async () => {
   const r = await apis.assoc("POST", "/api/projects/MP-2026-001/exceptions", { step_no: 9, reason: "x" });
   assert.equal(r.status, 400);
+});
+
+test("例外单自定义步骤：写了事项才收，空事项被拒", async () => {
+  // step_no = 0 是「不属于 6 步中任何一步」，必须自带一个事项名，
+  // 否则审批人看到「第 0 步」根本不知道要批什么
+  const noLabel = await apis.assoc("POST", "/api/projects/MP-2026-001/exceptions", { step_no: 0, reason: "专家临时换人" });
+  assert.equal(noLabel.status, 400, "自定义步骤不写事项应被拒");
+  const blank = await apis.assoc("POST", "/api/projects/MP-2026-001/exceptions", { step_no: 0, step_label: "   ", reason: "专家临时换人" });
+  assert.equal(blank.status, 400, "事项全是空格也应被拒");
+});
+
+test("合同类别：未填按名称推断，非法值被拒", async () => {
+  const auto = await apis.assoc("POST", "/api/contracts", {
+    pid: "MP-2026-001", name: "专家劳务协议补充", vendor: "某医学会", amount: 12000, status: "草稿"
+  });
+  assert.equal(auto.status, 200, JSON.stringify(auto.data));
+  assert.equal(auto.data.contract.category, "劳务专家", "「劳务」字样应推断为劳务专家");
+
+  const auto2 = await apis.assoc("POST", "/api/contracts", {
+    pid: "MP-2026-001", name: "直播平台与摄像服务", vendor: "某设备商", amount: 8000, status: "草稿"
+  });
+  assert.equal(auto2.data.contract.category, "设备技术");
+
+  const badCat = await apis.assoc("POST", "/api/contracts", {
+    pid: "MP-2026-001", name: "x", vendor: "y", amount: 100, status: "草稿", category: "随便写"
+  });
+  assert.equal(badCat.status, 400, "不在类别表里的值应被拒");
 });
 
 test("未知流转动作返回 ILLEGAL_TRANSITION", async () => {

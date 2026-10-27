@@ -32,6 +32,14 @@ function agendaItems(p) {
 
 const matsOf = (d, kind) => (d.materials || []).filter((m) => m.kind === kind);
 
+/**
+ * 例外单「步骤」列的显示文本。
+ * step_no = 0 表示「不属于 6 步中任何一步」，显示提交人自己写的事项名；
+ * 直接拼「第 0 步」会让人以为流程里真有第 0 步。
+ */
+export const exStepLabel = (e) =>
+  Number(e.step_no) === 0 ? esc(e.step_label || "其他事项") : `第 ${e.step_no} 步`;
+
 function matList(list, emptyText) {
   if (!list.length) return `<div class="dhint">${emptyText}</div>`;
   return `<ul class="dlist">${list.map((m) => `<li>
@@ -174,20 +182,28 @@ export function stepBody(d, no) {
   if (no === 5) {
     const labor = matsOf(d, "劳务表");
     const reimb = (d.payments || []).filter((y) => y.type === "个人报销");
-    const contracts = d.contracts || [];
+    // 这一步核的是「劳务与专家费」，只该看劳务专家类合同。
+    // 以前这里直接拿 d.contracts（项目下全部合同），于是 MP-2026-012 的
+    // 「会场租赁及餐饮」被摆进了劳务核对里 —— 看着就像专家费走了场地合同。
+    // 其余类别不是漏了，是归第 6 步的全量对照管。
+    const all = d.contracts || [];
+    const contracts = all.filter((c) => c.category === "劳务专家");
+    const others = all.length - contracts.length;
     return `
       <div class="dsec"><h4>劳务表材料（${labor.length} 份）</h4>${matList(labor, "尚未登记「劳务表」材料")}</div>
-      <div class="dsec"><h4>合同清单（${contracts.length} 份）</h4>
+      <div class="dsec"><h4>劳务 / 专家类合同（${contracts.length} 份）</h4>
         ${contracts.length
           ? table([{ t: "编号", w: "104px" }, { t: "合同名称" }, { t: "签约方", w: "140px" },
                    { t: "金额", w: "96px", cls: "num" }, { t: "状态", w: "72px" }],
             contracts.map((c) => ({ c: [`<span class="mono">${c.id}</span>`, esc(c.name), esc(c.vendor),
               fmt(c.amount), badge(c.status)] })))
-          : `<div class="dhint">该项目还没有录入合同</div>`}
+          : `<div class="dhint">该项目没有「劳务专家」类合同${others ? `（另有 ${others} 份其它类别合同，见第 6 步全量对照）` : ""}。
+             专家费若走个人报销，以下面的付款记录为准。</div>`}
       </div>
       <div class="dsec"><h4>专家费 / 个人报销类付款（${reimb.length} 笔）</h4>${payRows(reimb)}</div>
       <div class="dchk">核对要点：<b>劳务表签字是否齐全</b>（每位专家都要签），
-        专家费金额是否与合同或劳务表约定一致，且与上面的付款记录能对上。</div>`;
+        专家费金额是否与上面的劳务合同或劳务表约定一致，且与付款记录能对上。
+        ${others ? `本项目另有 ${others} 份非劳务类合同，不在这一步核，第 6 步会一并做金额对照。` : ""}</div>`;
   }
 
   if (no === 6) {

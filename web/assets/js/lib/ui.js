@@ -73,6 +73,19 @@ export function modal({ title, body, footer = "", width = "" }) {
     </div>`;
   root.classList.add("open");
   root.querySelectorAll("[data-close]").forEach((el) => el.addEventListener("click", closeModal));
+  // 「自定义填入」下拉：只有选中自定义项时才露出旁边的文本框。
+  // 放在 modal 里统一绑定，调用方不用各自记着处理。
+  root.querySelectorAll('select[data-custom="1"]').forEach((sel) => {
+    const box = root.querySelector(`[name="${sel.name}__custom"]`);
+    if (!box) return;
+    const sync = (focus) => {
+      const on = sel.value === "__custom__";
+      box.style.display = on ? "" : "none";
+      if (on && focus) box.focus();
+    };
+    sel.addEventListener("change", () => sync(true));
+    sync(false);
+  });
   return root;
 }
 
@@ -132,11 +145,19 @@ export function formHtml(fields, values = {}) {
     const req = f.req ? '<span class="req">*</span>' : "";
     let input = "";
     if (f.t === "select") {
-      input = `<select name="${f.k}">${(f.opts || []).map((o) => {
+      // custom: 下拉里多一项「自定义填入…」，选中后旁边露出一个文本框。
+      // 用在下拉选项永远列不全的字段上（材料类别、例外步骤）——
+      // 与其逼人从 8 个选项里挑一个最接近的，不如让他直接写。
+      const isCustom = v === "__custom__";
+      input = `<select name="${f.k}"${f.custom ? ' data-custom="1"' : ""}>${(f.opts || []).map((o) => {
         const val = typeof o === "string" ? o : o.v;
         const lab = typeof o === "string" ? o : o.l;
         return `<option value="${esc(val)}"${String(v) === String(val) ? " selected" : ""}>${esc(lab)}</option>`;
-      }).join("")}</select>`;
+      }).join("")}${f.custom ? `<option value="__custom__"${isCustom ? " selected" : ""}>✎ 自定义填入…</option>` : ""}</select>`;
+      if (f.custom) {
+        input += `<input type="text" name="${f.k}__custom" value="${esc(values[f.k + "__custom"] ?? "")}"
+          placeholder="${esc(f.ph || "直接填写")}"${isCustom ? "" : ' style="display:none"'}>`;
+      }
     } else if (f.t === "textarea") {
       input = `<textarea name="${f.k}" rows="${f.rows || 3}" placeholder="${esc(f.ph || "")}">${esc(v)}</textarea>`;
     } else if (f.t === "file") {
@@ -155,7 +176,15 @@ export function readForm(root) {
   const out = {};
   root.querySelectorAll("[name]").forEach((el) => {
     if (el.type === "file") return;
+    // 自定义文本框单独处理：只有对应下拉真的选了「自定义填入」时，它的值才算数，
+    // 否则用户先在框里打了字又改回标准选项，这个残留值会顶掉下拉的选择。
+    if (el.name.endsWith("__custom")) return;
     out[el.name] = el.value.trim();
+  });
+  root.querySelectorAll('select[data-custom="1"]').forEach((sel) => {
+    if (sel.value !== "__custom__") return;
+    const box = root.querySelector(`[name="${sel.name}__custom"]`);
+    out[sel.name] = box ? box.value.trim() : "";
   });
   return out;
 }
@@ -167,8 +196,14 @@ export function validate(root, fields) {
     if (!f.req) continue;
     const el = root.querySelector(`[name="${f.k}"]`);
     if (!el) continue;
-    if (!String(el.value || "").trim()) {
-      el.closest(".fld")?.classList.add("err");
+    let val = String(el.value || "").trim();
+    let target = el;
+    if (f.custom && val === "__custom__") {
+      const box = root.querySelector(`[name="${f.k}__custom"]`);
+      if (box) { val = String(box.value || "").trim(); target = box; }
+    }
+    if (!val) {
+      target.closest(".fld")?.classList.add("err");
       ok = false;
     }
   }

@@ -243,7 +243,12 @@ const closeModal = async (page) => {
     check("弹窗标题正确", /第 5 步 · 劳务与专家费核对/.test(await modalTitle(page)));
     body = await modalBody(page);
     check("列出劳务表材料", /劳务表材料/.test(body));
-    check("列出合同清单与金额", /合同清单（2 份）/.test(body) && /¥128,000/.test(body));
+    // V1.2.13：第 5 步只列「劳务专家」类合同。
+    // MP-2026-003 有两份合同：HT-2026-004 会场租赁（场地餐饮）、HT-2026-005 专家劳务协议。
+    // 以前两份都列，场地租赁会混进劳务核对里；现在只该出现后者。
+    check("只列劳务专家类合同（1 份 ¥36,000）",
+      /劳务 \/ 专家类合同（1 份）/.test(body) && /¥36,000/.test(body), body.slice(0, 260));
+    check("场地租赁合同不混进第 5 步", !/会场租赁/.test(body));
     check("列出个人报销类付款", /个人报销类付款/.test(body));
 
     console.log("\n[8] 第 6 步：发票与合同金额核对");

@@ -223,7 +223,7 @@ const EXPORTS = {
   },
   contracts: {
     module: "筹备管理", file: "合同台账",
-    headers: ["合同编号", "项目", "合同名称", "签约方", "金额", "签署日期", "状态"],
+    headers: ["合同编号", "项目", "合同名称", "类别", "签约方", "金额", "签署日期", "状态"],
     sql: (u) => {
       const { sql, params } = scopeFilter(u);
       return {
@@ -231,7 +231,7 @@ const EXPORTS = {
         params
       };
     },
-    map: (r) => [r.id, r.pname, r.name, r.vendor, r.amount, r.sign_date, r.status]
+    map: (r) => [r.id, r.pname, r.name, r.category || "", r.vendor, r.amount, r.sign_date, r.status]
   },
   verify: {
     module: "会后核销", file: "核销明细",

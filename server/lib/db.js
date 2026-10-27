@@ -105,6 +105,7 @@ CREATE TABLE IF NOT EXISTS contracts (
   amount      REAL NOT NULL DEFAULT 0,
   sign_date   TEXT,
   status      TEXT NOT NULL DEFAULT '草稿',
+  category    TEXT,
   remark      TEXT,
   created_by  INTEGER,
   created_at  TEXT NOT NULL,
@@ -146,6 +147,7 @@ CREATE TABLE IF NOT EXISTS exceptions (
   id          TEXT PRIMARY KEY,
   pid         TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
   step_no     INTEGER NOT NULL,
+  step_label  TEXT,
   reason      TEXT NOT NULL,
   status      TEXT NOT NULL DEFAULT '待审批',
   created_by  TEXT,
@@ -429,6 +431,25 @@ function migrate() {
   // V1.2.12：变更单的「落账人」。审批通过只是批准，真正改预算要另一个人执行（双人复核）
   addColumn("approvals", "executed_by", "executed_by TEXT");
   addColumn("approvals", "executed_at", "executed_at TEXT");
+  // V1.2.13：合同类别 —— 核销第 5 步「劳务与专家费核对」只该看劳务专家类合同，
+  // 以前没有这个字段，只能把项目下所有合同都列出来，场地餐饮合同会混进劳务核对里。
+  addColumn("contracts", "category", "category TEXT");
+  // V1.2.13：例外单自定义步骤名 —— 不属于 6 步中任何一步的问题也能登记（step_no = 0）
+  addColumn("exceptions", "step_label", "step_label TEXT");
+
+  // 老库升级：历史合同按名称补一个初始类别，不然第 5 步会一份都筛不出来，
+  // 看上去像「这个项目没签劳务合同」—— 这比原来的「全都列出来」更容易误导人。
+  // 只补空的，不覆盖人工改过的值。
+  try {
+    const { guessContractCategory } = require("./constants");
+    const need = db.prepare("SELECT id, name FROM contracts WHERE category IS NULL OR category = ''").all();
+    if (need.length) {
+      const upd = db.prepare("UPDATE contracts SET category = ? WHERE id = ?");
+      for (const c of need) upd.run(guessContractCategory(c.name), c.id);
+    }
+  } catch {
+    /* 旧库没有 contracts 表，忽略 */
+  }
 
   // 附件查询走 file_key，补索引（旧库没有）
   try {

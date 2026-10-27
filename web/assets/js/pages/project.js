@@ -3,7 +3,7 @@ import {
   badge, confirmBox, esc, formHtml, kv, modal, money, panel, promptBox, readForm, table, timeline, toast, validate, yuan
 } from "../lib/ui.js";
 import { bindFilePicker, fileUrl } from "../lib/upload.js";
-import { openStepDetail } from "../lib/verify-detail.js";
+import { exStepLabel, openStepDetail } from "../lib/verify-detail.js";
 
 const ORDER = ["草稿", "待审批", "已立项", "筹备中", "执行中", "待核销", "已核销", "已结算", "已归档"];
 const PAYABLE = ["已核销"];
@@ -172,7 +172,9 @@ function tabContracts(d, p) {
   return panel("合同台账", `${d.contracts.length} 份${locked ? " · 已封存" : ""}`, table(
     [{ t: "合同编号", w: "112px" }, { t: "合同名称" }, { t: "签约方", w: "150px" }, { t: "金额", w: "100px", cls: "num" }, { t: "签署日期", w: "100px" }, { t: "状态", w: "80px" }, { t: "原件", w: "70px" }, { t: "操作", w: "96px" }],
     d.contracts.map((c) => ({
-      c: [`<span class="mono">${c.id}</span>`, esc(c.name), esc(c.vendor), `¥${money(c.amount)}`,
+      c: [`<span class="mono">${c.id}</span>`,
+        `${esc(c.name)}<span class="cat">${esc(c.category || "未分类")}</span>`,
+        esc(c.vendor), `¥${money(c.amount)}`,
         `<span class="mono">${esc(c.sign_date || "—")}</span>`, badge(c.status),
         c.file_key
           ? (c.file_mime === "application/pdf"
@@ -243,7 +245,7 @@ function tabVerify(d, p) {
   ${panel("例外单", `${v.exceptions.length} 张`, table(
     [{ t: "例外单号", w: "112px" }, { t: "步骤", w: "52px" }, { t: "原因" }, { t: "提交人", w: "76px" }, { t: "状态", w: "80px" }, { t: "审批人", w: "76px" }, { t: "操作", w: "80px" }],
     v.exceptions.map((e) => ({
-      c: [`<span class="mono">${e.id}</span>`, `第 ${e.step_no} 步`, esc(e.reason), esc(e.created_by || ""), badge(e.status), esc(e.approved_by || "—"),
+      c: [`<span class="mono">${e.id}</span>`, exStepLabel(e), esc(e.reason), esc(e.created_by || ""), badge(e.status), esc(e.approved_by || "—"),
         e.status === "待审批" && can("verify:exception_approve")
           ? `<div class="tacts"><button class="link" data-ex-ok="${e.id}">通过</button><button class="link danger" data-ex-no="${e.id}">驳回</button></div>`
           : "—"]
@@ -401,6 +403,8 @@ function openContract(root, pid) {
     { k: "name", l: "合同名称", req: 1, full: 1 },
     { k: "vendor", l: "签约方", req: 1 },
     { k: "amount", l: "合同金额（元）", t: "number", req: 1 },
+    { k: "category", l: "合同类别", t: "select", opts: state.meta.contractCategories || [],
+      tip: "决定核销第 5 步「劳务与专家费核对」列不列这一份：只有「劳务专家」类会被列进去" },
     { k: "sign_date", l: "签署日期", t: "date" },
     { k: "status", l: "状态", t: "select", opts: ["草稿", "待签署"] },
     {
@@ -483,7 +487,11 @@ function openPay(root, pid, d) {
 
 function openException(root, pid, d) {
   const fields = [
-    { k: "step_no", l: "对应步骤", t: "select", req: 1, opts: d.verification.steps.map((s) => ({ v: s.no, l: `第 ${s.no} 步 · ${s.name}` })) },
+    {
+      k: "step_no", l: "对应步骤", t: "select", req: 1, custom: 1, ph: "如：专家临时换人 / 场地变更",
+      opts: d.verification.steps.map((s) => ({ v: s.no, l: `第 ${s.no} 步 · ${s.name}` })),
+      tip: "不属于上面 6 步的问题，选「自定义填入」写清具体事项。这类例外单照样要审批，批准后不再阻塞核销，但不会把某一步标成「已解例外」"
+    },
     { k: "reason", l: "例外原因", t: "textarea", req: 1, full: 1, rows: 3 }
   ];
   const m = modal({ title: "提交例外单", body: `<div class="hint" style="margin-bottom:12px">例外单需财务审批通过后，对应步骤记为「已解例外」，方可继续核销。</div>${formHtml(fields)}`,
@@ -492,7 +500,17 @@ function openException(root, pid, d) {
   m.querySelector('[data-x="1"]').onclick = async () => {
     if (!validate(m, fields)) return;
     try {
-      const r = await api.post(`/api/projects/${pid}/exceptions`, readForm(m));
+      const v = readForm(m);
+      // readForm 已经把「自定义填入」的下拉值替换成文本框里的内容，
+      // 所以这里拿到的是人写的事项名而不是 "__custom__"。
+      // 步骤是数字字段：不是 1~6 就说明选了自定义，转成 step_no = 0 + step_label。
+      const no = Number(v.step_no);
+      if (!(no >= 1 && no <= 6)) {
+        v.step_label = String(v.step_no || "").trim();
+        v.step_no = 0;
+      }
+      delete v.step_no__custom;
+      const r = await api.post(`/api/projects/${pid}/exceptions`, v);
       toast(r.message, "ok");
       m.classList.remove("open");
       await refresh(root, pid);
@@ -502,7 +520,9 @@ function openException(root, pid, d) {
 
 function openMaterial(root, pid) {
   const fields = [
-    { k: "kind", l: "材料类别", t: "select", req: 1, opts: state.meta.materialKinds },
+    { k: "kind", l: "材料类别", t: "select", req: 1, custom: 1, ph: "如：会议纪要 / 专家简历",
+      opts: state.meta.materialKinds,
+      tip: "8 类是归档必备，建议优先选；确实不属于这 8 类的，选「自定义填入」自己写，能登记能查，但不顶替必备的那 8 类" },
     { k: "name", l: "材料名称", req: 1, ph: "如：签到表-终版.pdf" },
     { k: "version", l: "版本", v: "v1" },
     {

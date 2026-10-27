@@ -60,7 +60,8 @@ export async function render(root) {
          { t: "原件", w: "70px" }, { t: "操作", w: "96px" }],
         rows.map((r) => ({
           c: [`<span class="mono">${r.id}</span>`, `<a class="link" data-go="projects/${r.pid}">${esc(r.pname)}</a>`,
-            esc(r.name), esc(r.vendor), `¥${money(r.amount)}`, `<span class="mono">${esc(r.sign_date || "—")}</span>`,
+            `${esc(r.name)}<span class="cat">${esc(r.category || "未分类")}</span>`,
+            esc(r.vendor), `¥${money(r.amount)}`, `<span class="mono">${esc(r.sign_date || "—")}</span>`,
             badge(r.status), fileCell(r), flowBtn(r)]
         })), { empty: "暂无合同" })}
     </div>`;
@@ -98,6 +99,8 @@ function openCreate(root, projects) {
     { k: "name", l: "合同名称", req: 1, full: 1 },
     { k: "vendor", l: "签约方", req: 1 },
     { k: "amount", l: "合同金额（元）", t: "number", req: 1 },
+    { k: "category", l: "合同类别", t: "select", opts: state.meta.contractCategories || [],
+      tip: "核销第 5 步「劳务与专家费核对」只列「劳务专家」类，其余类别在第 6 步全量对照里核" },
     { k: "sign_date", l: "签署日期", t: "date" },
     // 录入只能选草稿 / 待签署：已签署必须走「确认签署」，
     // 否则两步流转等于没做，台账上的「已签署金额」也没有可信来源

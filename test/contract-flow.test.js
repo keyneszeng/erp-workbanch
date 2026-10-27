@@ -18,8 +18,8 @@ const path = require("node:path");
 
 const PORT = 8816;
 const BASE = `http://127.0.0.1:${PORT}`;
-const DB = path.join(__dirname, "..", "data", "test16.db");
-const UP = path.join(__dirname, "..", "data", "test16-uploads");
+const DB = path.join(__dirname, "..", "data", "test22.db");
+const UP = path.join(__dirname, "..", "data", "test22-uploads");
 let proc;
 let admin, assoc, exec, finance;
 let seq = 0;

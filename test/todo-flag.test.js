@@ -17,7 +17,7 @@ const { spawn } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 
-const PORT = 8815;
+const PORT = 8822;
 const BASE = `http://127.0.0.1:${PORT}`;
 const DB = path.join(__dirname, "..", "data", "test17.db");
 const UP = path.join(__dirname, "..", "data", "test17-uploads");

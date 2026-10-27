@@ -1,6 +1,6 @@
 import { api, can, state } from "../lib/api.js";
 import { badge, confirmBox, esc, modal, money, panel, readForm, table, toast } from "../lib/ui.js";
-import { openStepDetail } from "../lib/verify-detail.js";
+import { exStepLabel, openStepDetail } from "../lib/verify-detail.js";
 
 export async function render(root, params) {
   if (params && params[0]) return renderOne(root, params[0]);
@@ -92,7 +92,7 @@ async function renderOne(root, pid) {
 
   ${panel("例外单", `${v.exceptions.length} 张`, table(
     [{ t: "例外单号", w: "112px" }, { t: "步骤", w: "60px" }, { t: "原因" }, { t: "状态", w: "80px" }, { t: "审批人", w: "80px" }, { t: "操作", w: "110px" }],
-    v.exceptions.map((e) => ({ c: [`<span class="mono">${e.id}</span>`, `第 ${e.step_no} 步`, esc(e.reason), badge(e.status), esc(e.approved_by || "—"),
+    v.exceptions.map((e) => ({ c: [`<span class="mono">${e.id}</span>`, exStepLabel(e), esc(e.reason), badge(e.status), esc(e.approved_by || "—"),
       e.status === "待审批" && can("verify:exception_approve")
         ? `<div class="tacts"><button class="link" data-ex="${e.id}" data-ok="1">通过</button><button class="link danger" data-ex="${e.id}" data-ok="0">驳回</button></div>` : "—"] })),
     { empty: "无例外单" }))}

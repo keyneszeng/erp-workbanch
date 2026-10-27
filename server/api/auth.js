@@ -7,7 +7,7 @@ const {
 const { sendJson, cookieHeader } = require("../lib/http");
 const { logAudit } = require("../lib/audit");
 const { ROLES, MODULES, STATUSES, isSuper, can, PERMS } = require("../lib/rbac");
-const { VERIFY_STEPS, MATERIAL_KINDS, ASSOCS, FORMS, DEPTS, PAYMENT_TYPES, FLOW, STATUS_DESC } = require("../lib/constants");
+const { VERIFY_STEPS, MATERIAL_KINDS, CONTRACT_CATEGORIES, ASSOCS, FORMS, DEPTS, PAYMENT_TYPES, FLOW, STATUS_DESC } = require("../lib/constants");
 const { bad, HttpError } = require("../lib/util");
 
 /** 常见弱口令：长度够但一眼能猜到的，直接拦掉 */
@@ -108,6 +108,7 @@ function register(router) {
       flow: FLOW,
       verifySteps: VERIFY_STEPS,
       materialKinds: MATERIAL_KINDS,
+      contractCategories: CONTRACT_CATEGORIES,
       assocs: ASSOCS,
       forms: FORMS,
       depts: DEPTS,

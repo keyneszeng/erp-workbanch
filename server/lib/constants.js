@@ -26,6 +26,30 @@ const MATERIAL_KINDS = [
   "劳务表", "发票", "现场照片"
 ];
 
+/**
+ * 合同类别。
+ *
+ * 核销第 5 步核的是「劳务与专家费」，第 6 步核的是「发票 = 合同 = 付款」的全量。
+ * 以前合同没有类别，第 5 步只能把项目下所有合同都列出来 —— 于是 MP-2026-012
+ * 那份「会场租赁及餐饮」被摆到了劳务核对里，看着就像专家费走了场地合同。
+ * 类别是给「这一步该核哪几份合同」用的，不是装饰。
+ */
+const CONTRACT_CATEGORIES = ["场地餐饮", "物料搭建", "劳务专家", "设备技术", "其他"];
+
+/**
+ * 按合同名称猜类别 —— 只用于两处：老库升级时给历史数据补一个初始值，
+ * 以及新录入时没选类别（不强制选，避免为了填表硬猜）。
+ * 猜错不致命：类别只影响第 5 步列哪几份，随时可在合同台账改。
+ */
+function guessContractCategory(name) {
+  const s = String(name || "");
+  if (/劳务|专家|讲课|授课|咨询|讲者|主持/.test(s)) return "劳务专家";
+  if (/场地|会场|餐饮|住宿|酒店|会议中心|宴会/.test(s)) return "场地餐饮";
+  if (/物料|制作|视觉|搭建|展板|印刷|礼品|广告/.test(s)) return "物料搭建";
+  if (/设备|直播|平台|技术|影像|摄影|摄像|音响|灯光|系统/.test(s)) return "设备技术";
+  return "其他";
+}
+
 /** 9 状态 8 流转 */
 const FLOW = [
   { from: "草稿", action: "submit", to: "待审批", label: "提交立项", perm: "project:create" },
@@ -93,4 +117,4 @@ const DEMAND_TEMPLATE = {
 
 const DEMAND_NEED_OPTIONS = ["需要", "不需要"];
 
-module.exports = { ASSOCS, FORMS, DEPTS, PAYMENT_TYPES, VERIFY_STEPS, MATERIAL_KINDS, FLOW, STATUS_DESC, DEMAND_GROUPS, DEMAND_TEMPLATE, DEMAND_NEED_OPTIONS };
+module.exports = { ASSOCS, FORMS, DEPTS, PAYMENT_TYPES, VERIFY_STEPS, MATERIAL_KINDS, CONTRACT_CATEGORIES, guessContractCategory, FLOW, STATUS_DESC, DEMAND_GROUPS, DEMAND_TEMPLATE, DEMAND_NEED_OPTIONS };

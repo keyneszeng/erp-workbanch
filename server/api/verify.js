@@ -134,11 +134,21 @@ function register(router) {
     const p = getProject(ctx.params.id);
     assertProjectVisible(ctx.user, p);
     assertCan(ctx.user, "verify:exception", "当前角色无例外单提交权限");
-    const { step_no, reason } = ctx.body || {};
+    const { step_no, reason, step_label } = ctx.body || {};
     // 参数校验放在阶段校验之前：参数本身就是错的（步骤越界、原因超长）应当直接 400，
     // 不该被「项目阶段不对」的 409 盖掉 —— 否则前端拿到的错误原因会误导人。
+    //
+    // step_no = 0 是「不属于 6 步中任何一步」的整体性问题（如专家临时换人、场地变更），
+    // 由人自己写一个事项名。它照样要审批，批完就不再阻塞核销门禁；
+    // 区别只是不会把某一步标成「已解例外」—— 因为它本来就不针对某一步。
     const no = Number(step_no);
-    if (!(no >= 1 && no <= 6)) throw bad("例外步骤编号应为 1~6");
+    const label = String(step_label || "").trim();
+    if (no === 0) {
+      if (!label) throw bad("选「其他」时必须填写具体事项");
+      if (label.length > 60) throw bad(`具体事项不能超过 60 字（当前 ${label.length} 字）`);
+    } else if (!(no >= 1 && no <= 6)) {
+      throw bad("例外步骤应为第 1~6 步，或选「其他」自行填写具体事项");
+    }
     if (!String(reason || "").trim()) throw bad("必须说明例外原因");
     if (String(reason).trim().length > 500) throw bad(`例外原因不能超过 500 字（当前 ${String(reason).trim().length} 字）`);
 
@@ -155,13 +165,14 @@ function register(router) {
     }
     const at = now();
     const id = nextId(db, "exceptions", "id", "EX");
-    db.prepare("INSERT INTO exceptions (id,pid,step_no,reason,status,created_by,created_at) VALUES (?,?,?,?,?,?,?)")
-      .run(id, p.id, no, String(reason).trim(), "待审批", ctx.user.name, at);
+    db.prepare("INSERT INTO exceptions (id,pid,step_no,step_label,reason,status,created_by,created_at) VALUES (?,?,?,?,?,?,?,?)")
+      .run(id, p.id, no, no === 0 ? label : null, String(reason).trim(), "待审批", ctx.user.name, at);
+    const exTitle = no === 0 ? label : `第 ${no} 步`;
     db.prepare(
       "INSERT INTO approvals (id,type,title,pid,ref_id,amount,by_user,sla,status,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)"
-    ).run(nextId(db, "approvals", "id", "AP"), "例外单审批", `${id} ${String(reason).trim().slice(0, 24)}`, p.id, id, 0,
+    ).run(nextId(db, "approvals", "id", "AP"), "例外单审批", `${id} ${exTitle}：${String(reason).trim().slice(0, 20)}`, p.id, id, 0,
       ctx.user.name, "2 个工作日", "待审批", at);
-    logAudit({ user: ctx.user, module: "会后核销", action: "例外单", target: p.id, detail: `${id}：${reason}`, ip: ctx.ip });
+    logAudit({ user: ctx.user, module: "会后核销", action: "例外单", target: p.id, detail: `${id}（${exTitle}）：${reason}`, ip: ctx.ip });
     return { exceptions: verification(p.id).exceptions, message: `例外单 ${id} 已提交，等待财务审批` };
   });
 
@@ -246,8 +257,14 @@ function register(router) {
     assertProjectVisible(ctx.user, p);
     assertCan(ctx.user, "material:write", "当前角色无材料登记权限");
     if (p.status === "已归档") throw conflict("项目已归档，材料清单已封存，不可再登记", "ARCHIVED", { status: p.status });
-    const { kind, name, version, file_key, file_name, file_size, file_mime } = ctx.body || {};
-    if (!MATERIAL_KINDS.includes(kind)) throw bad(`材料类别必须是：${MATERIAL_KINDS.join(" / ")}`);
+    const { kind: rawKind, name, version, file_key, file_name, file_size, file_mime } = ctx.body || {};
+    // 8 类是归档必备，必须用标准名，齐备校验只认这 8 个；
+    // 但实际卷宗里还有会议纪要、专家简历、批文这类东西，以前一律被白名单挡在门外，
+    // 只能硬塞进 8 类里凑数，反而让「齐备」变得不可信。所以允许自定义类别：
+    // 自定义的能登记、能查，但不顶替必备的 8 类。
+    const kind = String(rawKind || "").trim();
+    if (!kind) throw bad("请选择或填写材料类别");
+    if (kind.length > 20) throw bad(`材料类别不能超过 20 字（当前 ${kind.length} 字）`);
     if (!String(name || "").trim()) throw bad("请填写材料名称");
     if (String(name).trim().length > 120) throw bad("材料名称不能超过 120 字");
 

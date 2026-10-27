@@ -58,7 +58,9 @@ export async function render(root) {
 function openAdd(root, projects, kinds) {
   const fields = [
     { k: "pid", l: "所属项目", t: "select", req: 1, opts: projects.map((p) => ({ v: p.id, l: `${p.id} ${p.name}` })) },
-    { k: "kind", l: "材料类别", t: "select", req: 1, opts: kinds },
+    { k: "kind", l: "材料类别", t: "select", req: 1, custom: 1, ph: "如：会议纪要 / 专家简历",
+      opts: kinds,
+      tip: "8 类是归档必备，建议优先选；确实不属于这 8 类的，选「自定义填入」自己写，能登记能查，但不顶替必备的那 8 类" },
     { k: "name", l: "材料名称", req: 1, ph: "如：签到表-终版.pdf" },
     { k: "version", l: "版本", v: "v1" },
     {

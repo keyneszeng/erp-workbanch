@@ -4,7 +4,7 @@ const { now, today, nextId, bad, notFound, conflict, forbidden, cents, yuan } = 
 const { assertCan, assertProjectVisible, scopeFilter, can, isSuper } = require("../lib/rbac");
 const { logAudit } = require("../lib/audit");
 const { getProject, verification, committed } = require("../lib/workflow");
-const { PAYMENT_TYPES } = require("../lib/constants");
+const { PAYMENT_TYPES, CONTRACT_CATEGORIES, guessContractCategory } = require("../lib/constants");
 const { readPaging, countOf } = require("../lib/paginate");
 const { transition } = require("../lib/workflow");
 
@@ -86,6 +86,14 @@ function register(router) {
     const remark = String(b.remark || "");
     if (remark.length > CONTRACT_MAX.remark) throw bad(`备注不能超过 ${CONTRACT_MAX.remark} 字`);
 
+    // 合同类别：决定核销第 5 步「劳务与专家费核对」列出哪几份。
+    // 不强制选 —— 填表时硬猜类别只会逼人随便选一个；没选就按名称推断，之后可在台账改。
+    let category = String(b.category || "").trim();
+    if (category && !CONTRACT_CATEGORIES.includes(category)) {
+      throw bad(`合同类别必须是：${CONTRACT_CATEGORIES.join(" / ")}`);
+    }
+    if (!category) category = guessContractCategory(b.name);
+
     // 合同原件（扫描件 PDF / 拍照件）：只接受上传接口发下来的 key 格式，
     // 防止把任意字符串写进 file_key 后拼到下载 URL 上。
     let fk = null, fname = null, fsize = null, fmime = null;
@@ -98,11 +106,11 @@ function register(router) {
     }
 
     const id = nextId(db, "contracts", "id", "HT");
-    db.prepare("INSERT INTO contracts (id,pid,name,vendor,amount,sign_date,status,remark,created_by,created_at,file_key,file_name,file_size,file_mime) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
-      .run(id, p.id, b.name, b.vendor, amount, signDate, st, remark, ctx.user.id, now(), fk, fname, fsize, fmime);
+    db.prepare("INSERT INTO contracts (id,pid,name,vendor,amount,sign_date,status,category,remark,created_by,created_at,file_key,file_name,file_size,file_mime) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
+      .run(id, p.id, b.name, b.vendor, amount, signDate, st, category, remark, ctx.user.id, now(), fk, fname, fsize, fmime);
     logAudit({
       user: ctx.user, module: "筹备管理", action: "合同录入", target: p.id,
-      detail: `${id} ${b.name} / ${b.vendor} / ¥${amount.toLocaleString("zh-CN")}${fk ? "（含原件）" : ""}`, ip: ctx.ip
+      detail: `${id} ${b.name} / ${b.vendor} / ${category} / ¥${amount.toLocaleString("zh-CN")}${fk ? "（含原件）" : ""}`, ip: ctx.ip
     });
 
     // 合同总额超预算是要预警的业务事实（不是错误，可能确需超支）。
