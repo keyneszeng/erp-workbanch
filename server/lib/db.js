@@ -435,6 +435,21 @@ function migrate() {
     /* 索引已存在 */
   }
 
+  // V1.2.7：需求条目的「预算归属」改成「预算金额」，旧值里的文字要清掉
+  // 老数据这一列存的是「会务预算」这类归属说明，不是钱数。
+  // 字段语义换了以后，它在金额列里既不能合计也不能对照，留着只会误导。
+  // GLOB 里 [^0-9.] 表示「含有数字和小数点以外的字符」—— 那一定不是合法金额。
+  try {
+    db.exec(
+      `UPDATE demand_items
+          SET budget = ''
+        WHERE budget IS NOT NULL AND budget <> ''
+          AND (budget GLOB '*[^0-9.]*' OR budget GLOB '*.*.*')`
+    );
+  } catch {
+    /* 旧库没有 demand_items 表，忽略 */
+  }
+
   // V1.2.6：项目负责人改为按 user_id 认人
   // 原来 exec / finance 的数据范围是 `p.owner = ?`（比对姓名），
   // 于是新建一个同名账号就能看到别人名下的项目；负责人改名后又把自己名下的项目全丢了。
