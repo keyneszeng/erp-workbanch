@@ -461,6 +461,7 @@ Serverless 每个实例的 `/tmp` 独立，会话表只能在本实例查到。�
 | `npm run test:cf`（生产用的 DO SQLite） | 310/310 |
 | 新增服务端测试 | `test/v1213.test.js` 9 项 |
 | 新增 UI 定点（真实 Chrome） | `test/ui/v1213.js` 21 项 |
+| 线上只读验证（不改生产数据） | `test/ui/cf-v1213.js` 17 项 |
 | 回归 | `verify-detail` 52 项（第 5 步断言改成新口径） |
 
 `test/matrix.test.js` 里「材料类别非法被拒」改写成「自定义可登记但不顶替 8 类」——
