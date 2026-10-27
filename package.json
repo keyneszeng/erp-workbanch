@@ -27,7 +27,8 @@
     "test:ui:change": "node test/ui/change-flow.js",
     "test:ui:cf-change": "node test/ui/cf-change.js",
     "test:ui:v1213": "node test/ui/v1213.js",
-    "test:ui:cf-v1213": "node test/ui/cf-v1213.js"
+    "test:ui:cf-v1213": "node test/ui/cf-v1213.js",
+    "test:ui:cf-v1214": "node test/ui/cf-v1214.js"
   },
   "dependencies": {},
   "devDependencies": {}
