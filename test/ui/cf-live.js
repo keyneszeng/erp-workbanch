@@ -73,11 +73,26 @@ async function main() {
     return false;
   });
   check("点击「去填写」", opened);
-  await page.waitForTimeout(2500);
+  /**
+   * 线上首屏比本地慢，固定 sleep 会「取样取在半路上」——
+   * 之前 2500ms 时读到的是列表页，截图却在之后拍到了完整的单据，
+   * 表现成「截图明明有，断言却说没有」。改成等 DOM 稳定 + 轮询关键条目。
+   */
+  await page.waitForSelector("[data-panel]", { timeout: 20000 }).catch(() => {});
+  for (let i = 0; i < 20; i++) {
+    const t = await page.textContent("body");
+    if (t.includes("串场") && t.includes("车队服务")) break;
+    await page.waitForTimeout(500);
+  }
   const sheetText = await page.textContent("body");
-  const groups = ["设计", "制作", "现场执行", "其他"].filter((g) => sheetText.includes(g));
-  const sampleItems = ["串场", "议程A4单张", "控台", "代购酒水", "车队服务"].filter((i) => sheetText.includes(i));
-  check("四个分组齐全", groups.length === 4, groups.join("/"));
+  // 分组按实际渲染的 4 个面板数，不用「正文里出现这几个字」——
+  // 「其他」「设计」在导航和按钮文案里也可能出现，那种断言会假通过
+  const panelCount = await page.$$eval("[data-panel]", (els) => els.length).catch(() => 0);
+  // V1.2.7 起条目名是可编辑输入框，名字在 input.value 里，textContent 读不到
+  const inputVals = await page.$$eval("input,select", (els) => els.map((e) => e.value).join("|")).catch(() => "");
+  const allText = `${sheetText}|${inputVals}`;
+  const sampleItems = ["串场", "议程A4单张", "控台", "代购酒水", "车队服务"].filter((i) => allText.includes(i));
+  check("四个分组齐全", panelCount === 4, `${panelCount} 个面板`);
   check("模板条目渲染", sampleItems.length >= 4, sampleItems.join("/"));
   await page.screenshot({ path: "/tmp/cf-04-demand-sheet.png", fullPage: true });
   shots.push("/tmp/cf-04-demand-sheet.png");
