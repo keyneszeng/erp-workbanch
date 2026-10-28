@@ -30,6 +30,10 @@ jobs:
           node --check server/api/verify.js
           node --check server/api/system.js
           node --check server/api/files.js
+          node --check server/lib/archive-pdf.js
+          node --check server/api/archive-pdf.js
+      - name: Install PDF generation dependency
+        run: npm install --no-audit --no-fund
       - name: Run complete API regression
         run: npm test
       - name: Run additional QA authorization suite when present
