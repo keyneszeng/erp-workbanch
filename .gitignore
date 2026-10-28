@@ -12,3 +12,13 @@ node_modules/
 *.log
 .cf-dist/
 .wrangler/
+
+# 本地环境与临时产物（V1.2.20 梳理补齐）
+.env
+.env.*
+!.env.example
+*.tmp
+*.bak
+coverage/
+/tmp/
+.DS_Store?
