@@ -1,4 +1,5 @@
 import { api, can, state } from "../lib/api.js";
+import { canDownloadArchivePdf, bindArchivePdfButtons } from "../lib/archive-pdf.js";
 import { badge, bindPager, esc, formHtml, modal, money, pager, panel, readForm, table, toast, validate, yuan } from "../lib/ui.js";
 
 const TABS = [
@@ -89,7 +90,8 @@ async function load(root) {
         `<span class="mono">${p.id}</span>`,
         `<b style="font-size:12.8px">${esc(p.name)}</b>`,
         esc(p.assoc), esc(p.form), `<span class="mono">${esc(p.date)}</span>`,
-        state.user.role === "user" ? "—" : `¥${money(p.budget)}`, esc(p.owner || "—"), badge(p.status),
+        state.user.role === "user" ? "—" : `¥${money(p.budget)}`, esc(p.owner || "—"),
+        badge(p.status) + (canDownloadArchivePdf(p) ? ` <button class="link" data-archive-pdf="${p.id}">资料下载</button>` : ""),
         `<div class="tacts"><button class="link" data-go="projects/${p.id}">详情</button>
          ${p.status === "待核销" && can("verify:check") ? `<button class="link" data-go="verify/${p.id}">核销</button>` : ""}</div>`
       ]
@@ -97,9 +99,10 @@ async function load(root) {
     { empty: "没有符合条件的项目" }
   ) + pager(d, { unit: "场" });
   bindPager(list, (n) => { filter.page = n; load(root); });
+  bindArchivePdfButtons(list);
   list.querySelectorAll("[data-pid]").forEach((tr) => {
     tr.addEventListener("click", (e) => {
-      if (e.target.closest("[data-go]")) return;
+      if (e.target.closest("[data-go],[data-archive-pdf]")) return;
       location.hash = `#/projects/${tr.dataset.pid}`;
     });
   });

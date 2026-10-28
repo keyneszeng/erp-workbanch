@@ -1,4 +1,5 @@
 import { api, can } from "../lib/api.js";
+import { canDownloadArchivePdf, bindArchivePdfButtons } from "../lib/archive-pdf.js";
 import { badge, esc, money, panel, table, toast } from "../lib/ui.js";
 
 let q = "";
@@ -31,7 +32,8 @@ export async function render(root) {
             s ? `<span class="mono">${s.id}</span>` : "—",
             s ? `<span class="${s.profit >= 0 ? "pos" : "neg"}">¥${money(s.profit)}</span>` : "—",
             `<span class="mono">${esc(p.status_at || "")}</span>`,
-            `<button class="link" data-go="projects/${p.id}">查看</button>`] };
+            `<button class="link" data-go="projects/${p.id}">查看</button>` +
+              (canDownloadArchivePdf(p) ? ` <button class="link" data-archive-pdf="${p.id}">资料下载</button>` : "")] };
         }), { empty: "暂无归档项目" })}
     </div>
 
@@ -43,6 +45,7 @@ export async function render(root) {
         })), { empty: "没有待归档项目" })}
     </div>`;
 
+  bindArchivePdfButtons(root);
   root.querySelector("#q").addEventListener("input", (e) => { q = e.target.value.trim(); render(root); });
   const expBtn = root.querySelector("#exp");
   if (expBtn) expBtn.onclick = async () => {

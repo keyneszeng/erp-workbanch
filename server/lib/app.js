@@ -69,7 +69,8 @@ function buildRouter() {
     require("../api/finance"),
     require("../api/system"),
     require("../api/demand"),
-    require("../api/files")
+    require("../api/files"),
+    require("../api/archive-pdf")
   ];
   for (const mod of modules) mod.register(router);
   return router;
@@ -137,7 +138,8 @@ async function handle(req, res) {
 
     if (out && out.__file !== undefined) {
       const f = out.__file;
-      sendBinary(res, 200, f.buffer, { mime: f.mime, name: f.name });
+      sendBinary(res, 200, f.buffer, { mime: f.mime, name: f.name,
+        cache: f.cache || "private, max-age=86400", disposition: f.download ? "attachment" : "inline" });
       return;
     }
     if (out && out.__csv !== undefined) {
