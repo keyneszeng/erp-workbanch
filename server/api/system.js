@@ -302,6 +302,20 @@ function toFlag(v) {
   return null;
 }
 
+/**
+ * 重置前要清哪些表 —— preview 与 reset 共用一份，避免「弹窗说删 19 个项目、实际删 18 个」。
+ */
+const RESET_TABLES = ["projects", "users", "payments", "contracts", "settlements", "materials", "audit_logs"];
+const RESET_LABEL = {
+  projects: "项目", users: "账号", payments: "付款单", contracts: "合同",
+  settlements: "结算单", materials: "材料", audit_logs: "审计记录"
+};
+function resetSnapshot() {
+  const out = {};
+  for (const t of RESET_TABLES) out[t] = db.prepare(`SELECT COUNT(*) AS c FROM ${t}`).get().c;
+  return out;
+}
+
 function register(router) {
   router.get("/api/dashboard", async (ctx) => dashboard(ctx.user));
 
@@ -491,6 +505,22 @@ function register(router) {
    * 注意：清空后 sessions 表也没了，其他人会被踢下线（重新登录即可）。
    * 前端不放入口，只给运维用。
    */
+  /**
+   * 重置前的「将要删除什么」—— 弹窗靠它把账算清楚。
+   *
+   * 只给总管理员，且是只读：让老板在按下去之前先看见「18 个项目、14 笔付款」这些数字，
+   * 而不是点完才发现删多了。
+   */
+  router.get("/api/admin/reset-preview", async (ctx) => {
+    if (!isSuper(ctx.user)) throw forbidden("只有总管理员可以查看重置预览");
+    const counts = resetSnapshot();
+    return {
+      counts,
+      rows: RESET_TABLES.map((k) => ({ key: k, label: RESET_LABEL[k], count: counts[k] })),
+      total: Object.values(counts).reduce((a, b) => a + b, 0)
+    };
+  });
+
   router.post("/api/admin/reset", async (ctx) => {
     if (!isSuper(ctx.user)) throw forbidden("只有总管理员可以重置演示数据");
     const b = ctx.body || {};
@@ -502,9 +532,7 @@ function register(router) {
       );
     }
 
-    const tables = ["projects", "users", "payments", "contracts", "settlements", "materials", "audit_logs"];
-    const before = {};
-    for (const t of tables) before[t] = db.prepare(`SELECT COUNT(*) AS c FROM ${t}`).get().c;
+    const before = resetSnapshot();
 
     seed({ reset: true });
 

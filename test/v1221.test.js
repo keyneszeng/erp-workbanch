@@ -93,6 +93,24 @@ test("不传 confirm 一律拒绝，防止手滑", async () => {
   }
 });
 
+test("重置预览：只有总管理员能看，且数量与实际一致", async () => {
+  const deny = await assoc("GET", "/api/admin/reset-preview");
+  assert.equal(deny.status, 403, `assoc 应 403，实际 ${deny.status}`);
+
+  const a = client(await login("admin"));
+  const r = await a("GET", "/api/admin/reset-preview");
+  assert.equal(r.status, 200, JSON.stringify(r.data));
+  assert.equal(r.data.rows.length, 7, "预览应列出 7 类数据");
+  const sum = r.data.rows.reduce((acc, x) => acc + x.count, 0);
+  assert.equal(r.data.total, sum, "total 应等于各行之和");
+
+  // 预览的数字必须和真删的一致（同一个 resetSnapshot，防两处口径漂移）
+  const projects = await a("GET", "/api/projects?size=200");
+  const row = r.data.rows.find((x) => x.key === "projects");
+  assert.equal(row.count, projects.data.rows.length, "预览的项目数应等于实际项目数");
+  assert.ok(r.data.rows.every((x) => typeof x.label === "string" && x.label.length > 0), "每行都要有中文名");
+});
+
 test("重置：脏数据被清空，回到出厂规模", async () => {
   // 造一批「测试残留」：项目、账号、付款、合同
   const p = await admin("POST", "/api/projects", {

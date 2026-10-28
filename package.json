@@ -1,6 +1,6 @@
 {
   "name": "assoc-meeting-erp",
-  "version": "1.2.21",
+  "version": "1.2.22",
   "private": true,
   "description": "协会会议执行 ERP —— 依据《会务执行 ERP V1.0.2 可点击演示版》研发的生产版代码",
   "type": "commonjs",
@@ -39,7 +39,8 @@
     "test:ui:v1219": "node test/ui/v1219.js",
     "test:ui:v1220": "node test/ui/v1220.js",
     "test:ui:cf-v1220": "node test/ui/cf-v1220.js",
-    "test:ui:survey": "node test/ui/survey.js"
+    "test:ui:survey": "node test/ui/survey.js",
+    "test:ui:v1222": "node test/ui/v1222.js"
   },
   "dependencies": {},
   "devDependencies": {}

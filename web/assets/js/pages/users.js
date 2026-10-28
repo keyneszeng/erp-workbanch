@@ -32,7 +32,21 @@ export async function render(root) {
           ${roles.map((r) => `<td>${r.modules.includes(m.k) ? '<span style="color:var(--green);font-weight:700">✓</span>' : '<span style="color:var(--mute)">—</span>'}</td>`).join("")}</tr>`).join("")}
         </tbody></table></div>
       <div class="chips mt">${roles.map((r) => `<span class="chip"><i>${esc(r.name)}</i><b>${esc(r.scope)}</b></span>`).join("")}</div>
-    </div>`;
+    </div>
+
+    ${state.super ? `<div class="panel danger-zone">
+      <div class="panel-h"><h2>危险操作</h2><span class="hint">仅总管理员可见 · 不可恢复</span></div>
+      <div style="padding:14px 16px">
+        <div class="gate" style="margin-bottom:12px"><b>重置为出厂数据</b>
+          清空全部项目、合同、付款、结算、材料、审计与账号，重新写入 18 场演示会议与 8 个演示账号。
+          用于「演示环境数据乱了，重来一次」。<b style="display:inline;color:var(--red)">删除不可恢复</b>，
+          且所有人当场掉线，需要重新登录。</div>
+        <button class="btn btn-d" id="resetAll">重置为出厂数据</button>
+      </div>
+    </div>` : ""}`;
+
+  const ra = root.querySelector("#resetAll");
+  if (ra) ra.onclick = () => openReset(root);
 
   const nb = root.querySelector("#newU");
   if (nb) nb.onclick = () => openCreate(root, roles);
@@ -64,6 +78,60 @@ function openCreate(root, roles) {
       m.classList.remove("open");
       await render(root);
     } catch (e) { toast(e.message, "warn"); }
+  };
+}
+
+/**
+ * 重置为出厂数据（V1.2.22）。
+ *
+ * 三道确认，缺一不可：
+ *   1. 按钮在「危险操作」区里，红底、和正常操作拉开距离；
+ *   2. 弹窗先把**将要删除的数量**摆出来（18 个项目 / 14 笔付款…），不是只说「确定吗」；
+ *   3. 必须手动输入「重置」两个字，按钮才启用 —— 防手滑、也防有人顺手点掉。
+ *
+ * 执行后 session 被清空，所有人都掉线，所以这里直接 reload 回登录页。
+ */
+async function openReset(root) {
+  let d;
+  try { d = await api.get("/api/admin/reset-preview"); }
+  catch (e) { return toast(e.message, "warn"); }
+
+  const chips = d.rows.filter((r) => r.count > 0)
+    .map((r) => `<span>${esc(r.label)}<b>${r.count}</b></span>`).join("");
+
+  const m = modal({
+    title: "重置为出厂数据",
+    width: "560px",
+    body: `<div class="gate"><b>将删除以下全部数据</b>
+        共 ${d.total} 条记录。重置后恢复 18 场演示会议与 8 个演示账号，删除不可恢复。</div>
+      <div class="reset-list">${chips || '<span>当前没有业务数据</span>'}</div>
+      <div class="fld">
+        <label>请手动输入「重置」两个字确认<span class="req">*</span></label>
+        <input type="text" id="resetWord" placeholder="重置" autocomplete="off" spellcheck="false">
+      </div>
+      <div class="hint" style="margin-top:6px">执行后所有人会掉线，需要重新登录。</div>`,
+    footer: `<button class="btn btn-o" data-x="0">取消</button>
+      <button class="btn btn-d" id="doReset" disabled>确认重置</button>`
+  });
+
+  const word = m.querySelector("#resetWord");
+  const go = m.querySelector("#doReset");
+  word.oninput = () => { go.disabled = word.value.trim() !== "重置"; };
+  word.onkeydown = (e) => { if (e.key === "Enter" && !go.disabled) go.click(); };
+
+  m.querySelector('[data-x="0"]').onclick = () => m.classList.remove("open");
+  go.onclick = async () => {
+    go.disabled = true;
+    go.textContent = "重置中…";
+    try {
+      const r = await api.post("/api/admin/reset", { confirm: "RESET-ALL-DATA" });
+      toast(r.message || "已重置为出厂数据", "ok");
+      setTimeout(() => location.reload(), 1200);
+    } catch (e) {
+      toast(e.message, "warn");
+      go.disabled = false;
+      go.textContent = "确认重置";
+    }
   };
 }
 
