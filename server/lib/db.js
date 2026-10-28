@@ -276,6 +276,15 @@ CREATE TABLE IF NOT EXISTS settings (
   k TEXT PRIMARY KEY,
   v TEXT
 );
+
+-- Before attachment registration, files must be scoped to their uploader.
+CREATE TABLE IF NOT EXISTS uploaded_files (
+  file_key    TEXT PRIMARY KEY,
+  user_id     INTEGER NOT NULL,
+  pid         TEXT,
+  created_at  TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_uploaded_files_user ON uploaded_files(user_id);
 `;
 
 /* ---------------------------------------------------------------- 后端实现 */
