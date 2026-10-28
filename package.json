@@ -32,7 +32,8 @@
     "test:ui:v1215": "node test/ui/v1215.js",
     "test:ui:cf-v1215": "node test/ui/cf-v1215.js",
     "test:ui:v1216": "node test/ui/v1216.js",
-    "test:ui:cf-v1216": "node test/ui/cf-v1216.js"
+    "test:ui:cf-v1216": "node test/ui/cf-v1216.js",
+    "test:ui:cf-v1217": "node test/ui/cf-v1217.js"
   },
   "dependencies": {},
   "devDependencies": {}
