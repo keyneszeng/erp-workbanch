@@ -21,7 +21,7 @@ Token 应至少覆盖目标账号的 Workers 脚本编辑与目标域名相关�
 - 分支或 PR 的测试成功不能触发正式部署；
 - 部署前重新运行 `npm test`，任何测试失败都阻止发布；
 - 只部署通过测试的精确 Git commit SHA；
-- 通过 `cloudflare/wrangler-action@v3` 执行 `wrangler deploy`；
+- 通过 `cloudflare/wrangler-action@v4` 执行 `wrangler deploy`；
 - 部署后验证 `https://erp.aibuild.work/api/health`；
 - 两个 Secret 任一个缺失，工作流直接失败，不尝试发布，也不泄露 Secret 值。
 
