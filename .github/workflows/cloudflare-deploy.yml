@@ -84,5 +84,17 @@ jobs:
           done
           echo "::error::Cloudflare deployed, but the ERP health endpoint failed."
           exit 1
-      - name: Verify archived PDF download on live ERP (5-role RBAC gates)
-        run: node test/ui/archive-pdf-live.js
+      - name: Verify archived PDF download on live ERP (allow edge propagation)
+        shell: bash
+        run: |
+          # Workers global edge propagation can lag behind an immediate health check.
+          # Retry the real PDF + access-control smoke without hiding lasting defects.
+          for attempt in 1 2 3 4 5 6; do
+            echo "ERP archived PDF live check attempt $attempt/6"
+            if node test/ui/archive-pdf-live.js; then
+              exit 0
+            fi
+            if [ "$attempt" -lt 6 ]; then sleep 8; fi
+          done
+          echo "::error::Archived PDF live validation failed after all retries."
+          exit 1
