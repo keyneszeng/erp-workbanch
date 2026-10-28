@@ -1,0 +1,22 @@
+const { chromium } = require("playwright");
+(async () => {
+  const b = await chromium.launch({ channel: "chrome", headless: true });
+  const p = await b.newPage({ viewport: { width: 1440, height: 900 } });
+  p.on("pageerror", (e) => console.log("[pageerror]", e.message));
+  p.on("console", (m) => { if (m.type() === "error") console.log("[console]", m.text()); });
+  await p.goto("https://erp.aibuild.work", { waitUntil: "networkidle", timeout: 60000 });
+  await p.waitForTimeout(1200);
+  await p.fill('input[name="username"]', "admin");
+  await p.fill('input[name="password"]', "123456");
+  await p.click("#lbtn");
+  await p.waitForSelector("#pwdBtn", { timeout: 40000 });
+  console.log("buttons:", await p.locator('button[data-go="approvals"]').count());
+  await p.click('button[data-go="approvals"]');
+  await p.waitForTimeout(4000);
+  console.log("hash:", await p.evaluate(() => location.hash));
+  console.log("has #body:", await p.evaluate(() => !!document.getElementById("body")));
+  console.log("panel-h:", await p.locator("#body .panel-h").count());
+  console.log("text:", (await p.textContent("#content")).replace(/\s+/g, " ").slice(0, 200));
+  await p.screenshot({ path: "/tmp/dbg-approvals.png", fullPage: true });
+  await b.close();
+})();

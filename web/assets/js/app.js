@@ -76,6 +76,16 @@ function topHtml(r) {
     </div>`;
 }
 
+/**
+ * 路由渲染的「代次」。每次切页 +1，页面渲染完成后如果代次已经变了，
+ * 说明用户早就点走了 —— 这次的结果必须丢掉。
+ *
+ * 不这么做的后果（线上 2026-10-28 真实发生过）：登录后工作台的大盘要拉一堆接口，
+ * 老板等不及直接点「审批中心」；审批中心渲染完了，工作台那批慢请求才回来，
+ * 把 #content 整个写成工作台 —— 顶栏写着「审批中心」，内容是工作台。
+ */
+let routeSeq = 0;
+
 /** 该页面当前角色是否可访问（模块白名单 + 条目级权限） */
 async function route() {
   if (!state.user) return;
@@ -108,16 +118,24 @@ async function route() {
   document.getElementById("logoutBtn").onclick = doLogout;
   document.getElementById("pwdBtn").onclick = openPassword;
 
+  // 每次渲染给一个自己的容器：慢页面即使晚回来，写的也是已经被摘掉的旧容器，
+  // 不会盖住用户当前看的页面。
+  const seq = ++routeSeq;
   const content = document.getElementById("content");
-  content.innerHTML = '<div class="empty" style="padding:60px">加载中…</div>';
+  const box = document.createElement("div");
+  box.className = "page";
+  box.innerHTML = '<div class="empty" style="padding:60px">加载中…</div>';
+  content.replaceChildren(box);
   try {
-    await hit.page.render(content, hit.params, hit);
+    await hit.page.render(box, hit.params, hit);
+    if (seq !== routeSeq) return;
   } catch (e) {
+    if (seq !== routeSeq) return; // 已经切走，别拿错误页盖住新页面
     const title = e.status === 403 ? "无权访问" : e.status === 404 ? "对象不存在" : "页面加载失败";
     const tip = e.status === 403
       ? "该项目不在你的数据范围内，或当前角色缺少对应权限。"
       : e.status === 404 ? "链接可能已失效，或对象已被删除。" : "请稍后重试；若持续出现请联系管理员。";
-    content.innerHTML = `<div class="panel" style="max-width:560px;margin:40px auto;text-align:center">
+    box.innerHTML = `<div class="panel" style="max-width:560px;margin:40px auto;text-align:center">
       <div style="font-size:15px;font-weight:700;margin-bottom:6px">${title}</div>
       <div style="font-size:13px;color:var(--sub);line-height:1.8">${esc(e.message)}<br>${tip}</div>
       <div style="margin-top:16px"><button class="btn btn-p" data-go="dashboard">返回工作台</button></div>

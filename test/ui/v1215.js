@@ -143,7 +143,29 @@ let proc = null;
 
   await page.screenshot({ path: "/tmp/ui-v1215.png", fullPage: true });
 
-  console.log("\n[6] 控制台");
+  console.log("\n[6] 慢网络竞态：工作台晚回来，不能盖住已经切走的页面");
+  // 线上真实场景：登录后工作台大盘要拉一堆数据，老板等不及点「审批中心」，
+  // 审批中心已经渲染完，工作台那批慢请求才回来 —— 老代码会把 #content 整个写成工作台，
+  // 于是「顶栏写着审批中心、内容是工作台」。这里把 /api/dashboard 拖 4 秒复现。
+  await page.route("**/api/dashboard", async (route) => {
+    await new Promise((r) => setTimeout(r, 4000));
+    await route.continue();
+  });
+  await page.click('button[data-go="dashboard"]');
+  await page.waitForTimeout(250);
+  await page.click('button[data-go="approvals"]');
+  await page.waitForTimeout(1500);
+  check("切到审批中心后立即渲染出来", (await page.locator("#body").count()) > 0);
+  // 等慢请求回来
+  await page.waitForTimeout(4500);
+  const afterSlow = (await page.textContent("#content")) || "";
+  check("工作台慢请求回来后仍是审批中心", /审批中心/.test(afterSlow) && !/我的待办/.test(afterSlow),
+    afterSlow.replace(/\s+/g, " ").slice(0, 120));
+  check("顶栏与内容一致（都是审批中心）", /审批中心/.test((await page.textContent("#top")) || ""));
+  check("审批列表还在（没被清空）", (await page.locator("#content tbody tr").count()) > 0);
+  await page.unroute("**/api/dashboard");
+
+  console.log("\n[7] 控制台");
   check("无 JS 报错", errs.length === 0, errs.slice(0, 3).join(" | "));
 
   await browser.close();

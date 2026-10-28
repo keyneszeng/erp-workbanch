@@ -63,7 +63,7 @@ export async function render(root, params = []) {
             // 这里不给提示，他批完就以为事情办完了，项目预算其实一分没动。
             : a.type === "变更审批" && a.status === "已通过" && !a.executed_at
               ? `<a class="link" data-go="projects/${a.pid}" title="审批通过只是批准，预算要等另一人落账才生效">待落账 →</a>`
-              : `<span style="font-size:12px;color:var(--mute)">${esc(a.decided_by || "")} ${esc(a.decided_at || "")}</span>`
+              : `<span style="font-size:12px;color:var(--mute)" title="${esc(a.comment || "无审批意见")}">${esc(a.decided_by || "")} ${esc(a.decided_at || "")}</span>`
         ]
       })),
       { empty: view === "pending" ? "没有待审批事项" : "暂无审批记录" })

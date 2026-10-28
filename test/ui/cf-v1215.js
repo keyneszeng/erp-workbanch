@@ -35,9 +35,11 @@ const check = (name, ok, extra = "") => {
   await page.fill('input[name="username"]', "admin");
   await page.fill('input[name="password"]', "123456");
   await page.click("#lbtn");
-  await page.waitForTimeout(3000);
-  await page.goto(`${BASE}/#/approvals`, { waitUntil: "networkidle", timeout: 60000 });
-  await page.waitForTimeout(2200);
+  // 线上有时比本地慢，等壳子出来（右上角「改密码」）再导航，别拿固定 3 秒赌
+  await page.waitForSelector("#pwdBtn", { timeout: 40000 });
+  await page.goto(`${BASE}/#/approvals`, { waitUntil: "domcontentloaded", timeout: 60000 });
+  await page.waitForSelector("#body .panel-h", { timeout: 30000 });
+  await page.waitForTimeout(800);
 
   const pendingTxt = (await page.textContent("#content")) || "";
   check("进了审批中心", /审批中心/.test(pendingTxt));
