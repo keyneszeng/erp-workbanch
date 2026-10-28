@@ -347,6 +347,7 @@ function register(router) {
   });
 
   router.get("/api/projects/:id/timeline", async (ctx) => {
+    if (ctx.user.role === "user") throw forbidden("普通用户无法查看内部操作留痕");
     const p = getProject(ctx.params.id);
     assertProjectVisible(ctx.user, p);
     return { rows: db.prepare("SELECT * FROM audit_logs WHERE target = ? ORDER BY id DESC").all(p.id) };
