@@ -1,0 +1,37 @@
+name: ERP QA regression
+
+on:
+  push:
+    branches:
+      - main
+      - 'fix/**'
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  node-api-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+      - name: Install Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check key JavaScript syntax
+        run: |
+          node --check server/api/projects.js
+          node --check server/api/finance.js
+          node --check server/api/verify.js
+          node --check server/api/system.js
+          node --check server/api/files.js
+      - name: Run complete API regression
+        run: npm test
+      - name: Run additional QA authorization suite when present
+        if: hashFiles('test/qa-rbac-regression.test.js') != ''
+        run: node --experimental-sqlite --test test/qa-rbac-regression.test.js
