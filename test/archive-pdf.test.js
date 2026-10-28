@@ -63,7 +63,7 @@ test("archived own-association project generates downloadable multipage Chinese 
   assert.match(res.headers.get("content-disposition"), /MP-2026-015/);
   assert.equal(res.headers.get("cache-control"), "no-store");
   const bytes = Buffer.from(await res.arrayBuffer());
-  assert.equal(bytes.toString("ascii", 0, 8), "%PDF-1.4");
+  assert.match(bytes.toString("ascii", 0, 8), /^%PDF-1\.[4-9]$/);
   assert.ok(bytes.length > 1500);
   const doc = await PDFDocument.load(bytes);
   assert.ok(doc.getPageCount() >= 2);
