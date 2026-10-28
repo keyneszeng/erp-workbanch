@@ -1,0 +1,83 @@
+name: ERP Cloudflare deployment
+
+# A deployment is allowed only after the QA workflow succeeded on main.
+# workflow_dispatch supports a manual recovery deployment, but re-runs tests.
+on:
+  workflow_run:
+    workflows:
+      - ERP QA regression
+    types:
+      - completed
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: erp-cloudflare-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: >-
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'workflow_run' &&
+       github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.head_branch == 'main' &&
+       github.event.workflow_run.head_repository.full_name == github.repository)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+    steps:
+      - name: Require encrypted Cloudflare credentials
+        shell: bash
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ]; then
+            echo "::error::Missing CLOUDFLARE_API_TOKEN GitHub Actions secret; deployment blocked."
+            exit 1
+          fi
+          if [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            echo "::error::Missing CLOUDFLARE_ACCOUNT_ID GitHub Actions secret; deployment blocked."
+            exit 1
+          fi
+          echo "Cloudflare credentials are configured (values hidden)."
+
+      - uses: actions/checkout@v4
+        with:
+          # Deploy the commit that actually passed QA; never blindly deploy a moving branch.
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Run full API and authorization regression
+        run: npm test
+
+      - name: Deploy Worker using Wrangler
+        uses: cloudflare/wrangler-action@v4
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          wranglerVersion: '4'
+          command: deploy
+
+      - name: Verify deployed health endpoint
+        shell: bash
+        run: |
+          for i in 1 2 3 4 5 6 7 8; do
+            if curl --fail --silent --show-error --max-time 12 \
+              "https://erp.aibuild.work/api/health" -o /tmp/erp-health.json; then
+              echo "ERP health endpoint is reachable after deployment."
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "::error::Cloudflare deployed, but the ERP health endpoint failed."
+          exit 1
