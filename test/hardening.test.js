@@ -7,6 +7,7 @@ const assert = require("node:assert/strict");
 const { spawn } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
+const { fillMaterials } = require("./helpers/materials");
 
 const PORT = 8802;
 const BASE = `http://127.0.0.1:${PORT}`;
@@ -238,6 +239,8 @@ async function buildVerifyProject(tag) {
     const u = users.data.rows.find((x) => x.name === nm);
     await assoc("POST", `/api/projects/${pid}/members`, { user_id: u.id });
   }
+  // V1.2.19：材料 8 类齐备才开启核销
+  await fillMaterials(assoc, pid);
   for (const a of ["submit", "approve", "prep", "exec", "request_verify"]) {
     const r = await assoc("POST", `/api/projects/${pid}/transition`, { action: a });
     assert.equal(r.status, 200, `${a} 失败`);

@@ -7,6 +7,7 @@ const assert = require("node:assert/strict");
 const { spawn } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
+const { fillMaterials } = require("./helpers/materials");
 
 const PORT = 8803;
 const BASE = `http://127.0.0.1:${PORT}`;
@@ -221,6 +222,7 @@ test("幂等：重复结算 / 重复归档被拒", async () => {
     const u = users.data.rows.find((x) => x.name === nm);
     await assoc("POST", `/api/projects/${pid}/members`, { user_id: u.id });
   }
+  await fillMaterials(assoc, pid); // V1.2.19 核销前置：材料 8 类
   for (const a of ["submit", "approve", "prep", "exec", "request_verify"]) {
     const r = await assoc("POST", `/api/projects/${pid}/transition`, { action: a });
     assert.equal(r.status, 200, `${a} 失败`);

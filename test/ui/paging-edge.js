@@ -88,6 +88,15 @@ let proc = null;
   }
   console.log(`\n已为 ${p.id} 造 60 条材料`);
 
+  /**
+   * 页数按实际总数算，不写死。
+   * V1.2.19 起种子给 8 个项目各备了 8 类材料（核销前置），材料总数会随种子调整而变，
+   * 写死「2 页」的断言迟早会飘 —— 这里只关心「多页 → 删到 1 页 → 页码越界」这条逻辑。
+   */
+  const totalBefore = (await c("GET", "/api/materials")).data.rows.length;
+  const PAGES = Math.max(2, Math.ceil(totalBefore / 50));
+  console.log(`  当前材料总数 ${totalBefore}，共 ${PAGES} 页`);
+
   const browser = await chromium.launch({ channel: "chrome", headless: true });
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
   const errs = [];
@@ -110,30 +119,40 @@ let proc = null;
   await page.goto(`${BASE}/#/materials`, { waitUntil: "networkidle" });
   await page.waitForTimeout(1800);
   const pg1 = (await page.textContent(".pager").catch(() => "")) || "";
-  check("第 1 页：显示 2 页", /第 1 \/ 2 页/.test(pg1), pg1.replace(/\s+/g, " ").slice(0, 80));
+  check(`第 1 页：显示 ${PAGES} 页`, new RegExp(`第 1 / ${PAGES} 页`).test(pg1), pg1.replace(/\s+/g, " ").slice(0, 80));
 
-  console.log("\n[2] 翻到第 2 页");
-  const btn2 = await page.$('[data-pg="2"]');
-  check("有第 2 页按钮", !!btn2);
-  if (btn2) {
-    await btn2.click();
+  console.log(`\n[2] 翻到最后一页（第 ${PAGES} 页）`);
+  const btnLast = await page.$(`[data-pg="${PAGES}"]`);
+  check(`有第 ${PAGES} 页按钮`, !!btnLast);
+  if (btnLast) {
+    await btnLast.click();
     await page.waitForTimeout(1500);
     const pg2 = (await page.textContent(".pager").catch(() => "")) || "";
-    check("第 2 页：显示 2/2", /第 2 \/ 2 页/.test(pg2), pg2.replace(/\s+/g, " ").slice(0, 80));
+    check(`第 ${PAGES} 页：显示 ${PAGES}/${PAGES}`,
+      new RegExp(`第 ${PAGES} / ${PAGES} 页`).test(pg2), pg2.replace(/\s+/g, " ").slice(0, 80));
   }
 
-  console.log("\n[3] 删掉 40 条，让总数降到 1 页以内");
+  /**
+   * 删到只剩 1 页 —— 只有 pages<=1 时前端才会给出「当前页已超出范围 + 回到第 1 页」。
+   *
+   * 不能只删自己造的 60 条：V1.2.19 起种子给 8 个项目各备了 8 类材料，
+   * 光种子就 69 条、本来就超过 1 页。这里是 self-hosted 独立库，跑完即弃，
+   * 所以允许把种子材料也删掉（已结算/已归档项目的材料删不动，跳过即可）。
+   */
+  console.log("\n[3] 删到 1 页以内（先删自己造的，不够再删种子可删的）");
   const all = (await c("GET", "/api/materials")).data.rows;
-  console.log(`  当前材料总数 ${all.length}（含种子数据），目标是降到 ≤50`);
-  const mine = all.filter((m) => m.pid === p.id).slice(0, 40);
+  const mineFirst = [
+    ...all.filter((m) => (m.name || "").startsWith("批量材料-")),
+    ...all.filter((m) => !(m.name || "").startsWith("批量材料-"))
+  ];
   let deleted = 0;
-  for (const m of mine) {
+  let left = all.length;
+  for (const m of mineFirst) {
+    if (left <= 45) break;
     const r = await c("DELETE", `/api/materials/${m.id}`);
-    if (r.status === 200) deleted++;
+    if (r.status === 200) { deleted++; left--; }
   }
-  const left = (await c("GET", "/api/materials")).data.rows.length;
-  check("已删除 40 条", deleted === 40, `${deleted} 条`);
-  check("总数已降到 1 页", left <= 50, `剩 ${left} 条`);
+  check(`已删到 1 页以内（删了 ${deleted} 条）`, left <= 45, `剩 ${left} 条`);
 
   console.log("\n[4] 离开再回到材料中心（curPage 仍为 2）");
   await page.goto(`${BASE}/#/projects`, { waitUntil: "networkidle" });
@@ -155,8 +174,11 @@ let proc = null;
     await page.waitForTimeout(1800);
     const pg4 = (await page.textContent(".pager").catch(() => "")) || "";
     check("不再提示越界", !/当前页已超出范围/.test(pg4), pg4.replace(/\s+/g, " ").slice(0, 80));
-    const hasRow = await page.$('text=批量材料-01.pdf');
-    check("列表恢复显示数据", !!hasRow, "找不到 批量材料-01.pdf");
+    // 回到第 1 页后列表要真的有数据；不盯具体文件名 —— 为了造「1 页」场景删过一批，
+    // 写死某一条会被自己删掉，断言就成了自伤
+    const body = (await page.textContent("#content")) || "";
+    const rowCount = await page.$$eval("tbody tr", (rs) => rs.length);
+    check("列表恢复显示数据", rowCount > 0 && !/暂无材料/.test(body), `rows=${rowCount}`);
   }
 
   console.log("\n[6] 控制台");

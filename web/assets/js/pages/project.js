@@ -8,9 +8,14 @@ import { flowHint, flowOf, openContractDetail } from "../lib/contract-detail.js"
 
 const ORDER = ["草稿", "待审批", "已立项", "筹备中", "执行中", "待核销", "已核销", "已结算", "已归档"];
 const PAYABLE = ["已核销"];
+/**
+ * 页签顺序 = 作业顺序（V1.2.19）。
+ * 「材料」必须排在「核销」前面：材料 8 类齐备是核销的前置门，页签顺序跟流程反着放，
+ * 人会先去点核销、被拦、再回头找材料 —— 顺序本身就是一种提示。
+ */
 const TABS = [
   ["overview", "概览"], ["demand", "会务需求"], ["contracts", "合同"], ["payments", "付款"],
-  ["verify", "核销"], ["materials", "材料"], ["team", "成员与授权"], ["timeline", "操作留痕"]
+  ["materials", "材料"], ["verify", "核销"], ["team", "成员与授权"], ["timeline", "操作留痕"]
 ];
 let tab = "overview";
 
@@ -150,9 +155,9 @@ function tabOverview(d, p) {
       `)}
       ${panel("流程门禁", "系统实时校验", `<div style="display:flex;flex-direction:column;gap:8px;font-size:12.5px">
         <div>${d.demand && d.demand.archived ? "✅" : "⛔"} 会务需求：${d.demand ? (d.demand.archived ? `已归档（${d.demand.needCount} 项 · ¥${money(d.demand.budgetTotal)}）` : "草稿未归档") : "未建单"}</div>
-        <div>${v.complete ? "✅" : "⛔"} 核销：${v.passed}/6 通过${v.openExceptions ? `，${v.openExceptions} 张例外单待审批` : ""}</div>
+        <div>${ms.ok ? "✅" : "⛔"} 材料（核销前置）：${8 - ms.missing.length}/8${ms.missing.length ? "，缺 " + ms.missing.join("、") : ""}</div>
+        <div>${v.complete ? "✅" : "⛔"} 核销：${ms.ok ? "" : "材料未齐不可判定 · "}${v.passed}/6 通过${v.openExceptions ? `，${v.openExceptions} 张例外单待审批` : ""}</div>
         <div>${settle ? "✅" : "⛔"} 结算：${settle ? "已生成 " + settle.id : "未生成"}</div>
-        <div>${ms.ok ? "✅" : "⛔"} 归档材料：${8 - ms.missing.length}/8${ms.missing.length ? "，缺 " + ms.missing.join("、") : ""}</div>
       </div>`)}
     </div>
   </div>
@@ -286,10 +291,17 @@ function tabPayments(d, p) {
 function tabVerify(d, p) {
   const v = d.verification;
   const frozen = !!d.settlement;
-  return `${panel("核销 6 步 SOP", `已通过 ${v.passed}/6 · ${v.openExceptions ? v.openExceptions + " 张例外单待审批" : "无未决例外"}`,
+  const ms = d.materialsStatus;
+  // V1.2.19：材料 8 类齐备才开启核销，缺料时判定按钮一律禁用
+  const materialReady = ms.ok;
+  return `${materialReady ? "" : `<div class="gate" style="margin-bottom:12px"><b>核销未开启：材料还缺 ${ms.missing.length} 类</b>
+    必须先完成材料 8 项录入才能判定（缺：${esc(ms.missing.join("、"))}）。
+    <button class="link" data-goto-tab="materials">去登记材料 →</button></div>`}
+  ${panel("核销 6 步 SOP", `已通过 ${v.passed}/6 · ${v.openExceptions ? v.openExceptions + " 张例外单待审批" : "无未决例外"}`,
     `<div class="vsteps">${v.steps.map((s) => {
       const cls = s.result === "通过" || s.result === "已解例外" ? "s-pass" : s.result === "不通过" ? "s-fail" : "s-wait";
-      const canJudge = can("verify:check") && !frozen && (p.status === "待核销" || (p.status === "已核销" && state.super));
+      const canJudge = can("verify:check") && !frozen && materialReady
+        && (p.status === "待核销" || (p.status === "已核销" && state.super));
       const prevUnjudged = v.steps.some((x) => x.no < s.no && x.result === "待判定");
       return `<div class="vstep ${cls}">
         <div class="vh"><span class="no">${s.no}</span><span class="nm">${esc(s.name)}</span>
@@ -321,7 +333,8 @@ function tabVerify(d, p) {
 /* ---------------- 材料 ---------------- */
 function tabMaterials(d, p) {
   const ms = d.materialsStatus;
-  return panel("归档材料（必备 8 类）", `${8 - ms.missing.length}/8 齐备`, `
+  return panel("归档材料（必备 8 类）",
+    `${8 - ms.missing.length}/8 齐备${ms.ok ? " · 已满足核销前置" : " · 核销前置未满足"}`, `
     <div class="chips">${ms.required.map((k) => `<span class="chip" style="${ms.have.includes(k) ? "border-color:#c9e8d4;background:#f4fbf6" : "border-color:#efdcc8;background:#fdf7f1"}">
       <i>${ms.have.includes(k) ? "✅" : "⛔"}</i><b>${esc(k)}</b></span>`).join("")}</div>
     ${table([{ t: "类别", w: "104px" }, { t: "材料名称" }, { t: "附件", w: "84px" }, { t: "版本", w: "56px" },
@@ -369,6 +382,11 @@ function wire(root, pid, d, body) {
   body.querySelectorAll("[data-pay-reject]").forEach((b) => b.onclick = () => payAct(root, pid, b.dataset.payReject, "reject"));
   body.querySelectorAll("[data-pay-pay]").forEach((b) => b.onclick = () => payAct(root, pid, b.dataset.payPay, "pay"));
   body.querySelectorAll("[data-pay-acct]").forEach((b) => b.onclick = () => openPayAccount(root, pid, b.dataset.payAcct));
+  // 「去登记材料 →」：切页签（tab 是模块级变量，直接改再重渲染）
+  body.querySelectorAll("[data-goto-tab]").forEach((b) => b.onclick = () => {
+    tab = b.dataset.gotoTab;
+    render(root, [pid]);
+  });
   body.querySelectorAll("[data-judge]").forEach((b) => b.onclick = () => openJudge(root, pid, Number(b.dataset.judge), d));
   // 核销 6 步的「详情」：判定前先把该核对的原始数据摆出来（与核销看板共用同一份实现）
   const canJudgeHere = can("verify:check") && !d.settlement

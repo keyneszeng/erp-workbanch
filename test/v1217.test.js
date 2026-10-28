@@ -20,6 +20,7 @@ const assert = require("node:assert/strict");
 const { spawn } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
+const { fillMaterials } = require("./helpers/materials");
 
 const PORT = 8826;
 const BASE = `http://127.0.0.1:${PORT}`;
@@ -226,7 +227,8 @@ test("FLOW-01 核销通过后财务自动进成员，能直接生成结算单", 
   assert.equal(mk.status, 200, JSON.stringify(mk.data));
   const pid = mk.data.project.id;
 
-  // 走到待核销
+  // 走到待核销（V1.2.19：材料 8 类齐备才能提交核销）
+  await fillMaterials(admin, pid);
   for (const action of ["submit", "approve", "prep", "exec", "request_verify"]) {
     const r = await admin("POST", `/api/projects/${pid}/transition`, { action });
     assert.equal(r.status, 200, `${action} 失败：${JSON.stringify(r.data)}`);

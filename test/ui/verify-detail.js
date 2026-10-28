@@ -91,8 +91,19 @@ async function api(method, url, body, raw) {
   return { status: r.status, data };
 }
 
-/** 造一套核销要核对的数据：6 类材料（带原件）+ 1 笔付款 */
+/** 造一套核销要核对的数据：8 类材料（其中 6 类带原件）+ 1 笔付款 */
 async function seedVerifyData() {
+  /**
+   * V1.2.19：种子里 MP-2026-003 已经备齐 8 类材料（核销前置门要求）。
+   * 本用例要精确断言「议程材料（1 份）」，所以先把种子那套清掉，再用自己的数据重建 ——
+   * 不清的话同名类别会叠成 2 份，断言就飘了。
+   */
+  const d0 = await api("GET", `/api/projects/${PID}`);
+  for (const m of d0.data.materials || []) {
+    const del = await api("DELETE", `/api/materials/${m.id}`);
+    if (del.status !== 200) throw new Error(`清理种子材料失败：${JSON.stringify(del.data)}`);
+  }
+
   const pdf = fs.readFileSync(PDF_FILE);
   const jpg = fs.readFileSync(IMG_FILE);
   const upPdf = await api("POST", "/api/uploads", pdf);
@@ -110,6 +121,12 @@ async function seedVerifyData() {
     kind: "现场照片", name: "开幕式现场.jpg", file_key: upJpg.data.key
   });
   if (r2.status !== 200) throw new Error("登记现场照片失败");
+
+  // 补齐剩下两类：核销前置要求 8 类齐备，缺一类就判不了
+  for (const k of ["立项文件", "合同"]) {
+    const r = await api("POST", `/api/projects/${PID}/materials`, { kind: k, name: `${k}（回归）` });
+    if (r.status !== 200) throw new Error(`登记材料「${k}」失败：${JSON.stringify(r.data)}`);
+  }
 
   return { pdfKey: upPdf.data.key, jpgKey: upJpg.data.key };
 }

@@ -23,6 +23,7 @@ const assert = require("node:assert/strict");
 const { spawn } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
+const { fillMaterials } = require("./helpers/materials");
 
 const PORT = 8818;
 const BASE = `http://127.0.0.1:${PORT}`;
@@ -72,6 +73,7 @@ async function projectReadyToPay(name, budget) {
   });
   assert.equal(mk.status, 200, mk.msg);
   const pid = mk.data.project.id;
+  await fillMaterials(admin, pid); // V1.2.19 核销前置：材料 8 类
   for (const a of ["submit", "approve", "prep", "exec", "request_verify"]) {
     const r = await admin("POST", `/api/projects/${pid}/transition`, { action: a });
     assert.equal(r.status, 200, `${a} 失败：${r.msg}`);

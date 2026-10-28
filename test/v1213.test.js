@@ -17,6 +17,7 @@ const assert = require("node:assert/strict");
 const { spawn } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
+const { fillMaterials } = require("./helpers/materials");
 
 const PORT = 8821;
 const BASE = `http://127.0.0.1:${PORT}`;
@@ -76,6 +77,7 @@ async function freshProject({ budget = 80000 } = {}) {
 /** 已立项 → 筹备中 → 执行中 → 待核销（例外单只能在这两个阶段提） */
 async function toPendingVerify(pid) {
   const c = client(exec);
+  await fillMaterials(c, pid); // V1.2.19 核销前置：材料 8 类
   for (const action of ["prep", "exec", "request_verify"]) {
     const r = await c("POST", `/api/projects/${pid}/transition`, { action });
     assert.equal(r.status, 200, `${action} 失败：${JSON.stringify(r.data)}`);

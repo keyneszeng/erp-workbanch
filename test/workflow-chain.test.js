@@ -20,6 +20,7 @@ const assert = require("node:assert/strict");
 const { spawn } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
+const { fillMaterials } = require("./helpers/materials");
 
 const PORT = 8814;
 const BASE = `http://127.0.0.1:${PORT}`;
@@ -200,6 +201,8 @@ test("全链路：立项 → 筹备 → 执行 → 核销（含例外）→ 付�
   });
   assert.equal(c1.status, 200, JSON.stringify(c1.data));
 
+  // V1.2.19：材料 8 类齐备才开启核销
+  await fillMaterials(executor, pid);
   const rv = await executor("POST", `/api/projects/${pid}/transition`, { action: "request_verify" });
   assert.equal(rv.status, 200, rv.msg);
 

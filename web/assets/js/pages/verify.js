@@ -54,7 +54,10 @@ async function renderOne(root, pid) {
   const p = d.project;
   const v = d.verification;
   const frozen = !!d.settlement;
-  const canJudge = can("verify:check") && !frozen && (p.status === "待核销" || (p.status === "已核销" && state.super));
+  // V1.2.19：材料 8 类齐备才开启核销
+  const materialReady = d.materialsStatus.ok;
+  const canJudge = can("verify:check") && !frozen && materialReady
+    && (p.status === "待核销" || (p.status === "已核销" && state.super));
 
   root.innerHTML = `
   <div class="crumb"><a data-go="verify">核销看板</a> / <span class="mono">${p.id}</span></div>
@@ -64,10 +67,14 @@ async function renderOne(root, pid) {
     <div class="acts">
       <button class="btn btn-o" data-go="projects/${p.id}">项目详情</button>
       ${can("verify:conclude") && p.status === "待核销"
-        ? `<button class="btn ${v.complete ? "btn-g" : "btn-o"}" id="passBtn" ${v.complete ? "" : 'disabled title="6 步未全部通过，或存在未决例外单"'}>核销通过</button>` : ""}
+        ? `<button class="btn ${v.complete && materialReady ? "btn-g" : "btn-o"}" id="passBtn"
+             ${v.complete && materialReady ? "" : `disabled title="${materialReady ? "6 步未全部通过，或存在未决例外单" : "材料 8 类未齐备，核销未开启"}"`}>核销通过</button>` : ""}
     </div>
   </div>
 
+  ${materialReady ? "" : `<div class="gate" style="margin-bottom:12px"><b>核销未开启：材料还缺 ${d.materialsStatus.missing.length} 类</b>
+    必须先完成材料 8 项录入才能判定（缺：${esc(d.materialsStatus.missing.join("、"))}）。
+    <a class="link" data-go="projects/${p.id}">去项目详情的材料页签登记 →</a></div>`}
   <div class="panel">
     <div class="panel-h"><h2>6 步核销 SOP</h2>
       <div><span class="hint">已通过 ${v.passed}/6${v.openExceptions ? ` · ${v.openExceptions} 张例外单待审批` : ""}</span></div></div>
@@ -97,10 +104,13 @@ async function renderOne(root, pid) {
         ? `<div class="tacts"><button class="link" data-ex="${e.id}" data-ok="1">通过</button><button class="link danger" data-ex="${e.id}" data-ok="0">驳回</button></div>` : "—"] })),
     { empty: "无例外单" }))}
 
-  ${panel("材料齐备情况", `${8 - d.materialsStatus.missing.length}/8`, `<div class="chips">
+  ${panel("材料齐备情况（核销前置）", `${8 - d.materialsStatus.missing.length}/8`, `<div class="chips">
     ${d.materialsStatus.required.map((k) => `<span class="chip" style="${d.materialsStatus.have.includes(k) ? "border-color:#c9e8d4;background:#f4fbf6" : "border-color:#efdcc8;background:#fdf7f1"}">
       <i>${d.materialsStatus.have.includes(k) ? "✅" : "⛔"}</i><b>${esc(k)}</b></span>`).join("")}</div>
-    ${d.materialsStatus.missing.length ? `<div class="gate"><b>归档材料缺 ${d.materialsStatus.missing.length} 类</b>${d.materialsStatus.missing.join("、")}（归档前必须补齐）</div>` : ""}`)}`;
+    ${d.materialsStatus.missing.length
+      ? `<div class="gate"><b>还缺 ${d.materialsStatus.missing.length} 类</b>${d.materialsStatus.missing.join("、")}
+         —— 材料 8 类齐备才开启核销；归档同样要求 8/8，这一关过了后面不用再补</div>`
+      : `<div class="gate ok"><b>材料 8/8 齐备</b>核销前置已满足。</div>`}`)}`;
 
   root.querySelectorAll("[data-judge]").forEach((b) => b.onclick = () => openJudge(root, pid, Number(b.dataset.judge), d));
   root.querySelectorAll("[data-detail]").forEach((b) => b.onclick = () =>

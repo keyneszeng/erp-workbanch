@@ -21,6 +21,7 @@ const assert = require("node:assert/strict");
 const { spawn } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
+const { fillMaterials } = require("./helpers/materials");
 const { DatabaseSync } = require("node:sqlite");
 
 const ROOT = path.join(__dirname, "..");
@@ -220,6 +221,7 @@ test("业务单据已有结论时，点通过不报错，而是同步关闭审�
     const approve = await c("POST", `/api/projects/${id}/transition`, { action: "approve" });
     assert.equal(approve.status, 200, `立项审批失败：${JSON.stringify(approve.data)}`);
     // 已立项 → 筹备中 → 执行中 → 待核销
+    await fillMaterials(e, id); // V1.2.19 核销前置：材料 8 类
     for (const action of ["prep", "exec", "request_verify"]) {
       const t = await e("POST", `/api/projects/${id}/transition`, { action });
       assert.equal(t.status, 200, `${action} 失败：${JSON.stringify(t.data)}`);

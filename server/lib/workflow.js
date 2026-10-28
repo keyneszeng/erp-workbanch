@@ -123,7 +123,25 @@ const GUARDS = {
     if (!(p.budget > 0)) return "预算必须大于 0";
     return null;
   },
+  /**
+   * V1.2.19：材料 8 类齐备才能「开启核销」。
+   *
+   * 老板 2026-10-28：「必须完成 材料 8 项录入，才能开启 核销功能」。
+   * 原来材料只是**归档**的前置，核销 6 步可以先判、材料后补 ——
+   * 于是判定人手里没有签到表、没有票据，只能凭印象点「通过」，核销就退化成橡皮图章。
+   * 现在把材料前置到核销入口：材料不齐，提交核销直接拦。
+   */
+  request_verify(p) {
+    const m = materialsStatus(p.id);
+    if (!m.ok) {
+      return `核销材料还缺 ${m.missing.length} 类：${m.missing.join("、")}。` +
+        `材料 8 类齐备后才能开启核销（材料页签可逐类登记）`;
+    }
+    return null;
+  },
   verify_pass(p) {
+    const m = materialsStatus(p.id);
+    if (!m.ok) return `核销材料缺 ${m.missing.length} 类：${m.missing.join("、")}，补齐后才能核销通过`;
     const v = verification(p.id);
     if (v.judged < v.total) return `还有 ${v.total - v.judged} 步未判定，6 步必须全部判定`;
     if (v.failedSteps.length) return `第 ${v.failedSteps.join("、")} 步不通过，需提交例外单并获批`;
@@ -222,7 +240,11 @@ function transition(projectId, action, user, payload = {}, ip = "") {
   if (!can(user, flow.perm)) throw forbidden(`需要「${permRoleName(flow.perm)}」权限才能${flow.label}`);
 
   const guardMsg = GUARDS[action] ? GUARDS[action](p) : null;
-  if (guardMsg) throw conflict(guardMsg, "GATE_BLOCKED", { action, status: p.status });
+  if (guardMsg) {
+    // 材料门禁单独给一个码：前端要据此把用户引到「材料」页签，而不是笼统的「门禁未通过」
+    const code = action === "request_verify" ? "MATERIAL_GATE" : "GATE_BLOCKED";
+    throw conflict(guardMsg, code, { action, status: p.status });
+  }
 
   switch (action) {
     case "submit": {

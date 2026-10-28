@@ -270,9 +270,21 @@ function seed({ reset = false } = {}) {
     "华东医学会", "中国银行北京分行", "3210987654321098", "已生成", "陈静", at);
 
   const insMat = db.prepare("INSERT INTO materials (pid,kind,name,version,uploader,created_at) VALUES (?,?,?,?,?,?)");
-  for (const pid of ["MP-2026-007", "MP-2026-015"]) {
-    for (const k of MATERIAL_KINDS) insMat.run(pid, k, `${k}-终版.pdf`, "v1", "孙倩", at);
+  /**
+   * V1.2.19：材料 8 类齐备是**核销的前置门**。
+   *
+   * 所以「能走到待核销及以后」的项目，种子里材料必须本来就是 8/8 ——
+   * 否则演示时点第 4 步判定会被拦「材料缺 8 类」，观众看到的是门禁失效（其实是数据不自洽）。
+   * 这批项目覆盖：待核销（003/004）、已核销（008/017）、已结算（006/016）、已归档（007/015）。
+   */
+  const needAllMaterials = [
+    "MP-2026-003", "MP-2026-004", "MP-2026-006", "MP-2026-007",
+    "MP-2026-008", "MP-2026-015", "MP-2026-016", "MP-2026-017"
+  ];
+  for (const pid of needAllMaterials) {
+    for (const k of MATERIAL_KINDS) insMat.run(pid, k, `${k}-终版.pdf`, "v1", "陈静", at);
   }
+  // 筹备中的项目只登记 5 类：演示「材料还没齐、核销还没开启」的常态
   for (const k of ["立项文件", "合同", "议程", "课件", "签到表"]) {
     insMat.run("MP-2026-001", k, `${k}-初版.pdf`, "v1", "张伟", at);
   }

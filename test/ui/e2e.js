@@ -92,11 +92,34 @@ async function login(page, user) {
   const members = await page.innerText("#tabbody");
   console.log("   项目成员：", members.replace(/\s+/g, " ").slice(0, 90));
 
-  /* ---------- 3. 推进到待核销 ---------- */
-  for (const act of ["prep", "exec", "request_verify"]) {
+  /* ---------- 3. 推进到执行中 → 登记材料 → 提交核销 ---------- */
+  for (const act of ["prep", "exec"]) {
     await page.click(`[data-act="${act}"]`);
     await page.waitForTimeout(700);
   }
+
+  /**
+   * V1.2.19：材料 8 类齐备才能开启核销。
+   * 材料登记必须在「提交核销」之前做 —— 原来这段在归档前，现在整个前移了。
+   */
+  await page.click('[data-tab="materials"]');
+  await page.waitForTimeout(500);
+  await page.click("#addMat");
+  await page.waitForSelector("#modal.open");
+  for (const kind of ["立项文件", "合同", "议程", "课件", "签到表", "劳务表", "发票", "现场照片"]) {
+    await page.selectOption('#modal [name="kind"]', kind);
+    await page.fill('#modal [name="name"]', kind + "-E2E.pdf");
+    await page.click('#modal [data-x="1"]');
+    await page.waitForTimeout(450);
+    if (kind !== "现场照片") {
+      await page.click("#addMat");
+      await page.waitForSelector("#modal.open");
+    }
+  }
+  await page.waitForTimeout(500);
+
+  await page.click('[data-act="request_verify"]');
+  await page.waitForTimeout(700);
   const st = await page.innerText(".phead h2");
   console.log("3) 推进后状态：", st.replace(/\s+/g, " "));
   assert.match(st, /待核销/);
@@ -208,22 +231,7 @@ async function login(page, user) {
   console.log("7) 结算后：", afterSettle.replace(/\s+/g, " "));
   assert.match(afterSettle, /已结算/);
 
-  /* ---------- 8. 归档门禁 ---------- */
-  await page.click('[data-tab="materials"]');
-  await page.waitForTimeout(400);
-  await page.click("#addMat");
-  await page.waitForSelector("#modal.open");
-  for (const kind of ["立项文件", "合同", "议程", "课件", "签到表", "劳务表", "发票", "现场照片"]) {
-    await page.selectOption('#modal [name="kind"]', kind);
-    await page.fill('#modal [name="name"]', kind + "-E2E.pdf");
-    await page.click('#modal [data-x="1"]');
-    await page.waitForTimeout(450);
-    if (kind !== "现场照片") {
-      await page.click("#addMat");
-      await page.waitForSelector("#modal.open");
-    }
-  }
-  await page.waitForTimeout(600);
+  /* ---------- 8. 归档（材料在核销前已补齐） ---------- */
   await page.click('[data-tab="overview"]');
   await page.waitForTimeout(400);
   await page.click('[data-act="archive"]');

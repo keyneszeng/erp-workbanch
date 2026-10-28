@@ -50,6 +50,22 @@ function register(router) {
     if (!["待核销"].includes(p.status) && !(p.status === "已核销" && isSuper(ctx.user))) {
       throw conflict(`当前状态「${p.status}」不可判定核销，只有「待核销」项目可判定`, "ILLEGAL_STATE", { status: p.status });
     }
+    /**
+     * V1.2.19：材料 8 类齐备才能判定。
+     *
+     * 提交核销那一步已经拦过一次，这里再拦一次是因为：
+     *   1) 库里存在「已提交核销但材料不齐」的历史项目（门禁是这一版才加的）；
+     *   2) 提交之后、判定之前，材料还可能被删。
+     * 判定人要对着签到表、发票、现场照片逐条核，缺料时点「通过」就是凭印象盖章。
+     */
+    const ms = materialsStatus(p.id);
+    if (!ms.ok) {
+      throw conflict(
+        `核销材料还缺 ${ms.missing.length} 类：${ms.missing.join("、")}。材料齐备后才能判定`,
+        "MATERIAL_GATE",
+        { missing: ms.missing }
+      );
+    }
 
     const { result, remark } = ctx.body || {};
     if (!["通过", "不通过"].includes(result)) throw bad("判定结果只能是「通过」或「不通过」");

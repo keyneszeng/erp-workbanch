@@ -8,6 +8,7 @@ const assert = require("node:assert/strict");
 const { spawn } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
+const { fillMaterials } = require("./helpers/materials");
 
 const PORT = 8799;
 const BASE = `http://127.0.0.1:${PORT}`;
@@ -187,6 +188,9 @@ test("工作流：新建 → 提交 → 审批 → 筹备 → 执行 → 待核�
   const ex = await assoc("POST", `/api/projects/${pid}/transition`, { action: "exec" });
   assert.equal(ex.data.project.status, "执行中");
 
+  // V1.2.19：材料 8 类齐备才开启核销，进核销前必须先登记
+  await fillMaterials(assoc, pid);
+
   const rv = await assoc("POST", `/api/projects/${pid}/transition`, { action: "request_verify" });
   assert.equal(rv.data.project.status, "待核销");
 });
@@ -268,17 +272,17 @@ test("结算：生成结算单后核销结论冻结", async () => {
   assert.equal(judge.data.error.code, "FROZEN");
 });
 
-test("归档：材料未齐备被拦截，补齐 8 类后归档成功", async () => {
-  const bad = await assoc("POST", `/api/projects/${pid}/transition`, { action: "archive" });
-  assert.equal(bad.status, 409);
-  assert.match(bad.data.error.message, /归档材料缺/);
+test("归档：材料 8/8 + 结算单已生成 → 归档成功", async () => {
+  /**
+   * V1.2.19 起材料在**核销前**就补齐了（核销前置门），所以走到这里时材料天然是 8/8。
+   * 「材料未齐被拦」的负向用例挪到 test/v1219.test.js —— 在那里造一个不补材料的项目，
+   * 直接打归档门禁，测的是同一件事，但不会和主链路的材料前置互相干扰。
+   */
+  const d = await assoc("GET", `/api/projects/${pid}`);
+  assert.equal(d.data.materialsStatus.ok, true, "主链路项目此时材料应已 8/8");
 
-  for (const kind of ["立项文件", "合同", "议程", "课件", "签到表", "劳务表", "发票", "现场照片"]) {
-    const r = await assoc("POST", `/api/projects/${pid}/materials`, { kind, name: `${kind}.pdf` });
-    assert.equal(r.status, 200);
-  }
   const ok = await assoc("POST", `/api/projects/${pid}/transition`, { action: "archive" });
-  assert.equal(ok.status, 200);
+  assert.equal(ok.status, 200, JSON.stringify(ok.data));
   assert.equal(ok.data.project.status, "已归档");
 });
 
