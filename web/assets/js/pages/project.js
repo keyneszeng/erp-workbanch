@@ -9,13 +9,17 @@ import { flowHint, flowOf, openContractDetail } from "../lib/contract-detail.js"
 const ORDER = ["草稿", "待审批", "已立项", "筹备中", "执行中", "待核销", "已核销", "已结算", "已归档"];
 const PAYABLE = ["已核销"];
 /**
- * 页签顺序 = 作业顺序（V1.2.19）。
- * 「材料」必须排在「核销」前面：材料 8 类齐备是核销的前置门，页签顺序跟流程反着放，
- * 人会先去点核销、被拦、再回头找材料 —— 顺序本身就是一种提示。
+ * 页签顺序 = 作业顺序。
+ *
+ * 「材料 → 核销 → 付款」这一段是硬顺序，不是排版偏好：
+ *   · 材料 8 类齐备才开启核销（V1.2.19）；
+ *   · 核销通过（已核销）是付款的唯一前置门（V1.2.20 把付款挪到核销后面）。
+ * 页签顺序跟流程反着放，人会先去点后面那个、被拦、再回头找前一个 —— 顺序本身就是提示。
  */
 const TABS = [
-  ["overview", "概览"], ["demand", "会务需求"], ["contracts", "合同"], ["payments", "付款"],
-  ["materials", "材料"], ["verify", "核销"], ["team", "成员与授权"], ["timeline", "操作留痕"]
+  ["overview", "概览"], ["demand", "会务需求"], ["contracts", "合同"],
+  ["materials", "材料"], ["verify", "核销"], ["payments", "付款"],
+  ["team", "成员与授权"], ["timeline", "操作留痕"]
 ];
 let tab = "overview";
 
@@ -120,6 +124,9 @@ function tabDemand(d, p) {
 /* ---------------- 概览 ---------------- */
 function tabOverview(d, p) {
   const paid = d.paidTotal;
+  // 付款也进流程门禁（V1.2.20 把付款页签挪到核销后面，概览这一栏要跟着排）
+  const payDone = (d.payments || []).filter((y) => y.status === "已付款").length;
+  const payBlocked = (d.payments || []).filter((y) => ["待审批", "已审批"].includes(y.status)).length;
   const settle = d.settlement;
   const v = d.verification;
   const ms = d.materialsStatus;
@@ -157,6 +164,7 @@ function tabOverview(d, p) {
         <div>${d.demand && d.demand.archived ? "✅" : "⛔"} 会务需求：${d.demand ? (d.demand.archived ? `已归档（${d.demand.needCount} 项 · ¥${money(d.demand.budgetTotal)}）` : "草稿未归档") : "未建单"}</div>
         <div>${ms.ok ? "✅" : "⛔"} 材料（核销前置）：${8 - ms.missing.length}/8${ms.missing.length ? "，缺 " + ms.missing.join("、") : ""}</div>
         <div>${v.complete ? "✅" : "⛔"} 核销：${ms.ok ? "" : "材料未齐不可判定 · "}${v.passed}/6 通过${v.openExceptions ? `，${v.openExceptions} 张例外单待审批` : ""}</div>
+        <div>${payBlocked ? "⛔" : "✅"} 付款：${payDone} 笔已付 · ¥${money(d.paidTotal)}${payBlocked ? `，${payBlocked} 笔未完成（待审批 / 已审批）` : ""}</div>
         <div>${settle ? "✅" : "⛔"} 结算：${settle ? "已生成 " + settle.id : "未生成"}</div>
       </div>`)}
     </div>
