@@ -7,7 +7,7 @@ const { hashPassword, validatePassword } = require("../lib/auth");
 const { listProjects } = require("./projects");
 const { VERIFY_STEPS } = require("../lib/constants");
 const { readPaging, countOf } = require("../lib/paginate");
-const { seed } = require("../lib/seed");
+const { seed, RESET_DATA_TABLES } = require("../lib/seed");
 
 function countsByStatus(user) {
   const { sql, params } = scopeFilter(user);
@@ -319,10 +319,15 @@ function toFlag(v) {
 /**
  * 重置前要清哪些表 —— preview 与 reset 共用一份，避免「弹窗说删 19 个项目、实际删 18 个」。
  */
-const RESET_TABLES = ["projects", "users", "payments", "contracts", "settlements", "materials", "audit_logs"];
+const RESET_TABLES = RESET_DATA_TABLES;
 const RESET_LABEL = {
   projects: "项目", users: "账号", payments: "付款单", contracts: "合同",
-  settlements: "结算单", materials: "材料", audit_logs: "审计记录"
+  settlements: "结算单", materials: "材料", audit_logs: "审计记录",
+  uploaded_files: "上传文件归属", sessions: "登录会话", exports: "导出记录",
+  exceptions: "例外单", verify_steps: "核销判定", approvals: "审批记录",
+  guests: "嘉宾", tasks: "任务", issues: "异常问题",
+  demand_items: "需求明细", demand_sheets: "需求单", project_members: "项目成员",
+  settings: "系统演示配置"
 };
 function resetSnapshot() {
   const out = {};
