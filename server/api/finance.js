@@ -31,6 +31,14 @@ const CONTRACT_STATUS = ["草稿", "待签署", "已签署"];
 /** 合同文本字段长度上限，防止超长内容撑爆台账与 CSV 导出 */
 const CONTRACT_MAX = { name: 80, vendor: 80, remark: 500, sign_date: 10 };
 
+/** 所有审批必须明确说明同意还是驳回，不允许空请求体隐式批准。 */
+function requireDecision(body) {
+  if (!body || typeof body.approve !== "boolean") {
+    throw bad("必须明确传入 approve: true（通过）或 approve: false（驳回）", "DECISION_REQUIRED");
+  }
+  return body.approve;
+}
+
 /** 校验 YYYY-MM-DD 且必须是真实存在的日期（2026-02-30 这类要拦掉） */
 function checkDate(s, label) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) throw bad(`${label}格式应为 YYYY-MM-DD`);
@@ -378,7 +386,7 @@ function register(router) {
     assertProjectVisible(ctx.user, p);
     assertCan(ctx.user, "payment:approve", "只有财务与核销（或总管理员）可以审批付款");
     if (y.status !== "待审批") throw conflict(`付款单已是「${y.status}」状态`);
-    const approve = ctx.body?.approve !== false;
+    const approve = requireDecision(ctx.body);
     const st = approve ? "已审批" : "已驳回";
     db.prepare("UPDATE payments SET status = ? WHERE id = ?").run(st, y.id);
     db.prepare("UPDATE approvals SET status = ?, decided_by = ?, decided_at = ?, comment = ? WHERE ref_id = ? AND type = '付款审批' AND status = '待审批'")
@@ -463,7 +471,7 @@ function register(router) {
     if (a.status !== "待审批") throw conflict(`该审批单已是「${a.status}」状态`);
     const p = getProject(a.pid);
     assertProjectVisible(ctx.user, p);
-    const approve = ctx.body?.approve !== false;
+    const approve = requireDecision(ctx.body);
     const comment = String(ctx.body?.comment || "");
 
     if (a.type === "立项审批") {
