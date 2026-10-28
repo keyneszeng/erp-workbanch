@@ -7,6 +7,7 @@ const { getProject, verification, materialsStatus, settlementOf, demandSummary }
 const { MATERIAL_KINDS } = require("../lib/constants");
 const { readPaging, countOf } = require("../lib/paginate");
 const { storage } = require("../lib/storage");
+const { assertUploadAttachable } = require("../lib/upload-ownership");
 
 function register(router) {
   /**
@@ -294,6 +295,7 @@ function register(router) {
     if (file_key) {
       if (!/^[a-f0-9]{32}\.(jpg|png|webp|gif|pdf)$/.test(String(file_key))) throw bad("附件标识不合法");
       fk = String(file_key);
+      assertUploadAttachable(fk, p.id, ctx.user);
     }
 
     db.prepare(
