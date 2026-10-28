@@ -54,10 +54,21 @@ function register(router) {
     let name = "未命名文件";
     try { name = safeName(decodeURIComponent(rawName)); } catch { name = safeName(rawName); }
 
+    const pid = ctx.query.pid || null;
+    if (pid) {
+      const p = getProject(pid);
+      if (!p) throw notFound("会议项目不存在");
+      assertProjectVisible(ctx.user, p);
+    }
     const key = newKey(mime);
     await storage().put(key, buf, { mime });
-
-    const pid = ctx.query.pid || null;
+    try {
+      db.prepare("INSERT INTO uploaded_files (file_key,user_id,pid,created_at) VALUES (?,?,?,?)")
+        .run(key, ctx.user.id, pid, now());
+    } catch (e) {
+      try { await storage().del(key); } catch {}
+      throw e;
+    }
     logAudit({
       user: ctx.user, module: "材料中心", action: "上传文件",
       target: pid || key, detail: `${name}（${(buf.length / 1024).toFixed(0)} KB）`, ip: ctx.ip
@@ -82,7 +93,20 @@ function register(router) {
     const m = db.prepare("SELECT pid FROM materials WHERE file_key = ?").get(key);
     const c = m ? null : db.prepare("SELECT pid FROM contracts WHERE file_key = ?").get(key);
     const owner = m || c;
-    if (owner) assertProjectVisible(ctx.user, getProject(owner.pid));
+    if (owner) {
+      assertProjectVisible(ctx.user, getProject(owner.pid));
+      // 单纯是项目成员的嘉宾并不自动获得合同和财务凭证的读取权限。
+      if (!can(ctx.user, "material:write") && !can(ctx.user, "contract:write") &&
+          !can(ctx.user, "verify:check") && !can(ctx.user, "archive:write")) {
+        throw forbidden("当前角色无权查看内部业务附件");
+      }
+    } else {
+      // 未关联单据时只允许上传者或总管理员读取，不能把随机 key 当作授权。
+      const pending = db.prepare("SELECT user_id FROM uploaded_files WHERE file_key = ?").get(key);
+      if (!pending || (pending.user_id !== ctx.user.id && ctx.user.role !== "admin")) {
+        throw forbidden("该文件不属于当前用户");
+      }
+    }
 
     const obj = await storage().get(key);
     if (!obj) throw notFound("文件不存在或已删除");
