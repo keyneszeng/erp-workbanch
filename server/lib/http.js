@@ -71,7 +71,7 @@ function readBody(req, limit = 2 * 1024 * 1024, { raw = false } = {}) {
 }
 
 /** 二进制响应（文件下载） */
-function sendBinary(res, status, buffer, { mime = "application/octet-stream", name = "", cache = "private, max-age=86400" } = {}) {
+function sendBinary(res, status, buffer, { mime = "application/octet-stream", name = "", cache = "private, max-age=86400", disposition = "inline" } = {}) {
   const headers = {
     "Content-Type": mime,
     "Content-Length": buffer.length,
@@ -80,7 +80,7 @@ function sendBinary(res, status, buffer, { mime = "application/octet-stream", na
     "X-Content-Type-Options": "nosniff"
   };
   if (name) {
-    headers["Content-Disposition"] = `inline; filename="${encodeURIComponent(name)}"; filename*=UTF-8''${encodeURIComponent(name)}`;
+    headers["Content-Disposition"] = `${disposition === "attachment" ? "attachment" : "inline"}; filename="${encodeURIComponent(name)}"; filename*=UTF-8''${encodeURIComponent(name)}`;
   }
   res.writeHead(status, headers);
   res.end(buffer);
