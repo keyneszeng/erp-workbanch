@@ -75,7 +75,9 @@ async function load(root) {
   // 分页后本页行只含当前页金额，合计必须用后端给的全量 summary
   const budget = d.summary ? d.summary.budget : d.rows.reduce((s, r) => s + r.budget, 0);
   const paid = d.summary ? d.summary.paid : d.rows.reduce((s, r) => s + (r.paid_amt || 0), 0);
-  root.querySelector("#sum").textContent = `预算合计 ¥${money(budget)} · 已付款 ¥${money(paid)}`;
+  root.querySelector("#sum").textContent = state.user.role === "user"
+    ? "只显示本人相关会议"
+    : `预算合计 ¥${money(budget)} · 已付款 ¥${money(paid)}`;
 
   list.innerHTML = table(
     [{ t: "编号", w: "112px" }, { t: "会议名称" }, { t: "协会", w: "118px" }, { t: "形式", w: "58px" },
@@ -87,7 +89,7 @@ async function load(root) {
         `<span class="mono">${p.id}</span>`,
         `<b style="font-size:12.8px">${esc(p.name)}</b>`,
         esc(p.assoc), esc(p.form), `<span class="mono">${esc(p.date)}</span>`,
-        `¥${money(p.budget)}`, esc(p.owner || "—"), badge(p.status),
+        state.user.role === "user" ? "—" : `¥${money(p.budget)}`, esc(p.owner || "—"), badge(p.status),
         `<div class="tacts"><button class="link" data-go="projects/${p.id}">详情</button>
          ${p.status === "待核销" && can("verify:check") ? `<button class="link" data-go="verify/${p.id}">核销</button>` : ""}</div>`
       ]

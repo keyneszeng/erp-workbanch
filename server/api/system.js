@@ -7,7 +7,7 @@ const { hashPassword, validatePassword } = require("../lib/auth");
 const { listProjects } = require("./projects");
 const { VERIFY_STEPS } = require("../lib/constants");
 const { readPaging, countOf } = require("../lib/paginate");
-const { seed } = require("../lib/seed");
+const { seed, RESET_DATA_TABLES } = require("../lib/seed");
 
 function countsByStatus(user) {
   const { sql, params } = scopeFilter(user);
@@ -80,7 +80,11 @@ function myTodos(user) {
        ORDER BY a.decided_at DESC`
     ).all(...params);
     for (const a of rows) {
-      if (a.by_user === user.name || a.decided_by === user.name) continue;
+      const submittedByMe = a.submitted_by_id != null
+        ? Number(a.submitted_by_id) === Number(user.id) : a.by_user === user.name;
+      const approvedByMe = a.decided_by_id != null
+        ? Number(a.decided_by_id) === Number(user.id) : a.decided_by === user.name;
+      if (submittedByMe || approvedByMe) continue;
       const amtNote = Number(a.amount) > 0 ? `（预算 → ¥${Number(a.amount).toLocaleString("zh-CN")}）` : "（不涉金额）";
       todos.push({
         kind: "变更落账", title: `变更已批准，待落账：${a.title}${amtNote}`,
@@ -184,6 +188,20 @@ function dashboard(user) {
      WHERE y.status = '已付款' AND ${sql}`
   ).get(...params).v) || 0;
 
+  if (user.role === "user") {
+    // 参会者只可读取本人会议安排；聚合预算、付款、审计以及项目原始行均属于内部信息。
+    return {
+      counts: map,
+      statusRows: rows.map(({ status, c }) => ({ status, c })),
+      budget: null,
+      paid: null,
+      todos,
+      upcoming: upcoming.map(({ id, name, assoc, date, status, owner }) =>
+        ({ id, name, assoc, date, status, owner })),
+      alerts: [],
+      recent: []
+    };
+  }
   return {
     counts: map,
     statusRows: rows,
@@ -305,10 +323,15 @@ function toFlag(v) {
 /**
  * 重置前要清哪些表 —— preview 与 reset 共用一份，避免「弹窗说删 19 个项目、实际删 18 个」。
  */
-const RESET_TABLES = ["projects", "users", "payments", "contracts", "settlements", "materials", "audit_logs"];
+const RESET_TABLES = RESET_DATA_TABLES;
 const RESET_LABEL = {
   projects: "项目", users: "账号", payments: "付款单", contracts: "合同",
-  settlements: "结算单", materials: "材料", audit_logs: "审计记录"
+  settlements: "结算单", materials: "材料", audit_logs: "审计记录",
+  uploaded_files: "上传文件归属", sessions: "登录会话", exports: "导出记录",
+  exceptions: "例外单", verify_steps: "核销判定", approvals: "审批记录",
+  guests: "嘉宾", tasks: "任务", issues: "异常问题",
+  demand_items: "需求明细", demand_sheets: "需求单", project_members: "项目成员",
+  settings: "系统演示配置"
 };
 function resetSnapshot() {
   const out = {};

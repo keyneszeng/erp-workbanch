@@ -276,6 +276,15 @@ CREATE TABLE IF NOT EXISTS settings (
   k TEXT PRIMARY KEY,
   v TEXT
 );
+
+-- Before attachment registration, files must be scoped to their uploader.
+CREATE TABLE IF NOT EXISTS uploaded_files (
+  file_key    TEXT PRIMARY KEY,
+  user_id     INTEGER NOT NULL,
+  pid         TEXT,
+  created_at  TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_uploaded_files_user ON uploaded_files(user_id);
 `;
 
 /* ---------------------------------------------------------------- 后端实现 */
@@ -437,6 +446,10 @@ function migrate() {
   // V1.2.12：变更单的「落账人」。审批通过只是批准，真正改预算要另一个人执行（双人复核）
   addColumn("approvals", "executed_by", "executed_by TEXT");
   addColumn("approvals", "executed_at", "executed_at TEXT");
+  // V1.2.23: person identity must be the stable user ID, not display name.
+  addColumn("approvals", "submitted_by_id", "submitted_by_id INTEGER");
+  addColumn("approvals", "decided_by_id", "decided_by_id INTEGER");
+  addColumn("approvals", "executed_by_id", "executed_by_id INTEGER");
   // V1.2.13：合同类别 —— 核销第 5 步「劳务与专家费核对」只该看劳务专家类合同，
   // 以前没有这个字段，只能把项目下所有合同都列出来，场地餐饮合同会混进劳务核对里。
   addColumn("contracts", "category", "category TEXT");

@@ -1,12 +1,13 @@
 "use strict";
 const { db } = require("../lib/db");
 const { now, nextId, bad, notFound, conflict, forbidden, yuan } = require("../lib/util");
-const { assertCan, assertProjectVisible, isSuper } = require("../lib/rbac");
+const { assertCan, assertModule, assertProjectVisible, isSuper } = require("../lib/rbac");
 const { logAudit } = require("../lib/audit");
 const { getProject, verification, materialsStatus, settlementOf, demandSummary } = require("../lib/workflow");
 const { MATERIAL_KINDS } = require("../lib/constants");
 const { readPaging, countOf } = require("../lib/paginate");
 const { storage } = require("../lib/storage");
+const { assertUploadAttachable } = require("../lib/upload-ownership");
 
 function register(router) {
   /**
@@ -18,6 +19,8 @@ function register(router) {
    * 一次请求取全，避免弹窗再打三个接口、也避免各接口口径不一致。
    */
   router.get("/api/projects/:id/verify", async (ctx) => {
+    // 项目成员关系不授予财务核销凭证查看权；嘉宾可看会议信息但不能读账目。
+    assertModule(ctx.user, "verify", "verify:check");
     const p = getProject(ctx.params.id);
     assertProjectVisible(ctx.user, p);
     const materials = db.prepare("SELECT * FROM materials WHERE pid = ? ORDER BY kind, id").all(p.id);
@@ -201,6 +204,9 @@ function register(router) {
     assertCan(ctx.user, "verify:exception_approve", "只有财务与核销（或总管理员）可以审批例外单");
     if (ex.status !== "待审批") throw conflict(`例外单已是「${ex.status}」状态，不可重复审批`);
     const { approve, comment } = ctx.body || {};
+    if (typeof approve !== "boolean") {
+      throw bad("必须明确传入 approve: true（通过）或 approve: false（驳回）", "DECISION_REQUIRED");
+    }
     if (String(comment || "").length > 500) throw bad("审批意见不能超过 500 字");
     const at = now();
     const status = approve ? "已通过" : "已驳回";
@@ -291,6 +297,7 @@ function register(router) {
     if (file_key) {
       if (!/^[a-f0-9]{32}\.(jpg|png|webp|gif|pdf)$/.test(String(file_key))) throw bad("附件标识不合法");
       fk = String(file_key);
+      assertUploadAttachable(fk, p.id, ctx.user);
     }
 
     db.prepare(

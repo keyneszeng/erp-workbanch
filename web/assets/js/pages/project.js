@@ -26,6 +26,9 @@ let tab = "overview";
 export async function render(root, [pid]) {
   const d = await api.get(`/api/projects/${pid}`);
   const p = d.project;
+  const participant = state.user.role === "user";
+  if (participant) tab = "overview";
+  const visibleTabs = participant ? [["overview", "会议概览"]] : TABS;
   const canEdit = (state.super || state.user.role === "assoc") && (p.status !== "已归档" || state.super);
 
   root.innerHTML = `
@@ -39,7 +42,7 @@ export async function render(root, [pid]) {
       ${d.actions.map((a) => `<button class="btn ${a.enabled ? "btn-p" : "btn-o"}"
         data-act="${a.action}" ${a.enabled ? "" : "disabled"} title="${esc(a.reason || "")}">${a.label}</button>`).join("")}
       ${canEdit ? '<button class="btn btn-o" id="editBtn">编辑资料</button>' : ""}
-      ${["已立项", "筹备中", "执行中"].includes(p.status) ? '<button class="btn btn-o" id="changeBtn">提交变更</button>' : ""}
+      ${!participant && ["已立项", "筹备中", "执行中"].includes(p.status) ? '<button class="btn btn-o" id="changeBtn">提交变更</button>' : ""}
     </div>
   </div>
 
@@ -52,7 +55,7 @@ export async function render(root, [pid]) {
   ${d.actions.some((a) => !a.enabled && a.reason) ? `<div class="gate mt"><b>当前不能推进的原因</b>
     ${d.actions.filter((a) => !a.enabled && a.reason).map((a) => `${a.label}：${esc(a.reason)}`).join("；")}</div>` : ""}
 
-  <div class="tabs mt">${TABS.map(([k, n]) => `<button data-tab="${k}" class="${tab === k ? "on" : ""}">${n}${
+  <div class="tabs mt">${visibleTabs.map(([k, n]) => `<button data-tab="${k}" class="${tab === k ? "on" : ""}">${n}${
     k === "verify" ? ` <span style="color:var(--mute)">${d.verification.passed}/6</span>` : ""}${
     k === "materials" ? ` <span style="color:var(--mute)">${8 - d.materialsStatus.missing.length}/8</span>` : ""}</button>`).join("")}</div>
   <div id="tabbody"></div>`;
@@ -66,11 +69,23 @@ export async function render(root, [pid]) {
 
   const body = root.querySelector("#tabbody");
   const fn = {
-    overview: tabOverview, demand: tabDemand, contracts: tabContracts, payments: tabPayments,
+    overview: participant ? tabParticipantOverview : tabOverview, demand: tabDemand, contracts: tabContracts, payments: tabPayments,
     verify: tabVerify, materials: tabMaterials, team: tabTeam, timeline: tabTimeline
   }[tab];
   body.innerHTML = fn(d, p);
   wire(root, pid, d, body);
+}
+
+/** 普通用户 / 嘉宾只读概览：不会渲染财务、审批、内部电话和团队资料。 */
+function tabParticipantOverview(d, p) {
+  return panel("会议信息", "仅显示本人相关的会议", kv([
+    ["项目编号", esc(p.id)], ["会议名称", esc(p.name)],
+    ["所属协会", esc(p.assoc)], ["会议形式", esc(p.form)],
+    ["会议日期", esc(p.date)], ["会期", String(p.days) + " 天"],
+    ["预计人数", String(p.people || 0) + " 人"],
+    ["负责人", esc(p.owner || "—")], ["会议状态", esc(p.status)],
+    ["议程要点", esc(p.agenda || "—")]
+  ]));
 }
 
 /* ---------------- 会务需求（筹备 / 执行阶段填，确认后归档到这里） ---------------- */

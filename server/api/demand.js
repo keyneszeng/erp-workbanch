@@ -297,6 +297,7 @@ function register(router) {
 
   // 导出 CSV
   router.get("/api/demand/:id/export", async (ctx) => {
+    assertModule(ctx.user, "demand", "demand:write");
     const p = getProject(ctx.params.id);
     if (!p) throw notFound("会议项目不存在");
     assertProjectVisible(ctx.user, p);

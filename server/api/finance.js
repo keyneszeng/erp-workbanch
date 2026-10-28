@@ -7,6 +7,7 @@ const { getProject, verification, committed } = require("../lib/workflow");
 const { PAYMENT_TYPES, CONTRACT_CATEGORIES, guessContractCategory } = require("../lib/constants");
 const { readPaging, countOf } = require("../lib/paginate");
 const { transition } = require("../lib/workflow");
+const { assertUploadAttachable } = require("../lib/upload-ownership");
 
 // 只有「已核销」可新增付款：结算后账目已封账，归档后卷宗已封存，均不得再挂账
 const PAYABLE_STATUS = ["已核销"];
@@ -30,6 +31,14 @@ const CONTRACT_STATUS = ["草稿", "待签署", "已签署"];
 
 /** 合同文本字段长度上限，防止超长内容撑爆台账与 CSV 导出 */
 const CONTRACT_MAX = { name: 80, vendor: 80, remark: 500, sign_date: 10 };
+
+/** 所有审批必须明确说明同意还是驳回，不允许空请求体隐式批准。 */
+function requireDecision(body) {
+  if (!body || typeof body.approve !== "boolean") {
+    throw bad("必须明确传入 approve: true（通过）或 approve: false（驳回）", "DECISION_REQUIRED");
+  }
+  return body.approve;
+}
 
 /** 校验 YYYY-MM-DD 且必须是真实存在的日期（2026-02-30 这类要拦掉） */
 function checkDate(s, label) {
@@ -113,6 +122,7 @@ function register(router) {
     if (b.file_key) {
       if (!FILE_KEY_RE.test(String(b.file_key))) throw bad("附件标识不合法");
       fk = String(b.file_key);
+      assertUploadAttachable(fk, p.id, ctx.user);
       fname = String(b.file_name || "").slice(0, 120) || fk;
       fsize = Number(b.file_size) || null;
       fmime = String(b.file_mime || "").slice(0, 60) || null;
@@ -378,7 +388,7 @@ function register(router) {
     assertProjectVisible(ctx.user, p);
     assertCan(ctx.user, "payment:approve", "只有财务与核销（或总管理员）可以审批付款");
     if (y.status !== "待审批") throw conflict(`付款单已是「${y.status}」状态`);
-    const approve = ctx.body?.approve !== false;
+    const approve = requireDecision(ctx.body);
     const st = approve ? "已审批" : "已驳回";
     db.prepare("UPDATE payments SET status = ? WHERE id = ?").run(st, y.id);
     db.prepare("UPDATE approvals SET status = ?, decided_by = ?, decided_at = ?, comment = ? WHERE ref_id = ? AND type = '付款审批' AND status = '待审批'")
@@ -463,7 +473,7 @@ function register(router) {
     if (a.status !== "待审批") throw conflict(`该审批单已是「${a.status}」状态`);
     const p = getProject(a.pid);
     assertProjectVisible(ctx.user, p);
-    const approve = ctx.body?.approve !== false;
+    const approve = requireDecision(ctx.body);
     const comment = String(ctx.body?.comment || "");
 
     if (a.type === "立项审批") {
@@ -513,9 +523,9 @@ function register(router) {
       logAudit({ user: ctx.user, module: "财务结算", action: approve ? "付款审批通过" : "付款驳回", target: p.id, detail: `${y.id} ¥${Number(y.amount).toLocaleString("zh-CN")}`, ip: ctx.ip });
       return { message: `付款单 ${y.id} ${approve ? "已审批" : "已驳回"}` };
     }
-    // 变更审批：与立项同权，权限已在入口的 DECIDE_PERM 里判过
-    db.prepare("UPDATE approvals SET status = ?, decided_by = ?, decided_at = ?, comment = ? WHERE id = ?")
-      .run(approve ? "已通过" : "已驳回", ctx.user.name, now(), comment, a.id);
+    // 变更审批：用稳定用户 ID 留下审批主体，避免同名人员绕过双人复核。
+    db.prepare("UPDATE approvals SET status = ?, decided_by = ?, decided_at = ?, comment = ?, decided_by_id = ? WHERE id = ?")
+      .run(approve ? "已通过" : "已驳回", ctx.user.name, now(), comment, ctx.user.id, a.id);
     logAudit({ user: ctx.user, module: "项目管理", action: approve ? "审批通过" : "审批驳回", target: p.id, detail: `${a.type}：${a.title}`, ip: ctx.ip });
     return { message: `${a.type} ${approve ? "已通过" : "已驳回"}${a.type === "变更审批" && approve ? "，待另一人执行落账后生效" : ""}` };
   });
@@ -574,8 +584,8 @@ function register(router) {
     }
 
     const id = nextId(db, "approvals", "id", "AP");
-    db.prepare("INSERT INTO approvals (id,type,title,pid,ref_id,amount,by_user,sla,status,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)")
-      .run(id, "变更审批", title, p.id, p.id, newBudget, ctx.user.name, "2 个工作日", "待审批", now());
+    db.prepare("INSERT INTO approvals (id,type,title,pid,ref_id,amount,by_user,sla,status,created_at,submitted_by_id) VALUES (?,?,?,?,?,?,?,?,?,?,?)")
+      .run(id, "变更审批", title, p.id, p.id, newBudget, ctx.user.name, "2 个工作日", "待审批", now(), ctx.user.id);
     logAudit({
       user: ctx.user, module: "项目管理", action: "变更申请", target: p.id,
       detail: title + (newBudget ? `；申请预算 ¥${Number(p.budget).toLocaleString("zh-CN")} → ¥${newBudget.toLocaleString("zh-CN")}` : ""),
@@ -611,13 +621,19 @@ function register(router) {
 
     // 双人复核：批的人不落账，落账的人不批；自己提的也不能自己落
     const me = ctx.user.name;
-    if (a.decided_by && me === a.decided_by) {
+    const approvedByMe = a.decided_by_id != null
+      ? Number(a.decided_by_id) === Number(ctx.user.id)
+      : !!a.decided_by && me === a.decided_by;
+    const submittedByMe = a.submitted_by_id != null
+      ? Number(a.submitted_by_id) === Number(ctx.user.id)
+      : !!a.by_user && me === a.by_user;
+    if (approvedByMe) {
       throw conflict(
         `变更单 ${a.id} 由你审批，落账必须由另一人执行（双人复核）；请让其他有权限的同事操作`,
         "NEED_SECOND_PERSON", { decided_by: a.decided_by }
       );
     }
-    if (a.by_user && me === a.by_user) {
+    if (submittedByMe) {
       throw conflict(
         `变更单 ${a.id} 由你提交，落账必须由另一人执行（双人复核）；请让其他有权限的同事操作`,
         "NEED_SECOND_PERSON", { by_user: a.by_user }
@@ -646,8 +662,8 @@ function register(router) {
     }
 
     const at = now();
-    db.prepare("UPDATE approvals SET status = '已执行', executed_by = ?, executed_at = ? WHERE id = ?")
-      .run(me, at, a.id);
+    db.prepare("UPDATE approvals SET status = '已执行', executed_by = ?, executed_at = ?, executed_by_id = ? WHERE id = ?")
+      .run(me, at, ctx.user.id, a.id);
     logAudit({ user: ctx.user, module: "项目管理", action: "变更落账", target: p.id, detail, ip: ctx.ip });
     return {
       message: `变更 ${a.id} 已落账${budgetInfo ? `，预算已调整为 ¥${budgetInfo.to.toLocaleString("zh-CN")}` : ""}`,

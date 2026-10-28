@@ -6,6 +6,12 @@ const { VERIFY_STEPS, MATERIAL_KINDS, DEMAND_GROUPS, DEMAND_TEMPLATE, guessContr
 
 const PASS = "123456";
 
+// 与管理员的重置预览共用同一份表清单，避免预览和真正删除的范围漂移。
+const RESET_DATA_TABLES = ["uploaded_files", "sessions", "audit_logs", "exports", "settlements",
+  "exceptions", "verify_steps", "payments", "contracts", "approvals", "materials",
+  "guests", "tasks", "issues", "demand_items", "demand_sheets",
+  "project_members", "projects", "users", "settings"];
+
 const USERS = [
   { username: "admin",   name: "李静", role: "admin",   assoc: null,        dept: "秘书处", phone: "13800000001", title: "总管理员" },
   { username: "assoc",   name: "王敏", role: "assoc",   assoc: "华东医学会", dept: "会务部", phone: "13800000002", title: "协会管理员" },
@@ -154,9 +160,7 @@ function alreadySeeded() {
 
 function seed({ reset = false } = {}) {
   if (reset) {
-    for (const t of ["sessions", "audit_logs", "exports", "settlements", "exceptions", "verify_steps", "payments",
-      "contracts", "approvals", "materials", "guests", "tasks", "issues", "demand_items", "demand_sheets",
-      "project_members", "projects", "users", "settings"]) {
+    for (const t of RESET_DATA_TABLES) {
       db.exec(`DELETE FROM ${t}`);
     }
     db.exec("DELETE FROM sqlite_sequence");
@@ -364,4 +368,4 @@ function seed({ reset = false } = {}) {
   return { skipped: false, users: USERS.length, projects: PROJECTS.length, payments: PAYMENTS.length, audits: k };
 }
 
-module.exports = { seed, USERS, PASS };
+module.exports = { seed, USERS, PASS, RESET_DATA_TABLES };
