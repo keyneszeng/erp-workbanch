@@ -115,17 +115,17 @@ function renderList(root) {
     const needAll = d.projects.reduce((s, p) => s + (p.needCount || 0), 0);
 
     root.innerHTML = `<div class="phead">
-      <div><h2>会务需求确认</h2><p>四组清单：设计 / 制作 / 现场执行 / 其他 · 确认后归档，作为后续核销的依据</p></div>
+      <div><h2>会务需求确认</h2><p>四组清单：设计 / 制作 / 现场执行 / 其他 · 只在筹备 / 执行阶段填写，确认后归档到项目详情页，作为后续核销的依据</p></div>
       <div class="acts"></div>
     </div>
     <div class="grid g4">
-      <div class="kpi"><div class="t">在管项目</div><div class="v">${d.projects.length}<span class="u">个</span></div></div>
+      <div class="kpi"><div class="t">筹备 / 执行中</div><div class="v">${d.projects.length}<span class="u">个</span></div></div>
       <div class="kpi k2"><div class="t">已建需求单</div><div class="v">${built}<span class="u">个</span></div></div>
       <div class="kpi k4"><div class="t">已归档</div><div class="v">${archived}<span class="u">个</span></div></div>
       <div class="kpi k3"><div class="t">需求预算合计</div><div class="v">${yuan(budget).replace("¥", "")}<span class="u">元</span></div></div>
     </div>
     <div class="panel mt">
-      <div class="panel-h"><h2>会议项目</h2><span class="hint">点「去填写」打开该会议的需求确认单</span></div>
+      <div class="panel-h"><h2>会议项目</h2><span class="hint">只列「筹备中 / 执行中」的项目；已归档的需求单到项目详情页的「会务需求」里看</span></div>
       ${table([{ t: "项目", w: "200px" }, { t: "协会", w: "120px" }, { t: "状态", w: "84px" },
         { t: "需求", w: "90px" }, { t: "预算金额", w: "120px" }, { t: "归档", w: "110px" }, { t: "操作", w: "90px" }],
         d.projects.map((p) => ({
@@ -140,7 +140,7 @@ function renderList(root) {
               ? `<span class="pos">已归档</span><div class="tip">${esc(p.confirmedBy || "")}</div>`
               : '<span style="color:var(--mute)">草稿</span>',
             `<button class="link" data-go="demand/${p.id}">去填写</button>`]
-        })), { empty: "暂无项目" })}
+        })), { empty: "当前没有处于「筹备中 / 执行中」的项目" })}
       <div class="hint" style="padding:8px 14px">需要项合计 ${needAll} 项；预算只统计「需要」的条目，标了不需要的不计入。</div>
     </div>`;
   });
@@ -165,6 +165,12 @@ function renderSheet(root, pid) {
         <button class="btn btn-o" id="export">导出 CSV</button>
       </div>
     </div>
+    ${!d.archived && d.inDemandPhase === false
+      // 会务需求是筹备 / 执行阶段的作业。项目已经过了这两个阶段还没归档，
+      // 核销第 3 步就没有对照依据 —— 这里提示一句，但不硬拦（补确认总比缺依据好）。
+      ? `<div class="gate">当前项目状态「${esc(d.projectStatus || "")}」，不在筹备 / 执行阶段。
+          需求单仍可补确认 —— 核销第 3 步要拿这份清单做费用对照，缺了它核销会少一项依据。</div>`
+      : ""}
     ${d.archived ? `<div class="banner ok">✓ 该会议会务需求已由 <b>${esc(d.confirmed_by || "")}</b> 于 ${esc(d.confirmed_at || "")} 确认并归档
       —— 已封存，后续核销以这份清单和预算金额为依据。${writable ? "如需修改，先「撤销归档」。" : ""}</div>` : ""}
     ${d.groups.map((g) => groupPanel(g, d.items[g], locked)).join("")}`;

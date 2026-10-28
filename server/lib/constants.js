@@ -117,4 +117,13 @@ const DEMAND_TEMPLATE = {
 
 const DEMAND_NEED_OPTIONS = ["需要", "不需要"];
 
-module.exports = { ASSOCS, FORMS, DEPTS, PAYMENT_TYPES, VERIFY_STEPS, MATERIAL_KINDS, CONTRACT_CATEGORIES, guessContractCategory, FLOW, STATUS_DESC, DEMAND_GROUPS, DEMAND_TEMPLATE, DEMAND_NEED_OPTIONS };
+/**
+ * 会务需求只属于「筹备中 / 执行中」两个阶段。
+ *
+ * 老板 2026-10-28 的修正：会务需求是筹备和执行阶段由负责人填写的作业，
+ * 立项前还没到筹备、核销后已经是存档记录 —— 这两头的项目不该出现在
+ * 「会务需求 → 会议项目」列表里。归档后的需求单在项目详情页看。
+ */
+const DEMAND_STATUSES = ["筹备中", "执行中"];
+
+module.exports = { ASSOCS, FORMS, DEPTS, PAYMENT_TYPES, VERIFY_STEPS, MATERIAL_KINDS, CONTRACT_CATEGORIES, guessContractCategory, FLOW, STATUS_DESC, DEMAND_GROUPS, DEMAND_TEMPLATE, DEMAND_NEED_OPTIONS, DEMAND_STATUSES };

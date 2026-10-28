@@ -123,8 +123,16 @@ async function seedArchivedDemand() {
     const listHeads = await page.$$eval(".panel th", (els) => els.map((e) => e.textContent.trim()));
     check("列表列头含「预算金额」", listHeads.includes("预算金额"), JSON.stringify(listHeads));
     check("列表列头含「归档」", listHeads.includes("归档"), JSON.stringify(listHeads));
-    const archivedCell = await page.$$eval(".panel td", (els) => els.map((e) => e.textContent.trim()));
-    check("MP-2026-003 显示「已归档」", archivedCell.some((x) => x === "已归档"), "");
+    // V1.2.16：会务需求只属于筹备 / 执行阶段，别的状态不该出现在这个列表里。
+    // MP-2026-003 是「待核销」，它的需求单刚在上一步被归档 —— 列表里不该有它，
+    // 归档记录要到「项目详情 → 会务需求」看。
+    const listRows = await page.$$eval(".panel tbody tr", (rows) =>
+      rows.map((r) => r.textContent.replace(/\s+/g, " ").trim()));
+    check("列表只含筹备中 / 执行中的项目",
+      listRows.length > 0 && listRows.every((t) => /筹备中|执行中/.test(t)),
+      JSON.stringify(listRows.slice(0, 3)));
+    check("待核销项目 MP-2026-003 不出现在列表", !listRows.some((t) => /京津冀论坛/.test(t)),
+      JSON.stringify(listRows.map((t) => t.slice(0, 12))));
 
     console.log("\n[3] 需求单：列头已精简");
     await page.goto(`${BASE}/#/demand/${PID}`, { waitUntil: "networkidle" });

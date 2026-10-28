@@ -9,7 +9,7 @@ import { flowHint, flowOf, openContractDetail } from "../lib/contract-detail.js"
 const ORDER = ["草稿", "待审批", "已立项", "筹备中", "执行中", "待核销", "已核销", "已结算", "已归档"];
 const PAYABLE = ["已核销"];
 const TABS = [
-  ["overview", "概览"], ["contracts", "合同"], ["payments", "付款"],
+  ["overview", "概览"], ["demand", "会务需求"], ["contracts", "合同"], ["payments", "付款"],
   ["verify", "核销"], ["materials", "材料"], ["team", "成员与授权"], ["timeline", "操作留痕"]
 ];
 let tab = "overview";
@@ -56,9 +56,60 @@ export async function render(root, [pid]) {
   if (cb) cb.onclick = () => openChange(root, pid);
 
   const body = root.querySelector("#tabbody");
-  const fn = { overview: tabOverview, contracts: tabContracts, payments: tabPayments, verify: tabVerify, materials: tabMaterials, team: tabTeam, timeline: tabTimeline }[tab];
+  const fn = {
+    overview: tabOverview, demand: tabDemand, contracts: tabContracts, payments: tabPayments,
+    verify: tabVerify, materials: tabMaterials, team: tabTeam, timeline: tabTimeline
+  }[tab];
   body.innerHTML = fn(d, p);
   wire(root, pid, d, body);
+}
+
+/* ---------------- 会务需求（筹备 / 执行阶段填，确认后归档到这里） ---------------- */
+/**
+ * 老板 2026-10-28 的修正：会务需求是筹备和执行阶段的作业，负责人填完确认后
+ * 归档到项目详情页，作为后续核销的费用对照。
+ *
+ * 所以这个页签**不分阶段**：项目走到核销、结算、归档都还能查到这份归档记录；
+ * 但「去填写」只在筹备中 / 执行中给 —— 别的阶段进去也没有填的意义。
+ */
+function tabDemand(d, p) {
+  const dm = d.demand;
+  const statuses = (state.meta && state.meta.demandStatuses) || ["筹备中", "执行中"];
+  const inPhase = statuses.includes(p.status);
+  const writable = can("demand:write");
+
+  if (!dm) {
+    return panel("会务需求", "未建单", `<div class="empty" style="padding:34px 20px;line-height:1.9">
+      该项目还没有会务需求单。<br>
+      ${inPhase
+        ? (writable
+          ? `<button class="btn btn-p" style="margin-top:12px" data-go="demand/${esc(p.id)}">去填写</button>`
+          : `<span style="color:var(--mute)">由会务执行或协会管理员填写。</span>`)
+        : `<span style="color:var(--mute)">会务需求在「筹备中 / 执行中」阶段填写；当前状态「${esc(p.status)}」不在填写阶段。</span>`}
+    </div>`);
+  }
+
+  const rows = dm.items.map((it) => ({
+    c: [
+      esc(it.grp), esc(it.item),
+      it.budget ? `<b class="num">¥${money(it.budget)}</b>` : '<span style="color:var(--mute)">—</span>'
+    ]
+  }));
+
+  const banner = dm.archived
+    ? `<div class="banner ok" style="margin-bottom:12px">✓ 已由 <b>${esc(dm.confirmedBy || "—")}</b> 于 ${esc(dm.confirmedAt || "—")} 确认并归档
+        —— 后续核销以这份清单和预算金额为依据。</div>`
+    : `<div class="gate" style="margin-bottom:12px"><b>草稿，尚未归档</b>负责人填完点「确认并归档」后，这份清单才成为核销依据。</div>`;
+
+  return `${banner}
+    ${panel("会务需求清单",
+      `需要 ${dm.needCount} 项 / 共 ${dm.total} 项 · 预算合计 ¥${money(dm.budgetTotal)}`,
+      table([{ t: "分组", w: "96px" }, { t: "条目" }, { t: "预算金额", w: "120px", cls: "num" }], rows,
+        { empty: "这份需求单里没有标「需要」的条目" }),
+      inPhase && writable
+        ? `<button class="btn btn-o" data-go="demand/${esc(p.id)}">${dm.archived ? "查看 / 撤销归档" : "去填写"}</button>`
+        : `<button class="btn btn-o" data-go="demand/${esc(p.id)}">查看需求单</button>`)}
+    <div class="hint" style="padding:6px 14px">只列「需要」的条目：标了不需要的不花钱，不进预算合计，也不作为核销对照。</div>`;
 }
 
 /* ---------------- 概览 ---------------- */
@@ -95,6 +146,7 @@ function tabOverview(d, p) {
         : `<div class="gate"><b>付款门禁锁定</b>当前状态「${p.status}」，6 步核销通过（已核销）后才可付款${p.status === "已结算" ? "；结算后账目已封账" : p.status === "已归档" ? "；归档后卷宗已封存" : ""}。</div>`}</div>
       `)}
       ${panel("流程门禁", "系统实时校验", `<div style="display:flex;flex-direction:column;gap:8px;font-size:12.5px">
+        <div>${d.demand && d.demand.archived ? "✅" : "⛔"} 会务需求：${d.demand ? (d.demand.archived ? `已归档（${d.demand.needCount} 项 · ¥${money(d.demand.budgetTotal)}）` : "草稿未归档") : "未建单"}</div>
         <div>${v.complete ? "✅" : "⛔"} 核销：${v.passed}/6 通过${v.openExceptions ? `，${v.openExceptions} 张例外单待审批` : ""}</div>
         <div>${settle ? "✅" : "⛔"} 结算：${settle ? "已生成 " + settle.id : "未生成"}</div>
         <div>${ms.ok ? "✅" : "⛔"} 归档材料：${8 - ms.missing.length}/8${ms.missing.length ? "，缺 " + ms.missing.join("、") : ""}</div>

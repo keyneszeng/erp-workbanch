@@ -5,7 +5,7 @@ const { assertCan, assertProjectVisible } = require("../lib/rbac");
 const { logAudit } = require("../lib/audit");
 const { listProjects } = require("./projects");
 const { getProject, assertNotFrozen } = require("../lib/workflow");
-const { DEMAND_GROUPS, DEMAND_TEMPLATE, DEMAND_NEED_OPTIONS } = require("../lib/constants");
+const { DEMAND_GROUPS, DEMAND_TEMPLATE, DEMAND_NEED_OPTIONS, DEMAND_STATUSES } = require("../lib/constants");
 
 const MAX_LEN = { item: 40, spec: 200, owner: 20, due: 20, note: 120 };
 
@@ -74,8 +74,13 @@ function loadSheet(pid) {
   }
   // 预算合计只算「需要」项：选了不需要的条目，钱不花，不该进合计
   let total = 0;
+  let needCount = 0;
+  let itemCount = 0;
   for (const g of DEMAND_GROUPS) {
-    for (const it of groups[g]) if (it.need === "需要") total += Number(it.budget) || 0;
+    for (const it of groups[g]) {
+      itemCount++;
+      if (it.need === "需要") { needCount++; total += Number(it.budget) || 0; }
+    }
   }
   return {
     pid,
@@ -86,6 +91,8 @@ function loadSheet(pid) {
     groups: DEMAND_GROUPS,
     items: groups,
     needOptions: DEMAND_NEED_OPTIONS,
+    needCount,
+    itemCount,
     budgetTotal: yuan(total),
     isTemplate: built
   };
@@ -125,7 +132,10 @@ function replaceItems(pid, items, at) {
 function register(router) {
   // 列表：按数据范围列出会议 + 各会议需求单汇总
   router.get("/api/demand", async (ctx) => {
-    const rows = listProjects(ctx.user, {});
+    // 会务需求只在「筹备中 / 执行中」阶段填 —— 立项前还没到筹备，
+    // 核销之后已经是存档记录，两头都不该出现在这个列表里（老板 2026-10-28 的修正）。
+    // 归档后的需求单到「项目详情 → 会务需求」里看，那里不分阶段，永远查得到。
+    const rows = listProjects(ctx.user, {}).filter((p) => DEMAND_STATUSES.includes(p.status));
     const agg = db.prepare(
       `SELECT pid,
               SUM(CASE WHEN need='需要' THEN 1 ELSE 0 END) AS need_cnt,
@@ -162,6 +172,10 @@ function register(router) {
     assertProjectVisible(ctx.user, p);
     const sheet = loadSheet(p.id);
     sheet.projectName = p.name;
+    // 项目状态给前端判断「是不是还在筹备 / 执行阶段」——
+    // 列表页已经按阶段过滤，但详情页仍可直接打开（归档记录、核销对照都要看得到）
+    sheet.projectStatus = p.status;
+    sheet.inDemandPhase = DEMAND_STATUSES.includes(p.status);
     return sheet;
   });
 
