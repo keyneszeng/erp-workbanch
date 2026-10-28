@@ -1,7 +1,7 @@
 "use strict";
 const { db } = require("../lib/db");
 const { now, nextId, bad, notFound, conflict, forbidden, yuan } = require("../lib/util");
-const { assertCan, assertProjectVisible, isSuper } = require("../lib/rbac");
+const { assertCan, assertModule, assertProjectVisible, isSuper } = require("../lib/rbac");
 const { logAudit } = require("../lib/audit");
 const { getProject, verification, materialsStatus, settlementOf, demandSummary } = require("../lib/workflow");
 const { MATERIAL_KINDS } = require("../lib/constants");
@@ -19,6 +19,8 @@ function register(router) {
    * 一次请求取全，避免弹窗再打三个接口、也避免各接口口径不一致。
    */
   router.get("/api/projects/:id/verify", async (ctx) => {
+    // 项目成员关系不授予财务核销凭证查看权；嘉宾可看会议信息但不能读账目。
+    assertModule(ctx.user, "verify", "verify:check");
     const p = getProject(ctx.params.id);
     assertProjectVisible(ctx.user, p);
     const materials = db.prepare("SELECT * FROM materials WHERE pid = ? ORDER BY kind, id").all(p.id);
