@@ -64,8 +64,8 @@ export async function render(root) {
   <div class="grid g4">
     ${kpi("在管会议", total, "场")}
     ${kpi("待核销", d.counts["待核销"] || 0, "个", "k3")}
-    ${kpi("预算总额", `¥${money(d.budget)}`, "", "k2")}
-    ${kpi("已付款", `¥${money(d.paid)}`, "", "k4")}
+    ${state.user.role === "user" ? "" : kpi("预算总额", `¥${money(d.budget)}`, "", "k2")}
+    ${state.user.role === "user" ? "" : kpi("已付款", `¥${money(d.paid)}`, "", "k4")}
   </div>
 
   ${d.alerts.length ? `<div class="panel mt"><div class="panel-h"><h2>异常预警</h2>
