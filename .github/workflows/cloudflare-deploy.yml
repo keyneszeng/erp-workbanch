@@ -57,6 +57,9 @@ jobs:
         with:
           node-version: '22'
 
+      - name: Install runtime dependencies
+        run: npm install --no-audit --no-fund
+
       - name: Run full API and authorization regression
         run: npm test
 
