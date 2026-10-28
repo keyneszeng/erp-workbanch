@@ -201,6 +201,9 @@ function register(router) {
     assertCan(ctx.user, "verify:exception_approve", "只有财务与核销（或总管理员）可以审批例外单");
     if (ex.status !== "待审批") throw conflict(`例外单已是「${ex.status}」状态，不可重复审批`);
     const { approve, comment } = ctx.body || {};
+    if (typeof approve !== "boolean") {
+      throw bad("必须明确传入 approve: true（通过）或 approve: false（驳回）", "DECISION_REQUIRED");
+    }
     if (String(comment || "").length > 500) throw bad("审批意见不能超过 500 字");
     const at = now();
     const status = approve ? "已通过" : "已驳回";
