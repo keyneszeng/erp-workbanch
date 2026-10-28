@@ -409,6 +409,20 @@ function register(router) {
 
   /* ---------------- 审批中心 ---------------- */
   router.get("/api/approvals", async (ctx) => {
+    /**
+     * V1.2.21：审批中心补模块级鉴权（巡检发现的，与 V1.2.17 的 SEC-02 同一类）。
+     *
+     * 之前这里只有数据范围过滤：guest 请求返回 200 + 空列表，exec 也一样。
+     * 空列表不泄露内容，但「侧栏没有这个入口」和「接口能通」是两件事 ——
+     * 口径不一致，下一个读代码的人会以为审批中心对所有人开放。
+     *
+     * 判据与侧栏 NAV 的 need 同口径：具备任一审批权限才能进。
+     */
+    const canApprove = can(ctx.user, "project:approve")
+      || can(ctx.user, "verify:exception_approve")
+      || can(ctx.user, "payment:approve");
+    if (!canApprove) throw forbidden("审批中心仅对具备审批权限的角色开放");
+
     const { sql, params } = scopeFilter(ctx.user);
     const where = [sql];
     const args = [...params];

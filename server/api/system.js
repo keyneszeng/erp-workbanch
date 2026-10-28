@@ -1,12 +1,13 @@
 "use strict";
 const { db } = require("../lib/db");
-const { now, today, nextId, toCsv, bad, notFound, conflict } = require("../lib/util");
+const { now, today, nextId, toCsv, bad, notFound, conflict, forbidden } = require("../lib/util");
 const { assertCan, scopeFilter, isSuper, ROLES, can, canVisitNav, STATUSES } = require("../lib/rbac");
 const { logAudit } = require("../lib/audit");
 const { hashPassword, validatePassword } = require("../lib/auth");
 const { listProjects } = require("./projects");
 const { VERIFY_STEPS } = require("../lib/constants");
 const { readPaging, countOf } = require("../lib/paginate");
+const { seed } = require("../lib/seed");
 
 function countsByStatus(user) {
   const { sql, params } = scopeFilter(user);
@@ -276,6 +277,7 @@ const EXPORTS = {
   }
 };
 
+
 /* ---------------- 账号 ---------------- */
 
 /** 账号资料字段长度上限：通讯录会渲染到列表与成员选择器，超长文本会把布局撑坏 */
@@ -468,6 +470,58 @@ function register(router) {
       __csv: csv,
       __filename: filename
     };
+  });
+
+  /* ---------------- 演示数据重置 ---------------- */
+
+  /**
+   * 重置为出厂数据（V1.2.21）。
+   *
+   * 老板 2026-10-28：「系统里的测试数据有点乱，把所有测试数据都删除了」。
+   *
+   * 为什么不直接连库 DELETE：线上是 Cloudflare Durable Object，没有可用的 SQL 控制台，
+   * 而 `seed({ reset: true })` 本来就有（清空业务表 + 重新播种），只是没有 HTTP 入口。
+   * 这里给它加一个**受控**入口，而不是临时脚本 —— 以后数据乱了还能再用一次。
+   *
+   * 三道闸：
+   *   1. 只有总管理员（super）；
+   *   2. 必须显式传 confirm: "RESET-ALL-DATA"，防手滑、防脚本误调；
+   *   3. 写审计，记下清空前的规模，事后能说清「删了多少」。
+   *
+   * 注意：清空后 sessions 表也没了，其他人会被踢下线（重新登录即可）。
+   * 前端不放入口，只给运维用。
+   */
+  router.post("/api/admin/reset", async (ctx) => {
+    if (!isSuper(ctx.user)) throw forbidden("只有总管理员可以重置演示数据");
+    const b = ctx.body || {};
+    if (String(b.confirm || "") !== "RESET-ALL-DATA") {
+      throw bad(
+        "这会清空全部业务数据（项目 / 合同 / 付款 / 结算 / 材料 / 审计 / 账号），并恢复出厂演示数据。" +
+        '确认请在请求体传 { "confirm": "RESET-ALL-DATA" }',
+        "CONFIRM_REQUIRED"
+      );
+    }
+
+    const tables = ["projects", "users", "payments", "contracts", "settlements", "materials", "audit_logs"];
+    const before = {};
+    for (const t of tables) before[t] = db.prepare(`SELECT COUNT(*) AS c FROM ${t}`).get().c;
+
+    seed({ reset: true });
+
+    // 审计写在新库上：记的是「清空前的规模」，否则重置完就查不到删了多少
+    logAudit({
+      user: ctx.user,
+      module: "系统配置",
+      action: "重置演示数据",
+      target: "ALL",
+      detail:
+        `清空前：项目 ${before.projects} / 账号 ${before.users} / 付款 ${before.payments} 笔 / ` +
+        `合同 ${before.contracts} 份 / 结算 ${before.settlements} 张 / 材料 ${before.materials} 份 / ` +
+        `审计 ${before.audit_logs} 条`,
+      ip: ctx.ip
+    });
+
+    return { ok: true, before, message: "已重置为出厂演示数据，请重新登录" };
   });
 
   // 健康检查：公开接口，只回存活状态，不暴露数据库路径等内部信息
