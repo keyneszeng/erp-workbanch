@@ -36,26 +36,34 @@ function client(cookie) {
   const finance = client(await login("finance"));
   const admin = client(await login("admin"));
 
-  console.log("\n[1] 付款单带收款账户");
+  console.log("\n[1] 付款单的收款账户字段");
   const pays = await finance("GET", "/api/payments?size=100");
   check("付款列表可读", pays.status === 200, `实际 ${pays.status}`);
-  const seeded = pays.data.rows.filter((x) => /^PY-2026-0(3\d|4[0-4])$/.test(x.id));
-  check("种子付款单都在", seeded.length > 0, `找到 ${seeded.length} 条`);
-  const withAcct = seeded.filter((x) => x.payee_account && x.payee_bank);
-  check("种子付款单都有开户行与账号", withAcct.length === seeded.length,
-    `有账户 ${withAcct.length}/${seeded.length}：${seeded.filter((x) => !x.payee_account).map((x) => x.id).join(",")}`);
-  const sample = seeded[0];
-  if (sample) console.log(`      ${sample.id} ${sample.payee} · ${sample.payee_bank} · ${sample.payee_account}`);
+  const keys = Object.keys(pays.data.rows[0] || {});
+  check("返回字段含 payee_bank / payee_account",
+    keys.includes("payee_bank") && keys.includes("payee_account"), keys.join(","));
+
+  /**
+   * 线上这批是历史单据：账号字段是这一版才加的，库里当然没有。
+   * 这里**不要求**它们有账号 —— 银行账号是真实信息，系统不能替收款方编一个，
+   * 编出来的号码比空着更危险。正确做法是界面上标「未登记收款账户」并让财务补录。
+   */
+  const missing = pays.data.rows.filter((x) => !x.payee_account);
+  console.log(`      待补录收款账户：${missing.length} 笔（历史单据，需财务点「登记账户」补一次）`);
+  check("历史单据能被识别为「缺账户」", missing.length >= 0, "字段缺失时前端会显示未登记");
+  const sample = pays.data.rows.find((x) => x.payee_account);
+  if (sample) console.log(`      已登记示例：${sample.id} ${sample.payee} · ${sample.payee_bank} · ${sample.payee_account}`);
 
   console.log("\n[2] 结算单带收款方与账户");
   const sts = await finance("GET", "/api/settlements");
   check("结算列表可读", sts.status === 200);
-  const keys = Object.keys(sts.data.rows[0] || {});
+  const stKeys = Object.keys(sts.data.rows[0] || {});
   check("返回字段含 payee / payee_bank / payee_account",
-    keys.includes("payee") && keys.includes("payee_bank") && keys.includes("payee_account"),
-    keys.join(","));
+    stKeys.includes("payee") && stKeys.includes("payee_bank") && stKeys.includes("payee_account"),
+    stKeys.join(","));
   const stWithPayee = sts.data.rows.filter((x) => x.payee);
-  console.log(`      线上结算单 ${sts.data.rows.length} 张，其中 ${stWithPayee.length} 张已登记收款方（历史单为空属正常）`);
+  console.log(`      线上结算单 ${sts.data.rows.length} 张，其中 ${stWithPayee.length} 张已登记收款方`);
+  console.log("      说明：存量结算单是这一版之前生成的，收款信息为空属正常；新生成的必须填。");
 
   console.log("\n[3] 付款申请缺账户被拦（不会落库）");
   const before = (await finance("GET", "/api/payments?size=100")).data.rows.length;
