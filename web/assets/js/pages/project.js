@@ -1,4 +1,5 @@
 import { api, can, state } from "../lib/api.js";
+import { canDownloadArchivePdf, downloadArchivePdf } from "../lib/archive-pdf.js";
 import {
   badge, confirmBox, esc, formHtml, kv, modal, money, panel, promptBox, readForm, table, timeline, toast, validate, yuan
 } from "../lib/ui.js";
@@ -35,7 +36,7 @@ export async function render(root, [pid]) {
   <div class="crumb"><a data-go="projects">会议项目</a> / <span class="mono">${p.id}</span></div>
   <div class="phead">
     <div>
-      <h2>${esc(p.name)} ${badge(p.status)}</h2>
+      <h2>${esc(p.name)} ${badge(p.status)}${canDownloadArchivePdf(p) ? ` <button class="btn btn-o btn-sm" id="downloadArchivePdf">资料下载</button>` : ""}</h2>
       <p>${esc(p.assoc)} · ${esc(p.form)} · ${esc(p.date)} 起 ${p.days} 天 · 负责人 ${esc(p.owner || "—")}</p>
     </div>
     <div class="acts">
@@ -62,6 +63,8 @@ export async function render(root, [pid]) {
 
   root.querySelectorAll("[data-tab]").forEach((b) => b.addEventListener("click", () => { tab = b.dataset.tab; render(root, [pid]); }));
   root.querySelectorAll("[data-act]").forEach((b) => b.addEventListener("click", () => doTransition(root, pid, b.dataset.act, p)));
+  const pdfBtn = root.querySelector("#downloadArchivePdf");
+  if (pdfBtn) pdfBtn.onclick = () => downloadArchivePdf(pid, pdfBtn);
   const eb = root.querySelector("#editBtn");
   if (eb) eb.onclick = () => openEdit(root, pid, p);
   const cb = root.querySelector("#changeBtn");
