@@ -184,6 +184,20 @@ function dashboard(user) {
      WHERE y.status = '已付款' AND ${sql}`
   ).get(...params).v) || 0;
 
+  if (user.role === "user") {
+    // 参会者只可读取本人会议安排；聚合预算、付款、审计以及项目原始行均属于内部信息。
+    return {
+      counts: map,
+      statusRows: rows.map(({ status, c }) => ({ status, c })),
+      budget: null,
+      paid: null,
+      todos,
+      upcoming: upcoming.map(({ id, name, assoc, date, status, owner }) =>
+        ({ id, name, assoc, date, status, owner })),
+      alerts: [],
+      recent: []
+    };
+  }
   return {
     counts: map,
     statusRows: rows,
