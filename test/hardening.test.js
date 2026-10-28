@@ -192,13 +192,13 @@ test("超预算付款被拦截，总管理员可特批", async () => {
   // MP-2026-008 预算 72000，已付 3600
   const over = await finance("POST", "/api/payments", {
     pid: "MP-2026-008", type: "学会公付", payee: "超预算测试", amount: 80000
-  });
+  , payee_bank: "中国银行北京分行", payee_account: "3210987654321098"});
   assert.equal(over.status, 409);
   assert.equal(over.data.error.code, "OVER_BUDGET");
 
   const forced = await admin("POST", "/api/payments", {
     pid: "MP-2026-008", type: "学会公付", payee: "超预算测试", amount: 80000, force: true
-  });
+  , payee_bank: "中国银行北京分行", payee_account: "3210987654321098"});
   assert.equal(forced.status, 200, "总管理员 force 应放行");
 });
 
@@ -206,7 +206,7 @@ test("付款金额为负或 0 被拒", async () => {
   for (const amount of [0, -100]) {
     const r = await finance("POST", "/api/payments", {
       pid: "MP-2026-008", type: "学会公付", payee: "x", amount
-    });
+    , payee_bank: "中国银行北京分行", payee_account: "3210987654321098"});
     assert.equal(r.status, 400, `金额 ${amount} 应被拒`);
   }
 });
@@ -274,7 +274,7 @@ test("并发：8 次同时结算，只生成 1 张结算单", async () => {
   const pass = await finance("POST", `/api/projects/${pid}/transition`, { action: "verify_pass" });
   assert.equal(pass.status, 200);
   const rs = await Promise.all(Array.from({ length: 8 }, () =>
-    finance("POST", `/api/projects/${pid}/transition`, { action: "settle" })));
+    finance("POST", `/api/projects/${pid}/transition`, { action: "settle", payee_bank: "中国银行北京分行", payee_account: "3210987654321098" })));
   const ok = rs.filter((r) => r.status === 200);
   assert.equal(ok.length, 1, `应只有 1 次成功，实际 ${ok.length}`);
   const st = await finance("GET", "/api/settlements");

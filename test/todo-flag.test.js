@@ -85,7 +85,7 @@ test("待审批超过 20 条时，工作台审批待办数仍等于审批中心�
   for (let i = 0; i < 25; i++) {
     const r = await assoc("POST", "/api/payments", {
       pid, type: "学会公付", payee: `批量供应商${i}`, amount: 100 + i, invoice_no: `BULK-${i}`
-    });
+    , payee_bank: "中国银行北京分行", payee_account: "3210987654321098"});
     assert.equal(r.status, 200, `第 ${i} 条付款失败：${r.msg}`);
     made++;
   }

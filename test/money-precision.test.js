@@ -89,7 +89,7 @@ async function payAll(pid, amounts) {
   for (const amount of amounts) {
     const y = await admin("POST", "/api/payments", {
       pid, type: "学会公付", payee: `收款方${amount}`, amount, invoice_no: "", remark: ""
-    });
+    , payee_bank: "中国银行北京分行", payee_account: "3210987654321098"});
     assert.equal(y.status, 200, `付款 ${amount} 被拒：${y.code || ""} ${y.msg}`);
     const id = y.data.payment.id;
     assert.equal((await admin("POST", `/api/payments/${id}/approve`, { approve: true })).status, 200);
@@ -125,7 +125,7 @@ test("预算正好用尽不被判超预算（浮点相加不得成为拒绝理�
   const v = (await admin("GET", `/api/projects/${pid}/verify`)).data;
   assert.equal(Number(v.paidTotal), 5389.78, `paidTotal=${v.paidTotal}`);
 
-  const st = await admin("POST", `/api/projects/${pid}/transition`, { action: "settle" });
+  const st = await admin("POST", `/api/projects/${pid}/transition`, { action: "settle", payee_bank: "中国银行北京分行", payee_account: "3210987654321098" });
   assert.equal(st.status, 200, st.msg);
   const s = (await admin("GET", `/api/projects/${pid}`)).data.settlement;
   assert.equal(Number(s.expense), 5389.78);
@@ -148,7 +148,7 @@ test("结算单 profit 落在「分」上，不出现 24555.559999999998", async
   // 96000 - 71444.44 在浮点里是 24555.559999999998
   const pid = await projectReadyToPay("结余带尾巴", 96000);
   await payAll(pid, [71444.44]);
-  assert.equal((await admin("POST", `/api/projects/${pid}/transition`, { action: "settle" })).status, 200);
+  assert.equal((await admin("POST", `/api/projects/${pid}/transition`, { action: "settle", payee_bank: "中国银行北京分行", payee_account: "3210987654321098" })).status, 200);
 
   const s = (await admin("GET", `/api/projects/${pid}`)).data.settlement;
   assert.ok(dec(s.profit) <= 2, `profit 有 ${dec(s.profit)} 位小数：${s.profit}`);

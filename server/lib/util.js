@@ -66,6 +66,36 @@ function yuan(n) {
   return cents(n) / 100;
 }
 
+/**
+ * 银行账号校验 —— 付款与结算共用。
+ *
+ * 为什么要单独一个函数：付款、结算单两处都要登记收款账户，规则必须一致，
+ * 否则同一笔钱在两张单子上一个能存一个不能存，财务对账时对不上。
+ *
+ * 规则：去掉空格与短横后必须是 10~25 位纯数字。
+ * 不放宽到「随便什么字符」——账号写错一位就打给别人了，宁可让录入的人多看一眼。
+ * 也不卡死 16/19 位：对公账户、存折、农商行号段长度并不统一。
+ */
+function parseBankAccount(v, label = "银行账号") {
+  const raw = String(v ?? "").trim();
+  if (!raw) throw bad(`${label}为必填项`);
+  const digits = raw.replace(/[\s-]/g, "");
+  if (!/^\d+$/.test(digits)) throw bad(`${label}只能是数字（可含空格或短横分隔）`);
+  if (digits.length < 10 || digits.length > 25) {
+    throw bad(`${label}应为 10~25 位数字（当前 ${digits.length} 位）`);
+  }
+  return digits;
+}
+
+/** 开户行校验：必填，2~40 字 */
+function parseBankName(v, label = "开户行") {
+  const s = String(v ?? "").trim();
+  if (!s) throw bad(`${label}为必填项`);
+  if (s.length < 2) throw bad(`${label}至少 2 个字`);
+  if (s.length > 40) throw bad(`${label}不能超过 40 字`);
+  return s;
+}
+
 /** CSV 单元格：双引号转义 + 公式注入中和（= + - @ 制表符 回车 开头加 ' 前缀） */
 function csvCell(v) {
   let s = String(v ?? "");
@@ -93,4 +123,4 @@ const forbidden = (msg = "当前角色无权执行该操作", code = "FORBIDDEN"
 const notFound = (msg = "对象不存在", code = "NOT_FOUND") => new HttpError(404, code, msg);
 const conflict = (msg, code = "CONFLICT", extra) => new HttpError(409, code, msg, extra);
 
-module.exports = { now, today, nowIso, nextId, randToken, money, cents, yuan, toCsv, csvCell, HttpError, bad, forbidden, notFound, conflict, pad };
+module.exports = { now, today, nowIso, nextId, randToken, money, cents, yuan, toCsv, csvCell, parseBankAccount, parseBankName, HttpError, bad, forbidden, notFound, conflict, pad };

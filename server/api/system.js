@@ -211,7 +211,7 @@ const EXPORTS = {
   },
   payments: {
     module: "财务结算", file: "付款明细",
-    headers: ["付款单号", "项目", "类型", "收款方", "金额", "发票号", "申请人", "状态", "付款时间"],
+    headers: ["付款单号", "项目", "类型", "收款方", "开户行", "银行账号", "金额", "发票号", "申请人", "状态", "付款时间"],
     sql: (u) => {
       const { sql, params } = scopeFilter(u);
       return {
@@ -219,7 +219,8 @@ const EXPORTS = {
         params
       };
     },
-    map: (r) => [r.id, r.pname, r.type, r.payee, r.amount, r.invoice_no, r.req_user, r.status, r.paid_at || ""]
+    map: (r) => [r.id, r.pname, r.type, r.payee, r.payee_bank || "", r.payee_account || "",
+      r.amount, r.invoice_no, r.req_user, r.status, r.paid_at || ""]
   },
   contracts: {
     module: "筹备管理", file: "合同台账",
@@ -256,7 +257,7 @@ const EXPORTS = {
   },
   settlements: {
     module: "财务结算", file: "结算汇总",
-    headers: ["结算单号", "项目编号", "项目", "收入", "支出", "结余", "状态", "生成时间"],
+    headers: ["结算单号", "项目编号", "项目", "收入", "支出", "结余", "收款方", "开户行", "银行账号", "状态", "生成时间"],
     sql: (u) => {
       const { sql, params } = scopeFilter(u);
       return {
@@ -264,7 +265,8 @@ const EXPORTS = {
         params
       };
     },
-    map: (r) => [r.id, r.pid, r.pname, r.income, r.expense, r.profit, r.status, r.created_at]
+    map: (r) => [r.id, r.pid, r.pname, r.income, r.expense, r.profit,
+      r.payee || "", r.payee_bank || "", r.payee_account || "", r.status, r.created_at]
   },
   audit: {
     module: "审计日志", file: "审计日志",

@@ -225,13 +225,13 @@ test("全链路：立项 → 筹备 → 执行 → 核销（含例外）→ 付�
 
   const pay = await assoc("POST", "/api/payments", {
     pid, type: "学会公付", payee: "测试会展公司", amount: PAY, invoice_no: "INV-FULL-001"
-  });
+  , payee_bank: "中国银行北京分行", payee_account: "3210987654321098"});
   assert.equal(pay.status, 200, pay.msg);
   const payId = pay.data.payment.id;
   assert.equal((await finance("POST", `/api/payments/${payId}/approve`, { approve: true })).status, 200);
   assert.equal((await finance("POST", `/api/payments/${payId}/pay`, {})).status, 200);
 
-  const st = await finance("POST", `/api/projects/${pid}/transition`, { action: "settle" });
+  const st = await finance("POST", `/api/projects/${pid}/transition`, { action: "settle", payee_bank: "中国银行北京分行", payee_account: "3210987654321098" });
   assert.equal(st.status, 200, st.msg);
   const ar = await assoc("POST", `/api/projects/${pid}/transition`, { action: "archive" });
   assert.equal(ar.status, 200, ar.msg);
@@ -290,7 +290,7 @@ test("归档后 9 类写操作全部被拒", async () => {
   const cases = [
     ["材料登记", () => executor("POST", `/api/projects/${pid}/materials`, { kind: "发票", name: "归档后补" })],
     ["合同录入", () => assoc("POST", "/api/contracts", { pid, name: "归档后合同", vendor: "x", amount: 1 })],
-    ["付款申请", () => assoc("POST", "/api/payments", { pid, type: "学会公付", payee: "x", amount: 1 })],
+    ["付款申请", () => assoc("POST", "/api/payments", { pid, type: "学会公付", payee: "x", amount: 1 , payee_bank: "中国银行北京分行", payee_account: "3210987654321098"})],
     ["需求单保存", () => assoc("PATCH", `/api/demand/${pid}`, { items: [] })],
     ["需求单重置", () => assoc("POST", `/api/demand/${pid}/reset`)],
     ["加成员", () => assoc("POST", `/api/projects/${pid}/members`, { user_id: 5 })],

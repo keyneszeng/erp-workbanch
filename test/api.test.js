@@ -204,7 +204,7 @@ test("核销：跳步判定被拒", async () => {
 });
 
 test("付款门禁：待核销项目付款被拦截", async () => {
-  const r = await finance("POST", "/api/payments", { pid, type: "学会公付", payee: "测试酒店", amount: 1000 });
+  const r = await finance("POST", "/api/payments", { pid, type: "学会公付", payee: "测试酒店", amount: 1000 , payee_bank: "中国银行北京分行", payee_account: "3210987654321098"});
   assert.equal(r.status, 409);
   assert.equal(r.data.error.code, "VERIFY_GATE");
   assert.match(r.data.error.message, /核销/);
@@ -243,7 +243,7 @@ test("核销：6 步全过后可核销通过", async () => {
 });
 
 test("付款门禁：核销通过后付款可提交，审批 + 付款走通", async () => {
-  const c = await finance("POST", "/api/payments", { pid, type: "学会公付", payee: "测试酒店", amount: 32000, invoice_no: "INV-001" });
+  const c = await finance("POST", "/api/payments", { pid, type: "学会公付", payee: "测试酒店", amount: 32000, invoice_no: "INV-001" , payee_bank: "中国银行北京分行", payee_account: "3210987654321098"});
   assert.equal(c.status, 200);
   const payId = c.data.payment.id;
   assert.equal(c.data.payment.status, "待审批");
@@ -256,11 +256,11 @@ test("付款门禁：核销通过后付款可提交，审批 + 付款走通", as
 });
 
 test("结算：生成结算单后核销结论冻结", async () => {
-  const r = await finance("POST", `/api/projects/${pid}/transition`, { action: "settle" });
+  const r = await finance("POST", `/api/projects/${pid}/transition`, { action: "settle", payee_bank: "中国银行北京分行", payee_account: "3210987654321098" });
   assert.equal(r.status, 200);
   assert.equal(r.data.project.status, "已结算");
 
-  const again = await finance("POST", `/api/projects/${pid}/transition`, { action: "settle" });
+  const again = await finance("POST", `/api/projects/${pid}/transition`, { action: "settle", payee_bank: "中国银行北京分行", payee_account: "3210987654321098" });
   assert.equal(again.status, 409);
 
   const judge = await finance("POST", `/api/projects/${pid}/verify/steps/6`, { result: "不通过", remark: "改判" });

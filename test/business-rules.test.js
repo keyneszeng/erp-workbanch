@@ -216,7 +216,7 @@ test("预算还原（供后续付款用例使用）", async () => {
 test("收款方超长被拒", async () => {
   const r = await admin("POST", "/api/payments", {
     pid: "MP-2026-008", type: "学会公付", payee: "超".repeat(61), amount: 1
-  });
+  , payee_bank: "中国银行北京分行", payee_account: "3210987654321098"});
   assert.equal(r.status, 400);
   assert.match(r.msg, /收款方不能超过/);
 });
@@ -224,7 +224,7 @@ test("收款方超长被拒", async () => {
 test("付款说明超长被拒", async () => {
   const r = await admin("POST", "/api/payments", {
     pid: "MP-2026-008", type: "学会公付", payee: "某公司", amount: 1, remark: "说".repeat(301)
-  });
+  , payee_bank: "中国银行北京分行", payee_account: "3210987654321098"});
   assert.equal(r.status, 400);
   assert.match(r.msg, /付款说明不能超过/);
 });
@@ -233,7 +233,7 @@ test("同项目同收款方同发票号不可重复挂账", async () => {
   // seed 里 MP-2026-008 已有「0312 4490 / 周涛 / 3600」的已付款单
   const r = await admin("POST", "/api/payments", {
     pid: "MP-2026-008", type: "个人报销", payee: "周涛", amount: 3600, invoice_no: "0312 4490"
-  });
+  , payee_bank: "中国银行北京分行", payee_account: "3210987654321098"});
   assert.equal(r.status, 409, JSON.stringify(r.data));
   assert.equal(r.code, "DUPLICATE_INVOICE");
 });
@@ -241,10 +241,10 @@ test("同项目同收款方同发票号不可重复挂账", async () => {
 test("不同收款方用同一发票号不受影响（不误伤）", async () => {
   const a = await admin("POST", "/api/payments", {
     pid: "MP-2026-008", type: "学会公付", payee: "甲公司", amount: 100, invoice_no: "TEST-INV-001"
-  });
+  , payee_bank: "中国银行北京分行", payee_account: "3210987654321098"});
   const b = await admin("POST", "/api/payments", {
     pid: "MP-2026-008", type: "学会公付", payee: "乙公司", amount: 100, invoice_no: "TEST-INV-001"
-  });
+  , payee_bank: "中国银行北京分行", payee_account: "3210987654321098"});
   assert.equal(a.status, 200, JSON.stringify(a.data));
   assert.equal(b.status, 200, "不同收款方各自开票，号段可能撞，不该拦");
 });
@@ -252,7 +252,7 @@ test("不同收款方用同一发票号不受影响（不误伤）", async () =>
 test("同一收款方换发票号可以正常挂账", async () => {
   const r = await admin("POST", "/api/payments", {
     pid: "MP-2026-008", type: "个人报销", payee: "周涛", amount: 500, invoice_no: "0312 9999"
-  });
+  , payee_bank: "中国银行北京分行", payee_account: "3210987654321098"});
   assert.equal(r.status, 200, JSON.stringify(r.data));
 });
 
@@ -261,14 +261,14 @@ test("被驳回的付款不占用发票号", async () => {
   // MP-2026-004 是「待核销」，不能付款，所以换个思路：先造一笔再驳回
   const mk = await admin("POST", "/api/payments", {
     pid: "MP-2026-008", type: "学会公付", payee: "丙公司", amount: 200, invoice_no: "REJ-INV-001"
-  });
+  , payee_bank: "中国银行北京分行", payee_account: "3210987654321098"});
   assert.equal(mk.status, 200);
   const id = mk.data.payment.id;
   const rej = await admin("POST", `/api/payments/${id}/approve`, { approve: false });
   assert.equal(rej.status, 200, JSON.stringify(rej.data));
   const again = await admin("POST", "/api/payments", {
     pid: "MP-2026-008", type: "学会公付", payee: "丙公司", amount: 200, invoice_no: "REJ-INV-001"
-  });
+  , payee_bank: "中国银行北京分行", payee_account: "3210987654321098"});
   assert.equal(again.status, 200, "驳回后重报是正常流程，不应被发票号拦住");
 });
 

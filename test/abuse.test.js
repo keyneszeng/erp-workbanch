@@ -115,7 +115,7 @@ test("嘉宾不能读取非成员项目详情", async () => {
 test("嘉宾不能立项 / 付款 / 导出 / 核销", async () => {
   const cases = [
     ["POST", "/api/projects", { name: "越权", assoc: "华东医学会", form: "线下", date: "2027-01-01", budget: 1000, owner: "x", agenda: "abcd" }],
-    ["POST", "/api/payments", { pid: "MP-2026-002", type: "学会公付", payee: "x", amount: 100 }],
+    ["POST", "/api/payments", { pid: "MP-2026-002", type: "学会公付", payee: "x", amount: 100 , payee_bank: "中国银行北京分行", payee_account: "3210987654321098"}],
     ["GET", "/api/export/projects", undefined],
     ["POST", "/api/projects/MP-2026-002/verify/steps/1", { result: "通过" }]
   ];
@@ -197,7 +197,7 @@ test("未知流转动作返回 409 并列出可执行动作", async () => {
 test("幂等：同一付款单重复审批 / 重复付款被拒", async () => {
   const c = await finance("POST", "/api/payments", {
     pid: "MP-2026-008", type: "学会公付", payee: "幂等测试", amount: 200
-  });
+  , payee_bank: "中国银行北京分行", payee_account: "3210987654321098"});
   assert.equal(c.status, 200);
   const id = c.data.payment.id;
   const a1 = await finance("POST", `/api/payments/${id}/approve`, { approve: true });
@@ -229,8 +229,8 @@ test("幂等：重复结算 / 重复归档被拒", async () => {
     await exec("POST", `/api/projects/${pid}/verify/steps/${no}`, { result: "通过" });
   }
   assert.equal((await finance("POST", `/api/projects/${pid}/transition`, { action: "verify_pass" })).status, 200);
-  assert.equal((await finance("POST", `/api/projects/${pid}/transition`, { action: "settle" })).status, 200);
-  const s2 = await finance("POST", `/api/projects/${pid}/transition`, { action: "settle" });
+  assert.equal((await finance("POST", `/api/projects/${pid}/transition`, { action: "settle", payee_bank: "中国银行北京分行", payee_account: "3210987654321098" })).status, 200);
+  const s2 = await finance("POST", `/api/projects/${pid}/transition`, { action: "settle", payee_bank: "中国银行北京分行", payee_account: "3210987654321098" });
   assert.equal(s2.status, 409, "重复结算应 409");
 
   const kinds = (await admin("GET", "/api/meta")).data.materialKinds;
@@ -252,7 +252,7 @@ test("金额脏数据：字符串 / 空 / 三位小数被拒", async () => {
   for (const c of cases) {
     const r = await finance("POST", "/api/payments", {
       pid: "MP-2026-008", type: "学会公付", payee: "脏数据", ...c
-    });
+    , payee_bank: "中国银行北京分行", payee_account: "3210987654321098"});
     assert.equal(r.status, 400, `${JSON.stringify(c)} 应 400，实际 ${r.status}`);
   }
 });
@@ -260,7 +260,7 @@ test("金额脏数据：字符串 / 空 / 三位小数被拒", async () => {
 test("金额上限：单笔超 10 亿被拒", async () => {
   const r = await admin("POST", "/api/payments", {
     pid: "MP-2026-008", type: "学会公付", payee: "巨额", amount: 2e9, force: true
-  });
+  , payee_bank: "中国银行北京分行", payee_account: "3210987654321098"});
   assert.equal(r.status, 400);
 });
 
@@ -340,7 +340,7 @@ test("并发 20 次只读请求全部成功", async () => {
 test("已结算项目不得再新增付款（账目已封账）", async () => {
   const r = await admin("POST", "/api/payments", {
     pid: "MP-2026-016", type: "学会公付", payee: "封账测试", amount: 100, force: true
-  });
+  , payee_bank: "中国银行北京分行", payee_account: "3210987654321098"});
   assert.equal(r.status, 409, "已结算项目新增付款应 409");
   assert.equal(r.data.error.code, "SETTLED");
 });

@@ -93,7 +93,7 @@ test("并发：同时创建 5 笔付款单，单号不重复", async () => {
   const reqs = Array.from({ length: 5 }, (_, i) =>
     apis.finance("POST", "/api/payments", {
       pid: "MP-2026-017", type: "学会公付", payee: `并发测试${i}`, amount: 100 + i
-    })
+    , payee_bank: "中国银行北京分行", payee_account: "3210987654321098"})
   );
   const rs = await Promise.all(reqs);
   const ok = rs.filter((r) => r.status === 200);

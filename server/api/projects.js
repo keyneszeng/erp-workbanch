@@ -294,9 +294,14 @@ function register(router) {
   router.post("/api/projects/:id/transition", async (ctx) => {
     const p = getProject(ctx.params.id);
     assertProjectVisible(ctx.user, p);
-    const { action, comment } = ctx.body || {};
+    /**
+     * 注意不能只取 comment：结算单还要收 payee / payee_bank / payee_account
+     * （V1.2.18）。原来这里解构掉其余字段，参数到了 transition 就成了空，
+     * 表现是「结算单一直报收款账号必填」，而前端明明填了。
+     */
+    const { action, comment, ...rest } = ctx.body || {};
     if (!action) throw bad("缺少 action");
-    const r = transition(p.id, action, ctx.user, { comment }, ctx.ip);
+    const r = transition(p.id, action, ctx.user, { comment, ...rest }, ctx.ip);
     return r;
   });
 

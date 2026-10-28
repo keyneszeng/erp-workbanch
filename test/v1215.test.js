@@ -301,7 +301,7 @@ test("付款单新建时审批单 ref 直接指向它，通过后两边同时到
   // MP-2026-008 种子里就是「已核销」，可以直接挂付款
   const r = await f("POST", "/api/payments", {
     pid: "MP-2026-008", type: "个人报销", payee: "周涛", amount: 1200, invoice_no: `T${Date.now()}`
-  });
+  , payee_bank: "中国银行北京分行", payee_account: "3210987654321098"});
   assert.equal(r.status, 200, JSON.stringify(r.data));
   const py = r.data.payment.id;
 

@@ -171,7 +171,7 @@ async function api(method, url, body) {
     // 造一笔「已审批待付款」，让待办里出现付款类 —— 种子数据里没有，不造就测不到 finance 路由
     const pc = await api("POST", "/api/payments", {
       pid: "MP-2026-008", type: "学会公付", payee: "定位测试收款方", amount: 1234.5, invoice_no: ""
-    });
+    , payee_bank: "中国银行北京分行", payee_account: "3210987654321098"});
     const payId = pc.data?.payment?.id;
     check("造一笔待付款", pc.status === 200 && !!payId, JSON.stringify(pc.data).slice(0, 80));
     const ap = payId ? await api("POST", `/api/payments/${payId}/approve`, { approve: true }) : { status: 0, data: {} };

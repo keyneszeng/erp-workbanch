@@ -49,7 +49,7 @@ export async function render(root, [pid]) {
   <div id="tabbody"></div>`;
 
   root.querySelectorAll("[data-tab]").forEach((b) => b.addEventListener("click", () => { tab = b.dataset.tab; render(root, [pid]); }));
-  root.querySelectorAll("[data-act]").forEach((b) => b.addEventListener("click", () => doTransition(root, pid, b.dataset.act)));
+  root.querySelectorAll("[data-act]").forEach((b) => b.addEventListener("click", () => doTransition(root, pid, b.dataset.act, p)));
   const eb = root.querySelector("#editBtn");
   if (eb) eb.onclick = () => openEdit(root, pid, p);
   const cb = root.querySelector("#changeBtn");
@@ -139,7 +139,10 @@ function tabOverview(d, p) {
       </div>
       <div style="margin-top:12px">${settle
         ? `<div class="gate ok"><b>结算单 ${settle.id} 已生成</b>
-             收入 ¥${money(settle.income)} · 支出 ¥${money(settle.expense)} · 结余 ¥${money(settle.profit)}（${settle.created_at}）</div>`
+             收入 ¥${money(settle.income)} · 支出 ¥${money(settle.expense)} · 结余 ¥${money(settle.profit)}（${settle.created_at}）
+             <div style="margin-top:4px">收款方 ${esc(settle.payee || "—")}${
+               settle.payee_account ? ` · ${esc(settle.payee_bank || "")} <span class="mono">${esc(settle.payee_account)}</span>` : " · 未登记收款账户"
+             }</div></div>`
         : `<div class="gate"><b>结算单未生成</b>核销 6 步全部通过后，由财务生成结算单；生成后核销结论冻结。</div>`}</div>
       <div style="margin-top:10px">${PAYABLE.includes(p.status)
         ? `<div class="gate ok"><b>付款门禁已放行</b>项目已完成核销，可提交付款申请。</div>`
@@ -260,11 +263,17 @@ function tabPayments(d, p) {
     [{ t: "付款单号", w: "112px" }, { t: "类型", w: "86px" }, { t: "收款方" }, { t: "金额", w: "100px", cls: "num" },
      { t: "发票号", w: "96px" }, { t: "申请人", w: "72px" }, { t: "状态", w: "80px" }, { t: "操作", w: "120px" }],
     d.payments.map((y) => ({
-      c: [`<span class="mono">${y.id}</span>`, esc(y.type), esc(y.payee), `¥${money(y.amount)}`,
+      c: [`<span class="mono">${y.id}</span>`, esc(y.type),
+        `${esc(y.payee)}<div style="font-size:11px;color:var(--mute)">
+          ${y.payee_account
+            ? `${esc(y.payee_bank || "")} · <span class="mono">${esc(y.payee_account)}</span>`
+            : '<span style="color:var(--warn)">未登记收款账户</span>'}
+        </div>`, `¥${money(y.amount)}`,
         `<span class="mono">${esc(y.invoice_no || "—")}</span>`, esc(y.req_user || ""), badge(y.status),
         `<div class="tacts">
           ${y.status === "待审批" && can("payment:approve") ? `<button class="link" data-pay-approve="${y.id}">审批</button>` : ""}
-          ${y.status === "已审批" && can("payment:pay") ? `<button class="link" data-pay-pay="${y.id}">付款</button>` : ""}
+          ${y.status === "已审批" && can("payment:pay") && y.payee_account ? `<button class="link" data-pay-pay="${y.id}">付款</button>` : ""}
+          ${y.status !== "已付款" && can("payment:approve") && !y.payee_account ? `<button class="link" data-pay-acct="${y.id}">登记账户</button>` : ""}
           ${y.status === "待审批" && can("payment:approve") ? `<button class="link danger" data-pay-reject="${y.id}">驳回</button>` : ""}
         </div>`]
     })), { empty: "暂无付款记录" }),
@@ -359,6 +368,7 @@ function wire(root, pid, d, body) {
   body.querySelectorAll("[data-pay-approve]").forEach((b) => b.onclick = () => payAct(root, pid, b.dataset.payApprove, "approve"));
   body.querySelectorAll("[data-pay-reject]").forEach((b) => b.onclick = () => payAct(root, pid, b.dataset.payReject, "reject"));
   body.querySelectorAll("[data-pay-pay]").forEach((b) => b.onclick = () => payAct(root, pid, b.dataset.payPay, "pay"));
+  body.querySelectorAll("[data-pay-acct]").forEach((b) => b.onclick = () => openPayAccount(root, pid, b.dataset.payAcct));
   body.querySelectorAll("[data-judge]").forEach((b) => b.onclick = () => openJudge(root, pid, Number(b.dataset.judge), d));
   // 核销 6 步的「详情」：判定前先把该核对的原始数据摆出来（与核销看板共用同一份实现）
   const canJudgeHere = can("verify:check") && !d.settlement
@@ -399,12 +409,13 @@ async function refresh(root, pid) {
   await render(root, [pid]);
 }
 
-async function doTransition(root, pid, action) {
-  if (["settle", "archive", "verify_pass"].includes(action)) {
+async function doTransition(root, pid, action, project) {
+  // V1.2.18：结算单要登记收款方与收款账户，不能只弹一句「确认」
+  if (action === "settle") return openSettle(root, pid, project);
+  if (["archive", "verify_pass"].includes(action)) {
     const ok = await confirmBox(
-      action === "settle" ? "生成结算单后，核销结论将<b>永久冻结</b>，确认继续？"
-        : action === "archive" ? "归档后数字卷宗封存，材料不可再修改，确认继续？"
-          : "确认核销通过？通过后项目可进入结算与付款。",
+      action === "archive" ? "归档后数字卷宗封存，材料不可再修改，确认继续？"
+        : "确认核销通过？通过后项目可进入结算与付款。",
       { ok: "确认", danger: action !== "verify_pass" });
     if (!ok) return;
   }
@@ -416,6 +427,40 @@ async function doTransition(root, pid, action) {
     if (e.code === "GATE_BLOCKED") toast("门禁未通过：" + e.message, "warn");
     else toast(e.message, "warn");
   }
+}
+
+/**
+ * 生成结算单（V1.2.18）。
+ *
+ * 原来这里只有一句「确认继续？」。结算单是给财务的付款依据，
+ * 上面必须写清楚结余打给谁、打到哪个账户 —— 否则财务拿到单子还得回头问人。
+ * 收款方默认带出项目负责人（结余通常归负责人所属协会），开户行与账号必须手填。
+ */
+function openSettle(root, pid, p) {
+  const fields = [
+    { k: "payee", l: "收款方", req: 1, v: p?.owner || "", ph: "默认取项目负责人" },
+    { k: "payee_bank", l: "开户行", req: 1, ph: "如：中国银行北京朝阳支行" },
+    { k: "payee_account", l: "银行账号", req: 1, ph: "10~25 位数字，可含空格分隔" }
+  ];
+  const m = modal({
+    title: "生成结算单",
+    body: `<div class="gate" style="margin-bottom:12px"><b>生成后核销结论永久冻结</b>结算单是财务付款的依据，收款方与账户请按实际打款信息填写。</div>${formHtml(fields)}`,
+    footer: `<button class="btn btn-o" data-x="0">取消</button><button class="btn btn-p" data-x="1">确认生成</button>`
+  });
+  m.querySelector('[data-x="0"]').onclick = () => m.classList.remove("open");
+  m.querySelector('[data-x="1"]').onclick = async () => {
+    if (!validate(m, fields)) return;
+    const v = readForm(m);
+    try {
+      const r = await api.post(`/api/projects/${pid}/transition`, { action: "settle", ...v });
+      toast(r.message, "ok");
+      m.classList.remove("open");
+      await refresh(root, pid);
+    } catch (e) {
+      if (e.code === "GATE_BLOCKED") toast("门禁未通过：" + e.message, "warn");
+      else toast(e.message, "warn");
+    }
+  };
 }
 
 function openJudge(root, pid, no, d) {
@@ -527,10 +572,36 @@ function openContract(root, pid) {
   };
 }
 
+/** 补录收款账户（与财务页同一个接口，V1.2.18） */
+function openPayAccount(root, pid, id) {
+  const fields = [
+    { k: "payee_bank", l: "开户行", req: 1, ph: "如：中国银行北京朝阳支行" },
+    { k: "payee_account", l: "银行账号", req: 1, ph: "10~25 位数字，可含空格分隔" }
+  ];
+  const m = modal({
+    title: `登记收款账户 · ${id}`,
+    body: `<div class="hint" style="margin-bottom:12px">这笔付款单还没有收款账户。登记后才能执行付款；已付款的单子不可再改。</div>${formHtml(fields)}`,
+    footer: `<button class="btn btn-o" data-x="0">取消</button><button class="btn btn-p" data-x="1">保存</button>`
+  });
+  m.querySelector('[data-x="0"]').onclick = () => m.classList.remove("open");
+  m.querySelector('[data-x="1"]').onclick = async () => {
+    if (!validate(m, fields)) return;
+    try {
+      const r = await api.patch(`/api/payments/${id}/account`, readForm(m));
+      toast(r.message, "ok");
+      m.classList.remove("open");
+      await refresh(root, pid);
+    } catch (e) { toast(e.message, "warn"); }
+  };
+}
+
 function openPay(root, pid, d) {
   const fields = [
     { k: "type", l: "付款类型", t: "select", req: 1, opts: state.meta.paymentTypes },
     { k: "payee", l: "收款方", req: 1 },
+    // V1.2.18：财务要照着这两行打款
+    { k: "payee_bank", l: "开户行", req: 1, ph: "如：中国银行北京朝阳支行" },
+    { k: "payee_account", l: "银行账号", req: 1, ph: "10~25 位数字，可含空格分隔" },
     { k: "amount", l: "付款金额（元）", t: "number", req: 1 },
     { k: "invoice_no", l: "发票号" },
     { k: "remark", l: "备注", t: "textarea", full: 1, rows: 2 }

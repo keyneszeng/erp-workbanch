@@ -206,7 +206,7 @@ test("驳回：立项驳回后退回草稿，可再次提交", async () => {
 test("归档后不得新增付款", async () => {
   const r = await admin("POST", "/api/payments", {
     pid: "MP-2026-007", type: "学会公付", payee: "归档后付款测试", amount: 100
-  });
+  , payee_bank: "中国银行北京分行", payee_account: "3210987654321098"});
   assert.equal(r.status, 409, "已归档项目不应再允许新增付款");
 });
 
@@ -214,9 +214,9 @@ test("存在未完成付款时不得结算", async () => {
   // MP-2026-017 已核销；先制造一张待审批付款
   const p = await finance("POST", "/api/payments", {
     pid: "MP-2026-017", type: "学会公付", payee: "结算前待审批", amount: 500
-  });
+  , payee_bank: "中国银行北京分行", payee_account: "3210987654321098"});
   assert.equal(p.status, 200);
-  const s = await finance("POST", "/api/projects/MP-2026-017/transition", { action: "settle" });
+  const s = await finance("POST", "/api/projects/MP-2026-017/transition", { action: "settle", payee_bank: "中国银行北京分行", payee_account: "3210987654321098" });
   assert.equal(s.status, 409, "有未完成付款时不应允许结算");
 });
 

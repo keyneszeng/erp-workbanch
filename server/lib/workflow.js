@@ -1,6 +1,6 @@
 "use strict";
 const { db } = require("./db");
-const { now, nextId, conflict, forbidden, notFound, bad, cents, yuan } = require("./util");
+const { now, nextId, conflict, forbidden, notFound, bad, cents, yuan, parseBankAccount, parseBankName } = require("./util");
 const { can, isSuper, ROLES } = require("./rbac");
 const { logAudit } = require("./audit");
 const { FLOW, VERIFY_STEPS, MATERIAL_KINDS } = require("./constants");
@@ -250,6 +250,22 @@ function transition(projectId, action, user, payload = {}, ip = "") {
     }
     case "settle": {
       const at = now();
+      /**
+       * V1.2.18：结算单必须有收款方与收款账户。
+       *
+       * 老板 2026-10-28：「生成结算单 / 付款两个功能板块缺少了收款方和银行账号信息」。
+       * 结算单原来只有收入 / 支出 / 结余三个数，结余打给谁、打到哪个账户纸上一个字没有，
+       * 财务拿到单子还得回头问人。
+       *
+       * 收款方不传时默认取项目负责人（结余通常归负责人所属协会），
+       * 但开户行与账号必须显式填 —— 这个没法猜，猜错就是打错钱。
+       */
+      const payee = String((payload && payload.payee) || p.owner || "").trim();
+      if (!payee) throw bad("结算单收款方为必填项");
+      if (payee.length > 60) throw bad("收款方不能超过 60 字");
+      const payeeBank = parseBankName(payload && payload.payee_bank, "收款开户行");
+      const payeeAccount = parseBankAccount(payload && payload.payee_account, "收款账号");
+
       // 三个数都必须落在「分」上：140000 - 135580.6 = 4419.399999999994，
       // 不收敛的话结算单 profit 会带着 12 位小数入库，导出 CSV 也是这个数。
       const income = yuan(p.budget);
@@ -260,9 +276,11 @@ function transition(projectId, action, user, payload = {}, ip = "") {
       const profit = yuan(income - expense);
       const id = nextId(db, "settlements", "id", "ST");
       db.prepare(
-        "INSERT INTO settlements (id,pid,income,expense,profit,status,created_by,created_at) VALUES (?,?,?,?,?,?,?,?)"
-      ).run(id, p.id, income, expense, profit, "已生成", user.name, at);
-      setStatus(p, "已结算", user, ip, `生成结算单 ${id}：收入 ¥${income.toLocaleString("zh-CN")} / 支出 ¥${expense.toLocaleString("zh-CN")} / 结余 ¥${profit.toLocaleString("zh-CN")}`);
+        "INSERT INTO settlements (id,pid,income,expense,profit,payee,payee_bank,payee_account,status,created_by,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)"
+      ).run(id, p.id, income, expense, profit, payee, payeeBank, payeeAccount, "已生成", user.name, at);
+      setStatus(p, "已结算", user, ip,
+        `生成结算单 ${id}：收入 ¥${income.toLocaleString("zh-CN")} / 支出 ¥${expense.toLocaleString("zh-CN")} / ` +
+        `结余 ¥${profit.toLocaleString("zh-CN")}；收款方 ${payee}（${payeeBank} 尾号 ${payeeAccount.slice(-4)}）`);
       return { project: getProject(p.id), message: `结算单 ${id} 已生成，结论冻结` };
     }
     case "archive": {

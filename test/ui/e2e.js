@@ -171,6 +171,9 @@ async function login(page, user) {
   await page.waitForSelector("#modal.open");
   await page.selectOption('#modal [name="type"]', "学会公付");
   await page.fill('#modal [name="payee"]', "E2E 测试酒店");
+  // V1.2.18：收款账户是必填，缺了提交不上去
+  await page.fill('#modal [name="payee_bank"]', "中国银行北京分行");
+  await page.fill('#modal [name="payee_account"]', "3210987654321098");
   await page.fill('#modal [name="amount"]', "12000");
   await page.fill('#modal [name="invoice_no"]', "E2E-INV-1");
   await page.click('#modal [data-x="1"]');
@@ -196,6 +199,9 @@ async function login(page, user) {
   await page.waitForTimeout(700);
   await page.click('[data-act="settle"]');
   await page.waitForSelector("#modal.open");
+  // V1.2.18：结算单要登记收款方与收款账户（收款方默认带出项目负责人）
+  await page.fill('#modal input[name="payee_bank"]', "中国银行北京分行");
+  await page.fill('#modal input[name="payee_account"]', "3210987654321098");
   await page.click('#modal [data-x="1"]');
   await page.waitForTimeout(900);
   const afterSettle = await page.innerText(".phead h2");

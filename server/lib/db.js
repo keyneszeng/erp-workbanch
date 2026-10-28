@@ -122,6 +122,8 @@ CREATE TABLE IF NOT EXISTS payments (
   pid         TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
   type        TEXT NOT NULL,
   payee       TEXT NOT NULL,
+  payee_bank  TEXT,
+  payee_account TEXT,
   amount      REAL NOT NULL DEFAULT 0,
   invoice_no  TEXT,
   req_user    TEXT,
@@ -164,6 +166,9 @@ CREATE TABLE IF NOT EXISTS settlements (
   income      REAL NOT NULL DEFAULT 0,
   expense     REAL NOT NULL DEFAULT 0,
   profit      REAL NOT NULL DEFAULT 0,
+  payee       TEXT,
+  payee_bank  TEXT,
+  payee_account TEXT,
   status      TEXT NOT NULL DEFAULT '已生成',
   created_by  TEXT,
   created_at  TEXT NOT NULL
@@ -437,6 +442,20 @@ function migrate() {
   addColumn("contracts", "category", "category TEXT");
   // V1.2.13：例外单自定义步骤名 —— 不属于 6 步中任何一步的问题也能登记（step_no = 0）
   addColumn("exceptions", "step_label", "step_label TEXT");
+  /**
+   * V1.2.18：收款方银行信息。
+   *
+   * 老板 2026-10-28：「生成结算单 / 付款两个功能板块缺少了收款方和银行账号信息」。
+   * 付款只有收款方名字、没有账号，财务拿着单子没法打款；结算单更是只有三个金额，
+   * 结余打给谁、打到哪个账户，纸上一个字都没有。
+   *
+   * 开户行与账号一起加：只写账号，柜面转账时还得反查是哪家行；只写行名，又没法自动转账。
+   */
+  addColumn("payments", "payee_bank", "payee_bank TEXT");
+  addColumn("payments", "payee_account", "payee_account TEXT");
+  addColumn("settlements", "payee", "payee TEXT");
+  addColumn("settlements", "payee_bank", "payee_bank TEXT");
+  addColumn("settlements", "payee_account", "payee_account TEXT");
 
   // 老库升级：历史合同按名称补一个初始类别，不然第 5 步会一份都筛不出来，
   // 看上去像「这个项目没签劳务合同」—— 这比原来的「全都列出来」更容易误导人。

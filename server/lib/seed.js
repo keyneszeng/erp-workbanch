@@ -102,6 +102,29 @@ const APPROVALS = [
   ["AP-2026-010", "立项审批", "儿科护理新进展", "MP-2026-008", 72000, "周涛", "已完成", "已通过"]
 ];
 
+/**
+ * 收款方 → [开户行, 银行账号]（V1.2.18）
+ *
+ * 付款单与结算单都要有收款账户，否则财务拿着单子没法打款。
+ * 种子数据按收款方固定映射：同一家单位在不同项目上的账户必须一致，
+ * 否则演示时会出现「北京国际会议中心有两张单子、账号却不一样」的怪事。
+ */
+const PAYEE_BANK = {
+  "北京国际会议中心": ["中国银行北京朝阳支行", "3210123456789012"],
+  "上海国际会议中心": ["工商银行上海浦东分行", "1001234567890123456"],
+  "杭州国际博览中心": ["农业银行杭州钱江支行", "19012345678901234"],
+  "A 药业": ["招商银行北京分行营业部", "6225880123456789"],
+  "B 器械": ["建设银行上海静安支行", "3105012345678901234"],
+  "C 医药": ["交通银行上海分行", "310012345678901234"],
+  "D 医疗": ["浦发银行上海分行", "9801234567890123"],
+  "云会科技": ["中信银行杭州分行", "8110123456789012345"],
+  "上海会务通": ["民生银行上海分行", "6901234567890123"],
+  "周涛": ["工商银行护理协会支行", "6222021234567890123"],
+  "孙倩": ["招商银行杭州分行", "6225881234567890"]
+};
+const DEFAULT_BANK = ["中国银行北京分行", "3210987654321098"];
+const bankOf = (payee) => PAYEE_BANK[payee] || DEFAULT_BANK;
+
 const GUESTS = [
   ["MP-2026-001", "赵教授", "华东医科大学", "主任委员", "已确认"],
   ["MP-2026-001", "钱主任", "市第一人民医院", "科室主任", "待确认"],
@@ -181,13 +204,15 @@ function seed({ reset = false } = {}) {
   for (const c of CONTRACTS) insC.run(...c, guessContractCategory(c[2]), userId["assoc"], at);
 
   const insP = db.prepare(
-    "INSERT INTO payments (id,pid,type,payee,amount,invoice_no,req_user,status,paid_at,created_by,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)"
+    "INSERT INTO payments (id,pid,type,payee,payee_bank,payee_account,amount,invoice_no,req_user,status,paid_at,created_by,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)"
   );
   let py = 30;
   for (const [pid, type, payee, amt, inv, req, st] of PAYMENTS) {
     py += 1;
     const when = minutesAgo((PAYMENTS.length - py + 31) * 97);
-    insP.run(`PY-2026-0${py}`, pid, type, payee, amt, inv, req, st, st === "已付款" ? when : null, userId["finance"], when);
+    const [bank, acct] = bankOf(payee);
+    insP.run(`PY-2026-0${py}`, pid, type, payee, bank, acct, amt, inv, req, st,
+      st === "已付款" ? when : null, userId["finance"], when);
   }
 
   // 审批单必须指向真实业务单据。
@@ -233,12 +258,16 @@ function seed({ reset = false } = {}) {
   for (const s of VERIFY_STEPS.slice(0, 2)) insStep.run("MP-2026-004", s.no, s.name, "通过", "核对无误", "陈静", at);
 
   const insSt = db.prepare(
-    "INSERT INTO settlements (id,pid,income,expense,profit,status,created_by,created_at) VALUES (?,?,?,?,?,?,?,?)"
+    "INSERT INTO settlements (id,pid,income,expense,profit,payee,payee_bank,payee_account,status,created_by,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)"
   );
-  insSt.run("ST-2026-001", "MP-2026-006", 210000, 208200, 1800, "已生成", "陈静", at);
-  insSt.run("ST-2026-002", "MP-2026-007", 320000, 122800, 197200, "已生成", "陈静", at);
-  insSt.run("ST-2026-003", "MP-2026-015", 142000, 82000, 60000, "已生成", "陈静", at);
-  insSt.run("ST-2026-004", "MP-2026-016", 198000, 150000, 48000, "已生成", "陈静", at);
+  insSt.run("ST-2026-001", "MP-2026-006", 210000, 208200, 1800,
+    "华东医学会", "中国银行北京分行", "3210987654321098", "已生成", "陈静", at);
+  insSt.run("ST-2026-002", "MP-2026-007", 320000, 122800, 197200,
+    "华东医学会", "中国银行北京分行", "3210987654321098", "已生成", "陈静", at);
+  insSt.run("ST-2026-003", "MP-2026-015", 142000, 82000, 60000,
+    "华东医学会", "中国银行北京分行", "3210987654321098", "已生成", "陈静", at);
+  insSt.run("ST-2026-004", "MP-2026-016", 198000, 150000, 48000,
+    "华东医学会", "中国银行北京分行", "3210987654321098", "已生成", "陈静", at);
 
   const insMat = db.prepare("INSERT INTO materials (pid,kind,name,version,uploader,created_at) VALUES (?,?,?,?,?,?)");
   for (const pid of ["MP-2026-007", "MP-2026-015"]) {

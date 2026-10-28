@@ -67,11 +67,19 @@ export async function render(root, params = []) {
           c: [`<span class="mono">${y.id}</span>`,
             `<a class="link" data-go="projects/${y.pid}">${esc(y.pname)}</a>
              <div style="font-size:11px;color:var(--mute)">${esc(y.pstatus)}</div>`,
-            esc(y.type), esc(y.payee), `¥${money(y.amount)}`, `<span class="mono">${esc(y.invoice_no || "—")}</span>`,
+            esc(y.type),
+            // 收款方 + 账户一起给：财务打款时看的就是这两行
+            `${esc(y.payee)}<div style="font-size:11px;color:var(--mute)">
+              ${y.payee_account
+                ? `${esc(y.payee_bank || "")} · <span class="mono">${esc(y.payee_account)}</span>`
+                : '<span style="color:var(--warn)">未登记收款账户</span>'}
+            </div>`,
+            `¥${money(y.amount)}`, `<span class="mono">${esc(y.invoice_no || "—")}</span>`,
             esc(y.req_user || ""), badge(y.status),
             `<div class="tacts">
               ${y.status === "待审批" && can("payment:approve") ? `<button class="link" data-ok="${y.id}">审批</button><button class="link danger" data-no="${y.id}">驳回</button>` : ""}
-              ${y.status === "已审批" && can("payment:pay") ? `<button class="link" data-pay="${y.id}">付款</button>` : ""}
+              ${y.status === "已审批" && can("payment:pay") && y.payee_account ? `<button class="link" data-pay="${y.id}">付款</button>` : ""}
+              ${y.status !== "已付款" && can("payment:approve") && !y.payee_account ? `<button class="link" data-acct="${y.id}">登记账户</button>` : ""}
               ${y.status === "已付款" ? `<span style="font-size:11.5px;color:var(--mute)">${esc(y.paid_at || "")}</span>` : ""}
             </div>`]
         })), { empty: "暂无付款记录" })}
@@ -81,13 +89,20 @@ export async function render(root, params = []) {
     <div class="panel">
       <div class="panel-h"><h2>结算单</h2><div><span class="hint">${st.total ?? st.rows.length} 张 · 生成即冻结核销结论</span></div></div>
       ${table(
-        [{ t: "结算单号", w: "112px" }, { t: "项目" }, { t: "收入", w: "100px", cls: "num" },
-         { t: "支出", w: "100px", cls: "num" }, { t: "结余", w: "100px", cls: "num" },
-         { t: "生成人", w: "76px" }, { t: "时间", w: "130px" }],
+        [{ t: "结算单号", w: "112px" }, { t: "项目" }, { t: "收入", w: "96px", cls: "num" },
+         { t: "支出", w: "96px", cls: "num" }, { t: "结余", w: "96px", cls: "num" },
+         { t: "收款方 / 收款账户", w: "230px" },
+         { t: "生成人", w: "70px" }, { t: "时间", w: "120px" }],
         st.rows.map((x) => ({
           c: [`<span class="mono">${x.id}</span>`, `<a class="link" data-go="projects/${x.pid}">${esc(x.name)}</a>`,
             `¥${money(x.income)}`, `¥${money(x.expense)}`,
             `<span class="${x.profit >= 0 ? "pos" : "neg"}">¥${money(x.profit)}</span>`,
+            // V1.2.18：结余打给谁、打到哪个账户 —— 原来这一栏整个是空的
+            `${esc(x.payee || "—")}<div style="font-size:11px;color:var(--mute)">
+              ${x.payee_account
+                ? `${esc(x.payee_bank || "")} · <span class="mono">${esc(x.payee_account)}</span>`
+                : "未登记收款账户"}
+            </div>`,
             esc(x.created_by || ""), `<span class="mono">${esc(x.created_at)}</span>`]
         })), { empty: "暂无结算单" })}
     </div>
@@ -100,6 +115,7 @@ export async function render(root, params = []) {
   root.querySelectorAll("[data-ok]").forEach((b) => b.onclick = () => act(root, b.dataset.ok, "approve"));
   root.querySelectorAll("[data-no]").forEach((b) => b.onclick = () => act(root, b.dataset.no, "reject"));
   root.querySelectorAll("[data-pay]").forEach((b) => b.onclick = () => act(root, b.dataset.pay, "pay"));
+  root.querySelectorAll("[data-acct]").forEach((b) => b.onclick = () => openAccount(root, b.dataset.acct));
   const ep = root.querySelector("#expPay");
   if (ep) ep.onclick = () => dl("/api/export/payments");
   const es = root.querySelector("#expSt");
@@ -137,6 +153,32 @@ async function act(root, id, kind) {
   } catch (e) { toast(e.message, "warn"); }
 }
 
+/**
+ * 补录收款账户（V1.2.18）。
+ * 账号字段是这一版才加的，老单据没有 —— 没有这个入口，财务要么打不了款，要么绕线下。
+ */
+function openAccount(root, id) {
+  const fields = [
+    { k: "payee_bank", l: "开户行", req: 1, ph: "如：中国银行北京朝阳支行" },
+    { k: "payee_account", l: "银行账号", req: 1, ph: "10~25 位数字，可含空格分隔" }
+  ];
+  const m = modal({
+    title: `登记收款账户 · ${id}`,
+    body: `<div class="hint" style="margin-bottom:12px">这笔付款单还没有收款账户。登记后才能执行付款；已付款的单子不可再改。</div>${formHtml(fields)}`,
+    footer: `<button class="btn btn-o" data-x="0">取消</button><button class="btn btn-p" data-x="1">保存</button>`
+  });
+  m.querySelector('[data-x="0"]').onclick = () => m.classList.remove("open");
+  m.querySelector('[data-x="1"]').onclick = async () => {
+    if (!validate(m, fields)) return;
+    try {
+      const r = await api.patch(`/api/payments/${id}/account`, readForm(m));
+      toast(r.message, "ok");
+      m.classList.remove("open");
+      await render(root);
+    } catch (e) { toast(e.message, "warn"); }
+  };
+}
+
 function openPay(root, projects) {
   if (!projects.length) return toast("当前没有已核销项目可付款", "warn");
   const fields = [
@@ -146,6 +188,9 @@ function openPay(root, projects) {
       })) },
     { k: "type", l: "付款类型", t: "select", req: 1, opts: state.meta.paymentTypes },
     { k: "payee", l: "收款方", req: 1 },
+    // V1.2.18：只写收款方名字，财务没法打款
+    { k: "payee_bank", l: "开户行", req: 1, ph: "如：中国银行北京朝阳支行" },
+    { k: "payee_account", l: "银行账号", req: 1, ph: "10~25 位数字，可含空格分隔" },
     { k: "amount", l: "付款金额（元）", t: "number", req: 1 },
     { k: "invoice_no", l: "发票号" },
     { k: "remark", l: "备注", t: "textarea", full: 1, rows: 2 }

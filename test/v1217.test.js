@@ -249,7 +249,7 @@ test("FLOW-01 核销通过后财务自动进成员，能直接生成结算单", 
   assert.equal(detail.status, 200, "核销通过后财务应能打开项目");
   assert.ok(detail.data.members.some((m) => m.name === "陈静"), "陈静应在成员里");
 
-  const settle = await finance("POST", `/api/projects/${pid}/transition`, { action: "settle" });
+  const settle = await finance("POST", `/api/projects/${pid}/transition`, { action: "settle", payee_bank: "中国银行北京分行", payee_account: "3210987654321098" });
   assert.equal(settle.status, 200, `财务生成结算单失败：${JSON.stringify(settle.data)}`);
 });
 

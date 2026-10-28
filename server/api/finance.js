@@ -1,6 +1,6 @@
 "use strict";
 const { db } = require("../lib/db");
-const { now, today, nextId, bad, notFound, conflict, forbidden, cents, yuan } = require("../lib/util");
+const { now, today, nextId, bad, notFound, conflict, forbidden, cents, yuan, parseBankAccount, parseBankName } = require("../lib/util");
 const { assertCan, assertModule, assertProjectVisible, scopeFilter, can, isSuper } = require("../lib/rbac");
 const { logAudit } = require("../lib/audit");
 const { getProject, verification, committed } = require("../lib/workflow");
@@ -271,6 +271,9 @@ function register(router) {
     const payee = String(b.payee || "").trim();
     if (!payee) throw bad("收款方为必填项");
     if (payee.length > 60) throw bad("收款方不能超过 60 字");
+    // V1.2.18：只有收款方名字不够，财务得知道打到哪个账户
+    const payeeBank = parseBankName(b.payee_bank);
+    const payeeAccount = parseBankAccount(b.payee_account);
     const invoiceNo = String(b.invoice_no || "").trim();
     if (invoiceNo.length > 40) throw bad("发票号不能超过 40 字");
     const remark = String(b.remark || "");
@@ -326,17 +329,46 @@ function register(router) {
     }
 
     const id = nextId(db, "payments", "id", "PY");
-    db.prepare("INSERT INTO payments (id,pid,type,payee,amount,invoice_no,req_user,status,remark,created_by,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)")
-      .run(id, p.id, b.type, payee, amount, invoiceNo, ctx.user.name, "待审批", remark, ctx.user.id, at);
+    db.prepare("INSERT INTO payments (id,pid,type,payee,payee_bank,payee_account,amount,invoice_no,req_user,status,remark,created_by,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)")
+      .run(id, p.id, b.type, payee, payeeBank, payeeAccount, amount, invoiceNo, ctx.user.name, "待审批", remark, ctx.user.id, at);
     const apId = nextId(db, "approvals", "id", "AP");
     db.prepare("INSERT INTO approvals (id,type,title,pid,ref_id,amount,by_user,sla,status,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)")
       .run(apId, "付款审批", `${b.type} ¥${amount.toLocaleString("zh-CN")}`, p.id, id, amount, ctx.user.name, "1 个工作日", "待审批", at);
     logAudit({
       user: ctx.user, module: "财务结算", action: "付款申请", target: p.id,
-      detail: `${id} ${b.type} ¥${amount.toLocaleString("zh-CN")} → ${b.payee}（核销已通过${force ? "；超预算特批" : ""}）`,
+      detail: `${id} ${b.type} ¥${amount.toLocaleString("zh-CN")} → ${b.payee}（${payeeBank} 尾号 ${payeeAccount.slice(-4)}；核销已通过${force ? "；超预算特批" : ""}）`,
       ip: ctx.ip
     });
     return { payment: db.prepare("SELECT * FROM payments WHERE id = ?").get(id), message: `付款申请 ${id} 已提交，等待财务审批` };
+  });
+
+  /**
+   * 补录收款账户（V1.2.18）。
+   *
+   * 为什么需要这个接口：账号是这一版才加的字段，线上已经存在一批没有账号的付款单。
+   * 不给补录入口，财务要么打不了款，要么只能绕到线下 —— 那这个字段等于白加。
+   *
+   * 只允许财务与核销（或总管理员）改，且**已付款的不能改**：
+   * 钱已经出去了，回头改账号等于篡改凭证。
+   */
+  router.patch("/api/payments/:id/account", async (ctx) => {
+    const y = db.prepare("SELECT * FROM payments WHERE id = ?").get(ctx.params.id);
+    if (!y) throw notFound("付款单不存在");
+    const p = getProject(y.pid);
+    assertProjectVisible(ctx.user, p);
+    assertCan(ctx.user, "payment:approve", "只有财务与核销（或总管理员）可以登记收款账户");
+    if (y.status === "已付款") {
+      throw conflict("付款已完成，收款账户不可再修改（如需更正请走线下凭证更正流程）", "PAID_LOCKED");
+    }
+    const b = ctx.body || {};
+    const bank = parseBankName(b.payee_bank);
+    const account = parseBankAccount(b.payee_account);
+    db.prepare("UPDATE payments SET payee_bank = ?, payee_account = ? WHERE id = ?").run(bank, account, y.id);
+    logAudit({
+      user: ctx.user, module: "财务结算", action: "登记收款账户", target: p.id,
+      detail: `${y.id} ${y.payee} → ${bank} 尾号 ${account.slice(-4)}`, ip: ctx.ip
+    });
+    return { payment: db.prepare("SELECT * FROM payments WHERE id = ?").get(y.id), message: `${y.id} 收款账户已登记` };
   });
 
   router.post("/api/payments/:id/approve", async (ctx) => {
@@ -362,6 +394,13 @@ function register(router) {
     assertProjectVisible(ctx.user, p);
     assertCan(ctx.user, "payment:pay", "只有财务与核销（或总管理员）可以执行付款");
     if (y.status !== "已审批") throw conflict(`只有「已审批」的付款单可以付款，当前为「${y.status}」`);
+    // V1.2.18：没有收款账户就付不了款 —— 与其让财务自己发现，不如在门口拦住
+    if (!y.payee_account || !y.payee_bank) {
+      throw conflict(
+        `${y.id} 还没有登记收款账户，无法付款。请先点「登记账户」补上开户行与银行账号`,
+        "PAYEE_ACCOUNT_MISSING", { payment: y.id }
+      );
+    }
     if (!PAYABLE_STATUS.includes(p.status)) throw conflict("项目核销状态异常，付款已拦截", "VERIFY_GATE");
     db.prepare("UPDATE payments SET status = '已付款', paid_at = ? WHERE id = ?").run(now(), y.id);
     logAudit({ user: ctx.user, module: "财务结算", action: "付款", target: p.id, detail: `${y.id} ${y.type} ¥${Number(y.amount).toLocaleString("zh-CN")} 已提交银行`, ip: ctx.ip });
