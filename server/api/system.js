@@ -80,7 +80,11 @@ function myTodos(user) {
        ORDER BY a.decided_at DESC`
     ).all(...params);
     for (const a of rows) {
-      if (a.by_user === user.name || a.decided_by === user.name) continue;
+      const submittedByMe = a.submitted_by_id != null
+        ? Number(a.submitted_by_id) === Number(user.id) : a.by_user === user.name;
+      const approvedByMe = a.decided_by_id != null
+        ? Number(a.decided_by_id) === Number(user.id) : a.decided_by === user.name;
+      if (submittedByMe || approvedByMe) continue;
       const amtNote = Number(a.amount) > 0 ? `（预算 → ¥${Number(a.amount).toLocaleString("zh-CN")}）` : "（不涉金额）";
       todos.push({
         kind: "变更落账", title: `变更已批准，待落账：${a.title}${amtNote}`,
