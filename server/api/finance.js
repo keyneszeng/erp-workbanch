@@ -7,6 +7,7 @@ const { getProject, verification, committed } = require("../lib/workflow");
 const { PAYMENT_TYPES, CONTRACT_CATEGORIES, guessContractCategory } = require("../lib/constants");
 const { readPaging, countOf } = require("../lib/paginate");
 const { transition } = require("../lib/workflow");
+const { assertUploadAttachable } = require("../lib/upload-ownership");
 
 // 只有「已核销」可新增付款：结算后账目已封账，归档后卷宗已封存，均不得再挂账
 const PAYABLE_STATUS = ["已核销"];
@@ -121,6 +122,7 @@ function register(router) {
     if (b.file_key) {
       if (!FILE_KEY_RE.test(String(b.file_key))) throw bad("附件标识不合法");
       fk = String(b.file_key);
+      assertUploadAttachable(fk, p.id, ctx.user);
       fname = String(b.file_name || "").slice(0, 120) || fk;
       fsize = Number(b.file_size) || null;
       fmime = String(b.file_mime || "").slice(0, 60) || null;
