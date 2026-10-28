@@ -72,9 +72,13 @@ async function renderOne(root, pid) {
     </div>
   </div>
 
-  ${materialReady ? "" : `<div class="gate" style="margin-bottom:12px"><b>核销未开启：材料还缺 ${d.materialsStatus.missing.length} 类</b>
-    必须先完成材料 8 项录入才能判定（缺：${esc(d.materialsStatus.missing.join("、"))}）。
-    <a class="link" data-go="projects/${p.id}">去项目详情的材料页签登记 →</a></div>`}
+  ${materialReady ? "" : (["已核销", "已结算", "已归档"].includes(p.status)
+    ? `<div class="gate" style="margin-bottom:12px"><b>材料还缺 ${d.materialsStatus.missing.length} 类</b>
+        核销已完成，缺料只影响归档：${esc(d.materialsStatus.missing.join("、"))}。
+        <a class="link" data-go="projects/${p.id}">去项目详情的材料页签登记 →</a></div>`
+    : `<div class="gate" style="margin-bottom:12px"><b>核销未开启：材料还缺 ${d.materialsStatus.missing.length} 类</b>
+        必须先完成材料 8 项录入才能判定（缺：${esc(d.materialsStatus.missing.join("、"))}）。
+        <a class="link" data-go="projects/${p.id}">去项目详情的材料页签登记 →</a></div>`)}
   <div class="panel">
     <div class="panel-h"><h2>6 步核销 SOP</h2>
       <div><span class="hint">已通过 ${v.passed}/6${v.openExceptions ? ` · ${v.openExceptions} 张例外单待审批` : ""}</span></div></div>

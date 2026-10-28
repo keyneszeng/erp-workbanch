@@ -294,9 +294,19 @@ function tabVerify(d, p) {
   const ms = d.materialsStatus;
   // V1.2.19：材料 8 类齐备才开启核销，缺料时判定按钮一律禁用
   const materialReady = ms.ok;
-  return `${materialReady ? "" : `<div class="gate" style="margin-bottom:12px"><b>核销未开启：材料还缺 ${ms.missing.length} 类</b>
-    必须先完成材料 8 项录入才能判定（缺：${esc(ms.missing.join("、"))}）。
-    <button class="link" data-goto-tab="materials">去登记材料 →</button></div>`}
+  /**
+   * 文案要分状态：已经核销完的项目说「核销未开启」是错的 —— 它早就核销了，
+   * 缺料只影响归档。历史数据（门禁上线前就核销完、材料没齐）会走到这一支。
+   */
+  const doneVerify = ["已核销", "已结算", "已归档"].includes(p.status);
+  const banner = materialReady ? "" : (doneVerify
+    ? `<div class="gate" style="margin-bottom:12px"><b>材料还缺 ${ms.missing.length} 类</b>
+        核销已完成，缺料只影响归档（归档要求 8/8）：${esc(ms.missing.join("、"))}。
+        <button class="link" data-goto-tab="materials">去登记材料 →</button></div>`
+    : `<div class="gate" style="margin-bottom:12px"><b>核销未开启：材料还缺 ${ms.missing.length} 类</b>
+        必须先完成材料 8 项录入才能判定（缺：${esc(ms.missing.join("、"))}）。
+        <button class="link" data-goto-tab="materials">去登记材料 →</button></div>`);
+  return `${banner}
   ${panel("核销 6 步 SOP", `已通过 ${v.passed}/6 · ${v.openExceptions ? v.openExceptions + " 张例外单待审批" : "无未决例外"}`,
     `<div class="vsteps">${v.steps.map((s) => {
       const cls = s.result === "通过" || s.result === "已解例外" ? "s-pass" : s.result === "不通过" ? "s-fail" : "s-wait";
