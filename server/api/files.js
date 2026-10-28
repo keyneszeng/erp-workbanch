@@ -103,7 +103,8 @@ function register(router) {
     } else {
       // 未关联单据时只允许上传者或总管理员读取，不能把随机 key 当作授权。
       const pending = db.prepare("SELECT user_id FROM uploaded_files WHERE file_key = ?").get(key);
-      if (!pending || (pending.user_id !== ctx.user.id && ctx.user.role !== "admin")) {
+      if (!pending) throw notFound("文件不存在或尚未登记");
+      if (Number(pending.user_id) !== Number(ctx.user.id) && ctx.user.role !== "admin") {
         throw forbidden("该文件不属于当前用户");
       }
     }
