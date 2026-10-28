@@ -175,4 +175,17 @@ test("pending files are owner-scoped, and upload cannot claim a foreign project"
   assert.equal(byOwner.status, 200);
   const byOther = await fetch(BASE + doc.url, { headers: { cookie: otherCookie } });
   assert.equal(byOther.status, 403);
+  const wrongProject = await assoc("POST", "/api/projects/MP-2026-002/materials", {
+    kind: "QA附件", name: "不能跨项目挂接.pdf",
+    file_key: doc.key, file_name: doc.name, file_size: doc.size, file_mime: doc.mime
+  });
+  assert.equal(wrongProject.status, 403, "upload key scoped to MP-2026-001 must not be attached to MP-2026-002");
+  const linked = await assoc("POST", "/api/projects/MP-2026-001/materials", {
+    kind: "QA附件", name: "挂接本人上传的文件.pdf",
+    file_key: doc.key, file_name: doc.name, file_size: doc.size, file_mime: doc.mime
+  });
+  assert.equal(linked.status, 200);
+  const participantCookie = await login("guest");
+  const deniedDoc = await fetch(BASE + doc.url, { headers: { cookie: participantCookie } });
+  assert.equal(deniedDoc.status, 403, "participants cannot read internal vouchers even on visible projects");
 });
