@@ -139,6 +139,13 @@ function listProjects(user, { status, q, assoc, stage, page, size } = {}) {
 }
 
 function detail(project, user) {
+  // 普通用户/嘉宾只可查看会议公开信息；项目成员资格不等于财务、合同和审计权限。
+  // 必须在 API 层裁剪，不能仅隐藏前端页签（直接请求仍会读取原始 JSON）。
+  if (user.role === "user") {
+    const { id, name, assoc, form, date, days, people, owner, agenda, status } = project;
+    return { project: { id, name, assoc, form, date, days, people, owner, agenda, status },
+      actions: [], visibility: "participant" };
+  }
   const pid = project.id;
   const members = db.prepare(
     `SELECT u.id, u.name, u.username, u.role, m.role AS member_role FROM project_members m
@@ -185,6 +192,13 @@ function detail(project, user) {
 function register(router) {
   router.get("/api/projects", async (ctx) => {
     const r = listProjects(ctx.user, ctx.query);
+    // 参会者只能看到会议信息，不能通过列表取得预算、电话或已付款统计。
+    if (ctx.user.role === "user") {
+      const participantRow = ({ id, name, assoc, form, date, days, people, owner, status }) =>
+        ({ id, name, assoc, form, date, days, people, owner, status });
+      if (Array.isArray(r)) return { rows: r.map(participantRow), total: r.length };
+      return { ...r, rows: r.rows.map(participantRow), summary: null };
+    }
     // 未请求分页时 listProjects 返回数组，保持旧返回结构
     if (Array.isArray(r)) return { rows: r, total: r.length };
     return r;
@@ -193,6 +207,10 @@ function register(router) {
   router.post("/api/projects", async (ctx) => {
     assertCan(ctx.user, "project:create", "只有协会管理员 / 会务执行可以发起立项");
     const b = ctx.body || {};
+    // 协会管理员只能为本人所属协会立项；不能靠提交其他协会名获取跨租户项目。
+    if (ctx.user.role === "assoc" && b.assoc !== ctx.user.assoc) {
+      throw forbidden("只能为本人所属协会发起立项");
+    }
     validate(b);
     const at = now();
     const id = nextId(db, "projects", "id", "MP");
@@ -229,6 +247,9 @@ function register(router) {
       }
     }
     const b = ctx.body || {};
+    if (!isSuper(ctx.user) && "assoc" in b && b.assoc !== p.assoc) {
+      throw forbidden("项目所属协会不可通过资料编辑修改；请由总管理员办理跨协会迁移");
+    }
 
     // 超管用 force 越过任何一道账目检查，都必须在审计里能看出来。
     // 只有「真的绕过了检查」才算 force，随手带个 force 标记的正常修改不该被标成纠错。
