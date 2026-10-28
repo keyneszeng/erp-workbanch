@@ -233,7 +233,7 @@ async function buildVerifyProject(tag) {
     budget: 90000, owner: "王敏", agenda: "09:00 开幕 / 10:00 报告", people: 30
   });
   const pid = c.data.project.id;
-  const users = await assoc("GET", "/api/users");
+  const users = await assoc("GET", "/api/users/pickable");
   for (const nm of ["张伟", "陈静"]) {
     const u = users.data.rows.find((x) => x.name === nm);
     await assoc("POST", `/api/projects/${pid}/members`, { user_id: u.id });

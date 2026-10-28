@@ -112,6 +112,31 @@ function canVisitNav(user, nav) {
   return true;
 }
 
+/** 角色是否拥有某个模块（与前端 NAV 同一张表） */
+function hasModule(user, key) {
+  if (!user || !ROLES[user.role]) return false;
+  if (isSuper(user)) return true;
+  return ROLES[user.role].modules.includes(key);
+}
+
+/**
+ * 接口级模块鉴权 —— 列表接口与导出接口必须同一套口径。
+ *
+ * 老板的测试报告（SEC-01 / SEC-02）指出的问题：菜单藏起来了，但 7 个列表接口
+ * 对 guest 仍返回 200，只有数据范围兜底；而同一批数据的导出接口却严格 403。
+ * 两套口径的后果是「纵深防御只剩一层」：数据范围一旦写错（比如 BUG-01），越权立刻发生。
+ *
+ * 判据：**能进这个模块，或者有该模块的动作权限**。
+ * 后半句是必要的 —— 会务执行没有「财务结算」模块，但能提交付款申请，
+ * 只看模块白名单会把他自己的付款列表也挡掉。
+ */
+function assertModule(user, key, perm, msg) {
+  if (hasModule(user, key)) return;
+  if (perm && can(user, perm)) return;
+  const name = (MODULES.find((m) => m.k === key) || {}).n || key;
+  throw forbidden(msg || `当前角色无权访问「${name}」模块`);
+}
+
 const isSuper = (user) => !!(user && ROLES[user.role] && ROLES[user.role].super);
 
 function can(user, perm) {
@@ -144,10 +169,23 @@ function scopeFilter(user) {
         params: [user.id, user.name, user.id]
       };
     case "user":
-      // 普通用户 / 嘉宾：只看被授权（成员关系）的项目，不看负责人字段
+      /**
+       * 普通用户 / 嘉宾：本人相关的项目。
+       *
+       * V1.2.17 修 BUG-01：原来只认成员表，结果「负责人看不到自己负责的项目」——
+       * 刘洋是 MP-2026-005 / MP-2026-011 的负责人，登录后一场都看不到，
+       * 也就没法推进阶段、填需求、做核销取证；工作台「在管会议」还会因此少算。
+       *
+       * 只认 user_id，**不回退姓名比对**：exec / finance 那个分支保留姓名回退是为了
+       * 历史数据不失联，但普通用户这一档一旦按姓名匹配，新建一个同名账号就能看到
+       * 别人名下的项目（scope-owner 用例专门盯这个）。负责人漏看是功能问题，
+       * 同名冒领是安全问题，这里优先堵安全。
+       */
       return {
-        sql: "EXISTS (SELECT 1 FROM project_members m WHERE m.project_id = p.id AND m.user_id = ?)",
-        params: [user.id]
+        sql:
+          "(p.owner_id = ? OR p.created_by = ?" +
+          " OR EXISTS (SELECT 1 FROM project_members m WHERE m.project_id = p.id AND m.user_id = ?))",
+        params: [user.id, user.id, user.id]
       };
     default:
       return { sql: "1=0", params: [] };
@@ -164,4 +202,4 @@ function assertProjectVisible(user, project) {
   if (!row) throw forbidden("该项目不在你的数据范围内");
 }
 
-module.exports = { ROLES, PERMS, MODULES, STATUSES, isSuper, can, assertCan, scopeFilter, assertProjectVisible, canVisitNav };
+module.exports = { ROLES, PERMS, MODULES, STATUSES, isSuper, can, assertCan, assertModule, hasModule, scopeFilter, assertProjectVisible, canVisitNav };

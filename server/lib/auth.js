@@ -1,7 +1,7 @@
 "use strict";
 const crypto = require("node:crypto");
 const { db } = require("./db");
-const { now, randToken } = require("./util");
+const { now, randToken, bad } = require("./util");
 
 const SESSION_TTL_MS = 12 * 60 * 60 * 1000; // 12 小时
 const COOKIE = "erp_sid";
@@ -56,6 +56,37 @@ function verifyPassword(password, salt, hash) {
   const a = Buffer.from(calc, "hex");
   const b = Buffer.from(String(hash), "hex");
   return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
+/** 常见弱口令：长度够但一眼能猜到的，直接拦掉 */
+const WEAK_PASSWORDS = new Set([
+  "12345678", "123456789", "1234567890", "password", "password1", "password123",
+  "qwerty123", "abc12345", "abcd1234", "admin123", "admin1234", "aa123456",
+  "1qaz2wsx", "1q2w3e4r", "iloveyou", "welcome1", "letmein1", "sunshine",
+  "88888888", "66666666", "11111111", "00000000"
+]);
+
+/**
+ * 口令强度校验 —— 建号、重置、自助改密**共用这一份**。
+ *
+ * 测试报告 SEC-04：建号接受 3 位纯数字 `123`，而自助改密要求 8 位 ——
+ * 同一套系统两种策略，等于「改密严、建号松」，弱口令账号批量产生。
+ * 校验原来写在改密 handler 里，别处想用只能抄一遍，抄着抄着就抄漏了。
+ *
+ * @param {string} pw
+ * @param {{ oldPassword?: string, label?: string }} opt
+ *        oldPassword：自助改密时传原密码，用于「不能与原密码相同」的判断
+ *        label：错误文案里的字段名（默认「密码」）
+ */
+function validatePassword(pw, { oldPassword, label = "密码" } = {}) {
+  const s = String(pw ?? "");
+  if (!s) throw bad(`请设置${label}`);
+  if (s.length < 8) throw bad(`${label}至少 8 位`);
+  if (s.length > 64) throw bad(`${label}不能超过 64 位`);
+  if (!/[A-Za-z]/.test(s) || !/\d/.test(s)) throw bad(`${label}需同时包含字母和数字`);
+  if (WEAK_PASSWORDS.has(s.toLowerCase())) throw bad("该密码过于常见，请更换");
+  if (oldPassword !== undefined && s === String(oldPassword)) throw bad("新密码不能与原密码相同");
+  return s;
 }
 
 function createSession(userId, ip) {
@@ -136,6 +167,7 @@ function clearFailures(ip, username) {
 }
 
 module.exports = {
-  hashPassword, verifyPassword, createSession, destroySession, userByToken, publicUser, login,
+  hashPassword, verifyPassword, validatePassword, WEAK_PASSWORDS,
+  createSession, destroySession, userByToken, publicUser, login,
   pruneSessions, COOKIE, SESSION_TTL_MS, isThrottled, noteFailure, clearFailures
 };

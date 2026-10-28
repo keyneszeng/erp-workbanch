@@ -84,11 +84,11 @@ test("新建同名账号看不到同名负责人名下的项目", async () => {
 
   const mk = await admin("POST", "/api/users", {
     username: "zhangwei2", name: "张伟", role: "exec",
-    assoc: "华东医学会", dept: "会务部", phone: "13900000009", password: "123456"
+    assoc: "华东医学会", dept: "会务部", phone: "13900000009", password: "Init1234"
   });
   assert.equal(mk.status, 200, mk.msg);
 
-  const twin = client(await login("zhangwei2"));
+  const twin = client(await login("zhangwei2", "Init1234"));
   const seen = idsOf(await twin("GET", "/api/projects"));
   assert.deepEqual(seen, [], `同名账号凭姓名看到了 ${seen.join(", ")}`);
 
@@ -106,7 +106,7 @@ test("重名时新建项目的负责人绑定到操作者本人", async () => {
   assert.equal(mk.status, 200, mk.msg);
   const pid = mk.data.project.id;
 
-  const twin = client(await login("zhangwei2"));
+  const twin = client(await login("zhangwei2", "Init1234"));
   assert.equal((await twin("GET", `/api/projects/${pid}`)).status, 403,
     "同名账号不应因为项目负责人同名而看到项目");
 });

@@ -464,6 +464,33 @@ function migrate() {
     /* 索引已存在 */
   }
 
+  /**
+   * V1.2.17 PERF-01：列表页要用的索引。
+   *
+   * 测试报告实测接口 2.5~3.9 秒（含跨境 RTT，但只有 19 个项目也偏慢）。
+   * 缓存与异步审计属于架构级改动，风险大，这次只做「加索引」这一半 ——
+   * 它零风险、可回滚，且正好覆盖数据范围过滤与列表排序。
+   * 注意 project_members 的主键是 (project_id, user_id)，
+   * 按 project_id 查已经走主键前缀，真正缺的是「按人反查」。
+   */
+  const INDEXES = [
+    "CREATE INDEX IF NOT EXISTS idx_projects_status ON projects(status)",
+    "CREATE INDEX IF NOT EXISTS idx_projects_assoc ON projects(assoc)",
+    "CREATE INDEX IF NOT EXISTS idx_projects_owner ON projects(owner_id)",
+    "CREATE INDEX IF NOT EXISTS idx_payments_pid_status ON payments(pid, status)",
+    "CREATE INDEX IF NOT EXISTS idx_audit_module ON audit_logs(module)",
+    "CREATE INDEX IF NOT EXISTS idx_audit_user ON audit_logs(user_id)",
+    "CREATE INDEX IF NOT EXISTS idx_audit_at ON audit_logs(at)",
+    "CREATE INDEX IF NOT EXISTS idx_members_user ON project_members(user_id)"
+  ];
+  for (const sql of INDEXES) {
+    try {
+      db.exec(sql);
+    } catch {
+      /* 旧库缺表或索引已存在，忽略 */
+    }
+  }
+
   // V1.2.7：需求条目的「预算归属」改成「预算金额」，旧值里的文字要清掉
   // 老数据这一列存的是「会务预算」这类归属说明，不是钱数。
   // 字段语义换了以后，它在金额列里既不能合计也不能对照，留着只会误导。

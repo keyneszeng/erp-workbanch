@@ -208,6 +208,8 @@ function register(router) {
 
   /** 材料总览（跨项目） */
   router.get("/api/materials", async (ctx) => {
+    // V1.2.17 SEC-02：材料中心按模块白名单，guest 不再能翻全平台材料
+    require("../lib/rbac").assertModule(ctx.user, "materials", "material:write");
     const { sql, params } = require("../lib/rbac").scopeFilter(ctx.user);
     const paging = readPaging(ctx.query);
 
@@ -320,6 +322,8 @@ function register(router) {
   });
 
   router.get("/api/settlements", async (ctx) => {
+    // V1.2.17 SEC-02：结算单属于财务模块
+    require("../lib/rbac").assertModule(ctx.user, "finance", "settle:create");
     const { sql, params } = require("../lib/rbac").scopeFilter(ctx.user);
     const base = `FROM settlements s JOIN projects p ON p.id = s.pid WHERE ${sql}`;
     const paging = readPaging(ctx.query);

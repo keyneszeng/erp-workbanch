@@ -86,11 +86,23 @@ test("IDOR：嘉宾直接访问未授权项目核销页被拒", async () => {
   assert.equal(r.status, 403);
 });
 
-test("隐私：普通用户拿不到全员手机号", async () => {
+test("隐私：普通用户根本进不了账号目录", async () => {
+  // V1.2.17 SEC-01：原来这里返回 200（只裁字段），等于把全平台员工姓名与角色
+  // 交给任何登录用户。现在模块级鉴权前置，guest 直接 403。
   const r = await guest("GET", "/api/users");
+  assert.equal(r.status, 403, `guest 应 403，实际 ${r.status}`);
+  assert.equal(r.data.error.code, "FORBIDDEN");
+});
+
+test("隐私：选人接口只给最小字段，且不含手机号", async () => {
+  const r = await assoc("GET", "/api/users/pickable");
   assert.equal(r.status, 200);
-  const leaked = r.data.rows.some((u) => u.phone);
-  assert.equal(leaked, false, "嘉宾不应看到其他账号手机号");
+  assert.ok(r.data.rows.length > 0);
+  const leaked = r.data.rows.some((u) => u.phone || u.username);
+  assert.equal(leaked, false, "选人接口不应返回手机号与登录账号");
+  // guest 连选人都不该有（没有 project:member）
+  const g = await guest("GET", "/api/users/pickable");
+  assert.equal(g.status, 403);
 });
 
 test("隐私：接口不返回口令散列", async () => {

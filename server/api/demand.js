@@ -1,7 +1,7 @@
 "use strict";
 const { db, transaction } = require("../lib/db");
 const { now, bad, notFound, conflict, yuan, toCsv } = require("../lib/util");
-const { assertCan, assertProjectVisible } = require("../lib/rbac");
+const { assertCan, assertModule, assertProjectVisible } = require("../lib/rbac");
 const { logAudit } = require("../lib/audit");
 const { listProjects } = require("./projects");
 const { getProject, assertNotFrozen } = require("../lib/workflow");
@@ -132,6 +132,8 @@ function replaceItems(pid, items, at) {
 function register(router) {
   // 列表：按数据范围列出会议 + 各会议需求单汇总
   router.get("/api/demand", async (ctx) => {
+    // V1.2.17 SEC-02：需求模块按白名单，guest 不再能列出各项目的需求与预算
+    assertModule(ctx.user, "demand", "demand:write");
     // 会务需求只在「筹备中 / 执行中」阶段填 —— 立项前还没到筹备，
     // 核销之后已经是存档记录，两头都不该出现在这个列表里（老板 2026-10-28 的修正）。
     // 归档后的需求单到「项目详情 → 会务需求」里看，那里不分阶段，永远查得到。
@@ -167,6 +169,7 @@ function register(router) {
 
   // 详情：单项目的需求单（首次打开返回模板）
   router.get("/api/demand/:id", async (ctx) => {
+    assertModule(ctx.user, "demand", "demand:write");
     const p = getProject(ctx.params.id);
     if (!p) throw notFound("会议项目不存在");
     assertProjectVisible(ctx.user, p);

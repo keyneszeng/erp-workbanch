@@ -1,7 +1,7 @@
 "use strict";
 const { db } = require("../lib/db");
 const { now, today, nextId, bad, notFound, conflict, forbidden, cents, yuan } = require("../lib/util");
-const { assertCan, assertProjectVisible, scopeFilter, can, isSuper } = require("../lib/rbac");
+const { assertCan, assertModule, assertProjectVisible, scopeFilter, can, isSuper } = require("../lib/rbac");
 const { logAudit } = require("../lib/audit");
 const { getProject, verification, committed } = require("../lib/workflow");
 const { PAYMENT_TYPES, CONTRACT_CATEGORIES, guessContractCategory } = require("../lib/constants");
@@ -44,6 +44,8 @@ function checkDate(s, label) {
 function register(router) {
   /* ---------------- 合同 ---------------- */
   router.get("/api/contracts", async (ctx) => {
+    // V1.2.17 SEC-02：列表与导出同一套模块口径，不再只靠数据范围兜底
+    assertModule(ctx.user, "prep", "contract:write");
     const { sql, params } = scopeFilter(ctx.user);
     const where = [sql];
     const args = [...params];
@@ -200,6 +202,8 @@ function register(router) {
 
   /* ---------------- 付款 ---------------- */
   router.get("/api/payments", async (ctx) => {
+    // 会务执行没有「财务结算」模块，但能提付款申请 —— 动作权限要放行
+    assertModule(ctx.user, "finance", "payment:create");
     const { sql, params } = scopeFilter(ctx.user);
     const where = [sql];
     const args = [...params];
@@ -378,10 +382,31 @@ function register(router) {
     return { rows, pending: rows.filter((r) => r.status === "待审批").length };
   });
 
+  /** 审批类型 → 所需权限。集中一处，顺序才不会各处各写一套 */
+  const DECIDE_PERM = {
+    "立项审批": ["project:approve", "只有协会管理员（或总管理员）可以审批立项"],
+    "变更审批": ["project:approve", "只有协会管理员（或总管理员）可以审批变更"],
+    "例外单审批": ["verify:exception_approve", "只有财务与核销（或总管理员）可以审批例外单"],
+    "付款审批": ["payment:approve", "只有财务与核销（或总管理员）可以审批付款"]
+  };
+
   /** 统一审批入口：按 type 分派 */
   router.post("/api/approvals/:id/decide", async (ctx) => {
     const a = db.prepare("SELECT * FROM approvals WHERE id = ?").get(ctx.params.id);
     if (!a) throw notFound("审批单不存在");
+
+    /**
+     * V1.2.17 BUG-02：**权限先于状态**。
+     *
+     * 原来第一句就是 `if (a.status !== "待审批") throw conflict(...)`，
+     * 于是零权限的角色（guest）去审批一张已经通过的单子，拿到的是 409
+     * 「该审批单已是「已通过」状态」—— 没权限却能探到单据状态，属于轻量信息泄露。
+     * 统一顺序：登录态（框架已保证）→ 权限 → 数据范围 → 对象存在性 → 状态机 → 执行。
+     */
+    const need = DECIDE_PERM[a.type];
+    if (!need) throw bad(`未知的审批类型「${a.type}」`);
+    assertCan(ctx.user, need[0], need[1]);
+
     if (a.status !== "待审批") throw conflict(`该审批单已是「${a.status}」状态`);
     const p = getProject(a.pid);
     assertProjectVisible(ctx.user, p);
@@ -389,12 +414,10 @@ function register(router) {
     const comment = String(ctx.body?.comment || "");
 
     if (a.type === "立项审批") {
-      if (!can(ctx.user, "project:approve")) throw forbidden("只有协会管理员（或总管理员）可以审批立项");
       const r = transition(p.id, approve ? "approve" : "reject", ctx.user, { comment }, ctx.ip);
       return { message: r.message, project: r.project };
     }
     if (a.type === "例外单审批") {
-      if (!can(ctx.user, "verify:exception_approve")) throw forbidden("只有财务与核销（或总管理员）可以审批例外单");
       const ex = db.prepare("SELECT * FROM exceptions WHERE id = ?").get(a.ref_id);
       if (!ex) {
         throw notFound(`审批单 ${a.id} 关联的例外单 ${a.ref_id} 不存在，请联系管理员修复数据`);
@@ -420,7 +443,6 @@ function register(router) {
       return { message: `例外单 ${ex.id} ${approve ? "已通过" : "已驳回"}`, verification: verification(ex.pid) };
     }
     if (a.type === "付款审批") {
-      if (!can(ctx.user, "payment:approve")) throw forbidden("只有财务与核销（或总管理员）可以审批付款");
       const y = db.prepare("SELECT * FROM payments WHERE id = ?").get(a.ref_id);
       if (!y) {
         throw notFound(`审批单 ${a.id} 关联的付款单 ${a.ref_id} 不存在，请联系管理员修复数据`);
@@ -438,12 +460,7 @@ function register(router) {
       logAudit({ user: ctx.user, module: "财务结算", action: approve ? "付款审批通过" : "付款驳回", target: p.id, detail: `${y.id} ¥${Number(y.amount).toLocaleString("zh-CN")}`, ip: ctx.ip });
       return { message: `付款单 ${y.id} ${approve ? "已审批" : "已驳回"}` };
     }
-    // 变更审批：与立项同权（project:approve）。
-    // 原来这里没有任何权限判断 —— 任何能看见该项目的角色都能把变更批了，
-    // 与审批中心按钮的显隐规则（can("project:approve")）对不上，接口裸奔。
-    if (a.type === "变更审批" && !can(ctx.user, "project:approve")) {
-      throw forbidden("只有协会管理员（或总管理员）可以审批变更");
-    }
+    // 变更审批：与立项同权，权限已在入口的 DECIDE_PERM 里判过
     db.prepare("UPDATE approvals SET status = ?, decided_by = ?, decided_at = ?, comment = ? WHERE id = ?")
       .run(approve ? "已通过" : "已驳回", ctx.user.name, now(), comment, a.id);
     logAudit({ user: ctx.user, module: "项目管理", action: approve ? "审批通过" : "审批驳回", target: p.id, detail: `${a.type}：${a.title}`, ip: ctx.ip });

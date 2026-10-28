@@ -216,7 +216,7 @@ test("幂等：重复结算 / 重复归档被拒", async () => {
     budget: 50000, owner: "王敏", agenda: "09:00 开幕"
   });
   const pid = c.data.project.id;
-  const users = await assoc("GET", "/api/users");
+  const users = await assoc("GET", "/api/users/pickable");
   for (const nm of ["张伟", "陈静"]) {
     const u = users.data.rows.find((x) => x.name === nm);
     await assoc("POST", `/api/projects/${pid}/members`, { user_id: u.id });
@@ -313,12 +313,14 @@ test("导出范围与列表口径一致（嘉宾 / 协会）", async () => {
 
 /* ---------------- 协议健壮性 ---------------- */
 
-test("未定义方法 / 路由返回 404 而非 500", async () => {
+test("方法不对返回 405 + Allow，路径不存在才 404", async () => {
+  // V1.2.17 API-01：路径在、方法不对 → 405（原来一律 404，客户端会去怀疑地址写错）
   const r1 = await admin("PUT", "/api/projects", {});
-  assert.equal(r1.status, 404);
-  assert.equal(r1.data.error.code, "NO_ROUTE");
+  assert.equal(r1.status, 405, `${r1.status} ${JSON.stringify(r1.data)}`);
+  assert.equal(r1.data.error.code, "METHOD_NOT_ALLOWED");
   const r2 = await admin("GET", "/api/not-exist");
   assert.equal(r2.status, 404);
+  assert.equal(r2.data.error.code, "NO_ROUTE");
 });
 
 test("POST 无 Content-Type 仍可解析 JSON", async () => {

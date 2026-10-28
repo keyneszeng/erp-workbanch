@@ -50,7 +50,8 @@ function openCreate(root, roles) {
     { k: "assoc", l: "所属协会", t: "select", opts: [{ v: "", l: "（全平台）" }, ...state.meta.assocs] },
     { k: "dept", l: "部门", t: "select", opts: state.meta.depts },
     { k: "phone", l: "电话" },
-    { k: "password", l: "初始密码", v: "123456" }
+    // V1.2.17 SEC-04：不再预填 123456 —— 预填等于「新建即弱口令」
+    { k: "password", l: "初始密码", req: 1, ph: "至少 8 位，含字母和数字" }
   ];
   const m = modal({ title: "新建账号", width: "600px", body: formHtml(fields),
     footer: `<button class="btn btn-o" data-x="0">取消</button><button class="btn btn-p" data-x="1">创建</button>` });
@@ -74,7 +75,7 @@ function openEdit(root, u, roles) {
     { k: "dept", l: "部门", t: "select", opts: state.meta.depts },
     { k: "phone", l: "电话" },
     { k: "active", l: "账号状态", t: "select", opts: [{ v: "1", l: "启用" }, { v: "0", l: "停用" }] },
-    { k: "password", l: "重置密码（留空不改）", ph: "不修改请留空" }
+    { k: "password", l: "重置密码（留空不改）", ph: "留空不改；至少 8 位，含字母和数字" }
   ];
   const m = modal({ title: `编辑账号 · ${esc(u.name)}`, width: "600px", body: formHtml(fields, { ...u, active: String(u.active) }),
     footer: `<button class="btn btn-o" data-x="0">取消</button><button class="btn btn-p" data-x="1">保存</button>` });

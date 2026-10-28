@@ -52,8 +52,10 @@ function navHtml(active) {
     if (!items.length) return "";
     if (items.length === 1) {
       const it = items[0];
+      // V1.2.17 UX-01：只有一个条目时用**条目名**，不要用组名。
+      // 否则 guest 侧栏显示「项目管理」，点进去页面标题却是「会议项目」—— 同一处两个叫法。
       return `<button class="ni d1${active === it.k ? " on" : ""}" data-go="${it.k}">
-        <span class="dot"></span><span class="lbl">${g.n}</span></button>`;
+        <span class="dot"></span><span class="lbl">${it.n}</span></button>`;
     }
     return `<button class="ni d1 anc" disabled><span class="dot"></span><span class="lbl">${g.n}</span></button>` +
       items.map((it) => `<button class="ni d2${active === it.k ? " on" : ""}" data-go="${it.k}">
@@ -85,6 +87,27 @@ function topHtml(r) {
  * 把 #content 整个写成工作台 —— 顶栏写着「审批中心」，内容是工作台。
  */
 let routeSeq = 0;
+
+/**
+ * 通用骨架屏：一张页头 + 四张 KPI + 一个表格占位。
+ * 不做逐页面定制 —— 各页面结构差异大，定制成本高且容易和真实版式对不上，
+ * 「大致占住位置、别让人以为卡死」这个目标通用版就够了。
+ */
+function skeletonHtml() {
+  const rows = Array.from({ length: 6 }, () => '<div class="sk-row"></div>').join("");
+  return `<div class="sk" aria-busy="true" aria-live="polite">
+    <div class="sk-h"></div>
+    <div class="sk-sub"></div>
+    <div class="sk-kpis">
+      ${Array.from({ length: 4 }, () => '<div class="sk-kpi"><i></i><b></b></div>').join("")}
+    </div>
+    <div class="sk-panel">
+      <div class="sk-row sk-head"></div>
+      ${rows}
+    </div>
+    <span class="sr-only">加载中…</span>
+  </div>`;
+}
 
 /** 该页面当前角色是否可访问（模块白名单 + 条目级权限） */
 async function route() {
@@ -124,7 +147,9 @@ async function route() {
   const content = document.getElementById("content");
   const box = document.createElement("div");
   box.className = "page";
-  box.innerHTML = '<div class="empty" style="padding:60px">加载中…</div>';
+  // V1.2.17 UX-02：骨架屏替代一行「加载中…」。
+  // 线上接口 2~3 秒，纯文字会让人以为卡死；骨架屏先把版式占住，内容一到就替换。
+  box.innerHTML = skeletonHtml();
   content.replaceChildren(box);
   try {
     await hit.page.render(box, hit.params, hit);

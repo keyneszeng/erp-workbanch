@@ -273,9 +273,45 @@ function transition(projectId, action, user, payload = {}, ip = "") {
     }
     default: {
       setStatus(p, flow.to, user, ip, `${flow.label}：${p.status} → ${flow.to}`);
+      // V1.2.17 FLOW-01：核销通过后，同协会的财务必须能直接生成结算单
+      if (action === "verify_pass") grantFinanceMember(p, user, ip);
       return { project: getProject(p.id), message: `${flow.label}成功，状态 → ${flow.to}` };
     }
   }
+}
+
+/**
+ * 核销通过 → 把同协会的财务负责人加进项目成员。
+ *
+ * 测试报告 FLOW-01：项目 6/6 核销通过后，finance 生成结算单 403「不在你的数据范围内」，
+ * 只能让超管代劳或临时加成员 —— 流程在这里断了一刀，规模化后就是一堆「已核销未结算」。
+ *
+ * 为什么在这一步自动授权：结算单是核销结论的下一步，财务不是「来旁听」的，
+ * 是这条流程的下一个责任人。只加同协会的财务（协会管理员看得见范围之外的财务没意义），
+ * 且写审计，谁因为什么被授权都能追。
+ */
+function grantFinanceMember(p, user, ip) {
+  // assoc 为空的财务是「全平台财务」（种子里的陈静就是这种），也要覆盖到 ——
+  // 只按协会精确匹配会把最常见的配置漏掉，等于没修。
+  const financeUsers = db
+    .prepare(
+      `SELECT id, name FROM users
+        WHERE role = 'finance' AND active = 1
+          AND (assoc IS NULL OR assoc = '' OR assoc = ?)`
+    )
+    .all(p.assoc || "");
+  if (!financeUsers.length) return;
+  const ins = db.prepare("INSERT OR IGNORE INTO project_members (project_id, user_id, role) VALUES (?,?,?)");
+  const added = [];
+  for (const f of financeUsers) {
+    const r = ins.run(p.id, f.id, "成员");
+    if (r.changes) added.push(f.name);
+  }
+  if (!added.length) return;
+  logAudit({
+    user, module: "会后核销", action: "自动授权财务", target: p.id,
+    detail: `核销通过，将 ${added.join("、")} 加入项目成员以便生成结算单`, ip
+  });
 }
 
 module.exports = { getProject, verification, materialsStatus, settlementOf, demandSummary, assertNotFrozen, committed, availableActions, transition, GUARDS };

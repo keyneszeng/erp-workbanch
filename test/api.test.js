@@ -112,10 +112,16 @@ test("数据范围：协会管理员只看到本协会项目", async () => {
   assert.ok(r.data.rows.every((p) => p.assoc === "华东医学会"), "不应出现其他协会项目");
 });
 
-test("数据范围：嘉宾只看到被授权项目", async () => {
+test("数据范围：嘉宾看到「成员 + 负责人 + 创建人」三类项目", async () => {
+  /**
+   * V1.2.17 BUG-01：原来只认成员表，刘洋（guest）作为 MP-2026-005 / MP-2026-011 的
+   * 负责人一场都看不到 —— 负责人登录后看不到自己的会议，推进阶段、填需求、核销取证全断。
+   * 现在负责人与创建人也算数据范围内，所以是 3 场。
+   */
   const r = await guest("GET", "/api/projects");
-  assert.equal(r.data.rows.length, 1);
-  assert.equal(r.data.rows[0].id, "MP-2026-002");
+  const ids = r.data.rows.map((p) => p.id).sort();
+  assert.deepEqual(ids, ["MP-2026-002", "MP-2026-005", "MP-2026-011"],
+    `实际：${ids.join(", ")}`);
 });
 
 test("数据范围：总管理员看到全平台项目", async () => {
@@ -157,7 +163,7 @@ test("工作流：新建 → 提交 → 审批 → 筹备 → 执行 → 待核�
   assert.equal(created.data.project.status, "草稿");
 
   // 把执行与财务加入项目，才能进入其数据范围
-  const us = await assoc("GET", "/api/users");
+  const us = await assoc("GET", "/api/users/pickable");
   for (const nm of ["张伟", "陈静"]) {
     const u = us.data.rows.find((x) => x.name === nm);
     const r = await assoc("POST", `/api/projects/${pid}/members`, { user_id: u.id });
@@ -316,8 +322,10 @@ test("审计：关键动作均留痕", async () => {
   }
 });
 
-test("审计：非审计角色仅能看本人日志", async () => {
+test("审计：非审计角色进不了审计日志", async () => {
+  // V1.2.17 SEC-02：侧栏里根本没有这个入口，接口却还通着「只看本人」——
+  // 属于界面上看不见、接口能探到的口子，现在按模块白名单统一 403。
   const r = await exec("GET", "/api/audit");
-  assert.equal(r.data.limited, true);
-  assert.ok(r.data.rows.every((x) => x.user_name === "张伟"));
+  assert.equal(r.status, 403, `${r.status} ${JSON.stringify(r.data)}`);
+  assert.equal(r.data.error.code, "FORBIDDEN");
 });

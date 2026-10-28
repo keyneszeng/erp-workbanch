@@ -656,8 +656,10 @@ async function delMaterial(root, pid, id) {
 
 function openMember(root, pid, d) {
   const used = new Set(d.members.map((m) => m.id));
-  api.get("/api/users").then(({ rows }) => {
-    const cand = rows.filter((u) => !used.has(u.id) && u.active);
+  // V1.2.17 SEC-01：整本通讯录只给账号管理员；这里选人用最小字段的 pickable
+  // （接口只返回启用中的账号，所以不用再判断 active）
+  api.get("/api/users/pickable").then(({ rows }) => {
+    const cand = rows.filter((u) => !used.has(u.id));
     const m = modal({
       title: "增加项目成员",
       body: `<div class="hint" style="margin-bottom:12px">成员可访问该项目数据（执行 / 财务 / 嘉宾视角的数据范围按成员关系计算）。</div>

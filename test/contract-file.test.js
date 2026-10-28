@@ -184,12 +184,31 @@ test("非法 file_key 被拒绝，不会写进库", async () => {
 });
 
 test("数据范围外的用户不能下载合同原件", async () => {
-  const list = await client(admin)("GET", "/api/contracts");
-  const row = list.data.rows.find((x) => x.file_key);
-  assert.ok(row, "需要一份带原件的合同");
+  /**
+   * V1.2.17 BUG-01 之后 guest 的数据范围是「成员 + 负责人 + 创建人」，
+   * 拿种子里的合同去试很容易正好落在他范围内。这里干脆自己造一个
+   * guest 一定看不见的项目（admin 创建、不拉他进成员），再挂一份带原件的合同。
+   */
+  const adminC = client(admin);
+  const mk = await adminC("POST", "/api/projects", {
+    name: `越权下载用例-${Date.now()}`, assoc: "华东医学会", form: "线下",
+    date: "2027-09-09", budget: 1000, people: 10, owner: "王敏", agenda: "09:00 开幕"
+  });
+  assert.equal(mk.status, 200, JSON.stringify(mk.data));
+  const pid = mk.data.project.id;
 
-  // guest 只看到被授权为成员的项目，看不到别人项目的合同
-  const r = await fetch(`${BASE}/api/uploads/${row.file_key}`, { headers: { cookie: guest } });
+  const up = await upload(admin, JPEG, { name: "越权原件.jpg" });
+  assert.equal(up.status, 200, JSON.stringify(up.data));
+  const add = await adminC("POST", "/api/contracts", {
+    pid, name: "越权下载合同", vendor: "某某会展", amount: 100,
+    file_key: up.data.key, file_name: up.data.name, file_size: up.data.size, file_mime: up.data.mime
+  });
+  assert.equal(add.status, 200, JSON.stringify(add.data));
+
+  // 前提确认：这个项目确实不在 guest 的数据范围内
+  assert.equal((await client(guest)("GET", `/api/projects/${pid}`)).status, 403);
+
+  const r = await fetch(`${BASE}/api/uploads/${up.data.key}`, { headers: { cookie: guest } });
   assert.equal(r.status, 403, "数据范围外应被拦，不能凭 key 直取");
 });
 

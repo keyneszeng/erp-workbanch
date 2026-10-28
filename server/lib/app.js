@@ -21,6 +21,37 @@ const WEB_DIR = path.join(HERE, "..", "..", "web");
 const PUBLIC = new Set(["/api/auth/login", "/api/health", "/api/auth/me"]);
 
 /**
+ * 安全响应头 —— V1.2.17 SEC-03。
+ *
+ * 测试报告实测：除了 Cloudflare 自己加的 server / cf-ray，一个安全头都没有。
+ * 演示环境能容忍，但这是「上线前必配项」，而且改动成本几乎为零。
+ *
+ * ⚠️ X-Frame-Options 用 SAMEORIGIN 而不是报告建议的 DENY：
+ * 合同详情弹窗是用 iframe 内嵌同源的 PDF 原件（V1.2.14），DENY 会把它一起毙掉。
+ * SAMEORIGIN 同样能挡住第三方站点套壳点击劫持，这是这个应用真正的威胁模型。
+ *
+ * CSP 先上 Report-Only：页面里还有内联样式（style="..."）与内联 SVG，
+ * 直接强制会白屏；先观察一段时间报告，再决定是否转 enforce。
+ */
+const SECURITY_HEADERS = {
+  "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+  "X-Content-Type-Options": "nosniff",
+  "X-Frame-Options": "SAMEORIGIN",
+  "Referrer-Policy": "same-origin",
+  "Permissions-Policy": "geolocation=(), microphone=(), camera=()",
+  "Content-Security-Policy-Report-Only":
+    "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; " +
+    "script-src 'self'; frame-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'"
+};
+
+/** 请求是不是走的 https —— 决定 Cookie 要不要加 Secure */
+function isSecureRequest(req, url) {
+  const proto = String(req.headers["x-forwarded-proto"] || "").split(",")[0].trim();
+  if (proto) return proto === "https";
+  return url.protocol === "https:";
+}
+
+/**
  * 二进制上传通道：POST /api/uploads
  * 照片走这条路，不经过 JSON 解析——3 MB 的 JPEG 转成 JSON base64 会膨胀到 4 MB 且毫无必要。
  */
@@ -51,6 +82,9 @@ async function handle(req, res) {
   const pathname = url.pathname;
   const ip = (req.headers["x-forwarded-for"] || req.socket?.remoteAddress || "").toString().split(",")[0].trim();
 
+  // 每个响应都带安全头（setHeader 与后续 writeHead 的 headers 会合并，writeHead 优先）
+  for (const [k, v] of Object.entries(SECURITY_HEADERS)) res.setHeader(k, v);
+
   if (req.method === "OPTIONS") {
     res.writeHead(204, { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET,POST,PATCH,DELETE", "Access-Control-Allow-Headers": "Content-Type" }).end();
     return;
@@ -66,6 +100,16 @@ async function handle(req, res) {
 
   const match = router.match(req.method, pathname);
   if (!match) {
+    /**
+     * V1.2.17 API-01：路径在、方法不对 → 405 + Allow。
+     * 原来一律 404 NO_ROUTE，客户端拿到「接口不存在」会去怀疑地址写错了，
+     * 实际只是方法用错（PUT 而不是 PATCH）。
+     */
+    const allow = router.allowedMethods(pathname);
+    if (allow.length) {
+      sendJson(res, 405, { error: { code: "METHOD_NOT_ALLOWED", message: `${pathname} 不支持 ${req.method}，允许：${allow.join(" / ")}` } }, { Allow: allow.join(", ") });
+      return;
+    }
     sendJson(res, 404, { error: { code: "NO_ROUTE", message: `接口不存在：${req.method} ${pathname}` } });
     return;
   }
@@ -88,7 +132,7 @@ async function handle(req, res) {
     } else {
       body = {};
     }
-    const ctx = { req, res, params: match.params, query: Object.fromEntries(url.searchParams), body, user, token, ip };
+    const ctx = { req, res, params: match.params, query: Object.fromEntries(url.searchParams), body, user, token, ip, secure: isSecureRequest(req, url) };
     const out = await match.handler(ctx);
 
     if (out && out.__file !== undefined) {

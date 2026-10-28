@@ -50,13 +50,20 @@ function readBody(req, limit = 2 * 1024 * 1024, { raw = false } = {}) {
       if (!rawText) return resolve({});
       const type = req.headers["content-type"] || "";
       try {
-        if (type.includes("application/json")) return resolve(JSON.parse(rawText));
         if (type.includes("application/x-www-form-urlencoded")) {
           return resolve(Object.fromEntries(new URLSearchParams(rawText)));
         }
         return resolve(JSON.parse(rawText));
       } catch {
-        return resolve({});
+        /**
+         * V1.2.17 API-01：格式错误就明说格式错误。
+         * 原来解析失败静默返回 {}，于是「JSON 写坏了」会一路走到业务校验，
+         * 报出「会议名称为必填项」这种驴唇不对马嘴的提示，排查方向全被带偏。
+         *
+         * 注意这里必须直接 reject，不能走 fail()：上面的 settled 已经置 true，
+         * fail() 会直接 return，Promise 就永远悬着（实测客户端 5 分钟后 fetch failed）。
+         */
+        return reject(new HttpError(400, "BAD_JSON", "请求体不是合法的 JSON"));
       }
     });
     req.on("error", (err) => fail(err));
@@ -108,9 +115,12 @@ function parseCookies(header = "") {
   return out;
 }
 
-function cookieHeader(name, value, { maxAge = 0, httpOnly = true, sameSite = "Lax", path: p = "/" } = {}) {
+function cookieHeader(name, value, { maxAge = 0, httpOnly = true, sameSite = "Lax", path: p = "/", secure = false } = {}) {
   const parts = [`${name}=${encodeURIComponent(value)}`, `Path=${p}`, `SameSite=${sameSite}`];
   if (httpOnly) parts.push("HttpOnly");
+  // V1.2.17 SEC-03：https 下必须带 Secure，否则会话 Cookie 可能在明文链路上被截获。
+  // 本地 http 开发不加 —— 加了浏览器直接不存，登录会「明明成功却还是未登录」。
+  if (secure) parts.push("Secure");
   if (maxAge) parts.push(`Max-Age=${maxAge}`);
   return parts.join("; ");
 }
@@ -164,6 +174,18 @@ class Router {
       return { handler: r.handler, params };
     }
     return null;
+  }
+  /**
+   * 路径存在、方法不对时返回允许的方法列表（V1.2.17 API-01）。
+   * 只对「同一个路径」匹配，不做前缀推断 —— 否则 /api/projects/x 会把
+   * /api/projects 的方法也算进来，Allow 头就成了误导。
+   */
+  allowedMethods(pathname) {
+    const out = new Set();
+    for (const r of this.routes) {
+      if (r.rx.exec(pathname)) out.add(r.method);
+    }
+    return [...out];
   }
 }
 

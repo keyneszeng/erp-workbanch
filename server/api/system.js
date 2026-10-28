@@ -3,7 +3,7 @@ const { db } = require("../lib/db");
 const { now, today, nextId, toCsv, bad, notFound, conflict } = require("../lib/util");
 const { assertCan, scopeFilter, isSuper, ROLES, can, canVisitNav, STATUSES } = require("../lib/rbac");
 const { logAudit } = require("../lib/audit");
-const { hashPassword } = require("../lib/auth");
+const { hashPassword, validatePassword } = require("../lib/auth");
 const { listProjects } = require("./projects");
 const { VERIFY_STEPS } = require("../lib/constants");
 const { readPaging, countOf } = require("../lib/paginate");
@@ -302,15 +302,38 @@ function register(router) {
   router.get("/api/dashboard", async (ctx) => dashboard(ctx.user));
 
   router.get("/api/users", async (ctx) => {
-    // 只有能管理账号 / 调整项目成员的角色可以看到完整通讯录，其余角色只给最小字段
-    const full = can(ctx.user, "user:manage") || can(ctx.user, "project:member");
+    /**
+     * V1.2.17 SEC-01：整本通讯录只给能管理账号的人。
+     *
+     * 测试报告指出的问题：guest 请求这个接口返回 200，拿到全平台 9 名员工的姓名与角色；
+     * assoc 与 admin 返回的字节数还完全一样（1770）—— 字段裁剪做了，模块级鉴权没做。
+     * 员工名单可用于社工与撞库定位，不是「演示数据」能带过的。
+     *
+     * 「项目增加成员」改用下面的 /api/users/pickable（只要 project:member），
+     * 它只回 id / 姓名 / 角色，不含账号、手机、协会、部门。
+     */
+    assertCan(ctx.user, "user:manage", "只有总管理员可以查看账号目录");
     const rows = db.prepare("SELECT * FROM users ORDER BY id").all();
     return {
-      rows: rows.map((u) => full
-        ? { id: u.id, username: u.username, name: u.name, role: u.role, assoc: u.assoc, dept: u.dept,
-            phone: u.phone, active: u.active, created_at: u.created_at, role_name: ROLES[u.role]?.name || u.role }
-        : { id: u.id, name: u.name, role: u.role, role_name: ROLES[u.role]?.name || u.role, active: u.active }),
-      limited: !full
+      rows: rows.map((u) => ({
+        id: u.id, username: u.username, name: u.name, role: u.role, assoc: u.assoc, dept: u.dept,
+        phone: u.phone, active: u.active, created_at: u.created_at, role_name: ROLES[u.role]?.name || u.role
+      })),
+      limited: false
+    };
+  });
+
+  /**
+   * 选人接口 —— 只服务于「把某人加进项目」。
+   * 最小字段：id / 姓名 / 角色名（前端下拉就这三样），不泄露账号与联系方式。
+   */
+  router.get("/api/users/pickable", async (ctx) => {
+    if (!can(ctx.user, "project:member") && !can(ctx.user, "user:manage")) {
+      throw require("../lib/util").forbidden("当前角色无权选择项目成员");
+    }
+    const rows = db.prepare("SELECT id, name, role FROM users WHERE active = 1 ORDER BY id").all();
+    return {
+      rows: rows.map((u) => ({ id: u.id, name: u.name, role: u.role, role_name: ROLES[u.role]?.name || u.role }))
     };
   });
 
@@ -322,7 +345,9 @@ function register(router) {
     if (!ROLES[b.role]) throw bad("角色不合法");
     checkUserLen(b);
     if (db.prepare("SELECT 1 FROM users WHERE username = ?").get(b.username)) throw conflict("账号已存在");
-    const { salt, hash } = hashPassword(b.password || "123456");
+    // V1.2.17 SEC-04：不再给默认口令 123456，也不接受弱口令 —— 与自助改密同一份策略
+    const pwd = validatePassword(b.password, { label: "初始密码" });
+    const { salt, hash } = hashPassword(pwd);
     db.prepare("INSERT INTO users (username,name,role,assoc,dept,phone,pass_salt,pass_hash,active,created_at) VALUES (?,?,?,?,?,?,?,?,1,?)")
       .run(b.username, b.name, b.role, b.assoc || null, b.dept || "", b.phone || "", salt, hash, now());
     const u = db.prepare("SELECT id,username,name,role,assoc FROM users WHERE username = ?").get(b.username);
@@ -357,7 +382,8 @@ function register(router) {
       logAudit({ user: ctx.user, module: "系统配置", action: "改角色/资料", target: String(u.id), detail: Object.entries(patch).map(([k, v]) => `${k}: ${u[k] ?? "空"} → ${v}`).join("；"), ip: ctx.ip });
     }
     if (b.password) {
-      if (String(b.password).length < 6) throw bad("密码至少 6 位");
+      // 重置密码同样走统一策略（原来是「至少 6 位」，比自助改密还松）
+      validatePassword(b.password, { label: "新密码" });
       const { salt, hash } = hashPassword(b.password);
       db.prepare("UPDATE users SET pass_salt = ?, pass_hash = ?, token_ver = token_ver + 1 WHERE id = ?").run(salt, hash, u.id);
       // 改密后立即吊销该账号的其它会话（保留操作者自己的当前会话，避免把自己踢下线）
@@ -371,6 +397,9 @@ function register(router) {
   });
 
   router.get("/api/audit", async (ctx) => {
+    // V1.2.17 SEC-02：审计日志按模块白名单。原来非审计角色还能查「自己那部分」，
+    // 但侧栏里根本没有这个入口 —— 等于留了一个界面上看不见、接口却通着的口子。
+    require("../lib/rbac").assertModule(ctx.user, "audit");
     /**
      * 审计日志里的项目号不是每个角色都点得开。
      * 协会管理员有 audit:read，看到的是全平台留痕（审计的意义就在这，不能按协会切），
