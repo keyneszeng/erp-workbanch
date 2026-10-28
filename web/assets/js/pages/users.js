@@ -37,10 +37,10 @@ export async function render(root) {
     ${state.super ? `<div class="panel danger-zone">
       <div class="panel-h"><h2>危险操作</h2><span class="hint">仅总管理员可见 · 不可恢复</span></div>
       <div style="padding:14px 16px">
-        <div class="gate" style="margin-bottom:12px"><b>重置为出厂数据</b>
+        <div class="reset-warn" style="margin-bottom:12px"><div class="t">重置为出厂数据</div>
           清空全部项目、合同、付款、结算、材料、审计与账号，重新写入 18 场演示会议与 8 个演示账号。
-          用于「演示环境数据乱了，重来一次」。<b style="display:inline;color:var(--red)">删除不可恢复</b>，
-          且所有人当场掉线，需要重新登录。</div>
+          用于「演示环境数据乱了，重来一次」。
+          <span style="color:var(--red);font-weight:700">删除不可恢复</span>，且所有人当场掉线，需要重新登录。</div>
         <button class="btn btn-d" id="resetAll">重置为出厂数据</button>
       </div>
     </div>` : ""}`;
@@ -102,8 +102,9 @@ async function openReset(root) {
   const m = modal({
     title: "重置为出厂数据",
     width: "560px",
-    body: `<div class="gate"><b>将删除以下全部数据</b>
-        共 ${d.total} 条记录。重置后恢复 18 场演示会议与 8 个演示账号，删除不可恢复。</div>
+    body: `<div class="reset-warn"><div class="t">将删除以下全部数据</div>
+        共 ${d.total} 条记录。重置后恢复 18 场演示会议与 8 个演示账号，
+        <span style="color:var(--red);font-weight:700">删除不可恢复</span>。</div>
       <div class="reset-list">${chips || '<span>当前没有业务数据</span>'}</div>
       <div class="fld">
         <label>请手动输入「重置」两个字确认<span class="req">*</span></label>

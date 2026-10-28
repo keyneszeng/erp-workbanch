@@ -42,7 +42,8 @@ async function waitHealth(timeout = 30000) {
 let proc = null;
 
 async function login(page, user, pass = "123456") {
-  await page.goto(BASE, { waitUntil: "domcontentloaded" });
+  // 带时间戳导航：既清掉残留 hash（reload 后还停在 #/users），也避免与上一次导航互相打断
+  await page.goto(`${BASE}/?t=${Date.now()}`, { waitUntil: "domcontentloaded" });
   await page.waitForSelector('input[name="username"]', { timeout: 30000 });
   await page.fill('input[name="username"]', user);
   await page.fill('input[name="password"]', pass);
@@ -107,9 +108,10 @@ async function login(page, user, pass = "123456") {
 
   console.log("\n[3] 执行重置 → 数据回到出厂 → 掉线回登录页");
   await page.click("#doReset");
-  await page.waitForTimeout(2600); // 重置 + toast + 1.2s 后 reload
-  const afterReload = await page.locator("#lform").count().catch(() => 0);
-  check("重置后回到登录页（会话已失效）", afterReload === 1);
+  // 重置 → toast → 1.2s 后 reload → 未登录 → 登录页。等它真的出现，别赌固定时长
+  const backToLogin = await page.waitForSelector("#lform", { timeout: 20000 })
+    .then(() => true).catch(() => false);
+  check("重置后回到登录页（会话已失效）", backToLogin);
 
   console.log("\n[4] 重新登录：数据确实是出厂的");
   await login(page, "admin");

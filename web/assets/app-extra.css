@@ -283,3 +283,9 @@ tr.row-focus td .mono{font-weight:600}
 .reset-list{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}
 .reset-list span{font-size:12px;padding:4px 9px;border:1px solid #e8c4c9;border-radius:6px;background:#fff5f6;color:#8f2733}
 .reset-list b{font-variant-numeric:tabular-nums;margin-left:3px}
+
+/* 重置提示条：块级，别用 .gate —— 那边是 display:flex（横向），
+   塞两段文字进去会并排、标题被挤成两行（V1.2.22 截图时踩到）。 */
+.reset-warn{border:1px solid #efdcc8;background:#fdf7f1;border-radius:8px;padding:10px 13px;
+  font-size:12.5px;color:#7b3a10;line-height:1.65}
+.reset-warn .t{font-weight:700;font-size:13px;color:var(--txt);margin-bottom:3px}
