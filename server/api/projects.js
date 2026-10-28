@@ -208,10 +208,10 @@ function register(router) {
     assertCan(ctx.user, "project:create", "只有协会管理员 / 会务执行可以发起立项");
     const b = ctx.body || {};
     // 协会管理员只能为本人所属协会立项；不能靠提交其他协会名获取跨租户项目。
+    validate(b);
     if (["assoc", "exec"].includes(ctx.user.role) && ctx.user.assoc && b.assoc !== ctx.user.assoc) {
       throw forbidden("只能为本人所属协会发起立项");
     }
-    validate(b);
     const at = now();
     const id = nextId(db, "projects", "id", "MP");
     db.prepare(
