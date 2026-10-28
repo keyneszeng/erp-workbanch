@@ -145,3 +145,34 @@ test("unified approval API rejects ambiguous decisions", async () => {
   const afterCheck = await admin("GET", "/api/approvals?status=待审批");
   assert.ok(afterCheck.body.rows.some((p) => p.id === id), "invalid decision must not mutate approval");
 });
+
+test("guest cannot bypass tabs via verification, audit, or demand export API", async () => {
+  for (const url of [
+    "/api/projects/MP-2026-005/verify",
+    "/api/projects/MP-2026-005/timeline",
+    "/api/demand/MP-2026-005/export"
+  ]) {
+    const r = await guest("GET", url);
+    assert.equal(r.status, 403, url + " must be forbidden");
+  }
+});
+
+test("pending files are owner-scoped, and upload cannot claim a foreign project", async () => {
+  const rawCookie = await login("assoc");
+  const otherCookie = await login("sunqian");
+  const pdf = Buffer.from("%PDF-1.4\\n1 0 obj <<>> endobj\\n%%EOF\\n");
+  const upload = async (cookie, pid) => fetch(BASE + "/api/uploads?pid=" + pid, {
+    method: "POST",
+    headers: { cookie, "Content-Type": "application/pdf", "x-file-name": "qa.pdf" },
+    body: pdf
+  });
+  const denied = await upload(rawCookie, "MP-2026-007");
+  assert.equal(denied.status, 403);
+  const ok = await upload(rawCookie, "MP-2026-001");
+  assert.equal(ok.status, 200);
+  const doc = await ok.json();
+  const byOwner = await fetch(BASE + doc.url, { headers: { cookie: rawCookie } });
+  assert.equal(byOwner.status, 200);
+  const byOther = await fetch(BASE + doc.url, { headers: { cookie: otherCookie } });
+  assert.equal(byOther.status, 403);
+});
