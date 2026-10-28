@@ -154,7 +154,7 @@ function alreadySeeded() {
 
 function seed({ reset = false } = {}) {
   if (reset) {
-    for (const t of ["sessions", "audit_logs", "exports", "settlements", "exceptions", "verify_steps", "payments",
+    for (const t of ["uploaded_files", "sessions", "audit_logs", "exports", "settlements", "exceptions", "verify_steps", "payments",
       "contracts", "approvals", "materials", "guests", "tasks", "issues", "demand_items", "demand_sheets",
       "project_members", "projects", "users", "settings"]) {
       db.exec(`DELETE FROM ${t}`);
