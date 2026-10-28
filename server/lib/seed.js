@@ -173,14 +173,6 @@ function seed({ reset = false } = {}) {
     for (const un of list) insMem.run(pid, userId[un], "成员");
   }
 
-  const insAp = db.prepare(
-    "INSERT INTO approvals (id,type,title,pid,ref_id,amount,by_user,sla,status,created_at,decided_by,decided_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)"
-  );
-  for (const [id, type, title, pid, amt, by, sla, st] of APPROVALS) {
-    const decided = st === "已通过" ? "王敏" : null;
-    insAp.run(id, type, title, pid, pid, amt, by, sla, st, at, decided, decided ? at : null);
-  }
-
   const insC = db.prepare(
     "INSERT INTO contracts (id,pid,name,vendor,amount,sign_date,status,category,created_by,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)"
   );
@@ -196,6 +188,33 @@ function seed({ reset = false } = {}) {
     py += 1;
     const when = minutesAgo((PAYMENTS.length - py + 31) * 97);
     insP.run(`PY-2026-0${py}`, pid, type, payee, amt, inv, req, st, st === "已付款" ? when : null, userId["finance"], when);
+  }
+
+  // 审批单必须指向真实业务单据。
+  // 老版本这里一律写 pid，于是「例外单审批 / 付款审批」两类单子两头都断：
+  //   点「通过」时按 ref_id 找不到例外单 / 付款单 → 报「不存在」；
+  //   付款审批、改判撤销这些业务动作按 ref_id 找不到审批单 → 单子永远挂「待审批」。
+  // 所以 ref 按类型解析：例外单 → 标题里的 EX 号；付款 → 同项目同金额的付款单；立项 / 变更 → 项目号。
+  // 必须放在付款单插入之后，否则付款审批拿不到真实单号。
+  const insAp = db.prepare(
+    "INSERT INTO approvals (id,type,title,pid,ref_id,amount,by_user,sla,status,created_at,decided_by,decided_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)"
+  );
+  const refOf = (type, title, pid, amt) => {
+    if (type === "例外单审批") {
+      const m = /EX-\d{4}-\d{3,}/.exec(title);
+      if (m) return m[0];
+    }
+    if (type === "付款审批") {
+      const y = db
+        .prepare("SELECT id FROM payments WHERE pid = ? AND ABS(amount - ?) < 0.005 ORDER BY created_at DESC LIMIT 1")
+        .get(pid, amt);
+      if (y) return y.id;
+    }
+    return pid;
+  };
+  for (const [id, type, title, pid, amt, by, sla, st] of APPROVALS) {
+    const decided = st === "已通过" ? "王敏" : null;
+    insAp.run(id, type, title, pid, refOf(type, title, pid, amt), amt, by, sla, st, at, decided, decided ? at : null);
   }
 
   const insStep = db.prepare(

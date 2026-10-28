@@ -11,6 +11,13 @@ const { transition } = require("../lib/workflow");
 // 只有「已核销」可新增付款：结算后账目已封账，归档后卷宗已封存，均不得再挂账
 const PAYABLE_STATUS = ["已核销"];
 
+/**
+ * 例外单状态 → 审批单状态。
+ * 例外单在别处已经有结论时（改判通过自动撤销、别处已批），审批单要跟着走，
+ * 不能继续挂「待审批」—— 否则审批中心会留一条点了报错的幽灵单。
+ */
+const EX_DECIDED = { 已通过: "已通过", 已驳回: "已驳回", 已撤销: "已撤销" };
+
 /** 与 server/api/files.js 生成的 key 格式保持一致，避免任意字符串被写进 file_key */
 const FILE_KEY_RE = /^[a-f0-9]{32}\.(jpg|png|webp|gif|pdf)$/;
 
@@ -389,7 +396,19 @@ function register(router) {
     if (a.type === "例外单审批") {
       if (!can(ctx.user, "verify:exception_approve")) throw forbidden("只有财务与核销（或总管理员）可以审批例外单");
       const ex = db.prepare("SELECT * FROM exceptions WHERE id = ?").get(a.ref_id);
-      if (!ex) throw notFound("例外单不存在");
+      if (!ex) {
+        throw notFound(`审批单 ${a.id} 关联的例外单 ${a.ref_id} 不存在，请联系管理员修复数据`);
+      }
+      // 业务单据已经有结论了（最常见：第 N 步改判通过后系统自动撤销了例外单），
+      // 审批单却还挂在「待审批」—— 这时不该报错，应该把结论同步过来。
+      // 老板 2026-10-28 遇到的就是这个：点「通过」报「不存在」，单子却还在列表里。
+      if (ex.status !== "待审批") {
+        const synced = EX_DECIDED[ex.status] || "已撤销";
+        db.prepare("UPDATE approvals SET status = ?, decided_by = ?, decided_at = ?, comment = ? WHERE id = ?")
+          .run(synced, ex.approved_by || "系统", ex.approved_at || now(),
+            `例外单 ${ex.id} 已是「${ex.status}」，审批单同步关闭`, a.id);
+        return { message: `例外单 ${ex.id} 已是「${ex.status}」，该审批单已同步关闭（无需再审批）`, synced: true };
+      }
       const at = now();
       db.prepare("UPDATE exceptions SET status = ?, approved_by = ?, approved_at = ?, comment = ? WHERE id = ?")
         .run(approve ? "已通过" : "已驳回", ctx.user.name, at, comment, ex.id);
@@ -403,7 +422,16 @@ function register(router) {
     if (a.type === "付款审批") {
       if (!can(ctx.user, "payment:approve")) throw forbidden("只有财务与核销（或总管理员）可以审批付款");
       const y = db.prepare("SELECT * FROM payments WHERE id = ?").get(a.ref_id);
-      if (!y) throw notFound("付款单不存在");
+      if (!y) {
+        throw notFound(`审批单 ${a.id} 关联的付款单 ${a.ref_id} 不存在，请联系管理员修复数据`);
+      }
+      // 同例外单：付款单可能已经在「财务结算」里批过 / 驳过了，审批中心这条只是没同步
+      if (y.status !== "待审批") {
+        const synced = y.status === "已驳回" ? "已驳回" : "已通过";
+        db.prepare("UPDATE approvals SET status = ?, decided_by = ?, decided_at = ?, comment = ? WHERE id = ?")
+          .run(synced, "系统", now(), `付款单 ${y.id} 已是「${y.status}」，审批单同步关闭`, a.id);
+        return { message: `付款单 ${y.id} 已是「${y.status}」，该审批单已同步关闭（无需再审批）`, synced: true };
+      }
       db.prepare("UPDATE payments SET status = ? WHERE id = ?").run(approve ? "已审批" : "已驳回", y.id);
       db.prepare("UPDATE approvals SET status = ?, decided_by = ?, decided_at = ?, comment = ? WHERE id = ?")
         .run(approve ? "已通过" : "已驳回", ctx.user.name, now(), comment, a.id);

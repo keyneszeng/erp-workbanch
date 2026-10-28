@@ -15,6 +15,7 @@
  *    因此 node:sqlite 必须延迟 require —— 只有真正走 Node 后端时才加载。
  */
 const path = require("node:path");
+const { now } = require("./util");
 
 // __dirname 在 Cloudflare Worker 的 ESM 产物里不存在（静态资源由 Assets 托管，用不到）
 const HERE = typeof __dirname === "string" ? __dirname : "";
@@ -510,6 +511,100 @@ function migrate() {
     );
   } catch {
     /* 旧库没有 settlements 表，忽略 */
+  }
+
+  // V1.2.15：审批单 ↔ 业务单据脱钩（老种子把 ref_id 写成了项目号）
+  try {
+    repairApprovals();
+  } catch {
+    /* 旧库没有 approvals / exceptions / payments 表，忽略 */
+  }
+}
+
+/**
+ * V1.2.15 数据自愈：把审批单重新挂回它对应的业务单据。
+ *
+ * 老板 2026-10-28 报的：「审批中心待审批两个单子，点通过都说『不存在了』，单子还在」。
+ * 根因不是审批逻辑坏了，是 ref_id 从种子起就写成了项目号：
+ *   · 点「通过」→ 按 ref_id 找例外单 / 付款单 → 找到的是项目号 → notFound；
+ *   · 付款审批、改判撤销 → 按 ref_id 找审批单 → 同样找不到 → 审批单永远挂「待审批」。
+ * 于是「业务早办完了」和「审批中心还挂着」同时成立。
+ *
+ * 这里只做两件确定的事：
+ *   ① 能唯一确定业务单据的，把 ref_id 回填（标题里的 EX 号 / 同项目同金额的付款单）；
+ *   ② 业务单据已经有结论的，把审批单同步成同一结论。
+ * 拿不准就一律不动 —— 宁可留一条待人工判断，也不要猜错把别人的单子关掉。
+ */
+function repairApprovals() {
+  const stamp = now();
+
+  // ① 例外单审批：标题里的 EX 号最可靠；否则仅当该项目只有一张例外单时才采用
+  const exAps = db
+    .prepare("SELECT id, pid, title, ref_id FROM approvals WHERE type = '例外单审批'")
+    .all();
+  for (const a of exAps) {
+    const exists = (id) => !!db.prepare("SELECT 1 AS ok FROM exceptions WHERE id = ?").get(id);
+    if (a.ref_id && exists(a.ref_id)) continue;
+    const m = /EX-\d{4}-\d{3,}/.exec(String(a.title || ""));
+    let ref = m && exists(m[0]) ? m[0] : null;
+    if (!ref) {
+      const list = db
+        .prepare("SELECT id FROM exceptions WHERE pid = ? ORDER BY created_at DESC, id DESC")
+        .all(a.pid);
+      if (list.length === 1) ref = list[0].id;
+    }
+    if (ref) db.prepare("UPDATE approvals SET ref_id = ? WHERE id = ?").run(ref, a.id);
+  }
+
+  // ② 付款审批：同项目、同金额、未被驳回，且只有一张时才采用
+  const payAps = db
+    .prepare("SELECT id, pid, amount, ref_id FROM approvals WHERE type = '付款审批'")
+    .all();
+  for (const a of payAps) {
+    const exists = (id) => !!db.prepare("SELECT 1 AS ok FROM payments WHERE id = ?").get(id);
+    if (a.ref_id && exists(a.ref_id)) continue;
+    const list = db
+      .prepare(
+        `SELECT id FROM payments
+          WHERE pid = ? AND status <> '已驳回' AND ABS(amount - ?) < 0.005
+          ORDER BY created_at DESC, id DESC`
+      )
+      .all(a.pid, Number(a.amount) || 0);
+    if (list.length === 1) {
+      db.prepare("UPDATE approvals SET ref_id = ? WHERE id = ?").run(list[0].id, a.id);
+    }
+  }
+
+  // ③ 同步结论：业务单据已经处理完，审批单不能还挂「待审批」
+  const exDone = db
+    .prepare(
+      `SELECT a.id AS aid, a.ref_id AS ref, e.status AS st, e.approved_by AS by, e.approved_at AS at
+         FROM approvals a JOIN exceptions e ON e.id = a.ref_id
+        WHERE a.type = '例外单审批' AND a.status = '待审批'`
+    )
+    .all();
+  const EX_MAP = { 已通过: "已通过", 已驳回: "已驳回", 已撤销: "已撤销" };
+  for (const r of exDone) {
+    const st = EX_MAP[r.st];
+    if (!st) continue;
+    db.prepare(
+      "UPDATE approvals SET status = ?, decided_by = ?, decided_at = ?, comment = ? WHERE id = ?"
+    ).run(st, r.by || "系统", r.at || stamp, `例外单 ${r.ref} 已是「${r.st}」，审批单同步关闭`, r.aid);
+  }
+
+  const payDone = db
+    .prepare(
+      `SELECT a.id AS aid, a.ref_id AS ref, y.status AS st
+         FROM approvals a JOIN payments y ON y.id = a.ref_id
+        WHERE a.type = '付款审批' AND a.status = '待审批'`
+    )
+    .all();
+  for (const r of payDone) {
+    const st = r.st === "已驳回" ? "已驳回" : r.st === "已审批" || r.st === "已付款" ? "已通过" : null;
+    if (!st) continue;
+    db.prepare(
+      "UPDATE approvals SET status = ?, decided_by = ?, decided_at = ?, comment = ? WHERE id = ?"
+    ).run(st, "系统", stamp, `付款单 ${r.ref} 已是「${r.st}」，审批单同步关闭`, r.aid);
   }
 }
 
