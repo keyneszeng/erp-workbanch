@@ -18,6 +18,8 @@ function defaults(){
     wechat_enabled:false,
     org_header:"协会会议执行 · 邀请函",
     org_footer:"",
+    mail_from:"",
+    public_base_url:"https://erp.aibuild.work",
     mini_appid:"",
     mini_program_verified:false,
     templates:Object.fromEntries(Object.entries(TEMPLATES).map(([key,t])=>[key,{
@@ -40,7 +42,7 @@ function safeText(v,label,max=250){
 }
 function validateConfig(raw){
   if(!raw || typeof raw!=="object" || Array.isArray(raw))throw bad("配置内容格式错误");
-  const permitted=["enabled","email_enabled","wechat_enabled","org_header","org_footer","mini_appid","mini_program_verified","templates"];
+  const permitted=["enabled","email_enabled","wechat_enabled","org_header","org_footer","mail_from","public_base_url","mini_appid","mini_program_verified","templates"];
   const unknown=Object.keys(raw).filter(k=>!permitted.includes(k));
   if(unknown.length) throw bad("配置包含未授权字段："+unknown.join("、"));
   const d=defaults();const c={...d,...raw};
@@ -48,6 +50,10 @@ function validateConfig(raw){
     if(typeof c[k]!=="boolean")throw bad(k+"必须是布尔值");
   c.org_header=safeText(c.org_header,"文档抬头",100);
   c.org_footer=safeText(c.org_footer,"落款补充",180);
+  c.mail_from=safeText(c.mail_from,"发件人邮箱",254);
+  if(c.mail_from && !/^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(c.mail_from))throw bad("发件人邮箱格式不正确");
+  c.public_base_url=safeText(c.public_base_url,"公开邀请页面地址",250).replace(/\/$/,"");
+  if(!/^https:\/\/[a-zA-Z0-9.-]+(?::443)?$/.test(c.public_base_url))throw bad("公开邀请页面应为 HTTPS 域名地址，不支持路径或查询参数");
   c.mini_appid=safeText(c.mini_appid,"小程序 AppID",32);
   if(c.mini_appid && !/^wx[a-fA-F0-9]{16}$/.test(c.mini_appid))
     throw bad("小程序 AppID 应为 wx 开头的18位标识");
