@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="referrer" content="no-referrer">
+  <title>协会会议邀请函</title>
+  <style>
+    *{box-sizing:border-box}body{margin:0;min-height:100vh;background:#f3f7fc;color:#142d51;font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif}
+    .page{max-width:690px;margin:28px auto;padding:18px}.brand{font-size:14px;color:#56718f;margin-bottom:14px}
+    .card{background:#fff;border:1px solid #d9e5f3;border-radius:16px;padding:28px;box-shadow:0 8px 35px #112e5110}
+    h1{font-size:23px;line-height:1.35;margin:0 0 8px}h2{font-size:16px;margin:0 0 20px;color:#56718f;font-weight:500}
+    .body{white-space:pre-wrap;line-height:2;font-size:15px}p{margin:0 0 12px}
+    .status{padding:11px 12px;border-radius:9px;background:#eaf4ff;color:#1261be;font-size:14px}
+    .actions{display:flex;flex-wrap:wrap;gap:10px;margin:22px 0 0}
+    button,a.btn{appearance:none;display:inline-block;flex:1;min-width:130px;border-radius:10px;padding:12px 16px;border:1px solid #bcd1e9;background:#fff;color:#135ab2;font-weight:650;cursor:pointer;text-decoration:none;text-align:center;font-size:14px}
+    .primary{background:#1169d6!important;color:#fff!important;border-color:#1169d6!important}
+    button:disabled{opacity:.5;cursor:default}.error{background:#fff0f0;color:#c63636;padding:13px;border-radius:9px}
+    @media(max-width:600px){.page{margin:0;padding:12px}.card{padding:19px}h1{font-size:20px}}
+  </style>
+</head>
+<body>
+  <div class="page">
+    <div class="brand">协会会议执行 ERP · 电子邀请函</div>
+    <div class="card">
+      <h1 id="title">正在读取邀请函…</h1>
+      <h2 id="subtitle">请核对会议和受邀信息</h2>
+      <div id="message" role="status" aria-live="polite"></div>
+      <div class="body" id="paragraphs"></div>
+      <div class="actions" id="actions" hidden>
+        <a id="pdf" class="btn" download>下载 PDF 邀请函</a>
+        <button id="confirm" class="primary">确认接受邀请</button>
+        <button id="decline">暂不接受</button>
+      </div>
+      <p style="margin-top:22px;color:#7187a2;font-size:12px">本邀请函与具体会议项目绑定。请勿转发给非受邀对象；链接有效期以系统提示为准。</p>
+    </div>
+  </div>
+  <script type="module" src="/assets/js/invitation-public.js"></script>
+</body>
+</html>
