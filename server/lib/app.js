@@ -18,7 +18,7 @@ const { HttpError } = require("./util");
 const HERE = typeof __dirname === "string" ? __dirname : "";
 const WEB_DIR = path.join(HERE, "..", "..", "web");
 
-const PUBLIC = new Set(["/api/auth/login", "/api/health", "/api/auth/me"]);
+const PUBLIC = new Set(["/api/auth/login", "/api/health", "/api/auth/me", "/api/public/prep-invitation", "/api/public/prep-invitation-pdf", "/api/public/prep-invitation/respond"]);
 
 /**
  * 安全响应头 —— V1.2.17 SEC-03。
@@ -70,7 +70,8 @@ function buildRouter() {
     require("../api/system"),
     require("../api/demand"),
     require("../api/files"),
-    require("../api/archive-pdf")
+    require("../api/archive-pdf"),
+    require("../api/prep-invitations")
   ];
   for (const mod of modules) mod.register(router);
   return router;
