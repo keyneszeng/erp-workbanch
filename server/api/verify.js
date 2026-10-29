@@ -295,7 +295,7 @@ function register(router) {
     // 附件 key 必须是本系统签发的格式，否则等于允许把任意字符串写进库
     let fk = null;
     if (file_key) {
-      if (!/^[a-f0-9]{32}\.(jpg|png|webp|gif|pdf)$/.test(String(file_key))) throw bad("附件标识不合法");
+      if (!/^[a-f0-9]{32}\.(jpg|png|webp|gif|pdf|docx|pptx|xlsx)$/.test(String(file_key))) throw bad("附件标识不合法");
       fk = String(file_key);
       assertUploadAttachable(fk, p.id, ctx.user);
     }
