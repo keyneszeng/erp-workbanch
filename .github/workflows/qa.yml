@@ -37,9 +37,9 @@ jobs:
           node --check server/lib/prep-config.js
           node --check server/lib/prep-mail-credentials.js
           node --check server/lib/prep-invitation.js
-          node --check web/assets/js/pages/prep-invitations.js
-          node --check web/assets/js/pages/invitation-config.js
-          node --check web/assets/js/invitation-public.js
+          node --input-type=module --check < web/assets/js/pages/prep-invitations.js
+          node --input-type=module --check < web/assets/js/pages/invitation-config.js
+          node --input-type=module --check < web/assets/js/invitation-public.js
           node --check miniprogram/pages/invite/index.js
       - name: Install PDF generation dependency
         run: npm install --no-audit --no-fund
