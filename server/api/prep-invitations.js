@@ -12,7 +12,7 @@ const { assertProjectVisible, assertCan } = require("../lib/rbac");
 const { nowIso, nextId, randToken, bad, conflict, notFound, HttpError } = require("../lib/util");
 const { logAudit } = require("../lib/audit");
 const { TEMPLATES, projectFields, renderInvitation, invitationPdf, clean } = require("../lib/prep-invitation");
-const { live: liveConfig } = require("../lib/prep-config");
+const { live: liveConfig, read: readConfig } = require("../lib/prep-config");
 
 let deliveryEnv = null;
 function attachDeliveryEnv(env) { deliveryEnv = env || null; }
@@ -108,7 +108,7 @@ function register(router) {
   router.get("/api/projects/:id/prep/templates", async ctx => {
     const p=requireManager(ctx, ctx.params.id);
     return { pid:p.id, stage:"筹备管理", project_fields:projectFields(p),
-      templates:Object.values(TEMPLATES).map(t=>({key:t.key,name:t.name,version:t.version,
+      templates:Object.values(TEMPLATES).map(t=>({key:t.key,name:t.name,version:t.version+readConfig().version,
         prefilled:true, editable_fields:t.key==="guest"?
           ["受邀姓名","称谓/职务","嘉宾角色","交流课题","邮箱"]:
           ["受邀单位","受邀联系人称谓","邮箱"]})) };
