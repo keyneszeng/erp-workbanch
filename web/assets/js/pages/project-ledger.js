@@ -41,7 +41,7 @@ async function load(root){
       num(x.financial_summary.payment_paid),
       x.financial_summary.settlement_expense===null?"未生成":num(x.financial_summary.settlement_expense),
       '<span title="'+esc(x.warnings.join("；"))+'">'+x.warnings.length+' 项</span>'
-    ]})),{empty:"当前没有会议项目"})
+    ]})),{empty:"当前没有会议项目"}
   )+pager(data,{unit:"个项目"});
   box.querySelectorAll("[data-open-ledger]").forEach(el=>el.onclick=()=>open(root,el.dataset.openLedger));
   bindPager(box,n=>{page=n;load(root)});
