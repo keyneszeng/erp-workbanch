@@ -50,6 +50,7 @@ const PERMS = {
   "change:execute": ["assoc", "exec", "finance"],
   "project:member": ["assoc"],
   "contract:write": ["assoc", "exec"],
+  "invite:manage": ["assoc", "exec"],
   "contract:approve": ["assoc"],
   "demand:write": ["assoc", "exec"],
   "payment:create": ["assoc", "exec", "finance"],
@@ -95,9 +96,9 @@ const STATUSES = ["草稿", "待审批", "已立项", "筹备中", "执行中", 
  */
 const NAV_MODULE = {
   dashboard: "dashboard", flow: "dashboard",
-  projects: "projects", approvals: "projects", contracts: "prep",
+  projects: "projects", approvals: "projects", contracts: "prep", "prep-invitations": "prep",
   demand: "demand", verify: "verify", finance: "finance",
-  materials: "materials", archive: "archive", audit: "audit", users: "system"
+  materials: "materials", archive: "archive", audit: "audit", users: "system", "invitation-config": "system"
 };
 
 /** 这个角色能不能打开某个页面（含审批中心的动作级条件） */

@@ -1,0 +1,17 @@
+<view class="wrap">
+  <view class="card">
+    <view class="heading">{{title}}</view>
+    <view class="subtitle">{{template}}</view>
+    <view wx:if="{{loading}}" class="status">正在读取邀请函…</view>
+    <view wx:elif="{{error}}" class="status error">{{error}}</view>
+    <block wx:else>
+      <view class="body">{{body}}</view>
+      <view class="status">{{isFinal ? '您已回复：'+status : '请核对内容，确认或暂不接受邀请'}}</view>
+      <button class="btn" bindtap="openPdf">查看 / 下载 PDF</button>
+      <button wx:if="{{!isFinal}}" class="btn primary" data-action="CONFIRM" bindtap="reply">确认接受邀请</button>
+      <button wx:if="{{!isFinal}}" class="btn" data-action="DECLINE" bindtap="reply">暂不接受</button>
+      <button class="btn" open-type="share">分享邀请</button>
+      <view class="note">请勿将包含个人受邀信息的链接转发给无关人员。</view>
+    </block>
+  </view>
+</view>

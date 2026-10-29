@@ -1,0 +1,13 @@
+{
+  "description": "协会会议执行 ERP 邀请函最小小程序入口，替换 appid 后发布",
+  "setting": {
+    "urlCheck": true,
+    "es6": true,
+    "postcss": true,
+    "minified": true
+  },
+  "compileType": "miniprogram",
+  "appid": "touristappid",
+  "projectname": "erp-invitation",
+  "miniprogramRoot": "./"
+}

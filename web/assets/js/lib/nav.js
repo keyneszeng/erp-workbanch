@@ -17,7 +17,8 @@ export const NAV = [
   { k: "projects", n: "项目管理", items: [
     { k: "projects", n: "会议项目" },
     { k: "approvals", n: "审批中心", need: () => can("project:approve") || can("verify:exception_approve") || can("payment:approve") },
-    { k: "contracts", n: "合同台账", need: () => state.role.modules.includes("prep") }
+    { k: "contracts", n: "合同台账", need: () => state.role.modules.includes("prep") },
+    { k: "prep-invitations", n: "企业邀请（招商）/嘉宾邀请", need: () => state.role.modules.includes("prep") }
   ] },
   { k: "demand", n: "会务需求", items: [{ k: "demand", n: "需求确认" }] },
   { k: "verify", n: "会后核销", items: [{ k: "verify", n: "核销看板" }] },
@@ -25,7 +26,7 @@ export const NAV = [
   { k: "materials", n: "材料中心", items: [{ k: "materials", n: "归档材料" }] },
   { k: "archive", n: "档案中心", items: [{ k: "archive", n: "数字卷宗" }] },
   { k: "audit", n: "审计日志", items: [{ k: "audit", n: "操作留痕" }] },
-  { k: "system", n: "系统配置", items: [{ k: "users", n: "用户与权限" }] }
+  { k: "system", n: "系统配置", items: [{ k: "users", n: "用户与权限" }, { k: "invitation-config", n: "邀请函上线配置" }] }
 ];
 
 /**

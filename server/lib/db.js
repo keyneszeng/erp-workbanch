@@ -197,7 +197,8 @@ CREATE TABLE IF NOT EXISTS guests (
   title       TEXT,
   phone       TEXT,
   status      TEXT NOT NULL DEFAULT '待邀请',
-  created_at  TEXT NOT NULL
+  created_at  TEXT NOT NULL,
+  invitation_id TEXT
 );
 
 CREATE TABLE IF NOT EXISTS tasks (
@@ -285,6 +286,27 @@ CREATE TABLE IF NOT EXISTS uploaded_files (
   created_at  TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_uploaded_files_user ON uploaded_files(user_id);
+
+-- 项目筹备邀请函：内置固定模板、已生成 PDF 的快照与发送/回复追踪。
+CREATE TABLE IF NOT EXISTS prep_invitations (
+  id               TEXT PRIMARY KEY,
+  pid              TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  type             TEXT NOT NULL CHECK (type IN ('enterprise','guest')),
+  template_version INTEGER NOT NULL DEFAULT 1,
+  snapshot_json    TEXT NOT NULL,
+  recipient_email  TEXT,
+  token_hash       TEXT NOT NULL UNIQUE,
+  expires_at       TEXT NOT NULL,
+  status           TEXT NOT NULL DEFAULT '草稿',
+  created_by       INTEGER,
+  created_at       TEXT NOT NULL,
+  sent_at          TEXT,
+  channel          TEXT,
+  provider_id      TEXT,
+  responded_at     TEXT,
+  response         TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_prep_invitations_pid ON prep_invitations(pid);
 `;
 
 /* ---------------------------------------------------------------- 后端实现 */
@@ -443,6 +465,9 @@ function migrate() {
   addColumn("contracts", "file_name", "file_name TEXT");
   addColumn("contracts", "file_size", "file_size INTEGER");
   addColumn("contracts", "file_mime", "file_mime TEXT");
+  // 立项筹备邀请：嘉宾确认/拒绝后绑定到会议项目嘉宾档案（不会误覆盖同名专家）。
+  addColumn("guests", "invitation_id", "invitation_id TEXT");
+  db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_guests_invitation_id ON guests(invitation_id)");
   // V1.2.12：变更单的「落账人」。审批通过只是批准，真正改预算要另一个人执行（双人复核）
   addColumn("approvals", "executed_by", "executed_by TEXT");
   addColumn("approvals", "executed_at", "executed_at TEXT");

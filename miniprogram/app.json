@@ -1,0 +1,13 @@
+{
+  "pages": [
+    "pages/invite/index"
+  ],
+  "window": {
+    "navigationBarTitleText": "会议邀请函",
+    "navigationBarBackgroundColor": "#ffffff",
+    "navigationBarTextStyle": "black",
+    "backgroundColor": "#f3f7fc"
+  },
+  "style": "v2",
+  "sitemapLocation": "sitemap.json"
+}
