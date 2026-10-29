@@ -17,6 +17,7 @@ import * as demand from "./pages/demand.js";
 import * as archive from "./pages/archive.js";
 import * as audit from "./pages/audit.js";
 import * as users from "./pages/users.js";
+import * as invitationConfig from "./pages/invitation-config.js";
 import * as flow from "./pages/flow.js";
 
 const ROUTES = [
@@ -39,7 +40,8 @@ const ROUTES = [
   { re: /^materials$/, page: materials, nav: "materials", title: "材料中心", sub: "归档必备 8 类材料" },
   { re: /^archive$/, page: archive, nav: "archive", title: "数字卷宗", sub: "已归档项目检索与导出" },
   { re: /^audit$/, page: audit, nav: "audit", title: "审计日志", sub: "Who / When / What / Which" },
-  { re: /^users$/, page: users, nav: "users", title: "用户与权限", sub: "账号、角色与数据范围" }
+  { re: /^users$/, page: users, nav: "users", title: "用户与权限", sub: "账号、角色与数据范围" },
+  { re: /^invitation-config$/, page: invitationConfig, nav: "invitation-config", title: "邀请函上线配置", sub: "草稿 · 预览 · 发布 · 回退" }
 ];
 
 function parseHash() {
