@@ -34,7 +34,7 @@ before(async()=>{
   server=spawn(process.execPath,["--experimental-sqlite","server/index.js"],{
     cwd:path.join(__dirname,".."),
     env:{...process.env,ERP_DB:DB,ERP_PORT:String(PORT),
-      ERP_RESEND_API_KEY:"",ERP_MAIL_FROM:""},
+      ERP_RESEND_API_KEY:"",ERP_MAIL_FROM:"",ERP_MAIL_CONFIG_KEY:"integration-test-only-a-long-randomized-value-000001"},
     stdio:["ignore","pipe","pipe"]
   });
   server.stderr.on("data",d=>{
@@ -188,4 +188,40 @@ test("总管理员自助配置：权限、草稿、PDF 预览、禁止非法字�
     {expected_version:pub.data.version,target_version:all.data.version});
   assert.equal(rolling.status,200);
   assert.equal(rolling.data.live.org_footer,all.data.live.org_footer);
+});
+
+test("总管理员自行更换邮件密钥：加密存储、权限校验和密钥不回显",async()=>{
+  const url="/api/admin/invitation-config/email-credentials";
+  const key="re_test_only_abcdefghijklmnopqrstuv";
+  assert.equal((await call(assoc,"POST",url,{resend_api_key:key})).status,403);
+  assert.equal((await call(admin,"POST",url,{resend_api_key:"invalid"})).status,400);
+  const created=await call(admin,"POST",url,{resend_api_key:key});
+  assert.equal(created.status,200);
+  assert.equal(created.data.configured,true);
+  const read=await call(admin,"GET","/api/admin/invitation-config");
+  assert.equal(read.status,200);
+  assert.equal(read.data.readiness.mail_credential_stored,true);
+  assert.equal(read.data.readiness.mail_encryption_ready,true);
+  assert.equal(read.data.readiness.mail_key_readable,true);
+  assert.equal(JSON.stringify(read.data).includes(key),false);
+  assert.equal((await call(assoc,"DELETE",url)).status,403);
+  const cleared=await call(admin,"DELETE",url);
+  assert.equal(cleared.status,200);
+  assert.equal(cleared.data.configured,false);
+  const clean=await call(admin,"GET","/api/admin/invitation-config");
+  assert.equal(clean.data.readiness.mail_credential_stored,false);
+});
+
+test("总管理员关闭模板后阻止新增邀请，回退后恢复功能",async()=>{
+  const path="/api/admin/invitation-config";
+  const before=await call(admin,"GET",path);
+  const disabled={...before.data.live,enabled:false};
+  assert.equal((await call(admin,"PATCH",path,{expected_version:before.data.version,config:disabled})).status,200);
+  const pub=await call(admin,"POST",path+"/publish",{expected_version:before.data.version});
+  assert.equal(pub.status,200);
+  assert.equal((await call(admin,"GET","/api/projects/MP-2026-001/prep/templates")).status,409);
+  const restored=await call(admin,"POST",path+"/rollback",
+    {expected_version:pub.data.version,target_version:before.data.version});
+  assert.equal(restored.status,200);
+  assert.equal((await call(admin,"GET","/api/projects/MP-2026-001/prep/templates")).status,200);
 });
