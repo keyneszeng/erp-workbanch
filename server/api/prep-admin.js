@@ -5,16 +5,24 @@ const { bad }=require("../lib/util");
 const { read,editDraft,publish,rollback,validateConfig }=require("../lib/prep-config");
 const { getProject }=require("../lib/workflow");
 const { renderInvitation,invitationPdf }=require("../lib/prep-invitation");
-const { getDeliveryEnv }=require("./prep-invitations");
+const { getDeliveryEnv,mailDelivery }=require("./prep-invitations");
+const {saveKey,removeKey,stored}=require("../lib/prep-mail-credentials");
 
 function admin(ctx){assertCan(ctx.user,"setting:write","只有总管理员可以配置邀请函模板与上线渠道");}
 function readiness(cfg){
   const env=getDeliveryEnv();
-  const mail=!!(env.ERP_RESEND_API_KEY && env.ERP_MAIL_FROM && /^https:\/\//.test(String(env.ERP_PUBLIC_BASE_URL||"")));
+  let providerKeyReady=false;
+  let issue="";
+  try {providerKeyReady=!!mailDelivery().apiKey;}catch(e){issue=e.message;}
+  const publicUrlReady=/^https:\/\//.test(String(cfg.public_base_url||""));
+  const mail=providerKeyReady && !!cfg.mail_from && publicUrlReady;
   const wechat=!!(cfg.mini_appid && cfg.mini_program_verified);
-  return {mail_service_ready:mail,public_url_ready:/^https:\/\//.test(String(env.ERP_PUBLIC_BASE_URL||"")),
+  return {mail_service_ready:mail,public_url_ready:publicUrlReady,
+    mail_credential_stored:stored(),
+    mail_encryption_ready:!!(env.ERP_MAIL_CONFIG_KEY && String(env.ERP_MAIL_CONFIG_KEY).length>=32),
+    mail_key_readable:providerKeyReady,mail_issue:issue,
     wechat_config_ready:wechat,
-    note:"邮件密钥只能由服务端运维配置，不会返回给浏览器；微信审核状态由总管理员手工确认，不代表系统已向微信平台实时核验。"};
+    note:"邮件 API 密钥只加密保存在服务端，前端不可读取；微信审核状态由总管理员手工确认，不代表已实时查询微信平台。"};
 }
 function expose(state){
   return {version:state.version,live:state.live,draft:state.draft,
@@ -29,6 +37,21 @@ function checkReady(config){
     throw bad("微信渠道需设置正式 AppID 并人工确认小程序已审核发布");
 }
 function register(router){
+  router.post("/api/admin/invitation-config/email-credentials",async ctx=>{
+    admin(ctx);
+    const data=ctx.body||{};
+    saveKey(data.resend_api_key,getDeliveryEnv());
+    logAudit({user:ctx.user,module:"系统配置",action:"配置加密邮件发件凭证",target:"invitation-config",
+      detail:"更新邮件凭证（已加密，日志不记录密钥）",ip:ctx.ip});
+    return {configured:true,readiness:readiness(read().draft||read().live)};
+  });
+  router.delete("/api/admin/invitation-config/email-credentials",async ctx=>{
+    admin(ctx);
+    removeKey();
+    logAudit({user:ctx.user,module:"系统配置",action:"撤销邮件发件凭证",target:"invitation-config",
+      detail:"已清除加密凭证（不影响 Worker 环境变量中的独立配置）",ip:ctx.ip});
+    return {configured:false,readiness:readiness(read().draft||read().live)};
+  });
   router.get("/api/admin/invitation-config",async ctx=>{
     admin(ctx);return expose(read());
   });
