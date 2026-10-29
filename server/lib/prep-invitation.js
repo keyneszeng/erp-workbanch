@@ -77,24 +77,31 @@ function substitute(t, vars) {
   return String(t).replace(/\{\{([^{}]+)\}\}/g, (_, k) => Object.prototype.hasOwnProperty.call(vars, k) ? vars[k] : "");
 }
 
-function renderInvitation(type, project, body, date) {
+function renderInvitation(type, project, body, date, settings) {
   const template = TEMPLATES[type];
   if (!template) throw bad("不支持的邀请函模板类型");
+  // Keep the template module dependency acyclic: prep-config imports TEMPLATES.
+  const cfg = settings || require("./prep-config").live();
+  const layout = cfg.templates[type];
   const fields = Object.assign({}, projectFields(project, date), recipientFields(type, body));
   return {
     template_key: template.key, template_version: template.version,
     template_name: template.name,
-    subject: substitute(template.subject, fields),
+    subject: substitute(layout.subject, fields),
+    header_text: substitute(cfg.org_header,fields),
+    footer_text: substitute(cfg.org_footer,fields),
     fields,
-    paragraphs: template.paragraphs.map(x => substitute(x, fields))
+    paragraphs: layout.paragraphs.map(x => substitute(x, fields))
   };
 }
 
 function invitationPdf(snapshot) {
   const lines = [
+    ...(snapshot.header_text ? [{kind:"section",text:snapshot.header_text}] : []),
     { kind: "title", text: snapshot.subject },
     { kind: "body", text: "" },
-    ...snapshot.paragraphs.flatMap(s => [{ kind: "body", text: s }, { kind: "body", text: "" }])
+    ...snapshot.paragraphs.flatMap(s => [{ kind: "body", text: s }, { kind: "body", text: "" }]),
+    ...(snapshot.footer_text ? [{kind:"body",text:snapshot.footer_text}] : [])
   ];
   return createReportPdf(lines, snapshot.template_name, { footer: "会议项目筹备 · 正式邀请函" });
 }
