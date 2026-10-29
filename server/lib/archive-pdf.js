@@ -56,7 +56,7 @@ function pdfText(text, x, y, size = 10, rgb = "0.13 0.18 0.27") {
 }
 
 /** 小体积 PDF 中文正文；所有动态文字以 UTF-16BE 十六进制编码，避免 PDF 注入。 */
-function createReportPdf(lines, title) {
+function createReportPdf(lines, title, { footer = "内部归档 · 核销资料卷宗" } = {}) {
   const flat = [];
   for (const line of lines) {
     const max = line.kind === "title" ? 32 : 50;
@@ -87,7 +87,7 @@ function createReportPdf(lines, title) {
     let content = "0.97 0.98 1 rg 0 798 " + PAGE_W.toFixed(2) + " 43 re f\n";
     content += pdfText(display(title), 37, 812, 16, "0.08 0.20 0.38");
     content += "0.76 0.82 0.90 RG 36 58 523 0 l S\n";
-    content += pdfText("内部归档 · 核销资料卷宗", 37, 40, 9, "0.42 0.47 0.55");
+    content += pdfText(footer, 37, 40, 9, "0.42 0.47 0.55");
     content += pdfText("第 " + (i + 1) + " / " + pages.length + " 页", 476, 40, 9, "0.42 0.47 0.55");
     for (const line of pages[i]) {
       const section = line.kind === "section";
