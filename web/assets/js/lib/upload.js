@@ -60,9 +60,20 @@ export async function compressImage(file, { maxEdge = 2000, quality = 0.85, skip
 
 /** 客户端预检，避免传完 8 MB 才被服务端拒 */
 export function checkFile(file) {
-  const ok = ["image/jpeg", "image/png", "image/webp", "image/gif", "application/pdf"];
-  if (!ok.includes(file.type)) {
-    return `不支持的文件类型：${file.type || "未知"}（仅支持 JPG / PNG / WebP / GIF / PDF）`;
+  const office = {
+    docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+  };
+  // macOS/部分微信 WebView 可能不给 Office 文件提供 MIME，仅作前端体验兼容；
+  // 服务端始终检查 ZIP 内部结构与实际类型，不相信扩展名。
+  const ext = String(file.name || "").split(".").pop().toLowerCase();
+  const type = (!file.type || file.type === "application/octet-stream") && office[ext]
+    ? office[ext] : file.type;
+  const ok = ["image/jpeg", "image/png", "image/webp", "image/gif", "application/pdf",
+    ...Object.values(office)];
+  if (!ok.includes(type)) {
+    return `不支持的文件类型：${file.type || "未知"}（仅支持 JPG / PNG / WebP / GIF / PDF / DOCX / PPTX / XLSX）`;
   }
   if (file.size > MAX_UPLOAD_BYTES) {
     return `文件不能超过 ${formatBytes(MAX_UPLOAD_BYTES)}，当前 ${formatBytes(file.size)}`;

@@ -295,9 +295,14 @@ function register(router) {
     // 附件 key 必须是本系统签发的格式，否则等于允许把任意字符串写进库
     let fk = null;
     if (file_key) {
-      if (!/^[a-f0-9]{32}\.(jpg|png|webp|gif|pdf)$/.test(String(file_key))) throw bad("附件标识不合法");
+      if (!/^[a-f0-9]{32}\.(jpg|png|webp|gif|pdf|docx|pptx|xlsx)$/.test(String(file_key))) throw bad("附件标识不合法");
       fk = String(file_key);
       assertUploadAttachable(fk, p.id, ctx.user);
+    }
+    // “讲者照片”是独立的照片类目，不允许仅填名称标记已收，
+    // 也不能将 PPT/Excel 文件伪装成讲者肖像。
+    if (kind === "讲者照片" && (!fk || !/\.(jpg|png|webp)$/i.test(fk))) {
+      throw bad("讲者照片必须上传 JPG、PNG 或 WebP 图片，名称请填写讲者姓名");
     }
 
     db.prepare(
