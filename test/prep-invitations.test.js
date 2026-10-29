@@ -42,6 +42,15 @@ before(async()=>{
   });
   await waitHealthy();
   [admin,assoc,exec,user,finance]=await Promise.all(["admin","assoc","exec","guest","finance"].map(session));
+  // Set up an explicitly published WeChat channel, without any real API credentials.
+  const config=await call(admin,"GET","/api/admin/invitation-config");
+  assert.equal(config.status,200);
+  const draft={...config.data.live,wechat_enabled:true,mini_appid:"wx1234567890abcdef",
+    mini_program_verified:true};
+  assert.equal((await call(admin,"PATCH","/api/admin/invitation-config",
+    {expected_version:config.data.version,config:draft})).status,200);
+  assert.equal((await call(admin,"POST","/api/admin/invitation-config/publish",
+    {expected_version:config.data.version})).status,200);
 });
 after(()=>{if(server)server.kill("SIGTERM")});
 
@@ -145,4 +154,38 @@ test("授权人员撤销邀请后公开 Token 应被拒绝",async()=>{
   const revoke=await call(admin,"POST",prep(p)+"/invitations/"+id+"/revoke",{});
   assert.equal(revoke.status,200);
   assert.equal((await fetch(BASE+"/api/public/prep-invitation?token="+c.data.token)).status,410);
+});
+
+
+test("总管理员自助配置：权限、草稿、PDF 预览、禁止非法字段和未配置邮件上线",async()=>{
+  const path="/api/admin/invitation-config";
+  const all=await call(admin,"GET",path);
+  assert.equal(all.status,200);
+  for(const cookie of [assoc,exec,finance,user]){
+    assert.equal((await call(cookie,"GET",path)).status,403);
+    assert.equal((await call(cookie,"PATCH",path,{config:all.data.live,expected_version:all.data.version})).status,403);
+    assert.equal((await call(cookie,"POST",path+"/publish",{expected_version:all.data.version})).status,403);
+  }
+  assert.equal((await call(admin,"PATCH",path,{expected_version:all.data.version,
+    config:{...all.data.live,ERP_RESEND_API_KEY:"secret"}})).status,400);
+  const draft={...all.data.live,org_footer:"联系秘书处以了解会议安排",
+    templates:{...all.data.live.templates,
+      guest:{...all.data.live.templates.guest,subject:"邀请参加{{会议名称}} · 讲者"}}};
+  const saved=await call(admin,"PATCH",path,{expected_version:all.data.version,config:draft});
+  assert.equal(saved.status,200);
+  assert.equal(saved.data.live.org_footer,all.data.live.org_footer);
+  assert.equal(saved.data.draft.org_footer,draft.org_footer);
+  const pdf=await call(admin,"GET",path+"/preview?pid=MP-2026-001&type=guest");
+  assert.equal(pdf.status,200);assert.equal(pdf.bytes.subarray(0,5).toString(),"%PDF-");
+  const pub=await call(admin,"POST",path+"/publish",{expected_version:all.data.version});
+  assert.equal(pub.status,200);assert.equal(pub.data.live.org_footer,draft.org_footer);
+  assert.equal(pub.data.version,all.data.version+1);
+  assert.equal((await call(admin,"POST",path+"/publish",{expected_version:all.data.version})).status,400);
+  const sendEnabled={...pub.data.live,email_enabled:true};
+  assert.equal((await call(admin,"PATCH",path,{expected_version:pub.data.version,config:sendEnabled})).status,200);
+  assert.equal((await call(admin,"POST",path+"/publish",{expected_version:pub.data.version})).status,400);
+  const rolling=await call(admin,"POST",path+"/rollback",
+    {expected_version:pub.data.version,target_version:all.data.version});
+  assert.equal(rolling.status,200);
+  assert.equal(rolling.data.live.org_footer,all.data.live.org_footer);
 });
