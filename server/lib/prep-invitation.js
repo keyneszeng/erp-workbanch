@@ -86,7 +86,7 @@ function renderInvitation(type, project, body, date, settings) {
   const layout = cfg.templates[type];
   const fields = Object.assign({}, projectFields(project, date), recipientFields(type, body));
   return {
-    template_key: template.key, template_version: template.version + settingsState.version,
+    template_key: template.key, template_version: template.version + settingsState.version + (settings ? 1 : 0),
     template_name: template.name,
     subject: substitute(layout.subject, fields),
     header_text: substitute(cfg.org_header,fields),
