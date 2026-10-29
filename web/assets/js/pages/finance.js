@@ -33,8 +33,9 @@ export async function render(root, params = []) {
   const scopeNote = focusPid ? '<span style="font-weight:400;color:var(--mute)">（本项目）</span>' : "";
 
   root.innerHTML = `<div class="phead">
-      <div><h2>付款与结算</h2><p>付款门禁：项目必须「已核销」才可提交付款；结算单生成后核销结论冻结</p></div>
+      <div><h2>付款与结算</h2><p>按唯一会议编号归集所有业务记录；付款门禁：项目必须「已核销」才可提交付款；结算单生成后核销结论冻结</p></div>
       <div class="acts">
+        ${state.super ? '<button class="btn btn-o" data-go="project-ledger">项目台账</button>' : ""}
         ${can("export:any") ? `<button class="btn btn-o" id="expPay">导出付款明细</button>
         <button class="btn btn-o" id="expSt">导出结算汇总</button>` : ""}
         ${can("payment:create") ? '<button class="btn btn-p" id="newPay">+ 付款申请</button>' : ""}
