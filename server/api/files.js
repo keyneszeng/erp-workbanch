@@ -18,18 +18,21 @@ const { assertProjectVisible, can } = require("../lib/rbac");
 const { logAudit } = require("../lib/audit");
 const { getProject } = require("../lib/workflow");
 const { HttpError } = require("../lib/util");
-const { storage, newKey, checkMime, sniffMime, safeName, MAX_BYTES } = require("../lib/storage");
+const { storage, newKey, checkMime, sniffMime, safeName, MAX_BYTES, ALLOWED_MIME } = require("../lib/storage");
 
 const EXT_MIME = {
   jpg: "image/jpeg",
   png: "image/png",
   webp: "image/webp",
   gif: "image/gif",
-  pdf: "application/pdf"
+  pdf: "application/pdf",
+  docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 };
 
 /** key 必须严格匹配自己生成的格式，避免 ../ 之类的路径穿越 */
-const KEY_RE = /^[a-f0-9]{32}\.(jpg|png|webp|gif|pdf)$/;
+const KEY_RE = /^[a-f0-9]{32}\.(jpg|png|webp|gif|pdf|docx|pptx|xlsx)$/;
 
 function register(router) {
   router.post("/api/uploads", async (ctx) => {
@@ -47,8 +50,18 @@ function register(router) {
 
     // 以文件头为准，不信客户端声明的 Content-Type
     const mime = sniffMime(buf);
-    if (!mime) throw bad("无法识别文件类型，仅支持 JPG / PNG / WebP / GIF / PDF");
+    if (!mime) throw bad("无法识别文件类型，仅支持 JPG / PNG / WebP / GIF / PDF / DOCX / PPTX / XLSX");
     checkMime(mime);
+    // Office 附件必须与原始文件名扩展名一致，禁止把可识别的 PPTX 冒充 EXE 等格式展示。
+    const officeExt = ALLOWED_MIME[mime];
+    if (["docx", "pptx", "xlsx"].includes(officeExt)) {
+      const declared = String(ctx.req.headers["x-file-name"] || "");
+      let decoded = declared;
+      try { decoded = decodeURIComponent(declared); } catch {}
+      if (!decoded.toLowerCase().endsWith("." + officeExt)) {
+        throw bad("Office 文件扩展名与实际格式不符");
+      }
+    }
 
     const rawName = ctx.req.headers["x-file-name"] || "";
     let name = "未命名文件";
@@ -80,7 +93,7 @@ function register(router) {
   /** 上传能力探测：前端据此决定是否显示上传按钮（R2 未绑定时 Worker 上会返回 false） */
   router.get("/api/uploads/capability", async () => {
     const st = storage();
-    return { enabled: st.name === "fs" || st.name === "r2", backend: st.name, maxBytes: MAX_BYTES };
+    return { enabled: st.name === "fs" || st.name === "r2", backend: st.name, maxBytes: MAX_BYTES, allowedMime: Object.keys(ALLOWED_MIME) };
   });
 
   router.get("/api/uploads/:key", async (ctx) => {
