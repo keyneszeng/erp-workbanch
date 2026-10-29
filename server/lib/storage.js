@@ -14,6 +14,7 @@
  *   key 里不带 /，这样能直接放进 URL 路径 /api/uploads/<key>。
  */
 const path = require("node:path");
+const { MIME: OFFICE_MIME, detectOoxml } = require("./ooxml");
 
 const HERE = typeof __dirname === "string" ? __dirname : "";
 const DATA_DIR = path.join(HERE, "..", "..", "data");
@@ -21,13 +22,16 @@ const DEFAULT_DIR =
   (typeof process !== "undefined" && process.env && process.env.ERP_UPLOAD_DIR) ||
   path.join(DATA_DIR, "uploads");
 
-/** 允许上传的类型白名单：只收图片和 PDF，别的一律拒绝 */
+/** 图片/PDF 与 Office OOXML 白名单：只接受有合法 ZIP 目录的无宏 DOCX/PPTX/XLSX */
 const ALLOWED_MIME = {
   "image/jpeg": "jpg",
   "image/png": "png",
   "image/webp": "webp",
   "image/gif": "gif",
-  "application/pdf": "pdf"
+  "application/pdf": "pdf",
+  [OFFICE_MIME.docx]: "docx",
+  [OFFICE_MIME.pptx]: "pptx",
+  [OFFICE_MIME.xlsx]: "xlsx"
 };
 
 const MAX_BYTES = 8 * 1024 * 1024; // 单文件 8 MB
@@ -161,7 +165,7 @@ function newKey(mime) {
 function checkMime(mime) {
   const m = String(mime || "").split(";")[0].trim().toLowerCase();
   if (!ALLOWED_MIME[m]) {
-    throw Object.assign(new Error(`不支持的文件类型：${m || "未识别"}（仅支持 JPG / PNG / WebP / GIF / PDF）`), {
+    throw Object.assign(new Error(`不支持的文件类型：${m || "未识别"}（仅支持 JPG / PNG / WebP / GIF / PDF / DOCX / PPTX / XLSX）`), {
       status: 415, code: "UNSUPPORTED_MEDIA"
     });
   }
@@ -176,7 +180,7 @@ function sniffMime(buf) {
   if (buf[0] === 0x47 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x38) return "image/gif";
   if (buf.length >= 12 && buf.toString("ascii", 0, 4) === "RIFF" && buf.toString("ascii", 8, 12) === "WEBP") return "image/webp";
   if (buf.toString("ascii", 0, 4) === "%PDF") return "application/pdf";
-  return null;
+  return detectOoxml(buf);
 }
 
 function safeName(name) {
