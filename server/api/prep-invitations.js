@@ -80,8 +80,8 @@ function sharePath(token) {
 }
 function mailDelivery(){
   const env=getDeliveryEnv(), cfg=liveConfig();
-  const stored=env.ERP_RESEND_API_KEY ? null : require("../lib/prep-mail-credentials").readKey(env);
-  return {apiKey:env.ERP_RESEND_API_KEY||stored||"",
+  const stored=require("../lib/prep-mail-credentials").readKey(env);
+  return {apiKey:stored||env.ERP_RESEND_API_KEY||"",
     from:cfg.mail_from||env.ERP_MAIL_FROM||"",
     baseUrl:cfg.public_base_url||env.ERP_PUBLIC_BASE_URL||""};
 }
