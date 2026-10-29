@@ -15,6 +15,7 @@ import { seed } from "../server/lib/seed.js";
 import { pruneSessions } from "../server/lib/auth.js";
 import { handle } from "../server/lib/app.js";
 import { attachR2, attachStorage, unavailableStorage } from "../server/lib/storage.js";
+import { attachDeliveryEnv } from "../server/api/prep-invitations.js";
 import { makeReq, makeRes, toResponse } from "./adapter.mjs";
 
 const WRITE_METHODS = new Set(["POST", "PATCH", "PUT", "DELETE"]);
@@ -26,6 +27,7 @@ export class ErpDatabase {
 
     // 把 DO 的 SQL 存储挂到 db 层，之后所有 db.prepare() 都落到这里
     attachDurableObject(ctx);
+    attachDeliveryEnv(env);
 
     // 文件存储：绑了 R2 就用 R2，否则挂一个明确报错的后端。
     // 不能让默认的 nodeStorage 兜底——Workers 里没有真实文件系统，
