@@ -12,6 +12,7 @@ const { assertProjectVisible, assertCan } = require("../lib/rbac");
 const { nowIso, nextId, randToken, bad, conflict, notFound, HttpError } = require("../lib/util");
 const { logAudit } = require("../lib/audit");
 const { TEMPLATES, projectFields, renderInvitation, invitationPdf, clean } = require("../lib/prep-invitation");
+const { live: liveConfig } = require("../lib/prep-config");
 
 let deliveryEnv = null;
 function attachDeliveryEnv(env) { deliveryEnv = env || null; }
@@ -26,6 +27,7 @@ function requireManager(ctx, id, allowView = false) {
   assertProjectVisible(ctx.user, p);
   assertCan(ctx.user, "invite:manage", "嘉宾/企业邀请仅总管理员、协会管理员和授权会务执行人员可操作");
   if (!allowView) {
+    if (!liveConfig().enabled) throw conflict("邀请函功能尚未启用，请联系总管理员在系统配置中开启","INVITATION_DISABLED");
     assertNotFrozen(p, "邀请函");
     if (!prepareStatuses.has(p.status)) {
       throw conflict("邀请函应在项目立项完成后的筹备阶段生成", "PREPARATION_REQUIRED", { status: p.status });
@@ -144,6 +146,7 @@ function register(router) {
       throw new HttpError(503,"MAIL_NOT_CONFIGURED","邮件发送未启用，管理员需要配置邮件服务");
     const base=String(env.ERP_PUBLIC_BASE_URL||"").replace(/\/$/,"");
     if (!/^https:\/\//.test(base)) throw new HttpError(503,"PUBLIC_URL_NOT_CONFIGURED","请配置 HTTPS 公开邀请页域名 ERP_PUBLIC_BASE_URL");
+    if (!liveConfig().email_enabled) throw new HttpError(409,"MAIL_DISABLED","总管理员尚未开启邮件发送渠道");
     const snapshot=JSON.parse(row.snapshot_json), token=issueToken(row.id);
     const replyLink=base+"/invite.html?token="+token;
     db.prepare("UPDATE prep_invitations SET status='发送中',recipient_email=? WHERE id=?").run(email,row.id);
@@ -164,6 +167,7 @@ function register(router) {
   });
   router.post("/api/projects/:id/prep/invitations/:inviteId/wechat-share", async ctx => {
     const p=requireManager(ctx,ctx.params.id);
+    if (!liveConfig().wechat_enabled) throw conflict("总管理员尚未启用微信小程序分享渠道","WECHAT_DISABLED");
     const row=getInvitation(p.id,ctx.params.inviteId);
     if (["已确认","已拒绝","已撤销","已邮件发送","发送中","待微信分享"].includes(row.status))
       throw conflict("邀请已发送或有最终回复，不能重签分享路径以免旧链接失效","INVITATION_STATE_CONFLICT");
@@ -222,4 +226,4 @@ function register(router) {
     return { id:row.id,status:choice==="CONFIRM"?"已确认":"已拒绝",idempotent:false };
   });
 }
-module.exports={register,attachDeliveryEnv};
+module.exports={register,attachDeliveryEnv,getDeliveryEnv};
