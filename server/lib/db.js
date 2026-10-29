@@ -285,6 +285,27 @@ CREATE TABLE IF NOT EXISTS uploaded_files (
   created_at  TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_uploaded_files_user ON uploaded_files(user_id);
+
+-- 项目筹备邀请函：内置固定模板、已生成 PDF 的快照与发送/回复追踪。
+CREATE TABLE IF NOT EXISTS prep_invitations (
+  id               TEXT PRIMARY KEY,
+  pid              TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  type             TEXT NOT NULL CHECK (type IN ('enterprise','guest')),
+  template_version INTEGER NOT NULL DEFAULT 1,
+  snapshot_json    TEXT NOT NULL,
+  recipient_email  TEXT,
+  token_hash       TEXT NOT NULL UNIQUE,
+  expires_at       TEXT NOT NULL,
+  status           TEXT NOT NULL DEFAULT '草稿',
+  created_by       INTEGER,
+  created_at       TEXT NOT NULL,
+  sent_at          TEXT,
+  channel          TEXT,
+  provider_id      TEXT,
+  responded_at     TEXT,
+  response         TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_prep_invitations_pid ON prep_invitations(pid);
 `;
 
 /* ---------------------------------------------------------------- 后端实现 */
