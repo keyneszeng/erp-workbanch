@@ -78,15 +78,22 @@ function subjectFrom(snapshot) {
 function sharePath(token) {
   return "pages/invite/index?token=" + token;
 }
+function mailDelivery(){
+  const env=getDeliveryEnv(), cfg=liveConfig();
+  const stored=env.ERP_RESEND_API_KEY ? null : require("../lib/prep-mail-credentials").readKey(env);
+  return {apiKey:env.ERP_RESEND_API_KEY||stored||"",
+    from:cfg.mail_from||env.ERP_MAIL_FROM||"",
+    baseUrl:cfg.public_base_url||env.ERP_PUBLIC_BASE_URL||""};
+}
 async function sendViaResend({to,subject,text,pdf,name}) {
-  const env=getDeliveryEnv();
-  if (!env.ERP_RESEND_API_KEY || !env.ERP_MAIL_FROM) {
-    throw new HttpError(503,"MAIL_NOT_CONFIGURED","邮件服务未配置；请配置 ERP_RESEND_API_KEY 和 ERP_MAIL_FROM");
+  const config=mailDelivery();
+  if (!config.apiKey || !config.from) {
+    throw new HttpError(503,"MAIL_NOT_CONFIGURED","邮件服务未配置；请总管理员设置发件邮箱和加密 API 凭证");
   }
   const response=await fetch("https://api.resend.com/emails", {
     method:"POST",
-    headers:{Authorization:"Bearer "+env.ERP_RESEND_API_KEY,"Content-Type":"application/json"},
-    body:JSON.stringify({from:env.ERP_MAIL_FROM,to:[to],subject,text,
+    headers:{Authorization:"Bearer "+config.apiKey,"Content-Type":"application/json"},
+    body:JSON.stringify({from:config.from,to:[to],subject,text,
       attachments:[{filename:name,content:pdf.toString("base64")}]})
   });
   let body={};
@@ -141,10 +148,10 @@ function register(router) {
       throw conflict("当前邀请函状态不允许重复邮件发送","INVITATION_STATE_CONFLICT");
     const email=validEmail((ctx.body||{}).recipient_email||row.recipient_email);
     // Check configuration before consuming a new token; failed configuration must not mutate state.
-    const env=getDeliveryEnv();
-    if (!env.ERP_RESEND_API_KEY || !env.ERP_MAIL_FROM)
-      throw new HttpError(503,"MAIL_NOT_CONFIGURED","邮件发送未启用，管理员需要配置邮件服务");
-    const base=String(env.ERP_PUBLIC_BASE_URL||"").replace(/\/$/,"");
+    const mail=mailDelivery();
+    if (!mail.apiKey || !mail.from)
+      throw new HttpError(503,"MAIL_NOT_CONFIGURED","邮件发送未启用，请总管理员配置加密邮件凭证和发件邮箱");
+    const base=String(mail.baseUrl||"").replace(/\/$/,"");
     if (!/^https:\/\//.test(base)) throw new HttpError(503,"PUBLIC_URL_NOT_CONFIGURED","请配置 HTTPS 公开邀请页域名 ERP_PUBLIC_BASE_URL");
     if (!liveConfig().email_enabled) throw new HttpError(409,"MAIL_DISABLED","总管理员尚未开启邮件发送渠道");
     const snapshot=JSON.parse(row.snapshot_json), token=issueToken(row.id);
@@ -226,4 +233,4 @@ function register(router) {
     return { id:row.id,status:choice==="CONFIRM"?"已确认":"已拒绝",idempotent:false };
   });
 }
-module.exports={register,attachDeliveryEnv,getDeliveryEnv};
+module.exports={register,attachDeliveryEnv,getDeliveryEnv,mailDelivery};
