@@ -98,7 +98,7 @@ const NAV_MODULE = {
   dashboard: "dashboard", flow: "dashboard",
   projects: "projects", approvals: "projects", contracts: "prep", "prep-invitations": "prep",
   demand: "demand", verify: "verify", finance: "finance",
-  materials: "materials", archive: "archive", audit: "audit", users: "system"
+  materials: "materials", archive: "archive", audit: "audit", users: "system", "invitation-config": "system"
 };
 
 /** 这个角色能不能打开某个页面（含审批中心的动作级条件） */
