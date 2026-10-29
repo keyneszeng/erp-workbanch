@@ -165,3 +165,18 @@ test("真实 HTTP：普通 ZIP、伪 PPTX、错扩展名拒绝", async () => {
   const wrong = await upload(PPT, "材料.docx", exec);
   assert.equal(wrong.status, 400);
 });
+
+test("讲者照片必须是真实图片附件，不能仅登记文字或关联 Office 文件", async () => {
+  const p = (await api("GET", "/api/projects", exec)).body.rows.find(x => x.status !== "已归档");
+  const empty = await api("POST", "/api/projects/" + p.id + "/materials", exec, {
+    kind: "讲者照片", name: "张教授"
+  });
+  assert.equal(empty.status, 400);
+  const up = await upload(DOC, "讲者.docx", exec);
+  assert.equal(up.status, 200);
+  const wrong = await api("POST", "/api/projects/" + p.id + "/materials", exec, {
+    kind: "讲者照片", name: "张教授", file_key: up.body.key,
+    file_name: up.body.name, file_mime: up.body.mime, file_size: up.body.size
+  });
+  assert.equal(wrong.status, 400);
+});
