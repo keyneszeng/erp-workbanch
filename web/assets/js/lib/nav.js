@@ -26,7 +26,7 @@ export const NAV = [
   { k: "materials", n: "材料中心", items: [{ k: "materials", n: "归档材料" }] },
   { k: "archive", n: "档案中心", items: [{ k: "archive", n: "数字卷宗" }] },
   { k: "audit", n: "审计日志", items: [{ k: "audit", n: "操作留痕" }] },
-  { k: "system", n: "系统配置", items: [{ k: "users", n: "用户与权限" }] }
+  { k: "system", n: "系统配置", items: [{ k: "users", n: "用户与权限" }, { k: "invitation-config", n: "邀请函上线配置" }] }
 ];
 
 /**
