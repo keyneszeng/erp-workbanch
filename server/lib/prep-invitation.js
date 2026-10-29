@@ -81,11 +81,12 @@ function renderInvitation(type, project, body, date, settings) {
   const template = TEMPLATES[type];
   if (!template) throw bad("不支持的邀请函模板类型");
   // Keep the template module dependency acyclic: prep-config imports TEMPLATES.
-  const cfg = settings || require("./prep-config").live();
+  const settingsState = require("./prep-config").read();
+  const cfg = settings || settingsState.live;
   const layout = cfg.templates[type];
   const fields = Object.assign({}, projectFields(project, date), recipientFields(type, body));
   return {
-    template_key: template.key, template_version: template.version,
+    template_key: template.key, template_version: template.version + settingsState.version,
     template_name: template.name,
     subject: substitute(layout.subject, fields),
     header_text: substitute(cfg.org_header,fields),
