@@ -16,7 +16,14 @@ async function login(username) {
  return cookie;
 }
 async function req(cookie,path) {
- return fetch(BASE+path,{headers:cookie?{Cookie:cookie}:undefined,redirect:"manual",cache:"no-store"});
+ const first=await fetch(BASE+path,{headers:cookie?{Cookie:cookie}:undefined,redirect:"manual",cache:"no-store"});
+ if(first.status!==307&&first.status!==308)return first;
+ const location=first.headers.get("location");
+ if(!location)throw Error("Canonical redirect without Location");
+ const target=new URL(location,BASE);
+ if(target.origin!==new URL(BASE).origin)throw Error("Unexpected cross-origin redirect");
+ return fetch(target,{headers:cookie?{Cookie:cookie}:undefined,redirect:"manual",cache:"no-store"});
+
 }
 async function checkStatus(cookie,path,expected,label) {
  const r=await req(cookie,path);
