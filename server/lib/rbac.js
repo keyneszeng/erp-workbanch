@@ -96,7 +96,7 @@ const STATUSES = ["草稿", "待审批", "已立项", "筹备中", "执行中", 
  */
 const NAV_MODULE = {
   dashboard: "dashboard", flow: "dashboard",
-  projects: "projects", approvals: "projects", contracts: "prep",
+  projects: "projects", approvals: "projects", contracts: "prep", "prep-invitations": "prep",
   demand: "demand", verify: "verify", finance: "finance",
   materials: "materials", archive: "archive", audit: "audit", users: "system"
 };
