@@ -50,6 +50,7 @@ const PERMS = {
   "change:execute": ["assoc", "exec", "finance"],
   "project:member": ["assoc"],
   "contract:write": ["assoc", "exec"],
+  "invite:manage": ["assoc", "exec"],
   "contract:approve": ["assoc"],
   "demand:write": ["assoc", "exec"],
   "payment:create": ["assoc", "exec", "finance"],
