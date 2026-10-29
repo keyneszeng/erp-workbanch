@@ -34,6 +34,8 @@ function grab(){
     wechat_enabled:document.getElementById("setting-wechat").checked,
     org_header:document.getElementById("org-header").value.trim(),
     org_footer:document.getElementById("org-footer").value.trim(),
+    mail_from:document.getElementById("mail-from").value.trim(),
+    public_base_url:document.getElementById("public-base-url").value.trim(),
     mini_appid:document.getElementById("mini-appid").value.trim(),
     mini_program_verified:document.getElementById("mini-published").checked,
     templates
@@ -56,7 +58,9 @@ export async function render(root) {
     '<p>邮件服务端配置：<strong>'+ (ready.mail_service_ready?'已就绪':'未就绪')+
     '</strong>　｜　HTTPS 邀请地址：'+(ready.public_url_ready?'已配置':'未配置')+
     '　｜　微信发布确认：'+(ready.wechat_config_ready?'已配置':'待完善')+'</p>'+
-    '<p class="hint">邮件 API 密钥不保存在浏览器，也无法在此页面查看。微信“已发布”由总管理员确认，系统不会伪称实时查询了微信审核状态。</p>'+
+    '<p class="hint">发件凭证已加密存储：'+(ready.mail_credential_stored?"是":"否")+
+    '　｜　加密主密钥就绪：'+(ready.mail_encryption_ready?"是":"否")+
+    '。微信审核状态由总管理员确认，不代表系统已实时查询微信平台。</p>'+
     checkbox("setting-enabled","开放筹备邀请函生成",config.enabled)+
     checkbox("setting-email","开放邮件发送",config.email_enabled)+
     checkbox("setting-wechat","开放微信小程序分享",config.wechat_enabled)+'</div>'+
@@ -64,6 +68,13 @@ export async function render(root) {
     field("org-header","PDF 抬头",config.org_header)+
     field("org-footer","补充落款 / 联系方式 / 说明",config.org_footer)+
     '<p class="hint">当前版支持文字抬头和落款；正式盖章图片与协会 Logo 需经授权后另行加入文件资产及 PDF 盖章流程。</p></div>'+
+    '<div class="panel mt"><div class="panel-h"><h2>邮件服务在线配置</h2></div>'+
+    field("mail-from","发件邮箱（须已在邮件平台验证）",config.mail_from)+
+    field("public-base-url","对外邀请页 HTTPS 地址",config.public_base_url)+
+    '<label style="display:block;margin:12px 0">Resend API Key（仅更新时填写，不回显）<input id="mail-credential" type="password" autocomplete="new-password" placeholder="re_..." style="width:100%;max-width:620px"/></label>'+
+    '<button class="btn btn-o" id="save-mail-credential">加密保存发件凭证</button>'+
+    '<button class="btn btn-o" id="remove-mail-credential" style="margin-left:8px">清除已存发件凭证</button>'+
+    '<p class="hint" style="margin-top:10px">初次使用需运维在 Cloudflare 配置 ERP_MAIL_CONFIG_KEY（随机不少于32字符）；之后密钥可由总管理员自行更换，页面永不回显。发件邮箱、域名须保存草稿并发布后才生效。</p></div>'+
     '<div class="panel mt"><div class="panel-h"><h2>微信小程序上线信息</h2></div>'+
     field("mini-appid","小程序 AppID",config.mini_appid,"填写正式 AppID，不能使用 touristappid")+
     checkbox("mini-published","我确认小程序已审核发布，且业务域名已在微信后台配置",config.mini_program_verified)+
@@ -84,6 +95,18 @@ export async function render(root) {
       '<div class="filters"><select id="rollback-version">'+versions+'</select><button class="btn btn-o" id="rollback">恢复选中版本（生成新版本）</button></div>':
       '<p class="hint">尚无发布历史。发布后可以回退到之前的配置版本。</p>')+'</div>';
 
+  root.querySelector("#save-mail-credential").onclick=async()=>{
+    const input=root.querySelector("#mail-credential");
+    if(!input.value.trim()){toast("请填写邮件服务 API Key","warn");return}
+    try {await api.post("/api/admin/invitation-config/email-credentials",{resend_api_key:input.value.trim()});
+      input.value=""; toast("密钥已在服务端加密保存","ok");await render(root);
+    }catch(e){toast(e.message,"warn")}
+  };
+  root.querySelector("#remove-mail-credential").onclick=async()=>{
+    if(!await confirmBox("确定删除当前加密保存的邮件凭证？这将影响依赖该凭证的发信功能。",{title:"清除邮件凭证",ok:"清除"}))return;
+    try{await api.del("/api/admin/invitation-config/email-credentials");toast("已清除加密凭证","ok");await render(root)}
+    catch(e){toast(e.message,"warn")}
+  };
   root.querySelector("#save-draft").onclick=async()=>{
     try {
       data=await api.patch("/api/admin/invitation-config",{expected_version:data.version,config:grab()});
