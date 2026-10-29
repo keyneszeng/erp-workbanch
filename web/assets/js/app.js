@@ -11,6 +11,7 @@ import * as approvals from "./pages/approvals.js";
 import * as verify from "./pages/verify.js";
 import * as finance from "./pages/finance.js";
 import * as contracts from "./pages/contracts.js";
+import * as prepInvitations from "./pages/prep-invitations.js";
 import * as materials from "./pages/materials.js";
 import * as demand from "./pages/demand.js";
 import * as archive from "./pages/archive.js";
@@ -32,6 +33,7 @@ const ROUTES = [
   // 带项目：从「待付款」待办点进来时只列该项目的付款，直接能看到付款按钮
   { re: /^finance\/([\w-]+)$/, page: finance, nav: "finance", title: "付款与结算", sub: "已定位到指定项目" },
   { re: /^contracts$/, page: contracts, nav: "contracts", title: "合同台账", sub: "合同金额与签署状态" },
+  { re: /^prep-invitations$/, page: prepInvitations, nav: "prep-invitations", title: "筹备管理 · 邀请函", sub: "内置模板匹配、PDF、邮件与微信小程序分享" },
   { re: /^demand$/, page: demand, nav: "demand", title: "会务需求确认", sub: "四组清单：设计 / 制作 / 现场执行 / 其他" },
   { re: /^demand\/([\w-]+)$/, page: demand, nav: "demand", title: "需求单", sub: "逐条确认会务需求" },
   { re: /^materials$/, page: materials, nav: "materials", title: "材料中心", sub: "归档必备 8 类材料" },
