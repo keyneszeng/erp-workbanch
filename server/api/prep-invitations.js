@@ -142,9 +142,10 @@ function register(router) {
     const env=getDeliveryEnv();
     if (!env.ERP_RESEND_API_KEY || !env.ERP_MAIL_FROM)
       throw new HttpError(503,"MAIL_NOT_CONFIGURED","邮件发送未启用，管理员需要配置邮件服务");
-    const snapshot=JSON.parse(row.snapshot_json), token=issueToken(row.id);
     const base=String(env.ERP_PUBLIC_BASE_URL||"").replace(/\/$/,"");
-    const replyLink=base ? base+"/api/public/prep-invitation?token="+token : "";
+    if (!/^https:\/\//.test(base)) throw new HttpError(503,"PUBLIC_URL_NOT_CONFIGURED","请配置 HTTPS 公开邀请页域名 ERP_PUBLIC_BASE_URL");
+    const snapshot=JSON.parse(row.snapshot_json), token=issueToken(row.id);
+    const replyLink=base+"/invite.html?token="+token;
     db.prepare("UPDATE prep_invitations SET status='发送中',recipient_email=? WHERE id=?").run(email,row.id);
     let providerId;
     try {
@@ -164,8 +165,8 @@ function register(router) {
   router.post("/api/projects/:id/prep/invitations/:inviteId/wechat-share", async ctx => {
     const p=requireManager(ctx,ctx.params.id);
     const row=getInvitation(p.id,ctx.params.inviteId);
-    if (["已确认","已拒绝","已撤销"].includes(row.status))
-      throw conflict("已处理的邀请不能重新生成分享链接","INVITATION_STATE_CONFLICT");
+    if (["已确认","已拒绝","已撤销","已邮件发送","发送中"].includes(row.status))
+      throw conflict("邀请已发送或有最终回复，不能重签分享路径以免旧链接失效","INVITATION_STATE_CONFLICT");
     const token=issueToken(row.id);
     db.prepare("UPDATE prep_invitations SET status='待微信分享',channel='wechat' WHERE id=?").run(row.id);
     logAudit({user:ctx.user,module:"筹备管理",action:"生成微信小程序分享路径",target:p.id,
