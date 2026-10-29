@@ -6,7 +6,7 @@
  * 分享路径，前端需调用小程序分享行为，不能把“生成分享路径”写成“已送达”。
  */
 const crypto = require("node:crypto");
-const { db } = require("../lib/db");
+const { db, transaction } = require("../lib/db");
 const { getProject, assertNotFrozen } = require("../lib/workflow");
 const { assertProjectVisible, assertCan } = require("../lib/rbac");
 const { nowIso, nextId, randToken, bad, conflict, notFound, HttpError } = require("../lib/util");
@@ -204,9 +204,10 @@ function register(router) {
     const response=choice==="CONFIRM"?"确认参加":"无法参加";
     if (row.response===choice) return { id:row.id,status:row.status,idempotent:true };
     if (row.response) throw conflict("邀请已回复，不能反向覆盖");
-    db.prepare("UPDATE prep_invitations SET status=?,response=?,responded_at=? WHERE id=?")
-      .run(choice==="CONFIRM"?"已确认":"已拒绝",choice,nowIso(),row.id);
-    // 入库到会议项目嘉宾档案：按 invitation_id 定位，不使用容易重名的姓名匹配。
+    transaction(() => {
+      db.prepare("UPDATE prep_invitations SET status=?,response=?,responded_at=? WHERE id=?")
+        .run(choice==="CONFIRM"?"已确认":"已拒绝",choice,nowIso(),row.id);
+      // 入库到会议项目嘉宾档案：按 invitation_id 定位，不使用容易重名的姓名匹配。
     if (row.type==="guest") {
       const info=JSON.parse(row.snapshot_json).fields;
       const guestStatus=choice==="CONFIRM"?"已确认":"无法参加";
@@ -216,7 +217,8 @@ function register(router) {
         .run(row.pid,info["受邀姓名"],"",info["称谓"],guestStatus,nowIso(),row.id);
     }
     logAudit({user:null,module:"筹备管理",action:"受邀对象回复邀请",target:row.pid,
-      detail:row.id+" / "+response,ip:ctx.ip});
+        detail:row.id+" / "+response,ip:ctx.ip});
+    });
     return { id:row.id,status:choice==="CONFIRM"?"已确认":"已拒绝",idempotent:false };
   });
 }
