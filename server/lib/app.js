@@ -72,7 +72,8 @@ function buildRouter() {
     require("../api/files"),
     require("../api/archive-pdf"),
     require("../api/prep-invitations"),
-    require("../api/prep-admin")
+    require("../api/prep-admin"),
+    require("../api/project-ledger")
   ];
   for (const mod of modules) mod.register(router);
   return router;

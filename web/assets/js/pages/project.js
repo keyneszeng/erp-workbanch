@@ -33,7 +33,7 @@ export async function render(root, [pid]) {
   const canEdit = (state.super || state.user.role === "assoc") && (p.status !== "已归档" || state.super);
 
   root.innerHTML = `
-  <div class="crumb"><a data-go="projects">会议项目</a> / <span class="mono">${p.id}</span></div>
+  <div class="crumb"><a data-go="projects">会议项目</a> / 会议编号：<span class="mono">${esc(p.id)}</span></div>
   <div class="phead">
     <div>
       <h2>${esc(p.name)} ${badge(p.status)}${canDownloadArchivePdf(p) ? ` <button class="btn btn-o btn-sm" id="downloadArchivePdf">资料下载</button>` : ""}</h2>
@@ -82,7 +82,7 @@ export async function render(root, [pid]) {
 /** 普通用户 / 嘉宾只读概览：不会渲染财务、审批、内部电话和团队资料。 */
 function tabParticipantOverview(d, p) {
   return panel("会议信息", "仅显示本人相关的会议", kv([
-    ["项目编号", esc(p.id)], ["会议名称", esc(p.name)],
+    ["会议编号", esc(p.id)], ["会议名称", esc(p.name)],
     ["所属协会", esc(p.assoc)], ["会议形式", esc(p.form)],
     ["会议日期", esc(p.date)], ["会期", String(p.days) + " 天"],
     ["预计人数", String(p.people || 0) + " 人"],

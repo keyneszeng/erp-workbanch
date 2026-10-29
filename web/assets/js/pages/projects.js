@@ -81,7 +81,7 @@ async function load(root) {
     : `预算合计 ¥${money(budget)} · 已付款 ¥${money(paid)}`;
 
   list.innerHTML = table(
-    [{ t: "编号", w: "112px" }, { t: "会议名称" }, { t: "协会", w: "118px" }, { t: "形式", w: "58px" },
+    [{ t: "会议编号", w: "120px" }, { t: "会议名称" }, { t: "协会", w: "118px" }, { t: "形式", w: "58px" },
      { t: "会期", w: "92px" }, { t: "预算", w: "92px", cls: "num" }, { t: "负责人", w: "72px" },
      { t: "状态", w: "84px" }, { t: "操作", w: "120px" }],
     d.rows.map((p) => ({

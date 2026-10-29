@@ -34,6 +34,8 @@ jobs:
           node --check server/api/archive-pdf.js
           node --check server/api/prep-invitations.js
           node --check server/api/prep-admin.js
+          node --check server/api/project-ledger.js
+          node --input-type=module --check < web/assets/js/pages/project-ledger.js
           node --check server/lib/prep-config.js
           node --check server/lib/prep-mail-credentials.js
           node --check server/lib/prep-invitation.js

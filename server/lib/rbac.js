@@ -66,7 +66,8 @@ const PERMS = {
   "audit:read": ["assoc"],
   "export:any": ["assoc", "exec", "finance"],
   "user:manage": [],
-  "setting:write": []
+  "setting:write": [],
+  "ledger:read": []
 };
 
 const MODULES = [
@@ -97,7 +98,7 @@ const STATUSES = ["草稿", "待审批", "已立项", "筹备中", "执行中", 
 const NAV_MODULE = {
   dashboard: "dashboard", flow: "dashboard",
   projects: "projects", approvals: "projects", contracts: "prep", "prep-invitations": "prep",
-  demand: "demand", verify: "verify", finance: "finance",
+  demand: "demand", verify: "verify", finance: "finance", "project-ledger": "finance",
   materials: "materials", archive: "archive", audit: "audit", users: "system", "invitation-config": "system"
 };
 
@@ -107,6 +108,7 @@ function canVisitNav(user, nav) {
   const need = NAV_MODULE[nav];
   if (!need) return false;
   if (!ROLES[user.role].modules.includes(need)) return false;
+  if (nav === "project-ledger") return isSuper(user);
   if (nav === "approvals") {
     return can(user, "project:approve") || can(user, "verify:exception_approve") || can(user, "payment:approve");
   }
