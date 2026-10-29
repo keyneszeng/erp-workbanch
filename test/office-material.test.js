@@ -152,6 +152,8 @@ for (const [extension, bytes, mime] of [
     const dl = await fetch(BASE + "/api/uploads/" + uploaded.body.key, { headers: { cookie: exec } });
     assert.equal(dl.status, 200);
     assert.equal(dl.headers.get("content-type"), mime);
+    assert.match(dl.headers.get("content-disposition") || "", /^attachment;/);
+    assert.ok((dl.headers.get("content-disposition") || "").includes(encodeURIComponent("会务材料." + extension)));
     assert.deepEqual(Buffer.from(await dl.arrayBuffer()), bytes);
     const deny = await api("GET", "/api/uploads/" + uploaded.body.key, guest);
     assert.equal(deny.status, 403, "guest cannot access internal business material");
