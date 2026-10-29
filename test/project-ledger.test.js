@@ -96,7 +96,8 @@ test("明细 CSV 含会议编号及业务分类，不能导出其他会议记录
  assert.equal(r.status,200);
  assert.match(r.headers.get("content-type")||"",/text\/csv/);
  assert.match(r.headers.get("content-disposition")||"",/MP-2026-015/);
- assert.ok(r.body.startsWith("\ufeff"));
+ // WHATWG Response.text() strips a leading UTF-8 BOM; accept both decoded forms.
+ assert.match(r.body,/^\uFEFF?"会议编号"/);
  assert.ok(r.body.includes("会议编号"));
  assert.ok(r.body.includes(pid));
  assert.ok(!r.body.includes("MP-2026-006"));
