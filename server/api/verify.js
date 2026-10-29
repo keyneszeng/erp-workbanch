@@ -299,6 +299,11 @@ function register(router) {
       fk = String(file_key);
       assertUploadAttachable(fk, p.id, ctx.user);
     }
+    // “讲者照片”是独立的照片类目，不允许仅填名称标记已收，
+    // 也不能将 PPT/Excel 文件伪装成讲者肖像。
+    if (kind === "讲者照片" && (!fk || !/\.(jpg|png|webp)$/i.test(fk))) {
+      throw bad("讲者照片必须上传 JPG、PNG 或 WebP 图片，名称请填写讲者姓名");
+    }
 
     db.prepare(
       `INSERT INTO materials (pid,kind,name,version,uploader,created_at,file_key,file_name,file_size,file_mime)
