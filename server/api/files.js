@@ -103,8 +103,8 @@ function register(router) {
     // 已关联业务单据的文件，按单据所属项目校验数据范围。
     // 一个 key 理论上只属于一处，但材料与合同分表存，两处都要查。
     // 尚未关联的（刚上传、还没提交单据）只要求登录，key 本身是 32 位随机串。
-    const m = db.prepare("SELECT pid FROM materials WHERE file_key = ?").get(key);
-    const c = m ? null : db.prepare("SELECT pid FROM contracts WHERE file_key = ?").get(key);
+    const m = db.prepare("SELECT pid, file_name FROM materials WHERE file_key = ?").get(key);
+    const c = m ? null : db.prepare("SELECT pid, file_name FROM contracts WHERE file_key = ?").get(key);
     const owner = m || c;
     if (owner) {
       assertProjectVisible(ctx.user, getProject(owner.pid));
@@ -126,7 +126,12 @@ function register(router) {
     if (!obj) throw notFound("文件不存在或已删除");
 
     const ext = key.split(".").pop();
-    return { __file: { buffer: obj.buffer, mime: EXT_MIME[ext] || "application/octet-stream", name: key } };
+    return { __file: {
+      buffer: obj.buffer,
+      mime: EXT_MIME[ext] || "application/octet-stream",
+      name: owner?.file_name ? safeName(owner.file_name) : key,
+      download: ["docx", "pptx", "xlsx"].includes(ext)
+    } };
   });
 
   return router;
