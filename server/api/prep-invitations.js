@@ -135,7 +135,7 @@ function register(router) {
   router.post("/api/projects/:id/prep/invitations/:inviteId/email", async ctx => {
     const p=requireManager(ctx,ctx.params.id);
     const row=getInvitation(p.id,ctx.params.inviteId);
-    if (["已确认","已拒绝","已撤销","发送中","已邮件发送"].includes(row.status))
+    if (["已确认","已拒绝","已撤销","发送中","已邮件发送","待微信分享"].includes(row.status))
       throw conflict("当前邀请函状态不允许重复邮件发送","INVITATION_STATE_CONFLICT");
     const email=validEmail((ctx.body||{}).recipient_email||row.recipient_email);
     // Check configuration before consuming a new token; failed configuration must not mutate state.
@@ -165,7 +165,7 @@ function register(router) {
   router.post("/api/projects/:id/prep/invitations/:inviteId/wechat-share", async ctx => {
     const p=requireManager(ctx,ctx.params.id);
     const row=getInvitation(p.id,ctx.params.inviteId);
-    if (["已确认","已拒绝","已撤销","已邮件发送","发送中"].includes(row.status))
+    if (["已确认","已拒绝","已撤销","已邮件发送","发送中","待微信分享"].includes(row.status))
       throw conflict("邀请已发送或有最终回复，不能重签分享路径以免旧链接失效","INVITATION_STATE_CONFLICT");
     const token=issueToken(row.id);
     db.prepare("UPDATE prep_invitations SET status='待微信分享',channel='wechat' WHERE id=?").run(row.id);
@@ -206,6 +206,15 @@ function register(router) {
     if (row.response) throw conflict("邀请已回复，不能反向覆盖");
     db.prepare("UPDATE prep_invitations SET status=?,response=?,responded_at=? WHERE id=?")
       .run(choice==="CONFIRM"?"已确认":"已拒绝",choice,nowIso(),row.id);
+    // 入库到会议项目嘉宾档案：按 invitation_id 定位，不使用容易重名的姓名匹配。
+    if (row.type==="guest") {
+      const info=JSON.parse(row.snapshot_json).fields;
+      const guestStatus=choice==="CONFIRM"?"已确认":"无法参加";
+      const exists=db.prepare("SELECT id FROM guests WHERE invitation_id=?").get(row.id);
+      if (exists) db.prepare("UPDATE guests SET status=? WHERE invitation_id=?").run(guestStatus,row.id);
+      else db.prepare("INSERT INTO guests (pid,name,org,title,status,created_at,invitation_id) VALUES (?,?,?,?,?,?,?)")
+        .run(row.pid,info["受邀姓名"],"",info["称谓"],guestStatus,nowIso(),row.id);
+    }
     logAudit({user:null,module:"筹备管理",action:"受邀对象回复邀请",target:row.pid,
       detail:row.id+" / "+response,ip:ctx.ip});
     return { id:row.id,status:choice==="CONFIRM"?"已确认":"已拒绝",idempotent:false };
