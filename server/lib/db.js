@@ -197,7 +197,8 @@ CREATE TABLE IF NOT EXISTS guests (
   title       TEXT,
   phone       TEXT,
   status      TEXT NOT NULL DEFAULT '待邀请',
-  created_at  TEXT NOT NULL
+  created_at  TEXT NOT NULL,
+  invitation_id TEXT
 );
 
 CREATE TABLE IF NOT EXISTS tasks (
@@ -464,6 +465,9 @@ function migrate() {
   addColumn("contracts", "file_name", "file_name TEXT");
   addColumn("contracts", "file_size", "file_size INTEGER");
   addColumn("contracts", "file_mime", "file_mime TEXT");
+  // 立项筹备邀请：嘉宾确认/拒绝后绑定到会议项目嘉宾档案（不会误覆盖同名专家）。
+  addColumn("guests", "invitation_id", "invitation_id TEXT");
+  db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_guests_invitation_id ON guests(invitation_id)");
   // V1.2.12：变更单的「落账人」。审批通过只是批准，真正改预算要另一个人执行（双人复核）
   addColumn("approvals", "executed_by", "executed_by TEXT");
   addColumn("approvals", "executed_at", "executed_at TEXT");
