@@ -87,6 +87,10 @@ test("企业邀请函个人化 PDF + 受邀响应与幂等",async()=>{
   const confirm=await call("","POST","/api/public/prep-invitation/respond",{token:info.token,action:"CONFIRM"});
   assert.equal(confirm.status,200);
   assert.equal(confirm.data.status,"已确认");
+  const project=await call(assoc,"GET","/api/projects/"+p);
+  assert.equal(project.status,200);
+  assert.ok(project.data.guests.some(g=>g.invitation_id===info.invitation.id&&g.name==="华星科技有限公司")===false);
+
   assert.equal((await call("","POST","/api/public/prep-invitation/respond",{token:info.token,action:"CONFIRM"})).data.idempotent,true);
   assert.equal((await call("","POST","/api/public/prep-invitation/respond",{token:info.token,action:"DECLINE"})).status,409);
 });
@@ -120,6 +124,10 @@ test("嘉宾邀请的角色和课题填充，邮箱未配置不能伪称发送�
   const declined=await call("","POST","/api/public/prep-invitation/respond",{token,action:"DECLINE"});
   assert.equal(declined.status,200);
   assert.equal(declined.data.status,"已拒绝");
+  const project=await call(exec,"GET","/api/projects/"+p);
+  assert.equal(project.status,200);
+  assert.ok(project.data.guests.some(g=>g.invitation_id===c.data.invitation.id&&g.name==="王教授"&&g.status==="无法参加"));
+
 });
 
 test("缺失对象、模板类型与非法收件人校验",async()=>{
