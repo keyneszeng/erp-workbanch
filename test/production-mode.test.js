@@ -69,7 +69,7 @@ test("演示数据保留八个账号，但禁止用生产模式接管演示库",
   const data = JSON.parse(demo.stdout.trim().split("\n").pop());
   assert.equal(data.users, 8);
   assert.ok(data.projects > 0);
-  const prod = boot(file, { password: strongPassword });
+  const prod = boot(file, { phone: adminPhone });
   assert.notEqual(prod.status, 0);
   assert.match(prod.stderr, /演示数据/);
 }));
