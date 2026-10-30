@@ -34,7 +34,7 @@ export async function render(root) {
       <div class="chips mt">${roles.map((r) => `<span class="chip"><i>${esc(r.name)}</i><b>${esc(r.scope)}</b></span>`).join("")}</div>
     </div>
 
-    ${state.super ? `<div class="panel danger-zone">
+    ${state.super && state.demo ? `<div class="panel danger-zone">
       <div class="panel-h"><h2>危险操作</h2><span class="hint">仅总管理员可见 · 不可恢复</span></div>
       <div style="padding:14px 16px">
         <div class="reset-warn" style="margin-bottom:12px"><div class="t">重置为出厂数据</div>

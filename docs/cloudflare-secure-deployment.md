@@ -1,35 +1,11 @@
-# Cloudflare Workers 自动部署配置
+# Cloudflare 部署安全说明
 
-**请勿在聊天、Issue、PR、代码文件或 Actions 日志中粘贴 API Token。** 如已通过聊天明文发送，建议吊销该 Token，生成范围最小的新 Token。
+- 生产部署由 GitHub Actions 从 `main` **手动触发**，不再因自动 QA 成功直接推送现有线上环境。
+- 必要 GitHub Actions variable：`ERP_HEALTHCHECK_URL`，设置为实际生产域名的 HTTPS `/api/health` 地址；不可指向演示站。
+- 必要 GitHub Actions secrets：`CLOUDFLARE_API_TOKEN`、`CLOUDFLARE_ACCOUNT_ID`，均使用最小授权；禁止粘贴到聊天、Issue、PR、代码或日志。
+- 生产 Worker Secret：首次空库引导使用 `ERP_BOOTSTRAP_ADMIN_PASSWORD`；邮件配置使用 `ERP_MAIL_CONFIG_KEY`。
+- Cloudflare 生产模式需要 `ERP_DB` Durable Object 和 `ERP_FILES` R2 附件存储；后者当前尚未在仓库默认配置中启用。
+- 当前默认域名 `erp.aibuild.work` 为历史演示环境，生产必须另建独立资源，不能直接切换旧数据库模式。
+- 部署前运行 `npm test`、`npm run cf:build`，部署后确认功能及权限并验证备份和恢复。
 
-## GitHub 仓库凭证（必须在 GitHub Secrets 配置）
-
-在仓库 `Settings → Secrets and variables → Actions → New repository secret` 中分别添加：
-
-| Secret 名称 | 值 |
-| --- | --- |
-| `CLOUDFLARE_API_TOKEN` | Cloudflare 后台创建的 API Token |
-| `CLOUDFLARE_ACCOUNT_ID` | Cloudflare Account ID |
-
-这两个值都通过加密 Secrets 读取；不要提交进 `.github/workflows/*.yml` 或 `wrangler.jsonc`。
-
-Token 应至少覆盖目标账号的 Workers 脚本编辑与目标域名相关的路由/域名发布权限。不要使用全局 API Key。根据 Cloudflare 提示精确收窄作用域。
-
-## 自动部署条件
-
-- `main` 上的 **ERP QA regression** 运行成功后触发 `ERP Cloudflare deployment`；
-- 分支或 PR 的测试成功不能触发正式部署；
-- 部署前重新运行 `npm test`，任何测试失败都阻止发布；
-- 只部署通过测试的精确 Git commit SHA；
-- 通过 `cloudflare/wrangler-action@v4` 执行 `wrangler deploy`；
-- 部署后验证 `https://erp.aibuild.work/api/health`；
-- 两个 Secret 任一个缺失，工作流直接失败，不尝试发布，也不泄露 Secret 值。
-
-可以在 GitHub → Actions → ERP Cloudflare deployment 点击 **Run workflow** 手动重试（仅 main）。
-
-## 边界
-
-- 配置文件：`wrangler.jsonc`，Worker `erp-workbanch`，自定义域名 `erp.aibuild.work`，Durable Object `ERP_DB`。
-- R2 上传绑定当前在 `wrangler.jsonc` 中默认注释；如需要云端照片/PDF 上传，应先按隐私和合规要求配置 R2。部署不应假设 R2 已启用。
-- 本工作流不重置数据库或执行 `seed --reset`。
-- 首次上线前确认 Cloudflare 账户与自定义域名属于该账号，并核对演示数据的备份需求。
+详见 [完整生产部署指南](production-deployment.md)。

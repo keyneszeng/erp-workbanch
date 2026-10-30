@@ -25,13 +25,14 @@ export function makeReq(request, bodyBuffer) {
   const headers = toHeaderObject(request.headers);
   // 必须是原始字节：照片 / PDF 走二进制上传，转成 utf8 字符串会把文件损坏
   const chunks = bodyBuffer && bodyBuffer.byteLength ? [Buffer.from(bodyBuffer)] : [];
-  const clientIp = headers["cf-connecting-ip"] || headers["x-forwarded-for"] || "";
+  const clientIp = headers["cf-connecting-ip"] || "";
 
   return {
     method: request.method,
     url: url.pathname + url.search,
     headers,
     socket: { remoteAddress: clientIp },
+    secure: url.protocol === "https:",
     on(event, fn) {
       if (event === "data") {
         for (const c of chunks) fn(c);

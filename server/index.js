@@ -3,6 +3,7 @@ const http = require("node:http");
 
 const { migrate, DB_FILE } = require("./lib/db");
 const { seed } = require("./lib/seed");
+const { isDemoMode } = require("./lib/runtime");
 const { pruneSessions } = require("./lib/auth");
 const { ROLES } = require("./lib/rbac");
 const { handle } = require("./lib/app");
@@ -30,7 +31,7 @@ function startLocalServer() {
       `  服务地址   http://${HOST}:${PORT}`,
       `  数据库     ${DB_FILE}`,
       `  种子数据   ${seeded.skipped ? "已存在，跳过" : `已初始化（${seeded.projects} 个项目 / ${seeded.users} 个账号）`}`,
-      "  演示账号   admin / assoc / exec / finance / guest   密码均为 123456",
+      isDemoMode() ? "  演示账号   admin / assoc / exec / finance / guest，密码均为 123456" : "  运行模式   生产 · 不加载演示账号或演示业务数据",
       ""
     ].join("\n");
     console.log(line);

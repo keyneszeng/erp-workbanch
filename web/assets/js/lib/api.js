@@ -92,6 +92,7 @@ export const state = {
   role: null,
   perms: [],
   super: false,
+  demo: false,
   meta: null,
   route: "dashboard",
   cache: {}

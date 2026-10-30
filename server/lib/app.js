@@ -50,7 +50,8 @@ const SECURITY_HEADERS = {
 
 /** 请求是不是走的 https —— 决定 Cookie 要不要加 Secure */
 function isSecureRequest(req, url) {
-  const proto = String(req.headers["x-forwarded-proto"] || "").split(",")[0].trim();
+  if (req.secure === true) return true;
+  const proto = process.env.ERP_TRUST_PROXY === "1" ? String(req.headers["x-forwarded-proto"] || "").split(",")[0].trim() : "";
   if (proto) return proto === "https";
   return url.protocol === "https:";
 }
@@ -88,7 +89,7 @@ const router = buildRouter();
 async function handle(req, res) {
   const url = new URL(req.url, `http://${req.headers.host || "localhost"}`);
   const pathname = url.pathname;
-  const ip = (req.headers["x-forwarded-for"] || req.socket?.remoteAddress || "").toString().split(",")[0].trim();
+  const ip = (req.socket?.remoteAddress || "").toString().split(",")[0].trim();
 
   // 每个响应都带安全头（setHeader 与后续 writeHead 的 headers 会合并，writeHead 优先）
   for (const [k, v] of Object.entries(SECURITY_HEADERS)) res.setHeader(k, v);
@@ -180,7 +181,7 @@ async function handle(req, res) {
       return;
     }
     console.error("[500]", req.method, pathname, err);
-    sendJson(res, 500, { error: { code: "INTERNAL", message: "服务器内部错误：" + err.message } });
+    sendJson(res, 500, { error: { code: "INTERNAL", message: "服务器内部错误，请联系管理员" } });
   }
 }
 

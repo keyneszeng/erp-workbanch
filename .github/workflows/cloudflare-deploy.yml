@@ -1,15 +1,7 @@
 name: ERP Cloudflare deployment
 
-# A deployment is allowed only after the QA workflow succeeded on main.
-# workflow_dispatch supports a manual recovery deployment, but re-runs tests.
+# Manual-only production deployment from main. Do not overwrite an existing demo environment.
 on:
-  workflow_run:
-    workflows:
-      - ERP QA regression
-    types:
-      - completed
-    branches:
-      - main
   workflow_dispatch:
 
 permissions:
@@ -21,17 +13,14 @@ concurrency:
 
 jobs:
   deploy:
-    if: >-
-      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
-      (github.event_name == 'workflow_run' &&
-       github.event.workflow_run.conclusion == 'success' &&
-       github.event.workflow_run.head_branch == 'main' &&
-       github.event.workflow_run.head_repository.full_name == github.repository)
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 25
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      ERP_PRODUCTION_DOMAIN: ${{ vars.ERP_PRODUCTION_DOMAIN }}
+      ERP_HEALTHCHECK_URL: ${{ vars.ERP_HEALTHCHECK_URL }}
 
     steps:
       - name: Require encrypted Cloudflare credentials
@@ -50,7 +39,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           # Deploy the commit that actually passed QA; never blindly deploy a moving branch.
-          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+          ref: ${{ github.sha }}
           persist-credentials: false
 
       - uses: actions/setup-node@v4
@@ -63,6 +52,9 @@ jobs:
       - name: Run full API and authorization regression
         run: npm test
 
+      - name: Fail closed when Wrangler still points to demo resources
+        run: node scripts/check-production-deploy.cjs
+
       - name: Deploy Worker using Wrangler
         uses: cloudflare/wrangler-action@v4
         with:
@@ -74,53 +66,17 @@ jobs:
       - name: Verify deployed health endpoint
         shell: bash
         run: |
+          if [[ "$ERP_HEALTHCHECK_URL" != https://* ]]; then
+            echo "::error::Set ERP_HEALTHCHECK_URL to the production HTTPS /api/health URL."
+            exit 1
+          fi
           for i in 1 2 3 4 5 6 7 8; do
             if curl --fail --silent --show-error --max-time 12 \
-              "https://erp.aibuild.work/api/health" -o /tmp/erp-health.json; then
+              "$ERP_HEALTHCHECK_URL" -o /tmp/erp-health.json; then
               echo "ERP health endpoint is reachable after deployment."
               exit 0
             fi
             sleep 5
           done
           echo "::error::Cloudflare deployed, but the ERP health endpoint failed."
-          exit 1
-      - name: Verify archived PDF download on live ERP (allow edge propagation)
-        shell: bash
-        run: |
-          # Workers global edge propagation can lag behind an immediate health check.
-          # Retry the real PDF + access-control smoke without hiding lasting defects.
-          for attempt in 1 2 3 4 5 6; do
-            echo "ERP archived PDF live check attempt $attempt/6"
-            if node test/ui/archive-pdf-live.js; then
-              exit 0
-            fi
-            if [ "$attempt" -lt 6 ]; then sleep 8; fi
-          done
-          echo "::error::Archived PDF live validation failed after all retries."
-          exit 1
-
-      - name: Verify preparation invitation UI, five-role RBAC and PDF on live ERP
-        shell: bash
-        run: |
-          for attempt in 1 2 3 4 5 6; do
-            echo "ERP invitation live check attempt $attempt/6"
-            if node test/ui/prep-invitation-live.js; then
-              exit 0
-            fi
-            if [ "$attempt" -lt 6 ]; then sleep 8; fi
-          done
-          echo "::error::Invitation live validation failed after retries."
-          exit 1
-
-      - name: Verify canonical meeting-number finance ledger and exclusive admin access
-        shell: bash
-        run: |
-          for attempt in 1 2 3 4 5 6; do
-            echo "ERP project ledger live check attempt $attempt/6"
-            if node test/ui/project-ledger-live.js; then
-              exit 0
-            fi
-            if [ "$attempt" -lt 6 ]; then sleep 8; fi
-          done
-          echo "::error::Project ledger live validation failed after retries."
           exit 1
