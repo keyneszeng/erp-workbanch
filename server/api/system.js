@@ -9,6 +9,7 @@ const { VERIFY_STEPS } = require("../lib/constants");
 const { readPaging, countOf } = require("../lib/paginate");
 const { seed, RESET_DATA_TABLES } = require("../lib/seed");
 const { isDemoMode } = require("../lib/runtime");
+const { INITIAL_PASSWORD, normalizePhone, ensureAvailable } = require("../lib/phone-whitelist");
 
 function countsByStatus(user) {
   const { sql, params } = scopeFilter(user);
@@ -328,7 +329,7 @@ const RESET_TABLES = RESET_DATA_TABLES;
 const RESET_LABEL = {
   projects: "项目", users: "账号", payments: "付款单", contracts: "合同",
   settlements: "结算单", materials: "材料", audit_logs: "审计记录",
-  uploaded_files: "上传文件归属", sessions: "登录会话", exports: "导出记录",
+  uploaded_files: "上传文件归属", sessions: "登录会话", exports: "导出记录", sms_challenges: "短信验证码挑战",
   exceptions: "例外单", verify_steps: "核销判定", approvals: "审批记录",
   guests: "嘉宾", tasks: "任务", issues: "异常问题",
   demand_items: "需求明细", demand_sheets: "需求单", project_members: "项目成员",
@@ -382,6 +383,19 @@ function register(router) {
   router.post("/api/users", async (ctx) => {
     assertCan(ctx.user, "user:manage", "只有总管理员可以创建账号");
     const b = ctx.body || {};
+    if (!isDemoMode()) {
+      const phone = normalizePhone(b.phone);
+      if (!String(b.name || "").trim()) throw bad("请填写姓名");
+      if (!ROLES[b.role] || b.role === "admin") throw bad("白名单仅能添加普通业务角色，总管理员由部署时唯一指定");
+      checkUserLen(b);
+      ensureAvailable(phone);
+      const { salt, hash } = hashPassword(INITIAL_PASSWORD);
+      db.prepare("INSERT INTO users (username,name,role,assoc,dept,phone,pass_salt,pass_hash,active,must_change_password,created_at) VALUES (?,?,?,?,?,?,?,?,1,1,?)")
+        .run(phone, String(b.name).trim(), b.role, b.assoc || null, b.dept || "", phone, salt, hash, now());
+      const u = db.prepare("SELECT id,username,name,role,assoc,phone FROM users WHERE phone = ?").get(phone);
+      logAudit({ user: ctx.user, module: "系统配置", action: "加入手机白名单", target: String(u.id), detail: `${u.name} / ${ROLES[b.role].name} / ${phone.slice(0,3)}****${phone.slice(-4)}`, ip: ctx.ip });
+      return { user: u, message: "手机号已加入白名单，初始密码为 123456；首次登录须短信验证并改密" };
+    }
     if (!/^[a-zA-Z0-9_.-]{3,20}$/.test(String(b.username || ""))) throw bad("账号需 3~20 位字母/数字");
     if (!String(b.name || "").trim()) throw bad("请填写姓名");
     if (!ROLES[b.role]) throw bad("角色不合法");
@@ -402,6 +416,46 @@ function register(router) {
     const u = db.prepare("SELECT * FROM users WHERE id = ?").get(Number(ctx.params.id));
     if (!u) throw notFound("用户不存在");
     const b = ctx.body || {};
+    if (!isDemoMode()) {
+      if (u.role === "admin") throw bad("部署时指定的总管理员身份与手机号不可在此处变更");
+      const patch = {};
+      for (const k of ["name", "role", "assoc", "dept", "active"]) {
+        if (k in b && String(b[k] ?? "") !== String(u[k] ?? "")) patch[k] = b[k];
+      }
+      if ("role" in patch && (!ROLES[patch.role] || patch.role === "admin")) throw bad("不能创建或提升其他总管理员");
+      if ("active" in patch) {
+        patch.active = toFlag(patch.active);
+        if (patch.active === null) throw bad("账号状态只能是启用或停用");
+      }
+      if ("name" in patch && !String(patch.name || "").trim()) throw bad("请填写姓名");
+      if ("phone" in b) {
+        const phone = normalizePhone(b.phone);
+        if (phone !== u.phone) {
+          ensureAvailable(phone, u.id);
+          patch.phone = phone;
+          patch.username = phone;
+        }
+      }
+      checkUserLen(patch);
+      const reset = b.resetPassword === true || b.password === INITIAL_PASSWORD;
+      if (b.password && b.password !== INITIAL_PASSWORD) throw bad("白名单账号的重置密码固定为 123456");
+      if (Object.keys(patch).length) {
+        db.prepare(`UPDATE users SET ${Object.keys(patch).map(k => `${k} = ?`).join(", ")} WHERE id = ?`)
+          .run(...Object.values(patch), u.id);
+      }
+      if (reset || patch.phone) {
+        const { salt, hash } = hashPassword(INITIAL_PASSWORD);
+        db.prepare("UPDATE users SET pass_salt = ?, pass_hash = ?, must_change_password = 1, phone_verified_at = NULL WHERE id = ?")
+          .run(salt, hash, u.id);
+        db.prepare("DELETE FROM sms_challenges WHERE user_id = ?").run(u.id);
+      }
+      if (Object.keys(patch).length || reset) {
+        db.prepare("UPDATE users SET token_ver = token_ver + 1 WHERE id = ?").run(u.id);
+        db.prepare("DELETE FROM sessions WHERE user_id = ?").run(u.id);
+        logAudit({ user: ctx.user, module: "系统配置", action: "修改手机白名单", target: String(u.id), detail: `资料/状态更新；重置初始密码：${reset || !!patch.phone}`, ip: ctx.ip });
+      }
+      return { user: db.prepare("SELECT id,username,name,role,assoc,dept,phone,active FROM users WHERE id = ?").get(u.id), message: "白名单已更新" };
+    }
     // active 先归一成 0/1，否则 `{ active: false }` 会在绑定参数时抛 500
     if ("active" in b) {
       const flag = toFlag(b.active);

@@ -15,7 +15,8 @@ function run(config, { domain = "erp-prod.example.org", health = "https://erp-pr
     fs.writeFileSync(file, config, "utf8");
     return spawnSync(process.execPath, [checker], {
       env: { ...process.env, ERP_WRANGLER_CONFIG: file,
-        ERP_PRODUCTION_DOMAIN: domain, ERP_HEALTHCHECK_URL: health },
+        ERP_PRODUCTION_DOMAIN: domain, ERP_HEALTHCHECK_URL: health,
+        ERP_BOOTSTRAP_ADMIN_PHONE: "13800138000", ERP_SMS_PROVIDER: "tencent" },
       encoding: "utf8", timeout: 15000
     });
   } finally {
@@ -60,4 +61,9 @@ test("prod release gate handles JSONC comments without corrupting HTTPS URLs", (
     .replace(/\n\}/, '\n  // allowed deployment config\n}');
   const r = run(text);
   assert.equal(r.status, 0, r.stderr);
+});
+
+test("prod release gate rejects missing admin mobile or mock SMS", () => {
+  const badSms = run(JSON.stringify({ ...candidate, vars: { ERP_SMS_PROVIDER: "test" } }));
+  assert.notEqual(badSms.status, 0);
 });

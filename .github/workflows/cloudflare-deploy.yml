@@ -21,6 +21,8 @@ jobs:
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       ERP_PRODUCTION_DOMAIN: ${{ vars.ERP_PRODUCTION_DOMAIN }}
       ERP_HEALTHCHECK_URL: ${{ vars.ERP_HEALTHCHECK_URL }}
+      ERP_BOOTSTRAP_ADMIN_PHONE: ${{ vars.ERP_BOOTSTRAP_ADMIN_PHONE }}
+      ERP_SMS_PROVIDER: ${{ vars.ERP_SMS_PROVIDER }}
 
     steps:
       - name: Require encrypted Cloudflare credentials

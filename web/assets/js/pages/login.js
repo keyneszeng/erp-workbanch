@@ -27,13 +27,13 @@ export function render(root, onSuccess, { demo = false } = {}) {
     <div class="login-right">
       <div>
         <h2>登录工作台<span style="${demo ? "display:inline-block;" : "display:none;"}margin-left:8px;padding:2px 9px;border-radius:999px;background:#fdf8ec;color:#b7791f;border:1px solid #f0dfb8;font-size:11px;font-weight:600;vertical-align:middle;letter-spacing:0">演示环境 · 数据非真实</span></h2>
-        <div class="hint">使用分配给你的账号登录，权限与数据范围由角色决定${demo ? "；演示数据可由总管理员重置" : ""}</div>
+        <div class="hint">${demo ? "使用演示账号登录" : "仅允许白名单手机号登录；初始密码 123456，首次必须短信验证并改密"}，权限与数据范围由角色决定${demo ? "；演示数据可由总管理员重置" : ""}</div>
       </div>
       <div class="login-err" id="lerr"></div>
       <form id="lform" autocomplete="off">
         <div class="login-field" style="margin-bottom:12px">
-          <label>账号</label>
-          <input name="username" placeholder="如 admin" autocomplete="username">
+          <label>${demo ? "账号" : "白名单手机号"}</label>
+          <input name="username" placeholder="${demo ? "如 admin" : "请输入登记的 11 位手机号码"}" autocomplete="${demo ? "username" : "tel"}" ${demo ? "" : 'inputmode="numeric" maxlength="11"'}>
         </div>
         <div class="login-field">
           <label>密码</label>

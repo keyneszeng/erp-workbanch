@@ -1,6 +1,7 @@
 "use strict";
 const { db } = require("../lib/db");
 const { isDemoMode } = require("../lib/runtime");
+const { sendPasswordCode, consumePasswordCode } = require("../lib/sms");
 const {
   login, publicUser, destroySession, createSession, hashPassword, verifyPassword, validatePassword,
   COOKIE, SESSION_TTL_MS, isThrottled, noteFailure, clearFailures
@@ -21,16 +22,22 @@ function register(router) {
     const r = login(username, password, ctx.ip);
     if (!r) {
       noteFailure(ctx.ip, username);
-      logAudit({ user: null, module: "系统配置", action: "登录失败", target: String(username), detail: "账号或密码错误", ip: ctx.ip });
+      const target = isDemoMode() ? String(username) : String(username).replace(/^(\d{3})\d{4}(\d{4})$/, "$1****$2");
+      logAudit({ user: null, module: "系统配置", action: "登录失败", target, detail: "账号或密码错误", ip: ctx.ip });
       throw new HttpError(401, "INVALID_CREDENTIALS", "账号或密码错误");
     }
     clearFailures(ctx.ip, username);
-    logAudit({ user: r.user, module: "系统配置", action: "登录", target: r.user.username, detail: `角色：${ROLES[r.user.role].name}`, ip: ctx.ip });
+    logAudit({ user: r.user, module: "系统配置", action: "登录", target: isDemoMode() ? r.user.username : String(r.user.id), detail: `角色：${ROLES[r.user.role].name}`, ip: ctx.ip });
     return {
       __cookie: cookieHeader(COOKIE, r.token, { maxAge: Math.floor(SESSION_TTL_MS / 1000), secure: ctx.secure }),
       user: publicUser(r.user),
       role: ROLES[r.user.role]
     };
+  });
+
+  router.post("/api/auth/sms/send", async (ctx) => {
+    if (isDemoMode()) throw new HttpError(404, "NO_ROUTE", "演示环境无需短信校验");
+    return sendPasswordCode(db.prepare("SELECT * FROM users WHERE id = ? AND active = 1").get(ctx.user.id));
   });
 
   router.post("/api/auth/logout", async (ctx) => {
@@ -47,7 +54,7 @@ function register(router) {
    *   3) 清空该用户全部会话行，再给当前这次操作重新签发一个，避免用户改完自己也被踢掉。
    */
   router.post("/api/auth/password", async (ctx) => {
-    const { oldPassword, newPassword, confirmPassword } = ctx.body || {};
+    const { oldPassword, newPassword, confirmPassword, smsCode } = ctx.body || {};
     if (!oldPassword || !newPassword) throw bad("请填写原密码与新密码");
     if (confirmPassword !== undefined && String(confirmPassword) !== String(newPassword)) {
       throw bad("两次输入的新密码不一致");
@@ -58,16 +65,23 @@ function register(router) {
     const u = db.prepare("SELECT * FROM users WHERE id = ?").get(ctx.user.id);
     if (!u) throw new HttpError(404, "NOT_FOUND", "账号不存在");
     if (!verifyPassword(oldPassword, u.pass_salt, u.pass_hash)) {
-      logAudit({ user: ctx.user, module: "系统配置", action: "改密失败", target: u.username, detail: "原密码错误", ip: ctx.ip });
+      logAudit({ user: ctx.user, module: "系统配置", action: "改密失败", target: isDemoMode() ? u.username : String(u.id), detail: "原密码错误", ip: ctx.ip });
       throw new HttpError(400, "BAD_PASSWORD", "原密码不正确");
     }
 
+    // 生产环境必须验证绑定手机号的真实短信验证码；演示环境保持原有改密流程。
+    if (!isDemoMode()) consumePasswordCode(u, smsCode);
     const { salt, hash } = hashPassword(next);
-    db.prepare("UPDATE users SET pass_salt = ?, pass_hash = ?, token_ver = token_ver + 1 WHERE id = ?").run(salt, hash, u.id);
+    if (isDemoMode()) {
+      db.prepare("UPDATE users SET pass_salt = ?, pass_hash = ?, token_ver = token_ver + 1 WHERE id = ?").run(salt, hash, u.id);
+    } else {
+      db.prepare("UPDATE users SET pass_salt = ?, pass_hash = ?, must_change_password = 0, phone_verified_at = ?, token_ver = token_ver + 1 WHERE id = ?")
+        .run(salt, hash, new Date().toISOString(), u.id);
+    }
     db.prepare("DELETE FROM sessions WHERE user_id = ?").run(u.id);
 
     const s = createSession(u.id, ctx.ip);
-    logAudit({ user: ctx.user, module: "系统配置", action: "修改密码", target: u.username, detail: "已失效其它设备登录", ip: ctx.ip });
+    logAudit({ user: ctx.user, module: "系统配置", action: "修改密码", target: isDemoMode() ? u.username : String(u.id), detail: "已失效其它设备登录", ip: ctx.ip });
 
     return {
       __cookie: cookieHeader(COOKIE, s.token, { maxAge: Math.floor(SESSION_TTL_MS / 1000), secure: ctx.secure }),
