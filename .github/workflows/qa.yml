@@ -47,7 +47,14 @@ jobs:
         run: npm install --no-audit --no-fund
       - name: Run complete API regression
         run: npm test
-      - name: Verify Cloudflare Worker bundle compatibility (dry-run only)
+      - name: Assert Cloudflare demo-only config and blocked production deploy
+        run: |
+          node scripts/check-cloudflare-demo.cjs
+          if node scripts/check-production-deploy.cjs; then
+            echo "::error::Production Cloudflare deploy unexpectedly allowed"
+            exit 1
+          fi
+      - name: Verify Cloudflare demo Worker bundle compatibility (dry-run only)
         run: npx --yes wrangler@4 deploy --dry-run --outdir .cf-dist
       - name: Run additional QA authorization suite when present
         if: hashFiles('test/qa-rbac-regression.test.js') != ''
