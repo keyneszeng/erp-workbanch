@@ -109,6 +109,7 @@ function canVisitNav(user, nav) {
   if (!need) return false;
   if (!ROLES[user.role].modules.includes(need)) return false;
   if (nav === "project-ledger") return isSuper(user);
+  if (nav === "prep-invitations") return can(user, "invite:manage");
   if (nav === "approvals") {
     return can(user, "project:approve") || can(user, "verify:exception_approve") || can(user, "payment:approve");
   }
