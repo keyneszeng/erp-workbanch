@@ -1,63 +1,62 @@
 # 协会会议执行 ERP
 
-协会会议执行 ERP 的 Web 工作台及 API 服务。基于 Node.js 22+、SQLite 和原生 ES Module 前端，云端运行时使用 Cloudflare Workers + Durable Objects。覆盖会议立项审批、筹备执行、材料收集、合同与嘉宾邀请、六步核销、付款结算、数字归档和审计。
+协会会议执行 ERP 的 Web 工作台、API 和微信嘉宾邀请确认入口。核心后端为 Node.js 22+ / SQLite，前端为原生 ES Module SPA，覆盖会议立项审批、筹备执行、合同和材料、核销、结算归档及审计。
 
-## 业务模块
+## 环境边界（必须遵守）
 
-- 会议项目与九状态流转、审批中心、任务和会务需求
-- 合同台账、企业邀请和嘉宾邀请、PDF 预览、邮件及微信配置
-- 六步核销门禁、付款结算与总管理员项目财务台账
-- 五类角色的权限与数据范围：总管理员、协会管理员、会务执行、财务核销、普通用户/嘉宾
-- 文件上传及下载、归档、审计日志、CSV/PDF 导出
+| 环境 | 用途 | 部署位置 | 数据 |
+|---|---|---|---|
+| **演示版** | 界面体验与测试数据 | **Cloudflare：`erp.aibuild.work`** | 专用演示账号与演示项目 |
+| **生产版** | 真实用户和真实业务 | **阿里云 ECS Linux 服务器（未来上线）** | 独立持久化 SQLite、附件目录、真实短信 |
+| Vercel | 临时演示 | Vercel Serverless | 临时实例数据库，不承担生产 |
 
-## 环境隔离
+**生产代码不得部署在 Cloudflare。** 仓库的 Cloudflare 工作流已移除部署步骤；Worker / Durable Object 遇到非 `ERP_DEMO_MODE=1` 会拒绝服务，旧的 `npm run cf:deploy` 入口永久拒绝执行。现有 `erp.aibuild.work` 演示站不会因代码合并自动更新。未来如果更新演示站，也应使用独立且经过审查的演示交付流程，禁止上传真实客户数据、生产配置和密钥。
 
-**生产模式为默认值**（不设置 `ERP_DEMO_MODE` 或设为 `0`）。空数据库首次启动只创建一个 `admin` 管理员账号，需要提供至少 12 位、同时包含字母和数字的 `ERP_BOOTSTRAP_ADMIN_PASSWORD`。不加载任何演示项目或弱口令账号，管理端也不会提供整库重置功能。
+## 生产账号和短信登录
 
-**演示模式须显式开启 `ERP_DEMO_MODE=1`**。保留原始演示账号、角色、示例项目和演示业务数据，包括 `admin`、`assoc`、`exec`、`finance`、`guest`、`zhaolei`、`sunqian`、`zhoutao`，演示账号初始密码均为 `123456`。这些凭据只能访问完全隔离的演示库。
+- 首次初始化必须提供总管理员手机号码 `ERP_BOOTSTRAP_ADMIN_PHONE`，只能创建该管理员。
+- 仅总管理员可录入其他角色的手机号白名单、停用或重置账号；手机号是正式登录账号，不开放注册。
+- 白名单账号统一初始密码为 `123456`；首次登录被强制要求短信验证并改密后才允许访问业务接口。后续改密同样需要原密码和短信验证码。
+- 正式短信接口现采用**腾讯云 SMS**。生产服务器部署到阿里云 ECS **并不要求短信必须使用阿里云供应商**；更换短信供应商需要独立开发并验收。
+- 演示模式保留原有 `admin`、`assoc`、`exec`、`finance`、`guest`、`zhaolei`、`sunqian`、`zhoutao` 8 个账号及 18 个演示项目，密码均为 `123456`。演示账号不能访问真实生产库。
 
-**生产数据库不得复用演示数据库。** 系统会拦截历史演示数据与生产模式混用，禁止用演示重置操作初始化生产环境。数据库迁移须先备份并按独立流程处理。
+## 阿里云 ECS 生产部署准备（未正式上线）
 
-## Node 持久化部署
+部署环境需 Node.js >=22.5、持久化 `/var/lib/erp`、本机 Nginx HTTPS 反向代理、独立生产域名与证书，并在服务启动前安全配置：
 
-Node.js >=22.5，持久化数据目录，以及受信任的 HTTPS 反向代理。
+```bash
+# 仅在已配置服务器的 /etc/erp-workbanch/production.env 后运行。
+# 此命令只检查，不创建实例、不发送短信、不发布服务。
+set -a
+. /etc/erp-workbanch/production.env
+set +a
+npm run prod:check
+```
+
+`deploy/aliyun/` 包含 `systemd` 服务、Nginx HTTPS 和环境配置模板，`scripts/check-aliyun-production.cjs` 是生产上线门禁。强制独立持久化文件目录、安全 Secret、合法总管理员手机号、真实腾讯云短信配置，禁止演示域名和 Cloudflare 生产模式。
+
+**当前尚未实际提供阿里云 ECS 实例、生产域名、生产凭据、短信签名/模板或真实业务环境验收。因此仓库只完成生产部署准备，尚未上线。** 生产环境不直接使用演示数据库；上线前须完成备份恢复、真实短信、财务权限和个人信息合规核查。
+
+详见 [阿里云生产部署指南](docs/production-deployment.md) 和 [Cloudflare 演示环境约束](docs/cloudflare-secure-deployment.md)。
+
+## 开发与质量验证
 
 ```bash
 npm install
-export ERP_BOOTSTRAP_ADMIN_PASSWORD='从密钥管理器注入强密码'
-export ERP_DB='/var/lib/erp/erp.db'
-export ERP_UPLOAD_DIR='/var/lib/erp/uploads'
-npm start
+npm test
+npm run test:cf
+npm run cf:build     # 仅检查 Worker 兼容性，不部署 Cloudflare
 ```
-
-默认监听 `127.0.0.1:8787`；如位于受信任 HTTPS 反向代理后，配置 `ERP_TRUST_PROXY=1`。生产环境须单独配置备份、恢复、日志和监控。
-
-## Cloudflare 生产部署
-
-Cloudflare 由 `ERP_DB` Durable Object SQLite 提供持久化业务存储，生产模式**强制要求**存在 `ERP_FILES` R2 附件绑定及首次引导管理员密码。当前 `wrangler.jsonc` 仍指向现有演示域名 `erp.aibuild.work`，R2 绑定也尚未启用：在准备独立生产资源前**不得直接发布本分支**。
-
-Vercel `/tmp` SQLite 不具备生产持久化条件，`api/index.js` 仅允许显式演示模式。
-
-具体环境配置、上线门禁、备份与现有演示环境迁移注意事项参见 [生产部署指南](docs/production-deployment.md)。
 
 ## 目录
 
-| 目录 | 职责 |
+| 路径 | 用途 |
 |---|---|
-| `server/` | API、业务逻辑、数据库、权限、附件服务 |
-| `web/` | Web SPA 与五角色工作台 |
-| `worker/` | Cloudflare Worker 与 Durable Object 适配 |
-| `miniprogram/` | 微信邀请确认入口，非完整 ERP 小程序 |
-| `docs/` | 产品设计、业务基线和部署文档 |
-| `test/` | 自动化回归与安全校验（只在开发/CI 中执行） |
-| `api/` | 仅演示用途的 Vercel 入口 |
-
-## 质量与发布
-
-```bash
-npm test
-npm run test:cf
-npm run cf:build
-```
-
-回归测试会在独立数据库下显式开启演示模式，不应指向真实业务库。Cloudflare 发布工作流仅支持从 `main` 手动触发。**生产型源码不等同于已通过生产验收**：附件存储、备份恢复、真实邮件/微信邀请、所有权限与财务动作仍须在正式环境逐项验证。
+| `server/` | Node 业务 API、SQLite、短信登录、权限与文件 |
+| `web/` | 前端 Web 工作台 |
+| `worker/` | 仅供 Cloudflare 演示版使用的适配层 |
+| `deploy/aliyun/` | ECS systemd / Nginx / 环境变量模板 |
+| `scripts/` | 阿里云上线校验、Cloudflare 生产发布拦截 |
+| `miniprogram/` | 微信嘉宾邀请确认页，非完整 ERP 小程序 |
+| `api/` | Vercel 临时演示入口 |
+| `test/` | 隔离数据库下的回归测试 |

@@ -14,17 +14,17 @@
 | `server/lib/db.js` | Node SQLite / DO SQLite 的同步接口、表结构、迁移 | 备份、Schema 迁移、故障恢复 |
 | `server/lib/seed.js` | 正式管理员首次引导和独立演示数据集 | 模式互斥、绝不自动覆盖真实数据 |
 | `server/lib/runtime.js` | 生产/演示模式配置 | Secret 注入与环境隔离 |
-| `server/lib/auth.js` | scrypt 口令、会话、限流和吊销 | 真实账号不得使用演示默认密码 |
+| `server/lib/auth.js` | scrypt 口令、会话、限流和吊销 | 生产白名单账号初始密码统一 123456，但首次强制短信验证与修改 |
 | `server/lib/rbac.js` | 角色、动作权限、数据范围 | API 服务端必须校验，不能只靠菜单 |
 | `server/lib/workflow.js` | 会议流转与业务门禁 | 重要审批和结算动作不能绕过 |
-| `server/lib/storage.js` / `ooxml.js` | 文件存储、附件类型及 Office 文档校验 | R2/持久化磁盘、附件访问控制 |
+| `server/lib/storage.js` / `ooxml.js` | 文件存储、附件类型及 Office 文档校验 | 阿里云生产持久化磁盘、演示 R2（可选）、附件访问控制 |
 | `server/lib/prep-*.js` | 邀请函配置、邮件凭据和模板生成 | 发信密钥、正式模板、个人信息 |
 | `server/api/` | HTTP 业务接口模块 | 身份、权限、事务、审计、错误处理 |
 | `web/index.html` / `web/assets/` | 原生 SPA、页面、组件、样式 | 生产不展示演示登录入口 |
-| `worker/` | Cloudflare Worker、DO、Node 请求适配 | 持久化 DO 和 R2 绑定 |
+| `worker/` | Cloudflare Worker、DO、Node 请求适配 | 仅演示数据与 ERP_DEMO_MODE=1，禁止生产部署 |
 | `api/index.js` / `vercel.json` | Vercel 演示型入口 | 临时数据库不允许正式生产 |
 | `miniprogram/` | 微信邀请确认页 | 正式 AppID、审核、真实入口 |
-| `.github/workflows/` | CI 回归及手动 Cloudflare 发布 | 校验通过后才允许人工发布 |
+| `.github/workflows/` | CI 回归与 Cloudflare 演示配置检查，不部署 | 校验通过后才允许人工发布 |
 | `test/` | API、权限、流程、文件和安全自动回归 | 仅开发/CI 使用，不随前端静态资源发布 |
 
 ## API 业务模块
@@ -47,9 +47,9 @@
 
 ## 数据与账号
 
-- 正式首次空库：仅创建账号 `admin`，强密码来自 `ERP_BOOTSTRAP_ADMIN_PASSWORD`；默认不自动生成项目、合同和财务数据。
+- 正式首次空库：只创建手机号 `ERP_BOOTSTRAP_ADMIN_PHONE` 对应的总管理员，初始密码为 `123456`，首次强制短信核验及改密；不生成演示业务数据。
 - 演示数据库：显式 `ERP_DEMO_MODE=1`，保留 `admin`、`assoc`、`exec`、`finance`、`guest`、`zhaolei`、`sunqian`、`zhoutao` 八个账号及示例会议、资料、审批、付款数据。
-- 正式库与演示库必须使用独立 SQLite / Durable Object 存储；禁止复用或直接重置。
+- 正式库使用阿里云 ECS 本地持久化 SQLite + 附件目录；Cloudflare Durable Object 仅存演示数据，禁止复用或直接重置。
 
 ## 保留的产品资料
 
@@ -66,9 +66,9 @@
 
 ## 尚未完成的生产环境验收
 
-1. Cloudflare 正式 R2 桶、独立 Durable Object / Worker / 域名配置。
+1. 阿里云 ECS 实例、HTTPS/备案、生产独立域名、持久化数据库和附件配置。
 2. 真实组织授权、个人信息和会议资料处理的合规核查。
-3. SQLite/DO 数据与附件的定期备份、恢复演练和回滚方案。
+3. 阿里云 ECS SQLite 与附件的定期备份、恢复演练和回滚方案。
 4. 真实邮件/微信渠道投递与小程序正式审核、完整业务客户端开发。
 5. 性能容量与并发、日志监控、告警、角色权限和全流程人工业务验收。
 
