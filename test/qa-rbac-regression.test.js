@@ -51,7 +51,7 @@ before(async () => {
   }
   proc = spawn(process.execPath, ["--experimental-sqlite", "server/index.js"], {
     cwd: path.join(__dirname, ".."),
-    env: { ...process.env, ERP_PORT: String(PORT), ERP_DB: DB },
+    env: { ...process.env, ERP_PORT: String(PORT), ERP_DB: DB, ERP_DEMO_MODE: "1" },
     stdio: ["ignore", "pipe", "pipe"]
   });
   proc.stderr.on("data", (d) => {
