@@ -19,6 +19,8 @@ jobs:
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      ERP_PRODUCTION_DOMAIN: ${{ vars.ERP_PRODUCTION_DOMAIN }}
+      ERP_HEALTHCHECK_URL: ${{ vars.ERP_HEALTHCHECK_URL }}
 
     steps:
       - name: Require encrypted Cloudflare credentials
@@ -50,6 +52,9 @@ jobs:
       - name: Run full API and authorization regression
         run: npm test
 
+      - name: Fail closed when Wrangler still points to demo resources
+        run: node scripts/check-production-deploy.cjs
+
       - name: Deploy Worker using Wrangler
         uses: cloudflare/wrangler-action@v4
         with:
@@ -59,8 +64,6 @@ jobs:
           command: deploy
 
       - name: Verify deployed health endpoint
-        env:
-          ERP_HEALTHCHECK_URL: ${{ vars.ERP_HEALTHCHECK_URL }}
         shell: bash
         run: |
           if [[ "$ERP_HEALTHCHECK_URL" != https://* ]]; then
