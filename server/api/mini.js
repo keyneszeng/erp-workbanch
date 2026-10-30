@@ -94,8 +94,9 @@ function register(router) {
     const next = user.must_change_password
       ? validatePassword(newPassword, { oldPassword: password, label: "新密码" })
       : null;
+    // Incorrect attempts must persist, not roll back with the business transaction.
+    consumePasswordCode(user, smsCode);
     transaction(() => {
-      consumePasswordCode(user, smsCode);
       if (!existing) {
         db.prepare("INSERT INTO mini_bindings(openid,user_id,bound_at) VALUES (?,?,?)")
           .run(openid, user.id, new Date().toISOString());
@@ -141,8 +142,9 @@ function register(router) {
     if (!user || !verifyPassword(oldPassword || "", user.pass_salt, user.pass_hash))
       throw new HttpError(400, "BAD_PASSWORD", "原密码不正确");
     const next = validatePassword(newPassword, { oldPassword, label: "新密码" });
+    // Preserve SMS failure counters even when verification fails.
+    consumePasswordCode(user, smsCode);
     transaction(() => {
-      consumePasswordCode(user, smsCode);
       const hp = hashPassword(next);
       db.prepare("UPDATE users SET pass_salt=?,pass_hash=?,must_change_password=0,phone_verified_at=?,token_ver=token_ver+1 WHERE id=?")
         .run(hp.salt, hp.hash, new Date().toISOString(), user.id);
