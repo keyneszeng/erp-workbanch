@@ -1,5 +1,6 @@
 "use strict";
 const { db } = require("../lib/db");
+const { isDemoMode } = require("../lib/runtime");
 const {
   login, publicUser, destroySession, createSession, hashPassword, verifyPassword, validatePassword,
   COOKIE, SESSION_TTL_MS, isThrottled, noteFailure, clearFailures
@@ -75,10 +76,11 @@ function register(router) {
   });
 
   router.get("/api/auth/me", async (ctx) => {
-    if (!ctx.user) return { user: null };
+    if (!ctx.user) return { user: null, demo: isDemoMode() };
     const role = ROLES[ctx.user.role];
     return {
       user: publicUser(ctx.user),
+      demo: isDemoMode(),
       role: { ...role, key: ctx.user.role },
       perms: Object.keys(PERMS).filter((p) => can(ctx.user, p)),
       super: isSuper(ctx.user)

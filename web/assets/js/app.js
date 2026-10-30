@@ -216,15 +216,16 @@ async function doLogout() {
   state.user = null;
   document.getElementById("app").hidden = true;
   document.getElementById("login").style.display = "";
-  login.render(document.getElementById("login"), boot);
+  login.render(document.getElementById("login"), boot, { demo: state.demo });
 }
 
 async function boot() {
   const me = await api.get("/api/auth/me");
+  state.demo = !!me.demo;
   if (!me.user) {
     document.getElementById("app").hidden = true;
     document.getElementById("login").style.display = "";
-    login.render(document.getElementById("login"), boot);
+    login.render(document.getElementById("login"), boot, { demo: state.demo });
     return;
   }
   state.user = me.user;

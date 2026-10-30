@@ -8,6 +8,7 @@ const { listProjects } = require("./projects");
 const { VERIFY_STEPS } = require("../lib/constants");
 const { readPaging, countOf } = require("../lib/paginate");
 const { seed, RESET_DATA_TABLES } = require("../lib/seed");
+const { isDemoMode } = require("../lib/runtime");
 
 function countsByStatus(user) {
   const { sql, params } = scopeFilter(user);
@@ -535,6 +536,7 @@ function register(router) {
    * 而不是点完才发现删多了。
    */
   router.get("/api/admin/reset-preview", async (ctx) => {
+    if (!isDemoMode()) throw notFound("接口不存在");
     if (!isSuper(ctx.user)) throw forbidden("只有总管理员可以查看重置预览");
     const counts = resetSnapshot();
     return {
@@ -545,6 +547,7 @@ function register(router) {
   });
 
   router.post("/api/admin/reset", async (ctx) => {
+    if (!isDemoMode()) throw notFound("接口不存在");
     if (!isSuper(ctx.user)) throw forbidden("只有总管理员可以重置演示数据");
     const b = ctx.body || {};
     if (String(b.confirm || "") !== "RESET-ALL-DATA") {

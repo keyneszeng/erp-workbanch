@@ -9,7 +9,7 @@ const DEMO = [
   ["guest", "普通用户 / 嘉宾", "仅本人数据"]
 ];
 
-export function render(root, onSuccess) {
+export function render(root, onSuccess, { demo = false } = {}) {
   root.innerHTML = `<div class="login-box">
     <div class="login-left">
       <div>
@@ -26,8 +26,8 @@ export function render(root, onSuccess) {
     </div>
     <div class="login-right">
       <div>
-        <h2>登录工作台<span style="display:inline-block;margin-left:8px;padding:2px 9px;border-radius:999px;background:#fdf8ec;color:#b7791f;border:1px solid #f0dfb8;font-size:11px;font-weight:600;vertical-align:middle;letter-spacing:0">演示环境 · 数据非真实</span></h2>
-        <div class="hint">使用分配给你的账号登录，权限与数据范围由角色决定；演示数据可被总管理员重置</div>
+        <h2>登录工作台<span style="${demo ? "display:inline-block;" : "display:none;"}margin-left:8px;padding:2px 9px;border-radius:999px;background:#fdf8ec;color:#b7791f;border:1px solid #f0dfb8;font-size:11px;font-weight:600;vertical-align:middle;letter-spacing:0">演示环境 · 数据非真实</span></h2>
+        <div class="hint">使用分配给你的账号登录，权限与数据范围由角色决定${demo ? "；演示数据可由总管理员重置" : ""}</div>
       </div>
       <div class="login-err" id="lerr"></div>
       <form id="lform" autocomplete="off">
@@ -37,16 +37,16 @@ export function render(root, onSuccess) {
         </div>
         <div class="login-field">
           <label>密码</label>
-          <input name="password" type="password" placeholder="演示密码 123456" autocomplete="current-password">
+          <input name="password" type="password" placeholder="${demo ? "演示密码 123456" : "请输入密码"}" autocomplete="current-password">
         </div>
         <button class="login-btn" type="submit" id="lbtn">登 录</button>
       </form>
       <div>
-        <div class="hint" style="margin-bottom:7px">演示账号（点击自动填入，密码均为 123456）</div>
-        <div class="demo-users">${DEMO.map(([u, n, d]) =>
+        <div class="hint" style="${demo ? "" : "display:none;"}margin-bottom:7px">演示账号（点击自动填入，密码均为 123456）</div>
+        <div class="demo-users" style="${demo ? "" : "display:none;"}">${(demo ? DEMO : []).map(([u, n, d]) =>
           `<button class="demo-user" data-u="${u}"><b>${esc(n)}</b><span>${u} · ${esc(d)}</span></button>`).join("")}</div>
       </div>
-      <div class="login-foot">演示环境 · 数据非真实 · v1.2.23 · 所有操作写入审计日志</div>
+      <div class="login-foot">${demo ? "演示环境 · 数据非真实" : "正式业务系统"} · 所有操作写入审计日志</div>
     </div>
   </div>`;
 
