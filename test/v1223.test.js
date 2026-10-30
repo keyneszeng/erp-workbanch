@@ -230,6 +230,7 @@ test("SEC-03 web/_headers 声明了六项安全响应头", async () => {
     assert.match(text, new RegExp(h), `_headers 缺少 ${h}`);
   }
   assert.match(text, /SAMEORIGIN/, "X-Frame-Options 应为 SAMEORIGIN（合同 PDF 用同源 iframe）");
+  assert.match(text, /static\.cloudflareinsights\.com/, "CSP 应放行 Cloudflare Analytics beacon，否则转强制后会拦掉统计");
 });
 
 test("SEC-03 API 响应仍带全部安全头（未被本次改动破坏）", async () => {

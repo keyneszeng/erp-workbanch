@@ -41,7 +41,11 @@ const SECURITY_HEADERS = {
   "Permissions-Policy": "geolocation=(), microphone=(), camera=()",
   "Content-Security-Policy-Report-Only":
     "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; " +
-    "script-src 'self'; frame-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'"
+    // Cloudflare 会往页面注入 Web Analytics 的 beacon（static.cloudflareinsights.com），
+    // 不放进白名单的话，CSP 一旦从 Report-Only 转为强制，统计会被拦掉并刷一片报错。
+    "script-src 'self' https://static.cloudflareinsights.com; " +
+    "connect-src 'self' https://cloudflareinsights.com; " +
+    "frame-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'"
 };
 
 /** 请求是不是走的 https —— 决定 Cookie 要不要加 Secure */
