@@ -1,12 +1,19 @@
 {
   "pages": [
+    "pages/home/index",
+    "pages/bind/index",
+    "pages/projects/index",
+    "pages/project/index",
+    "pages/approvals/index",
+    "pages/materials/index",
+    "pages/account/index",
     "pages/invite/index"
   ],
   "window": {
-    "navigationBarTitleText": "会议邀请函",
+    "navigationBarTitleText": "协会会议 ERP",
     "navigationBarBackgroundColor": "#ffffff",
     "navigationBarTextStyle": "black",
-    "backgroundColor": "#f3f7fc"
+    "backgroundColor": "#f5f7fb"
   },
   "style": "v2",
   "sitemapLocation": "sitemap.json"

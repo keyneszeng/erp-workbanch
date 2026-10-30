@@ -1,0 +1,10 @@
+<view class="wrap"><view class="card">
+<view wx:if="{{error}}" class="error">{{error}}</view>
+<block wx:if="{{p}}"><view class="heading">{{p.name}}</view>
+<view class="field">项目编号：{{p.id}}</view><view class="field">协会：{{p.assoc}}</view>
+<view class="field">日期：{{p.date}}</view><view class="field">状态：{{p.status}}</view>
+<view class="field">负责人：{{p.owner}}</view>
+<view class="field">会议形式：{{p.form}}</view>
+<view class="field">会议议程：{{p.agenda}}</view>
+<button wx:if="{{canMaterials}}" class="btn primary" bindtap="materials">上传项目材料 / 照片</button>
+</block></view></view>

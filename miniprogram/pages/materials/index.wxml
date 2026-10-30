@@ -1,0 +1,9 @@
+<view class="wrap"><view class="card"><view class="heading">材料归档 · 上传照片</view>
+<view class="muted">仅开放图片采集。文件类型校验、项目权限和归档规则统一由阿里云后端执行。</view>
+<picker mode="selector" range="{{projects}}" range-key="name" value="{{index}}" bindchange="select">
+<view class="field">所属项目：{{projects[index].name||'请选择项目'}} ▾</view></picker>
+<input class="field" placeholder="类别，例如：会议照片 / 讲者照片" data-key="kind" value="{{kind}}" bindinput="input"/>
+<input class="field" placeholder="材料名称" data-key="name" value="{{name}}" bindinput="input"/>
+<view wx:if="{{error}}" class="error">{{error}}</view><view wx:if="{{uploaded}}" class="muted">{{uploaded}}</view>
+<button class="btn primary" loading="{{busy}}" disabled="{{busy}}" bindtap="addPhoto">拍照或选图并归档</button>
+</view></view>

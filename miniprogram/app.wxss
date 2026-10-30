@@ -1,11 +1,7 @@
-page{background:#f3f7fc;color:#142d51;font-family:-apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif}
-.wrap{padding:28rpx;padding-bottom:calc(40rpx + env(safe-area-inset-bottom))}
-.card{background:#fff;border-radius:26rpx;padding:34rpx;border:1rpx solid #d9e5f3}
-.heading{font-size:38rpx;font-weight:700;line-height:1.45;margin:12rpx 0}
-.subtitle{font-size:26rpx;color:#7286a0;margin-bottom:28rpx}
-.body{white-space:pre-wrap;line-height:1.85;font-size:28rpx}
-.note{font-size:23rpx;color:#7187a2;margin-top:24rpx}
-.btn{margin-top:18rpx;background:#eaf4ff;color:#1067c6;border-radius:16rpx}
-.btn.primary{background:#1169d6;color:#fff}
-.status{padding:24rpx;background:#e9f5ff;color:#155eae;border-radius:12rpx;margin:18rpx 0;font-size:25rpx}
-.error{background:#fff0f0;color:#c33434}
+page{background:#f5f7fb;color:#172339;font-size:30rpx}
+.wrap{padding:28rpx}.card{background:#fff;border-radius:18rpx;margin:0 0 22rpx;padding:28rpx;box-shadow:0 2rpx 12rpx #152c4710}
+.heading{font-size:38rpx;font-weight:650;margin-bottom:18rpx}.title{font-size:34rpx;font-weight:600;margin:12rpx 0}
+.muted{color:#718096;font-size:25rpx}.error{color:#be2535;font-size:26rpx;margin:18rpx 0}.field{padding:22rpx 0;border-bottom:1rpx solid #edf0f5}
+.btn{margin:16rpx 0;background:#eaf0fc;color:#2650a9}.primary{background:#1954bd;color:#fff}
+.row{display:flex;justify-content:space-between;align-items:center;gap:12rpx}.tag{font-size:24rpx;color:#3761a1}
+.item{padding:20rpx 4rpx;border-top:1rpx solid #eff1f5}.space{height:18rpx}

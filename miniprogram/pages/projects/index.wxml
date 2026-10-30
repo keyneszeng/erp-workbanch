@@ -1,0 +1,8 @@
+<view class="wrap"><view class="card"><view class="heading">会议项目</view>
+<view class="muted">仅列出当前角色权限范围内的会议。共 {{total}} 个。</view>
+<view wx:if="{{error}}" class="error">{{error}}</view>
+<view class="item" wx:for="{{rows}}" wx:key="id" data-id="{{item.id}}" bindtap="open">
+ <view class="row"><text>{{item.name}}</text><text class="tag">{{item.status}}</text></view>
+ <view class="muted">{{item.date}} · {{item.assoc}} · {{item.id}}</view>
+</view><view wx:if="{{loading}}" class="muted">正在加载…</view>
+</view></view>
