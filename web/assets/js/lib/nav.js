@@ -18,7 +18,7 @@ export const NAV = [
     { k: "projects", n: "会议项目" },
     { k: "approvals", n: "审批中心", need: () => can("project:approve") || can("verify:exception_approve") || can("payment:approve") },
     { k: "contracts", n: "合同台账", need: () => state.role.modules.includes("prep") },
-    { k: "prep-invitations", n: "企业邀请（招商）/嘉宾邀请", need: () => state.role.modules.includes("prep") }
+    { k: "prep-invitations", n: "企业邀请（招商）/嘉宾邀请", need: () => can("invite:manage") }
   ] },
   { k: "demand", n: "会务需求", items: [{ k: "demand", n: "需求确认" }] },
   { k: "verify", n: "会后核销", items: [{ k: "verify", n: "核销看板" }] },
