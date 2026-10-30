@@ -1,0 +1,9 @@
+<view class="wrap"><view class="card"><view class="heading">我的待审批</view>
+<view wx:if="{{error}}" class="error">{{error}}</view>
+<view wx:if="{{rows.length===0}}" class="muted">暂无待审批事项</view>
+<view class="item" wx:for="{{rows}}" wx:key="id">
+ <view class="title">{{item.title}}</view>
+ <view class="muted">{{item.type}} · {{item.pname}} · {{item.id}}</view>
+ <button class="btn primary" disabled="{{busy}}" data-id="{{item.id}}" data-approve="yes" bindtap="decide">审批通过</button>
+ <button class="btn" disabled="{{busy}}" data-id="{{item.id}}" data-approve="no" bindtap="decide">驳回</button>
+</view></view></view>

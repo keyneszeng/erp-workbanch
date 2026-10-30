@@ -25,7 +25,17 @@ jobs:
           node-version: '22'
       - name: Check key JavaScript syntax
         run: |
+          node --check server/api/mini.js
           node --check server/api/projects.js
+          node --check miniprogram/app.js
+          node --check miniprogram/config.js
+          node --check miniprogram/pages/bind/index.js
+          node --check miniprogram/pages/home/index.js
+          node --check miniprogram/pages/projects/index.js
+          node --check miniprogram/pages/project/index.js
+          node --check miniprogram/pages/approvals/index.js
+          node --check miniprogram/pages/materials/index.js
+          node --check miniprogram/pages/account/index.js
           node --check server/api/finance.js
           node --check server/api/verify.js
           node --check server/api/system.js

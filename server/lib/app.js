@@ -19,7 +19,7 @@ const { isDemoMode } = require("./runtime");
 const HERE = typeof __dirname === "string" ? __dirname : "";
 const WEB_DIR = path.join(HERE, "..", "..", "web");
 
-const PUBLIC = new Set(["/api/auth/login", "/api/health", "/api/auth/me", "/api/public/prep-invitation", "/api/public/prep-invitation-pdf", "/api/public/prep-invitation/respond"]);
+const PUBLIC = new Set(["/api/mini/auth/login", "/api/mini/auth/sms/send", "/api/mini/auth/bind", "/api/auth/login", "/api/health", "/api/auth/me", "/api/public/prep-invitation", "/api/public/prep-invitation-pdf", "/api/public/prep-invitation/respond"]);
 
 /**
  * 安全响应头 —— V1.2.17 SEC-03。
@@ -70,6 +70,7 @@ function buildRouter() {
   // "Dynamic require is not supported"，Worker 启动即失败。
   const modules = [
     require("../api/auth"),
+    require("../api/mini"),
     require("../api/projects"),
     require("../api/verify"),
     require("../api/finance"),
@@ -125,7 +126,10 @@ async function handle(req, res) {
   }
 
   const cookies = parseCookies(req.headers.cookie || "");
-  const token = cookies[COOKIE];
+  const authorization = String(req.headers.authorization || "");
+  const bearer = /^Bearer ([A-Za-z0-9._-]{16,300})$/.exec(authorization);
+  // A supplied Authorization header must never silently fall back to a browser cookie.
+  const token = authorization ? (bearer ? bearer[1] : "") : cookies[COOKIE];
   const user = userByToken(token);
 
   if (!PUBLIC.has(pathname) && !user) {
@@ -135,7 +139,7 @@ async function handle(req, res) {
 
   // 生产初始密码仅用于进入短信改密流程，任何业务接口均禁止绕过。
   if (!isDemoMode() && user && user.must_change_password &&
-      !new Set(["/api/auth/me", "/api/auth/logout", "/api/auth/password", "/api/auth/sms/send"]).has(pathname)) {
+      !new Set(["/api/auth/me", "/api/auth/logout", "/api/auth/password", "/api/auth/sms/send", "/api/mini/auth/me", "/api/mini/auth/logout", "/api/mini/auth/sms/send-password", "/api/mini/auth/password"]).has(pathname)) {
     sendJson(res, 403, { error: { code: "PASSWORD_CHANGE_REQUIRED", message: "请先验证手机号并修改初始密码" } });
     return;
   }

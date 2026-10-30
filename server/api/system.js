@@ -329,7 +329,7 @@ const RESET_TABLES = RESET_DATA_TABLES;
 const RESET_LABEL = {
   projects: "项目", users: "账号", payments: "付款单", contracts: "合同",
   settlements: "结算单", materials: "材料", audit_logs: "审计记录",
-  uploaded_files: "上传文件归属", sessions: "登录会话", exports: "导出记录", sms_challenges: "短信验证码挑战",
+  uploaded_files: "上传文件归属", sessions: "登录会话", exports: "导出记录", sms_challenges: "短信验证码挑战", mini_bindings: "微信账号绑定",
   exceptions: "例外单", verify_steps: "核销判定", approvals: "审批记录",
   guests: "嘉宾", tasks: "任务", issues: "异常问题",
   demand_items: "需求明细", demand_sheets: "需求单", project_members: "项目成员",
@@ -448,6 +448,8 @@ function register(router) {
         db.prepare("UPDATE users SET pass_salt = ?, pass_hash = ?, must_change_password = 1, phone_verified_at = NULL WHERE id = ?")
           .run(salt, hash, u.id);
         db.prepare("DELETE FROM sms_challenges WHERE user_id = ?").run(u.id);
+        // Reset or phone reassignment must revoke a previously linked WeChat OpenID.
+        db.prepare("DELETE FROM mini_bindings WHERE user_id = ?").run(u.id);
       }
       if (Object.keys(patch).length || reset) {
         db.prepare("UPDATE users SET token_ver = token_ver + 1 WHERE id = ?").run(u.id);
