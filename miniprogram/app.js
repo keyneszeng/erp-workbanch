@@ -18,12 +18,17 @@ App({
   },
   api(path, method = "GET", data = null, extraHeaders = {}) {
     if (!/^https:\/\//.test(this.globalData.apiBase) ||
-        /production\.example\.com/.test(this.globalData.apiBase)) {
+        /production\.example\.com/.test(this.globalData.apiBase) ||
+        /^https:\/\/erp\.aibuild\.work(?:\/|$)/i.test(this.globalData.apiBase)) {
       return Promise.reject(new Error("请先配置阿里云 HTTPS 正式 API 域名"));
     }
     const token = this.globalData.token;
     const headers = { "Content-Type": "application/json", ...extraHeaders };
-    if (token) headers.Authorization = "Bearer " + token;
+    // Public invitation links must not transmit employee access tokens.
+    if (token && !path.startsWith("/public/") && !path.startsWith("/mini/auth/login") &&
+        !path.startsWith("/mini/auth/bind") && !path.startsWith("/mini/auth/sms/send")) {
+      headers.Authorization = "Bearer " + token;
+    }
     return new Promise((resolve, reject) => wx.request({
       url: this.globalData.apiBase + path, method, data: data == null ? undefined : data,
       header: headers,
@@ -32,6 +37,9 @@ App({
         const error = new Error(r.data?.error?.message || "请求失败（" + r.statusCode + "）");
         error.code = r.data?.error?.code || "";
         error.status = r.statusCode;
+        // Never reuse a revoked token; do not erase a newer concurrent login.
+        if (r.statusCode === 401 && token && token === this.globalData.token &&
+            !path.startsWith("/public/")) this.clearSession();
         reject(error);
       },
       fail: () => reject(new Error("网络异常，请检查服务器及微信合法域名配置"))
