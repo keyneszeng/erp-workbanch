@@ -277,6 +277,30 @@ function register(router) {
     const p = getProject(b.pid);
     assertProjectVisible(ctx.user, p);
     assertCan(ctx.user, "payment:create", "当前角色无付款申请权限");
+    /**
+     * V1.2.23 NEW-01：门禁先于字段校验。
+     *
+     * 回归测试实测：给「执行中」或「已结算」项目提交付款时，返回的是
+     * 400「开户行为必填项」，而不是 409 VERIFY_GATE / SETTLED —— 用户会以为
+     * 「把账户信息填完就能付」，填完却照样被拦，白白多走一步。
+     *
+     * 门禁是制度结论，字段完整性是表单问题。顺序必须反过来：
+     * 先告诉用户「这个项目现在不能付款」，再谈表单缺什么。
+     * 权限（上面）与数据范围（上面）仍在最前，不存在绕过。
+     */
+    if (p.status === "已归档") {
+      throw conflict("项目已归档，数字卷宗已封存，不可再新增付款", "ARCHIVED", { status: p.status });
+    }
+    if (p.status === "已结算") {
+      throw conflict("项目已生成结算单，账目已封账，不可再新增付款（如需补付请走线下流程并说明）", "SETTLED", { status: p.status });
+    }
+    if (!PAYABLE_STATUS.includes(p.status)) {
+      throw conflict(
+        `付款被拦截：项目「${p.name}」当前状态为「${p.status}」，按制度必须先完成 6 步核销并通过（已核销）才可付款`,
+        "VERIFY_GATE",
+        { status: p.status, verify: verification(p.id).judged + "/6" }
+      );
+    }
     if (!PAYMENT_TYPES.includes(b.type)) throw bad(`付款类型必须是：${PAYMENT_TYPES.join(" / ")}`);
     const payee = String(b.payee || "").trim();
     if (!payee) throw bad("收款方为必填项");
@@ -292,19 +316,6 @@ function register(router) {
     if (!Number.isFinite(amount) || !(amount > 0)) throw bad("付款金额必须大于 0");
     if (amount > 1e9) throw bad("单笔付款金额不能超过 10 亿元");
     if (Number(amount.toFixed(2)) !== amount) throw bad("付款金额最多保留两位小数（精确到分）");
-    if (p.status === "已归档") {
-      throw conflict("项目已归档，数字卷宗已封存，不可再新增付款", "ARCHIVED", { status: p.status });
-    }
-    if (p.status === "已结算") {
-      throw conflict("项目已生成结算单，账目已封账，不可再新增付款（如需补付请走线下流程并说明）", "SETTLED", { status: p.status });
-    }
-    if (!PAYABLE_STATUS.includes(p.status)) {
-      throw conflict(
-        `付款被拦截：项目「${p.name}」当前状态为「${p.status}」，按制度必须先完成 6 步核销并通过（已核销）才可付款`,
-        "VERIFY_GATE",
-        { status: p.status, verify: verification(p.id).judged + "/6" }
-      );
-    }
     // 超预算硬门禁：总管理员可显式 force 特批
     // 比较走「分」，否则 2789.69 + 2600.09 = 5389.780000000001 > 预算 5389.78，
     // 明明正好用尽却报「超预算 ¥0.0000000000000009」。

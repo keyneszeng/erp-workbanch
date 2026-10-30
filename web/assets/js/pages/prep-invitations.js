@@ -7,28 +7,50 @@ let selectedType = "enterprise";
 function emptyMsg(text) {
   return '<div class="panel" style="padding:28px;color:var(--sub)">' + esc(text) + "</div>";
 }
-function recordHtml(x) {
+/**
+ * V1.2.23 NEW-02：按钮跟着渠道就绪状态走。
+ *
+ * 原来无论邮件/微信有没有配置，每行都渲染两个可点按钮，点了才报 503/409。
+ * 现在未就绪时置灰 + title 说明去哪配，用户不用先踩一次坑。
+ * PDF 下载不受影响 —— 渠道没开也能导出后手动发送。
+ */
+function recordHtml(x, channels) {
   const target = x.recipient_org || x.recipient_name || "—";
+  const closed = ["已确认", "已拒绝", "已撤销"].includes(x.status);
+  const emailBtn = channels.email
+    ? ' <button class="link" data-email="' + esc(x.id) + '">邮件发送</button>'
+    : ' <button class="link" disabled title="邮件渠道未启用：请总管理员在「邀请函上线配置」中设置加密凭证、发件邮箱与 HTTPS 公开地址">邮件发送</button>';
+  const shareBtn = channels.wechat
+    ? ' <button class="link" data-share="' + esc(x.id) + '">微信分享路径</button>'
+    : ' <button class="link" disabled title="微信渠道未启用：请总管理员在「邀请函上线配置」中设置正式 AppID 并确认小程序已审核发布">微信分享路径</button>';
   return '<tr><td class="mono">' + esc(x.id) + '</td><td>' + esc(x.template_name) +
     '</td><td>' + esc(target) + '</td><td>' + esc(x.status) + '</td><td>' +
     (x.sent_at ? esc(x.sent_at.slice(0,16)) : "—") +
     '</td><td><button class="link" data-pdf="' + esc(x.id) + '">下载 PDF</button>' +
-    (["已确认","已拒绝","已撤销"].includes(x.status) ? "" :
-      ' <button class="link" data-email="' + esc(x.id) + '">邮件发送</button>' +
-      ' <button class="link" data-share="' + esc(x.id) + '">微信分享路径</button>') + "</td></tr>";
+    (closed ? "" : emailBtn + shareBtn) + "</td></tr>";
+}
+
+function channelNote(channels) {
+  const missing = [];
+  if (!channels.email) missing.push("邮件（需加密凭证 + 发件邮箱 + HTTPS 公开地址）");
+  if (!channels.wechat) missing.push("微信（需正式 AppID + 小程序已发布）");
+  if (!missing.length) return "";
+  return '<p class="hint" style="padding:8px 14px">渠道未启用：' + esc(missing.join("；")) +
+    '。对应按钮已置灰，可先「下载 PDF」手动发送。</p>';
 }
 
 export async function render(root) {
   const projects = (await api.get("/api/projects")).rows || [];
   const eligible = projects.filter(p=>["已立项","筹备中"].includes(p.status));
   if (!selectedPid || !projects.some(p=>p.id===selectedPid)) selectedPid=(eligible[0]||{}).id||"";
-  let items = [], templates = [];
+  let items = [], templates = [], channels = { email: false, wechat: false };
   if(selectedPid) {
     const [info, rows] = await Promise.all([
       api.get("/api/projects/"+selectedPid+"/prep/templates"),
       api.get("/api/projects/"+selectedPid+"/prep/invitations")
     ]);
     items=rows.rows; templates=info.templates;
+    channels=rows.channels || { email: false, wechat: false };
   }
   root.innerHTML = '<div class="phead"><div><h2>会议项目 · 筹备邀请</h2>' +
     '<p>立项通过后自动匹配企业邀请（招商）与嘉宾邀请函模板；负责人填写受邀名头即可生成 PDF。</p></div></div>' +
@@ -50,8 +72,9 @@ export async function render(root) {
       '<button id="makeInvitation" class="btn btn-p">生成专属 PDF 邀请函</button>' +
       '<p class="hint">项目名称、协会、会议日期、形式、议程及负责人从会议项目自动填充。生成时保存文档快照；不会自动发送。</p></div>' +
       '<div class="panel"><div class="panel-h"><h2>历史邀请函与发送记录</h2></div>' +
+      channelNote(channels) +
       '<div class="table-wrap"><table><thead><tr><th>邀请编号</th><th>模板</th><th>受邀对象</th><th>状态</th><th>发送时间</th><th>操作</th></tr></thead><tbody>' +
-      items.map(recordHtml).join("") + '</tbody></table></div></div>' : "");
+      items.map(x=>recordHtml(x,channels)).join("") + '</tbody></table></div></div>' : "");
   if (!selectedPid) return;
   root.querySelector("#prepPid").onchange=e=>{ selectedPid=e.target.value;render(root); };
   root.querySelector("#templateType").onchange=e=>{

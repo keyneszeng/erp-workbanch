@@ -22,6 +22,36 @@ function getDeliveryEnv() {
 }
 const prepareStatuses = new Set(["已立项", "筹备中"]);
 
+/**
+ * V1.2.23 NEW-02：把「渠道能不能用」带给前端。
+ *
+ * 回归测试实测：邮件与微信都没配置时，列表里每行仍然渲染「邮件发送」「微信分享路径」，
+ * 点下去才收到 503 MAIL_NOT_CONFIGURED / 409 WECHAT_DISABLED。后端文案没问题，
+ * 但用户已经白点了一次，还会以为系统坏了。
+ *
+ * 口径与「邀请函上线配置」页的 readiness 保持一致：
+ *   邮件 = 渠道已开启 + 有加密密钥 + 有发件地址 + 有 HTTPS 公开地址
+ *   微信 = 渠道已开启 + 有正式 AppID + 已人工确认小程序发布
+ * 这里只回布尔值，不回任何配置细节（密钥、地址都不出服务端）。
+ */
+function channelReadiness() {
+  try {
+    const cfg = liveConfig();
+    let email = false;
+    try {
+      const m = mailDelivery();
+      email = !!(cfg.email_enabled && m.apiKey && m.from && /^https:\/\//.test(String(cfg.public_base_url || "")));
+    } catch {
+      email = false;
+    }
+    const wechat = !!(cfg.wechat_enabled && cfg.mini_appid && cfg.mini_program_verified);
+    return { email, wechat };
+  } catch {
+    // 读配置失败不能让整个列表挂掉：退回「都不可用」，前端只会把按钮置灰
+    return { email: false, wechat: false };
+  }
+}
+
 function requireManager(ctx, id, allowView = false) {
   const p = getProject(id);
   assertProjectVisible(ctx.user, p);
@@ -116,7 +146,8 @@ function register(router) {
   router.get("/api/projects/:id/prep/invitations", async ctx => {
     const p=requireManager(ctx,ctx.params.id,true);
     const rows=db.prepare("SELECT * FROM prep_invitations WHERE pid=? ORDER BY created_at DESC,id DESC").all(p.id);
-    return { rows:rows.map(summarize), total:rows.length };
+    // channels 供前端置灰按钮：未就绪的渠道不该让用户点了才报错
+    return { rows:rows.map(summarize), total:rows.length, channels:channelReadiness() };
   });
   router.post("/api/projects/:id/prep/invitations", async ctx => {
     const p=requireManager(ctx,ctx.params.id);

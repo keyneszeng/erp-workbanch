@@ -1,0 +1,17 @@
+# 静态资源安全响应头 —— V1.2.23 SEC-03
+#
+# 背景：API 响应由 server/lib/app.js 的 SECURITY_HEADERS 注入，实测 /api/* 六个头齐全；
+# 但首页与 /assets/* 由 Cloudflare 静态资源（ASSETS 绑定）直接返回，
+# run_worker_first 只覆盖 /api/*，这些响应根本没经过 Worker，所以一个头都没有。
+# Cloudflare 支持在静态资源目录放 _headers 声明式补头，本文件即为此用。
+#
+# 规则与 server/lib/app.js 保持一致：
+#   - X-Frame-Options 用 SAMEORIGIN 而非 DENY：合同详情弹窗用 iframe 内嵌同源 PDF
+#   - CSP 仍为 Report-Only：页面存在内联样式与内联 SVG，直接 enforce 会白屏
+/*
+  Strict-Transport-Security: max-age=31536000; includeSubDomains
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: SAMEORIGIN
+  Referrer-Policy: same-origin
+  Permissions-Policy: geolocation=(), microphone=(), camera=()
+  Content-Security-Policy-Report-Only: default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; frame-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'
