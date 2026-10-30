@@ -26,6 +26,10 @@ export class ErpDatabase {
     this.ctx = ctx;
     this.env = env;
 
+    // 永久限制 Cloudflare Durable Object 为演示用途，不能启动生产库。
+    if (String(env?.ERP_DEMO_MODE || "") !== "1") {
+      throw new Error("Cloudflare 只允许演示模式；生产部署请使用阿里云 ECS");
+    }
     configureRuntime(env);
 
     // 把 DO 的 SQL 存储挂到 db 层，之后所有 db.prepare() 都落到这里
@@ -35,9 +39,6 @@ export class ErpDatabase {
     // 文件存储：绑了 R2 就用 R2，否则挂一个明确报错的后端。
     // 不能让默认的 nodeStorage 兜底——Workers 里没有真实文件系统，
     // 那样报出来的错会是一段看不懂的 fs 堆栈。
-    if (!isDemoMode() && !(env && env.ERP_FILES)) {
-      throw new Error("生产模式要求绑定 ERP_FILES 持久化附件存储（R2）");
-    }
     if (env && env.ERP_FILES) {
       attachR2(env.ERP_FILES);
     } else {
