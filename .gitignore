@@ -8,6 +8,9 @@ data/uploads/
 data/*-uploads/
 data/ui-up/
 node_modules/
+# 依赖只有一个且精确锁版本（pdf-lib 1.17.1），CI 走 npm install，
+# 不跟踪 lockfile，避免每次本地安装都把 package-lock.json 变成脏文件
+package-lock.json
 .DS_Store
 *.log
 .cf-dist/

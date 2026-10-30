@@ -1,0 +1,38 @@
+name: ERP October 30 new-module controls
+on:
+  push:
+    branches:
+      - qa/live-five-role-full-20261030
+    paths:
+      - '.github/workflows/new-controls-20261030.yml'
+      - 'test/ui/live-new-controls-20261030.js'
+permissions:
+  contents: read
+jobs:
+  new-controls:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      ERP_BASE: https://erp.aibuild.work
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install Playwright and Chromium
+        run: |
+          npm install --no-save --no-audit --no-fund playwright@1.58.2
+          npx playwright install --with-deps chromium
+      - name: Test live invitation, project ledger and archive PDF buttons
+        shell: bash
+        run: |
+          mkdir -p artifacts/live-new-controls
+          set -o pipefail
+          node test/ui/live-new-controls-20261030.js 2>&1 | tee artifacts/live-new-controls/output.log
+      - name: Save new-module UI evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: erp-20261030-new-controls
+          path: artifacts/live-new-controls/
+          retention-days: 14
