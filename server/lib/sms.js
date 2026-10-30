@@ -88,7 +88,7 @@ async function sendPasswordCode(user) {
   try {
     if (smsSettings().provider === "tencent") await sendTencent(phone, code);
   } catch (e) {
-    db.prepare("DELETE FROM sms_challenges WHERE user_id = ? AND code_hash = ?").run(id, hash);
+    // 保留发送频次记录：供应商故障时也不能利用删除挑战无限重试。
     console.error("短信发送失败", e.message);
     throw new HttpError(503, "SMS_UNAVAILABLE", "验证码暂时无法发送，请稍后重试");
   }
@@ -106,6 +106,7 @@ function consumePasswordCode(user, value) {
   const want = Buffer.from(r.code_hash, "hex");
   const got = Buffer.from(digest(r.salt, r.phone, code), "hex");
   if (want.length !== got.length || !crypto.timingSafeEqual(want, got)) throw bad("短信验证码错误");
-  db.prepare("DELETE FROM sms_challenges WHERE user_id = ?").run(Number(user.id));
+  // 不删除记录，保留当天发送次数并让验证码立刻失效，禁止复用。
+  db.prepare("UPDATE sms_challenges SET code_hash = '', expires_ms = 0 WHERE user_id = ?").run(Number(user.id));
 }
 module.exports = { configured, assertConfigured, sendPasswordCode, consumePasswordCode };

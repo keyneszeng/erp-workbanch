@@ -25,6 +25,8 @@ function requireString(name) {
 function verify() {
   const domain = requireString("ERP_PRODUCTION_DOMAIN").toLowerCase();
   const health = requireString("ERP_HEALTHCHECK_URL");
+  if (!/^1[3-9]\d{9}$/.test(requireString("ERP_BOOTSTRAP_ADMIN_PHONE"))) error("总管理员必须是合法的中国大陆手机号码");
+  if (requireString("ERP_SMS_PROVIDER") !== "tencent") error("生产环境仅允许正式腾讯云短信供应商，不接受模拟验证码");
   if (!/^[a-z0-9.-]+$/.test(domain) || domain.startsWith(".") || domain.endsWith(".")) {
     error("ERP_PRODUCTION_DOMAIN 必须是准确的域名");
   }
@@ -55,6 +57,7 @@ function verify() {
     typeof b.bucket_name === "string" && b.bucket_name.length > 0)) {
     error("缺少真实的 ERP_FILES R2 持久化附件桶绑定");
   }
+  if (conf.vars?.ERP_SMS_PROVIDER === "test" || conf.env?.production?.vars?.ERP_SMS_PROVIDER === "test") error("禁止在生产 Worker 配置模拟短信通道");
   if (conf.vars?.ERP_DEMO_MODE === "1" || conf.env?.production?.vars?.ERP_DEMO_MODE === "1") {
     error("禁止将演示数据模式部署到生产资源");
   }
