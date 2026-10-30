@@ -27,6 +27,15 @@ function check(env = process.env) {
   if (env.ERP_SMS_PROVIDER !== "tencent") fail("正式短信提供商必须配置 ERP_SMS_PROVIDER=tencent");
   for (const key of ["ERP_TENCENT_SECRET_ID","ERP_TENCENT_SECRET_KEY","ERP_TENCENT_SMS_APP_ID",
     "ERP_TENCENT_SMS_SIGN","ERP_TENCENT_SMS_TEMPLATE_ID"]) required(env, key);
+  // WeChat is optional until Mini Program launch; enabling it requires actual credentials.
+  if (env.ERP_MINIPROGRAM_ENABLED === "1") {
+    if (!/^wx[0-9a-f]{16}$/i.test(required(env, "ERP_WECHAT_APP_ID")))
+      fail("ERP_WECHAT_APP_ID 不是有效微信小程序 AppID");
+    required(env, "ERP_WECHAT_APP_SECRET");
+    if (env.ERP_WECHAT_TEST_MODE === "1") fail("生产环境不可启用微信测试身份");
+  } else if (env.ERP_MINIPROGRAM_ENABLED && env.ERP_MINIPROGRAM_ENABLED !== "0") {
+    fail("ERP_MINIPROGRAM_ENABLED 必须为 0 或 1");
+  }
   const secret = required(env, "ERP_SECRET");
   if (secret.length < 32 || new Set(secret).size < 8) fail("ERP_SECRET 必须是独立的高熵随机长密钥，至少 32 字符");
 

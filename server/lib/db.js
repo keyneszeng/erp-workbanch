@@ -52,6 +52,15 @@ CREATE TABLE IF NOT EXISTS sms_challenges (
   day_count INTEGER NOT NULL DEFAULT 0
 );
 
+-- One WeChat Mini Program OpenID binds to one whitelisted staff phone.
+-- Identity mapping is separate from all browser sessions. No session_key persisted.
+CREATE TABLE IF NOT EXISTS mini_bindings (
+  openid TEXT PRIMARY KEY,
+  user_id INTEGER NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+  bound_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_mini_bindings_user ON mini_bindings(user_id);
+
 CREATE TABLE IF NOT EXISTS sessions (
   token       TEXT PRIMARY KEY,
   user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
