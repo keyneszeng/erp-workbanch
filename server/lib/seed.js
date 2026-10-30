@@ -165,7 +165,10 @@ function bootstrapProduction() {
   if (mode === "demo" || legacyDemo) {
     throw new Error("检测到演示数据，生产环境必须使用独立数据库或受控迁移");
   }
-  if (alreadySeeded()) return { skipped: true, mode: "production" };
+  if (alreadySeeded()) {
+    if (mode !== "production") throw new Error("数据库已有账号但缺少生产标记，请先完成受控迁移");
+    return { skipped: true, mode: "production" };
+  }
 
   const password = bootstrapAdminPassword();
   if (password.length < 12) {
