@@ -22,11 +22,12 @@ function register(router) {
     const r = login(username, password, ctx.ip);
     if (!r) {
       noteFailure(ctx.ip, username);
-      logAudit({ user: null, module: "系统配置", action: "登录失败", target: String(username), detail: "账号或密码错误", ip: ctx.ip });
+      const target = isDemoMode() ? String(username) : String(username).replace(/^(\d{3})\d{4}(\d{4})$/, "$1****$2");
+      logAudit({ user: null, module: "系统配置", action: "登录失败", target, detail: "账号或密码错误", ip: ctx.ip });
       throw new HttpError(401, "INVALID_CREDENTIALS", "账号或密码错误");
     }
     clearFailures(ctx.ip, username);
-    logAudit({ user: r.user, module: "系统配置", action: "登录", target: r.user.username, detail: `角色：${ROLES[r.user.role].name}`, ip: ctx.ip });
+    logAudit({ user: r.user, module: "系统配置", action: "登录", target: isDemoMode() ? r.user.username : String(r.user.id), detail: `角色：${ROLES[r.user.role].name}`, ip: ctx.ip });
     return {
       __cookie: cookieHeader(COOKIE, r.token, { maxAge: Math.floor(SESSION_TTL_MS / 1000), secure: ctx.secure }),
       user: publicUser(r.user),
@@ -64,7 +65,7 @@ function register(router) {
     const u = db.prepare("SELECT * FROM users WHERE id = ?").get(ctx.user.id);
     if (!u) throw new HttpError(404, "NOT_FOUND", "账号不存在");
     if (!verifyPassword(oldPassword, u.pass_salt, u.pass_hash)) {
-      logAudit({ user: ctx.user, module: "系统配置", action: "改密失败", target: u.username, detail: "原密码错误", ip: ctx.ip });
+      logAudit({ user: ctx.user, module: "系统配置", action: "改密失败", target: isDemoMode() ? u.username : String(u.id), detail: "原密码错误", ip: ctx.ip });
       throw new HttpError(400, "BAD_PASSWORD", "原密码不正确");
     }
 
@@ -80,7 +81,7 @@ function register(router) {
     db.prepare("DELETE FROM sessions WHERE user_id = ?").run(u.id);
 
     const s = createSession(u.id, ctx.ip);
-    logAudit({ user: ctx.user, module: "系统配置", action: "修改密码", target: u.username, detail: "已失效其它设备登录", ip: ctx.ip });
+    logAudit({ user: ctx.user, module: "系统配置", action: "修改密码", target: isDemoMode() ? u.username : String(u.id), detail: "已失效其它设备登录", ip: ctx.ip });
 
     return {
       __cookie: cookieHeader(COOKIE, s.token, { maxAge: Math.floor(SESSION_TTL_MS / 1000), secure: ctx.secure }),

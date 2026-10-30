@@ -65,6 +65,7 @@ test("生产：手机号唯一、首次强制改密、短信验证、只有总�
   assert.equal((await call("GET", "/api/auth/me", null, oldCookie)).data.user, null, "旧会话被吊销");
   const freshCookie = change.cookie;
   assert.equal((await call("GET", "/api/auth/me", null, freshCookie)).data.user.mustChangePassword, false);
+  assert.equal((await call("POST", "/api/auth/password", { oldPassword: "StrongAdmin9876", newPassword: "AnotherStrong2026", smsCode: "654321" }, freshCookie)).status, 400, "已使用的验证码不可再次用来改密");
   assert.equal((await login(ROOT, "123456")).status, 401, "初始密码不可再次使用");
   assert.equal((await login(ROOT, "StrongAdmin9876")).status, 200);
 

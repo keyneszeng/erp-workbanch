@@ -422,7 +422,7 @@ function register(router) {
       for (const k of ["name", "role", "assoc", "dept", "active"]) {
         if (k in b && String(b[k] ?? "") !== String(u[k] ?? "")) patch[k] = b[k];
       }
-      if (patch.role && (!ROLES[patch.role] || patch.role === "admin")) throw bad("不能创建或提升其他总管理员");
+      if ("role" in patch && (!ROLES[patch.role] || patch.role === "admin")) throw bad("不能创建或提升其他总管理员");
       if ("active" in patch) {
         patch.active = toFlag(patch.active);
         if (patch.active === null) throw bad("账号状态只能是启用或停用");
