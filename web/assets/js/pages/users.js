@@ -7,13 +7,13 @@ export async function render(root) {
   const manage = can("user:manage");
 
   root.innerHTML = `<div class="phead">
-      <div><h2>用户与权限</h2><p>角色决定模块可见性与动作权限；总管理员为超级角色，拥有全部权限与全平台数据</p></div>
-      <div class="acts">${manage ? '<button class="btn btn-p" id="newU">+ 新建账号</button>' : ""}</div>
+      <div><h2>${state.demo ? "用户与权限" : "手机号白名单与权限"}</h2><p>${state.demo ? "角色决定模块可见性与动作权限；总管理员为超级角色，拥有全部权限与全平台数据" : "仅部署指定的总管理员可维护手机白名单；统一初始密码 123456，首次须短信改密"}</p></div>
+      <div class="acts">${manage ? '<button class="btn btn-p" id="newU">+ ${state.demo ? "新建账号" : "录入手机号"}</button>' : ""}</div>
     </div>
 
     <div class="panel">
       <div class="panel-h"><h2>账号列表</h2><span class="hint">${d.rows.length} 个账号</span></div>
-      ${table([{ t: "姓名", w: "90px" }, { t: "账号", w: "110px" }, { t: "角色", w: "130px" }, { t: "所属协会", w: "130px" },
+      ${table([{ t: "姓名", w: "90px" }, { t: state.demo ? "账号" : "白名单手机号", w: "140px" }, { t: "角色", w: "130px" }, { t: "所属协会", w: "130px" },
         { t: "部门", w: "90px" }, { t: "状态", w: "70px" }, { t: "创建时间", w: "130px" }, { t: "操作", w: "110px" }],
         d.rows.map((u) => ({
           c: [esc(u.name), `<span class="mono">${esc(u.username)}</span>`,
@@ -58,22 +58,22 @@ export async function render(root) {
 
 function openCreate(root, roles) {
   const fields = [
-    { k: "username", l: "登录账号", req: 1, ph: "3~20 位字母/数字" },
+    ...(state.demo ? [{ k: "username", l: "登录账号", req: 1, ph: "3~20 位字母/数字" }] : []),
     { k: "name", l: "姓名", req: 1 },
-    { k: "role", l: "角色", t: "select", req: 1, opts: roles.map((r) => ({ v: r.key, l: r.name })) },
+    { k: "role", l: "角色", t: "select", req: 1, opts: roles.filter((r) => state.demo || !r.super).map((r) => ({ v: r.key, l: r.name })) },
     { k: "assoc", l: "所属协会", t: "select", opts: [{ v: "", l: "（全平台）" }, ...state.meta.assocs] },
     { k: "dept", l: "部门", t: "select", opts: state.meta.depts },
-    { k: "phone", l: "电话" },
-    // V1.2.17 SEC-04：不再预填 123456 —— 预填等于「新建即弱口令」
-    { k: "password", l: "初始密码", req: 1, ph: "至少 8 位，含字母和数字" }
+    { k: "phone", l: state.demo ? "电话" : "白名单手机号（11 位）", req: !state.demo, ph: "13800138000" },
+    ...(state.demo ? [{ k: "password", l: "初始密码", req: 1, ph: "至少 8 位，含字母和数字" }] : [])
   ];
-  const m = modal({ title: "新建账号", width: "600px", body: formHtml(fields),
+  const m = modal({ title: state.demo ? "新建账号" : "录入手机白名单", width: "600px", body: formHtml(fields),
     footer: `<button class="btn btn-o" data-x="0">取消</button><button class="btn btn-p" data-x="1">创建</button>` });
   m.querySelector('[data-x="0"]').onclick = () => m.classList.remove("open");
   m.querySelector('[data-x="1"]').onclick = async () => {
     if (!validate(m, fields)) return;
     try {
-      const r = await api.post("/api/users", readForm(m));
+      const v = readForm(m);
+      const r = await api.post("/api/users", v);
       toast(r.message, "ok");
       m.classList.remove("open");
       await render(root);
@@ -142,9 +142,10 @@ function openEdit(root, u, roles) {
     { k: "role", l: "角色", t: "select", req: 1, opts: roles.map((r) => ({ v: r.key, l: r.name })) },
     { k: "assoc", l: "所属协会", t: "select", opts: [{ v: "", l: "（全平台）" }, ...state.meta.assocs] },
     { k: "dept", l: "部门", t: "select", opts: state.meta.depts },
-    { k: "phone", l: "电话" },
+    { k: "phone", l: state.demo ? "电话" : "白名单手机号", req: !state.demo },
     { k: "active", l: "账号状态", t: "select", opts: [{ v: "1", l: "启用" }, { v: "0", l: "停用" }] },
-    { k: "password", l: "重置密码（留空不改）", ph: "留空不改；至少 8 位，含字母和数字" }
+    ...(state.demo ? [{ k: "password", l: "重置密码（留空不改）", ph: "留空不改；至少 8 位，含字母和数字" }] :
+      [{ k: "resetPassword", l: "重置为初始密码 123456（要求重新短信改密）", t: "select", opts: [{ v: "0", l: "不重置" }, { v: "1", l: "重置" }] }])
   ];
   const m = modal({ title: `编辑账号 · ${esc(u.name)}`, width: "600px", body: formHtml(fields, { ...u, active: String(u.active) }),
     footer: `<button class="btn btn-o" data-x="0">取消</button><button class="btn btn-p" data-x="1">保存</button>` });
@@ -153,7 +154,8 @@ function openEdit(root, u, roles) {
     if (!validate(m, fields)) return;
     const v = readForm(m);
     const body = { name: v.name, role: v.role, assoc: v.assoc || null, dept: v.dept, phone: v.phone, active: Number(v.active) };
-    if (v.password) body.password = v.password;
+    if (state.demo && v.password) body.password = v.password;
+    if (!state.demo && v.resetPassword === "1") body.resetPassword = true;
     try {
       const r = await api.patch(`/api/users/${u.id}`, body);
       toast(r.message, "ok");
