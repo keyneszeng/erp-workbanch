@@ -84,7 +84,7 @@ test("Alibaba ECS requires persistent local SQLite and localhost Nginx", () => {
 test("Cloudflare checked-in deployment config is strictly demo only", () => {
   const conf = parseJsonc(read("wrangler.jsonc"));
   assert.doesNotThrow(() => assertDemo(conf));
-  assert.throws(() => assertDemo({ ...conf, vars: { ERP_DEMO_MODE: "0" } }), /演示/);
+  assert.throws(() => assertDemo({ ...conf, vars: { ERP_DEMO_MODE: "0" } }), /ERP_DEMO_MODE/);
   assert.throws(() => assertDemo({ ...conf, routes: [{ pattern: "erp-prod.example.org", custom_domain: true }] }), /Cloudflare/);
   assert.throws(() => assertDemo({ ...conf, vars: { ERP_DEMO_MODE: "1", ERP_BOOTSTRAP_ADMIN_PHONE: "13800138000" } }), /生产变量/);
 });
