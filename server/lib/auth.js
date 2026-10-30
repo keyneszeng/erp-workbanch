@@ -13,7 +13,7 @@ const COOKIE = "erp_sid";
  *   只靠会话表会导致换实例后全体 401）。
  * 吊销：users.token_ver + 1，令牌里的 ver 对不上即失效。
  */
-const SECRET = process.env.ERP_SECRET || "erp-workbanch-demo-secret-v1";
+const SECRET = process.env.ERP_SECRET || crypto.randomBytes(32).toString("hex");
 
 /**
  * 跨实例兜底开关：

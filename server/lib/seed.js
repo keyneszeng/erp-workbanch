@@ -1,6 +1,7 @@
 "use strict";
 const { db } = require("./db");
-const { hashPassword } = require("./auth");
+const { hashPassword, validatePassword } = require("./auth");
+const { isDemoMode, bootstrapAdminPassword } = require("./runtime");
 const { now, today } = require("./util");
 const { VERIFY_STEPS, MATERIAL_KINDS, DEMAND_GROUPS, DEMAND_TEMPLATE, guessContractCategory } = require("./constants");
 
@@ -158,7 +159,33 @@ function alreadySeeded() {
   return c > 0;
 }
 
+function bootstrapProduction() {
+  const mode = db.prepare("SELECT v FROM settings WHERE k = 'deployment_mode'").get()?.v;
+  const legacyDemo = db.prepare("SELECT v FROM settings WHERE k = 'seeded_at'").get()?.v;
+  if (mode === "demo" || legacyDemo) {
+    throw new Error("检测到演示数据，生产环境必须使用独立数据库或受控迁移");
+  }
+  if (alreadySeeded()) return { skipped: true, mode: "production" };
+
+  const password = bootstrapAdminPassword();
+  if (password.length < 12) {
+    throw new Error("首次生产部署需要配置至少 12 位的 ERP_BOOTSTRAP_ADMIN_PASSWORD");
+  }
+  validatePassword(password, { label: "管理员初始密码" });
+  const { salt, hash } = hashPassword(password);
+  db.prepare("INSERT INTO users (username,name,role,assoc,dept,phone,pass_salt,pass_hash,active,created_at) VALUES (?,?,?,?,?,?,?,?,1,?)")
+    .run("admin", "系统管理员", "admin", null, "管理部门", "", salt, hash, now());
+  db.prepare("INSERT OR REPLACE INTO settings (k,v) VALUES (?,?)").run("deployment_mode", "production");
+  return { skipped: false, users: 1, projects: 0, mode: "production" };
+}
+
 function seed({ reset = false } = {}) {
+  if (!isDemoMode()) {
+    if (reset) throw new Error("生产模式禁止重置数据库并写入演示数据");
+    return bootstrapProduction();
+  }
+  const existingMode = db.prepare("SELECT v FROM settings WHERE k = 'deployment_mode'").get()?.v;
+  if (existingMode === "production") throw new Error("禁止在生产数据库中启动演示模式");
   if (reset) {
     for (const t of RESET_DATA_TABLES) {
       db.exec(`DELETE FROM ${t}`);
@@ -363,6 +390,7 @@ function seed({ reset = false } = {}) {
   }
 
   db.prepare("INSERT OR REPLACE INTO settings (k,v) VALUES (?,?)").run("seeded_at", at);
+  db.prepare("INSERT OR REPLACE INTO settings (k,v) VALUES (?,?)").run("deployment_mode", "demo");
   db.prepare("INSERT OR REPLACE INTO settings (k,v) VALUES (?,?)").run("org", "华东医学会 · 会务执行中心");
 
   return { skipped: false, users: USERS.length, projects: PROJECTS.length, payments: PAYMENTS.length, audits: k };
