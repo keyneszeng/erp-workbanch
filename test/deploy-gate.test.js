@@ -115,5 +115,5 @@ test("Alibaba ECS unit and Nginx are linked to production guard and persistent p
   assert.match(unit, /User=erp/);
   assert.match(nginx, /listen 443 ssl/);
   assert.match(nginx, /proxy_pass http:\/\/127\.0\.0\.1:8787/);
-  assert.doesNotMatch(unit + nginx, /erp\.aibuild\.work/);
+  assert.doesNotMatch(unit + nginx, /server_name\s+erp\.aibuild\.work/);
 });

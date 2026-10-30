@@ -12,7 +12,7 @@
  */
 import { attachDurableObject, migrate } from "../server/lib/db.js";
 import { seed } from "../server/lib/seed.js";
-import { configureRuntime, isDemoMode } from "../server/lib/runtime.js";
+import { configureRuntime } from "../server/lib/runtime.js";
 import { pruneSessions } from "../server/lib/auth.js";
 import { handle } from "../server/lib/app.js";
 import { attachR2, attachStorage, unavailableStorage } from "../server/lib/storage.js";
