@@ -40,6 +40,18 @@ CREATE TABLE IF NOT EXISTS users (
   created_at  TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS sms_challenges (
+  user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  phone TEXT NOT NULL,
+  salt TEXT NOT NULL,
+  code_hash TEXT NOT NULL,
+  sent_ms INTEGER NOT NULL,
+  expires_ms INTEGER NOT NULL,
+  attempts INTEGER NOT NULL DEFAULT 0,
+  day_key TEXT NOT NULL,
+  day_count INTEGER NOT NULL DEFAULT 0
+);
+
 CREATE TABLE IF NOT EXISTS sessions (
   token       TEXT PRIMARY KEY,
   user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -453,6 +465,9 @@ function migrate() {
     }
   };
 
+  // 生产白名单：所有新用户初次登录必须通过短信验证并修改默认密码。
+  addColumn("users", "must_change_password", "must_change_password INTEGER NOT NULL DEFAULT 0");
+  addColumn("users", "phone_verified_at", "phone_verified_at TEXT");
   // V1.0.3：跨实例吊销签名令牌
   addColumn("users", "token_ver", "token_ver INTEGER NOT NULL DEFAULT 0");
   // V1.2.0：材料附件

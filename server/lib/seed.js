@@ -1,7 +1,9 @@
 "use strict";
 const { db } = require("./db");
 const { hashPassword, validatePassword } = require("./auth");
-const { isDemoMode, bootstrapAdminPassword } = require("./runtime");
+const { isDemoMode, bootstrapAdminPhone } = require("./runtime");
+const { INITIAL_PASSWORD, normalizePhone } = require("./phone-whitelist");
+const { assertConfigured } = require("./sms");
 const { now, today } = require("./util");
 const { VERIFY_STEPS, MATERIAL_KINDS, DEMAND_GROUPS, DEMAND_TEMPLATE, guessContractCategory } = require("./constants");
 
@@ -165,19 +167,21 @@ function bootstrapProduction() {
   if (mode === "demo" || legacyDemo) {
     throw new Error("检测到演示数据，生产环境必须使用独立数据库或受控迁移");
   }
+  assertConfigured();
   if (alreadySeeded()) {
     if (mode !== "production") throw new Error("数据库已有账号但缺少生产标记，请先完成受控迁移");
+    const root = db.prepare("SELECT * FROM users WHERE role = 'admin'").all();
+    if (root.length !== 1 || !root[0].phone || root[0].username !== root[0].phone)
+      throw new Error("旧生产管理员未配置手机号白名单，请执行受控数据迁移后再启用");
     return { skipped: true, mode: "production" };
   }
 
-  const password = bootstrapAdminPassword();
-  if (password.length < 12) {
-    throw new Error("首次生产部署需要配置至少 12 位的 ERP_BOOTSTRAP_ADMIN_PASSWORD");
-  }
-  validatePassword(password, { label: "管理员初始密码" });
-  const { salt, hash } = hashPassword(password);
+  if (!bootstrapAdminPhone()) throw new Error("首次生产部署必须配置 ERP_BOOTSTRAP_ADMIN_PHONE");
+  const phone = normalizePhone(bootstrapAdminPhone());
+  const { salt, hash } = hashPassword(INITIAL_PASSWORD);
   db.prepare("INSERT INTO users (username,name,role,assoc,dept,phone,pass_salt,pass_hash,active,created_at) VALUES (?,?,?,?,?,?,?,?,1,?)")
-    .run("admin", "系统管理员", "admin", null, "管理部门", "", salt, hash, now());
+    .run(phone, "系统管理员", "admin", null, "管理部门", phone, salt, hash, now());
+  db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_prod_whitelist_phone ON users(phone) WHERE phone IS NOT NULL AND phone <> ''");
   db.prepare("INSERT OR REPLACE INTO settings (k,v) VALUES (?,?)").run("deployment_mode", "production");
   return { skipped: false, users: 1, projects: 0, mode: "production" };
 }
