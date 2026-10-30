@@ -75,6 +75,12 @@ node scripts/check-aliyun-production.cjs
 - 升级先进行应用版本留档、数据库结构评审与备份；如迁移已写入数据，回滚代码不一定能回滚数据，需独立恢复预案。
 - 首次上线应核验真实短信发收、手机号唯一性、会话吊销、角色授权、财务核销、归档、上传和邀请函外部投递、HTTPS 安全以及日志告警。
 
+## 微信小程序与正式 API
+
+正式阿里云 ECS 可为 Web 和微信小程序提供同一 `/api`，服务层鉴权包括登录态、角色权限、项目数据范围、审批状态机与初始密码强制更改。小程序另提供 `/api/mini/auth/*`：微信临时 code 换 OpenID、手机号白名单 + 密码 + SMS 绑定、Bearer 会话、强制改密、退出失效。绑定手机号发生变更或密码被管理员重置时解除原微信绑定。
+
+ECS 的 `production.env` 默认 `ERP_MINIPROGRAM_ENABLED=0`；上线小程序前填真实 `ERP_WECHAT_APP_ID`、`ERP_WECHAT_APP_SECRET` 并设为 1。小程序 `miniprogram/config.js` 必须配置独立生产 HTTPS API 域名，同时通过微信平台合法域名审核。演示版和生产版严格隔离。详见 `miniprogram/README.md`。
+
 ## 当前状态
 
 - [x] Cloudflare 生产发布通道禁用、Worker 演示模式限制

@@ -448,6 +448,8 @@ function register(router) {
         db.prepare("UPDATE users SET pass_salt = ?, pass_hash = ?, must_change_password = 1, phone_verified_at = NULL WHERE id = ?")
           .run(salt, hash, u.id);
         db.prepare("DELETE FROM sms_challenges WHERE user_id = ?").run(u.id);
+        // Reset or phone reassignment must revoke a previously linked WeChat OpenID.
+        db.prepare("DELETE FROM mini_bindings WHERE user_id = ?").run(u.id);
       }
       if (Object.keys(patch).length || reset) {
         db.prepare("UPDATE users SET token_ver = token_ver + 1 WHERE id = ?").run(u.id);
