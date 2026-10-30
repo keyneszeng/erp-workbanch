@@ -13,7 +13,7 @@ const PASS = "123456";
 const RESET_DATA_TABLES = ["uploaded_files", "sessions", "audit_logs", "exports", "settlements",
   "exceptions", "verify_steps", "payments", "contracts", "approvals", "materials",
   "guests", "tasks", "issues", "demand_items", "demand_sheets",
-  "project_members", "projects", "users", "settings"];
+  "project_members", "projects", "sms_challenges", "users", "settings"];
 
 const USERS = [
   { username: "admin",   name: "李静", role: "admin",   assoc: null,        dept: "秘书处", phone: "13800000001", title: "总管理员" },
@@ -173,6 +173,7 @@ function bootstrapProduction() {
     const root = db.prepare("SELECT * FROM users WHERE role = 'admin'").all();
     if (root.length !== 1 || !root[0].phone || root[0].username !== root[0].phone)
       throw new Error("旧生产管理员未配置手机号白名单，请执行受控数据迁移后再启用");
+    db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_prod_whitelist_phone ON users(phone) WHERE phone IS NOT NULL AND phone <> ''");
     return { skipped: true, mode: "production" };
   }
 
@@ -181,6 +182,7 @@ function bootstrapProduction() {
   const { salt, hash } = hashPassword(INITIAL_PASSWORD);
   db.prepare("INSERT INTO users (username,name,role,assoc,dept,phone,pass_salt,pass_hash,active,created_at) VALUES (?,?,?,?,?,?,?,?,1,?)")
     .run(phone, "系统管理员", "admin", null, "管理部门", phone, salt, hash, now());
+  db.prepare("UPDATE users SET must_change_password = 1 WHERE phone = ?").run(phone);
   db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_prod_whitelist_phone ON users(phone) WHERE phone IS NOT NULL AND phone <> ''");
   db.prepare("INSERT OR REPLACE INTO settings (k,v) VALUES (?,?)").run("deployment_mode", "production");
   return { skipped: false, users: 1, projects: 0, mode: "production" };

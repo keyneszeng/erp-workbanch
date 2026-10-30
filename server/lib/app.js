@@ -13,6 +13,7 @@ const { URL } = require("node:url");
 const { readBody, sendJson, sendText, sendBinary, parseCookies, serveStatic, Router } = require("./http");
 const { userByToken, COOKIE } = require("./auth");
 const { HttpError } = require("./util");
+const { isDemoMode } = require("./runtime");
 
 // __dirname 在 Cloudflare Worker 的 ESM 产物里不存在（静态资源走 Assets 绑定）
 const HERE = typeof __dirname === "string" ? __dirname : "";
@@ -129,6 +130,13 @@ async function handle(req, res) {
 
   if (!PUBLIC.has(pathname) && !user) {
     sendJson(res, 401, { error: { code: "UNAUTHORIZED", message: "登录状态已失效，请重新登录" } });
+    return;
+  }
+
+  // 生产初始密码仅用于进入短信改密流程，任何业务接口均禁止绕过。
+  if (!isDemoMode() && user && user.must_change_password &&
+      !new Set(["/api/auth/me", "/api/auth/logout", "/api/auth/password", "/api/auth/sms/send"]).has(pathname)) {
+    sendJson(res, 403, { error: { code: "PASSWORD_CHANGE_REQUIRED", message: "请先验证手机号并修改初始密码" } });
     return;
   }
 

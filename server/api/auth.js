@@ -1,6 +1,7 @@
 "use strict";
 const { db } = require("../lib/db");
 const { isDemoMode } = require("../lib/runtime");
+const { sendPasswordCode, consumePasswordCode } = require("../lib/sms");
 const {
   login, publicUser, destroySession, createSession, hashPassword, verifyPassword, validatePassword,
   COOKIE, SESSION_TTL_MS, isThrottled, noteFailure, clearFailures
@@ -33,6 +34,11 @@ function register(router) {
     };
   });
 
+  router.post("/api/auth/sms/send", async (ctx) => {
+    if (isDemoMode()) throw new HttpError(404, "NO_ROUTE", "演示环境无需短信校验");
+    return sendPasswordCode(db.prepare("SELECT * FROM users WHERE id = ? AND active = 1").get(ctx.user.id));
+  });
+
   router.post("/api/auth/logout", async (ctx) => {
     destroySession(ctx.token);
     return { __cookie: cookieHeader(COOKIE, "", { maxAge: 0, secure: ctx.secure }), ok: true };
@@ -47,7 +53,7 @@ function register(router) {
    *   3) 清空该用户全部会话行，再给当前这次操作重新签发一个，避免用户改完自己也被踢掉。
    */
   router.post("/api/auth/password", async (ctx) => {
-    const { oldPassword, newPassword, confirmPassword } = ctx.body || {};
+    const { oldPassword, newPassword, confirmPassword, smsCode } = ctx.body || {};
     if (!oldPassword || !newPassword) throw bad("请填写原密码与新密码");
     if (confirmPassword !== undefined && String(confirmPassword) !== String(newPassword)) {
       throw bad("两次输入的新密码不一致");
@@ -62,8 +68,15 @@ function register(router) {
       throw new HttpError(400, "BAD_PASSWORD", "原密码不正确");
     }
 
+    // 生产环境必须验证绑定手机号的真实短信验证码；演示环境保持原有改密流程。
+    if (!isDemoMode()) consumePasswordCode(u, smsCode);
     const { salt, hash } = hashPassword(next);
-    db.prepare("UPDATE users SET pass_salt = ?, pass_hash = ?, token_ver = token_ver + 1 WHERE id = ?").run(salt, hash, u.id);
+    if (isDemoMode()) {
+      db.prepare("UPDATE users SET pass_salt = ?, pass_hash = ?, token_ver = token_ver + 1 WHERE id = ?").run(salt, hash, u.id);
+    } else {
+      db.prepare("UPDATE users SET pass_salt = ?, pass_hash = ?, must_change_password = 0, phone_verified_at = ?, token_ver = token_ver + 1 WHERE id = ?")
+        .run(salt, hash, new Date().toISOString(), u.id);
+    }
     db.prepare("DELETE FROM sessions WHERE user_id = ?").run(u.id);
 
     const s = createSession(u.id, ctx.ip);

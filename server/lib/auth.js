@@ -2,6 +2,7 @@
 const crypto = require("node:crypto");
 const { db } = require("./db");
 const { now, randToken, bad } = require("./util");
+const { isDemoMode } = require("./runtime");
 
 const SESSION_TTL_MS = 12 * 60 * 60 * 1000; // 12 小时
 const COOKIE = "erp_sid";
@@ -126,11 +127,13 @@ function userByToken(token) {
 
 function publicUser(u) {
   if (!u) return null;
-  return { id: u.id, username: u.username, name: u.name, role: u.role, assoc: u.assoc, dept: u.dept, phone: u.phone, title: u.title };
+  return { id: u.id, username: u.username, name: u.name, role: u.role, assoc: u.assoc, dept: u.dept, phone: u.phone, title: u.title, mustChangePassword: !isDemoMode() && !!u.must_change_password };
 }
 
 function login(username, password, ip) {
-  const u = db.prepare("SELECT * FROM users WHERE username = ? AND active = 1").get(String(username || ""));
+  const u = isDemoMode()
+    ? db.prepare("SELECT * FROM users WHERE username = ? AND active = 1").get(String(username || ""))
+    : db.prepare("SELECT * FROM users WHERE phone = ? AND active = 1").get(String(username || "").trim());
   if (!u || !verifyPassword(password, u.pass_salt, u.pass_hash)) return null;
   const { token, expires } = createSession(u.id, ip);
   return { user: u, token, expires };
