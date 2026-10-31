@@ -5,7 +5,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { spawn } = require("node:child_process");
-const { ASSOCS } = require("../server/lib/constants");
+const { ASSOCS, MATERIAL_KINDS } = require("../server/lib/constants");
 const dir = fs.mkdtempSync(path.join(os.tmpdir(),"erp-policy-"));
 const port = 12500 + process.pid % 700;
 const root = "http://127.0.0.1:" + port;
@@ -71,4 +71,54 @@ test("production: association member IDs, approved contract signing and pay-afte
   assert.equal(signed.body.rows.find(x=>x.id===contract.body.contract.id).status,"已签署");
   const premature=await request("POST","/api/payments",{pid,type:"学会公付",payee:"供应商",payee_bank:"中国银行",payee_account:"1234567890123456",amount:100,invoice_no:"INV-1"},cookie);
   assert.equal(premature.status,409,"payment cannot precede verification");
+
+  for (const action of ["submit","approve","prep","exec"]) {
+    const move=await request("POST","/api/projects/"+pid+"/transition",{action},cookie);
+    assert.equal(move.status,200,"transition "+action+": "+JSON.stringify(move.body));
+  }
+  const invoiceData=Buffer.from("%PDF-1.4\\n1 0 obj\\n<<>>\\nendobj\\n%%EOF\\n");
+  const uploaded=await fetch(root+"/api/uploads?pid="+pid,{
+    method:"POST",headers:{Cookie:cookie,"Content-Type":"application/octet-stream","X-File-Name":"invoice.pdf"},
+    body:invoiceData
+  });
+  const uploadBody=await uploaded.json();
+  assert.equal(uploaded.status,200,JSON.stringify(uploadBody));
+  for (const kind of MATERIAL_KINDS) {
+    const item=await request("POST","/api/projects/"+pid+"/materials",{
+      kind,name:kind+"验收材料",...(kind==="发票"?{file_key:uploadBody.key,file_name:"invoice.pdf",file_mime:"application/pdf"}:{})
+    },cookie);
+    assert.equal(item.status,200,"material "+kind+": "+JSON.stringify(item.body));
+  }
+  let step=await request("POST","/api/projects/"+pid+"/transition",{action:"request_verify"},cookie);
+  assert.equal(step.status,200,JSON.stringify(step.body));
+  for(let no=1;no<=5;no++){
+    step=await request("POST","/api/projects/"+pid+"/verify/steps/"+no,{result:"通过"},cookie);
+    assert.equal(step.status,200,"verification "+no+": "+JSON.stringify(step.body));
+  }
+  step=await request("POST","/api/projects/"+pid+"/verify/steps/6",{result:"通过",invoiceAmount:7999},cookie);
+  assert.equal(step.status,409,"invoice total cannot differ from signed contracts");
+  step=await request("POST","/api/projects/"+pid+"/verify/steps/6",{result:"通过",invoiceAmount:8000},cookie);
+  assert.equal(step.status,200,JSON.stringify(step.body));
+  const freeze=await request("POST","/api/contracts",{pid,name:"Late Contract",vendor:"X",amount:1,status:"草稿"},cookie);
+  assert.equal(freeze.status,409,"contracts must freeze after invoice verification");
+  step=await request("POST","/api/projects/"+pid+"/transition",{action:"verify_pass"},cookie);
+  assert.equal(step.status,200,JSON.stringify(step.body));
+  const settlementData={action:"settle",payee_bank:"中国银行北京分行",payee_account:"1234567890123456"};
+  let settle=await request("POST","/api/projects/"+pid+"/transition",settlementData,cookie);
+  assert.equal(settle.status,409,"no payment must block settlement");
+  const paymentData={pid,type:"学会公付",payee:"服务供应商",payee_bank:"中国银行北京分行",
+    payee_account:"1234567890123456",amount:8000,invoice_no:"INV-2027-001"};
+  const payment=await request("POST","/api/payments",paymentData,cookie);
+  assert.equal(payment.status,200,JSON.stringify(payment.body));
+  settle=await request("POST","/api/projects/"+pid+"/transition",settlementData,cookie);
+  assert.equal(settle.status,409,"pending payment blocks settlement");
+  const approved=await request("POST","/api/payments/"+payment.body.payment.id+"/approve",{approve:true},cookie);
+  assert.equal(approved.status,200,JSON.stringify(approved.body));
+  settle=await request("POST","/api/projects/"+pid+"/transition",settlementData,cookie);
+  assert.equal(settle.status,409,"approved but unpaid payment blocks settlement");
+  const paid=await request("POST","/api/payments/"+payment.body.payment.id+"/pay",{},cookie);
+  assert.equal(paid.status,200,JSON.stringify(paid.body));
+  settle=await request("POST","/api/projects/"+pid+"/transition",settlementData,cookie);
+  assert.equal(settle.status,200,JSON.stringify(settle.body));
+
 });
