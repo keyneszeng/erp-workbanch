@@ -8,9 +8,17 @@ const crypto = require("node:crypto");
 const { db } = require("./db");
 const { HttpError } = require("./util");
 
+let lastPrunedMs = 0;
 function consumeResetLimit(kind, identity, limit, windowMs) {
+  const ms = Date.now();
+  // Bound growth from arbitrary unregistered phone lookups. Keep two hours so
+  // we never prune an active hourly bucket; prune at most once per process/hour.
+  if (ms - lastPrunedMs >= 60 * 60 * 1000) {
+    db.prepare("DELETE FROM password_reset_limits WHERE bucket_ms < ?").run(ms - 2 * 60 * 60 * 1000);
+    lastPrunedMs = ms;
+  }
   const key = crypto.createHash("sha256").update(kind + ":" + String(identity || "-")).digest("hex");
-  const bucket = Math.floor(Date.now() / windowMs) * windowMs;
+  const bucket = Math.floor(ms / windowMs) * windowMs;
   const old = db.prepare("SELECT bucket_ms, hits FROM password_reset_limits WHERE rate_key = ?").get(key);
   if (old && Number(old.bucket_ms) === bucket && Number(old.hits) >= limit) {
     throw new HttpError(429, "RESET_RATE_LIMIT", "操作过于频繁，请稍后重试");

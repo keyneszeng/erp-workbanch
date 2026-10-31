@@ -46,6 +46,8 @@ CREATE TABLE IF NOT EXISTS password_reset_limits (
   hits INTEGER NOT NULL DEFAULT 0
 );
 
+CREATE INDEX IF NOT EXISTS idx_password_reset_limit_bucket ON password_reset_limits(bucket_ms);
+
 CREATE TABLE IF NOT EXISTS sms_challenges (
   user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
   phone TEXT NOT NULL,
