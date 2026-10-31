@@ -1,5 +1,6 @@
 "use strict";
 const { forbidden } = require("./util");
+const { isDemoMode } = require("./runtime");
 
 /**
  * 角色定义 —— 与演示版 V1.0.2 一致
@@ -54,7 +55,7 @@ const PERMS = {
   "contract:approve": ["assoc"],
   "demand:write": ["assoc", "exec"],
   "payment:create": ["assoc", "exec", "finance"],
-  "payment:approve": ["finance"],
+  "payment:approve": ["assoc"],
   "payment:pay": ["finance"],
   "verify:check": ["assoc", "exec", "finance"],
   "verify:exception": ["assoc", "exec"],
@@ -146,6 +147,8 @@ const isSuper = (user) => !!(user && ROLES[user.role] && ROLES[user.role].super)
 function can(user, perm) {
   if (!user) return false;
   if (isSuper(user)) return true;
+  // Historical demo finance approvals stay available for QA; production approval belongs to association managers.
+  if (perm === "payment:approve" && isDemoMode() && user.role === "finance") return true;
   const allow = PERMS[perm];
   return Array.isArray(allow) && allow.includes(user.role);
 }

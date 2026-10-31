@@ -112,7 +112,7 @@ function openCreate(root, projects) {
     { k: "sign_date", l: "签署日期", t: "date" },
     // 录入只能选草稿 / 待签署：已签署必须走「确认签署」，
     // 否则两步流转等于没做，台账上的「已签署金额」也没有可信来源
-    { k: "status", l: "状态", t: "select", opts: ["草稿", "待签署"] },
+    { k: "status", l: "状态", t: "select", opts: ["草稿", "待签署", "已签署"], tip: "已签署需管理员审批确认；新录入选择已签署会自动转为待签署，不能跳过审批" },
     {
       k: "file", l: "合同原件", t: "file", full: 1,
       accept: "image/jpeg,image/png,image/webp,image/gif,application/pdf",

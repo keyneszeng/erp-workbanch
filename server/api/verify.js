@@ -1,6 +1,7 @@
 "use strict";
 const { db } = require("../lib/db");
-const { now, nextId, bad, notFound, conflict, forbidden, yuan } = require("../lib/util");
+const { now, nextId, bad, notFound, conflict, forbidden, yuan, cents } = require("../lib/util");
+const { isDemoMode } = require("../lib/runtime");
 const { assertCan, assertModule, assertProjectVisible, isSuper } = require("../lib/rbac");
 const { logAudit } = require("../lib/audit");
 const { getProject, verification, materialsStatus, settlementOf, demandSummary } = require("../lib/workflow");
@@ -81,10 +82,22 @@ function register(router) {
     if (unjudged.length) throw conflict(`核销必须按顺序判定，第 ${unjudged[0].no} 步尚未判定`, "OUT_OF_ORDER", { step: unjudged[0].no });
 
     const def = v.steps.find((s) => s.no === no);
+    let invoiceAmount = null;
+    if (!isDemoMode() && no === 6 && result === "通过") {
+      const signed = db.prepare("SELECT COUNT(*) AS n, COALESCE(SUM(amount),0) AS total FROM contracts WHERE pid=? AND status='已签署'").get(p.id);
+      if (!signed.n) throw conflict("核票前必须有经协会管理员审批的已签署合同", "CONTRACT_NOT_SIGNED");
+      const invoiceMaterial = db.prepare("SELECT COUNT(*) AS n FROM materials WHERE pid=? AND kind='发票' AND file_key IS NOT NULL").get(p.id);
+      if (!invoiceMaterial.n) throw conflict("请先上传发票原件供金额核对", "INVOICE_EVIDENCE_REQUIRED");
+      invoiceAmount = Number(ctx.body?.invoiceAmount);
+      if (ctx.body?.invoiceAmount === "" || ctx.body?.invoiceAmount == null || !Number.isFinite(invoiceAmount) || invoiceAmount <= 0 || Number(invoiceAmount.toFixed(2)) !== invoiceAmount)
+        throw bad("请填写已核验的发票总金额（元，最多两位小数）");
+      if (cents(invoiceAmount) !== cents(signed.total))
+        throw conflict(`发票总金额 ¥${yuan(invoiceAmount)} 与已签署合同总金额 ¥${yuan(signed.total)} 不符，不能通过核销`, "INVOICE_CONTRACT_MISMATCH");
+    }
     const at = now();
     db.prepare(
-      "INSERT OR REPLACE INTO verify_steps (pid,step_no,name,result,remark,checked_by,checked_at) VALUES (?,?,?,?,?,?,?)"
-    ).run(p.id, no, def.name, result, String(remark || ""), ctx.user.name, at);
+      "INSERT OR REPLACE INTO verify_steps (pid,step_no,name,result,remark,invoice_amount,checked_by,checked_at) VALUES (?,?,?,?,?,?,?,?)"
+    ).run(p.id, no, def.name, result, String(remark || ""), invoiceAmount, ctx.user.name, at);
 
     let message = `第 ${no} 步「${def.name}」判定：${result}`;
     let exId = "";

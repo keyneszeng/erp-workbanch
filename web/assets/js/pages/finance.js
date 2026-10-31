@@ -4,7 +4,7 @@ import { badge, bindPager, confirmBox, esc, formHtml, modal, money, pager, panel
 const PAGE_SIZE = 50;
 let filterStatus = "";
 let curPage = 1;
-// 只有「已核销」可付款：已结算 = 账目封账，已归档 = 卷宗封存
+// 只有「已核销」可申请付款：协会管理员审批后由财务支付，全部完成后才能结算
 const PAYABLE = ["已核销"];
 
 /**
@@ -33,7 +33,7 @@ export async function render(root, params = []) {
   const scopeNote = focusPid ? '<span style="font-weight:400;color:var(--mute)">（本项目）</span>' : "";
 
   root.innerHTML = `<div class="phead">
-      <div><h2>付款与结算</h2><p>按唯一会议编号归集所有业务记录；付款门禁：项目必须「已核销」才可提交付款；结算单生成后核销结论冻结</p></div>
+      <div><h2>付款与结算</h2><p>按唯一会议编号归集所有业务记录；核销核票→付款申请→协会管理员/总管理员审批→财务完成付款→生成结算单；未付款不得结算</p></div>
       <div class="acts">
         ${state.super ? '<button class="btn btn-o" data-go="project-ledger">项目台账</button>' : ""}
         ${can("export:any") ? `<button class="btn btn-o" id="expPay">导出付款明细</button>
@@ -193,7 +193,7 @@ function openPay(root, projects) {
     { k: "payee_bank", l: "开户行", req: 1, ph: "如：中国银行北京朝阳支行" },
     { k: "payee_account", l: "银行账号", req: 1, ph: "10~25 位数字，可含空格分隔" },
     { k: "amount", l: "付款金额（元）", t: "number", req: 1 },
-    { k: "invoice_no", l: "发票号" },
+    { k: "invoice_no", l: "发票号", req: 1 },
     { k: "remark", l: "备注", t: "textarea", full: 1, rows: 2 }
   ];
   const m = modal({ title: "付款申请", body: `<div class="gate ok" style="margin-bottom:12px"><b>核销门禁</b>仅列出「已核销」项目：未核销项目不可付款，已结算项目账目已封账，已归档项目卷宗已封存。<br><b>预算门禁</b>已占用（待审批 + 已审批 + 已付款）加本笔金额超过预算时，接口返回 <code>OVER_BUDGET</code>，需总管理员特批。</div>${formHtml(fields)}`,

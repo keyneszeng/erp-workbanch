@@ -24,7 +24,7 @@ export async function render(root, params = []) {
     view = probe.rows.some((a) => a.id === focus || a.pid === focus) ? "pending" : "all";
   }
   root.innerHTML = `<div class="phead">
-      <div><h2>审批中心</h2><p>立项 / 例外单 / 付款 / 变更 四类审批统一入口</p></div>
+      <div><h2>审批中心</h2><p>立项 / 合同签署 / 例外单 / 付款 / 变更 五类审批统一入口</p></div>
       <div class="acts">${can("export:any") ? '<button class="btn btn-o" id="exp">导出 CSV</button>' : ""}</div>
     </div>
     <div class="panel">
@@ -80,6 +80,7 @@ function canDecide(type) {
   if (type === "立项审批" || type === "变更审批") return can("project:approve");
   if (type === "例外单审批") return can("verify:exception_approve");
   if (type === "付款审批") return can("payment:approve");
+  if (type === "合同审批") return can("contract:approve");
   return false;
 }
 

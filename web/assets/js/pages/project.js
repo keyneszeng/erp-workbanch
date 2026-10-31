@@ -66,7 +66,7 @@ export async function render(root, [pid]) {
   const pdfBtn = root.querySelector("#downloadArchivePdf");
   if (pdfBtn) pdfBtn.onclick = () => downloadArchivePdf(pid, pdfBtn);
   const eb = root.querySelector("#editBtn");
-  if (eb) eb.onclick = () => openEdit(root, pid, p);
+  if (eb) eb.onclick = () => openEdit(root, pid, p).catch((e) => toast(e.message,"warn"));
   const cb = root.querySelector("#changeBtn");
   if (cb) cb.onclick = () => openChange(root, pid);
 
@@ -498,7 +498,7 @@ function openSettle(root, pid, p) {
   ];
   const m = modal({
     title: "生成结算单",
-    body: `<div class="gate" style="margin-bottom:12px"><b>生成后核销结论永久冻结</b>结算单是财务付款的依据，收款方与账户请按实际打款信息填写。</div>${formHtml(fields)}`,
+    body: `<div class="gate" style="margin-bottom:12px"><b>付款全部完成后才可生成结算单</b>结算单记录业务资金结算结果，收款方与账户请按实际信息填写。</div>${formHtml(fields)}`,
     footer: `<button class="btn btn-o" data-x="0">取消</button><button class="btn btn-p" data-x="1">确认生成</button>`
   });
   m.querySelector('[data-x="0"]').onclick = () => m.classList.remove("open");
@@ -573,7 +573,7 @@ function openContract(root, pid) {
     { k: "category", l: "合同类别", t: "select", opts: state.meta.contractCategories || [],
       tip: "决定核销第 5 步「劳务与专家费核对」列不列这一份：只有「劳务专家」类会被列进去" },
     { k: "sign_date", l: "签署日期", t: "date" },
-    { k: "status", l: "状态", t: "select", opts: ["草稿", "待签署"] },
+    { k: "status", l: "状态", t: "select", opts: ["草稿", "待签署", "已签署"], tip: "已签署需要管理员审批，不能通过录入直接跳过审批" },
     {
       k: "file", l: "合同原件", t: "file", full: 1,
       accept: "image/jpeg,image/png,image/webp,image/gif,application/pdf",
@@ -657,7 +657,7 @@ function openPay(root, pid, d) {
     { k: "payee_bank", l: "开户行", req: 1, ph: "如：中国银行北京朝阳支行" },
     { k: "payee_account", l: "银行账号", req: 1, ph: "10~25 位数字，可含空格分隔" },
     { k: "amount", l: "付款金额（元）", t: "number", req: 1 },
-    { k: "invoice_no", l: "发票号" },
+    { k: "invoice_no", l: "发票号", req: 1 },
     { k: "remark", l: "备注", t: "textarea", full: 1, rows: 2 }
   ];
   const m = modal({
@@ -813,7 +813,9 @@ async function delMember(root, pid, uid) {
   } catch (e) { toast(e.message, "warn"); }
 }
 
-function openEdit(root, pid, p) {
+async function openEdit(root, pid, p) {
+  const directory = await api.get("/api/users/assignable?assoc="+encodeURIComponent(p.assoc));
+  const members = directory.rows || [];
   const fields = [
     { k: "name", l: "会议名称", req: 1, full: 1 },
     { k: "assoc", l: "所属协会", t: "select", req: 1, opts: state.meta.assocs },
@@ -822,13 +824,22 @@ function openEdit(root, pid, p) {
     { k: "days", l: "会期（天）", t: "number" },
     { k: "budget", l: "预算（元）", t: "number", req: 1 },
     { k: "people", l: "预计人数", t: "number" },
-    { k: "owner", l: "负责人", req: 1 },
+    { k: "owner_id", l: "负责人（协会成员）", t: "select", req: 1, opts: members.map((u) => ({v:String(u.id),l:u.name+"（"+u.role_name+"）"})) },
     { k: "phone", l: "联系电话" },
     { k: "dept", l: "承办部门", t: "select", opts: state.meta.depts },
     { k: "agenda", l: "议程要点", t: "textarea", req: 1, full: 1, rows: 3 }
   ];
   const m = modal({ title: "编辑项目资料", width: "640px", body: formHtml(fields, p),
     footer: `<button class="btn btn-o" data-x="0">取消</button><button class="btn btn-p" data-x="1">保存</button>` });
+  const assocSelect = m.querySelector('[name="assoc"]');
+  const ownerSelect = m.querySelector('[name="owner_id"]');
+  if (assocSelect && ownerSelect) assocSelect.addEventListener("change", async () => {
+    try {
+      const r = await api.get("/api/users/assignable?assoc="+encodeURIComponent(assocSelect.value));
+      ownerSelect.innerHTML = '<option value="">请选择本协会成员</option>' +
+        (r.rows || []).map((u) => `<option value="${esc(String(u.id))}">${esc(u.name)}（${esc(u.role_name)}）</option>`).join("");
+    } catch(e){toast(e.message,"warn");}
+  });
   m.querySelector('[data-x="0"]').onclick = () => m.classList.remove("open");
   m.querySelector('[data-x="1"]').onclick = async () => {
     if (!validate(m, fields)) return;

@@ -2,7 +2,8 @@ import { api, can } from "../lib/api.js";
 import { esc, badge, toast, confirmBox, money } from "../lib/ui.js";
 
 const yuan = (n) => `¥${money(Number(n) || 0)}`;
-const blankItem = { item: "", note: "", need: "需要", spec: "", owner: "", due: "", budget: "" };
+const blankItem = { item: "", note: "", need: "需要", spec: "", owner: "", owner_id: "", due: "", budget: "" };
+let memberOptions = [];
 
 function optHtml(opts, val) {
   return opts.map((o) => `<option value="${esc(o)}"${o === val ? " selected" : ""}>${esc(o)}</option>`).join("");
@@ -23,7 +24,10 @@ function cells(it, locked) {
     </td>
     <td><select class="mini" data-f="need"${dis}>${optHtml(["需要", "不需要"], it.need)}</select></td>
     <td>${locked ? plain(it.spec) : `<input class="mini" data-f="spec" value="${esc(it.spec || "")}" placeholder="规格 / 数量">`}</td>
-    <td>${locked ? plain(it.owner) : `<input class="mini" data-f="owner" value="${esc(it.owner || "")}" placeholder="负责人">`}</td>
+    <td>${locked ? plain(it.owner) : `<select class="mini" data-f="owner_id">
+          <option value="">请选择成员</option>
+          ${memberOptions.map((u) => `<option value="${esc(String(u.id))}"${Number(it.owner_id) === Number(u.id) ? " selected" : ""}>${esc(u.name)}</option>`).join("")}
+        </select>`}</td>
     <td>${locked ? plain(it.due) : `<input class="mini" type="date" data-f="due" value="${esc(it.due || "")}">`}</td>
     <td>${locked ? plain(it.budget, true) : `<input class="mini" data-f="budget" inputmode="decimal" value="${esc(it.budget || "")}" placeholder="0.00">`}</td>
     <td style="width:34px;text-align:center">${locked ? "" : '<button class="link del" data-del="1" title="删除该条">×</button>'}</td>`;
@@ -147,7 +151,8 @@ function renderList(root) {
 }
 
 function renderSheet(root, pid) {
-  return api.get(`/api/demand/${pid}`).then((d) => {
+  return api.get(`/api/demand/${pid}`).then(async (d) => {
+    memberOptions = can("demand:write") ? (await api.get("/api/users/assignable?assoc=" + encodeURIComponent(d.projectAssoc))).rows || [] : [];
     const writable = can("demand:write");
     const locked = !!d.archived || !writable;
     const total = d.groups.reduce((s, g) => s + d.items[g].length, 0);

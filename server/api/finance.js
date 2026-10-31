@@ -8,6 +8,7 @@ const { PAYMENT_TYPES, CONTRACT_CATEGORIES, guessContractCategory } = require(".
 const { readPaging, countOf } = require("../lib/paginate");
 const { transition } = require("../lib/workflow");
 const { assertUploadAttachable } = require("../lib/upload-ownership");
+const { isDemoMode } = require("../lib/runtime");
 
 // 只有「已核销」可新增付款：结算后账目已封账，归档后卷宗已封存，均不得再挂账
 const PAYABLE_STATUS = ["已核销"];
@@ -85,6 +86,11 @@ function register(router) {
     assertCan(ctx.user, "contract:write", "当前角色无合同录入权限");
     if (p.status === "已归档") throw conflict("项目已归档，合同台账已封存，不可再录入合同", "ARCHIVED", { status: p.status });
     if (p.status === "已结算") throw conflict("项目已结算，合同台账已封账，不可再录入合同", "FROZEN", { status: p.status });
+    if (!isDemoMode()) {
+      if (p.status === "已核销") throw conflict("核销已通过，合同金额已锁定，不得新增合同", "CONTRACT_VERIFIED");
+      const verifiedInvoice = db.prepare("SELECT 1 FROM verify_steps WHERE pid=? AND step_no=6 AND result='通过'").get(p.id);
+      if (verifiedInvoice) throw conflict("发票与合同金额已核对，须先处理核销更正，不得新增合同", "CONTRACT_VERIFIED");
+    }
     if (!String(b.name || "").trim()) throw bad("合同名称为必填项");
     if (String(b.name).length > CONTRACT_MAX.name) throw bad(`合同名称不能超过 ${CONTRACT_MAX.name} 字`);
     if (!String(b.vendor || "").trim()) throw bad("签约方为必填项");
@@ -95,8 +101,10 @@ function register(router) {
     if (Number(amount.toFixed(2)) !== amount) throw bad("合同金额最多保留两位小数");
 
     // 状态必须是白名单内的值，否则「已签署金额」KPI 会漏算，badge 也会渲染成未知态
-    const st = String(b.status || "草稿").trim();
-    if (!CONTRACT_STATUS.includes(st)) throw bad(`合同状态必须是：${CONTRACT_STATUS.join(" / ")}`);
+    const requestedStatus = String(b.status || "草稿").trim();
+    if (!CONTRACT_STATUS.includes(requestedStatus)) throw bad(`合同状态必须是：${CONTRACT_STATUS.join(" / ")}`);
+    // The "signed" option is a signing request, NEVER proof of approval on creation.
+    const st = !isDemoMode() && requestedStatus === "已签署" ? "待签署" : requestedStatus;
 
     // 签署日期可以为空（草稿尚未签），一旦填了就必须是合法日期
     const signDate = String(b.sign_date || "").trim();
@@ -130,7 +138,12 @@ function register(router) {
 
     const id = nextId(db, "contracts", "id", "HT");
     db.prepare("INSERT INTO contracts (id,pid,name,vendor,amount,sign_date,status,category,remark,created_by,created_at,file_key,file_name,file_size,file_mime) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
-      .run(id, p.id, b.name, b.vendor, amount, signDate, st, category, remark, ctx.user.id, now(), fk, fname, fsize, fmime);
+      .run(id, p.id, b.name, b.vendor, amount, isDemoMode() ? signDate : "", st, category, remark, ctx.user.id, now(), fk, fname, fsize, fmime);
+    if (!isDemoMode() && st === "待签署") {
+      const apId = nextId(db, "approvals", "id", "AP");
+      db.prepare("INSERT INTO approvals (id,type,title,pid,ref_id,amount,by_user,sla,status,created_at,submitted_by_id) VALUES (?,?,?,?,?,?,?,?,?,?,?)")
+        .run(apId, "合同审批", "合同签署：" + b.name, p.id, id, amount, ctx.user.name, "2 个工作日", "待审批", now(), ctx.user.id);
+    }
     logAudit({
       user: ctx.user, module: "筹备管理", action: "合同录入", target: p.id,
       detail: `${id} ${b.name} / ${b.vendor} / ${category} / ¥${amount.toLocaleString("zh-CN")}${fk ? "（含原件）" : ""}`, ip: ctx.ip
@@ -148,7 +161,7 @@ function register(router) {
 
     return {
       contract: db.prepare("SELECT * FROM contracts WHERE id = ?").get(id),
-      message: `合同 ${id} 已保存`,
+      message: `合同 ${id} 已保存${!isDemoMode() && st === "待签署" ? "并提交协会管理员或总管理员审批签署" : ""}`,
       warning
     };
   });
@@ -177,6 +190,10 @@ function register(router) {
     if (["已结算", "已归档"].includes(p.status)) {
       throw conflict(`项目已「${p.status}」，合同台账已封存，不可再流转状态`, "FROZEN", { status: p.status });
     }
+    if (!isDemoMode() && (p.status === "已核销" ||
+        db.prepare("SELECT 1 FROM verify_steps WHERE pid=? AND step_no=6 AND result='通过'").get(p.id))) {
+      throw conflict("合同已完成核票或核销，签署状态已锁定", "CONTRACT_VERIFIED");
+    }
 
     const action = String(ctx.body?.action || "").trim();
     const flow = CONTRACT_FLOW.find((f) => f.from === c.status && f.action === action);
@@ -191,6 +208,12 @@ function register(router) {
     }
     assertCan(ctx.user, flow.perm, `需要「${flow.perm === "contract:approve" ? "协会管理员" : "合同录入"}」权限才能${flow.label}`);
 
+    if (!isDemoMode() && action === "sign") {
+      const approval = db.prepare("SELECT id,submitted_by_id FROM approvals WHERE type='合同审批' AND ref_id=? AND status='待审批' ORDER BY created_at DESC LIMIT 1").get(c.id);
+      if (!approval) throw conflict("合同尚未提交有效签署审批，不能直接确认", "SIGN_APPROVAL_REQUIRED");
+      if (!isSuper(ctx.user) && Number(c.created_by) === Number(ctx.user.id))
+        throw conflict("合同录入人与签署审批人须分离；请交由其他协会管理员或总管理员", "NEED_SECOND_PERSON");
+    }
     // 确认签署时补签署日期（默认今天），这样台账上的日期一定来自「确认」这个动作
     let signDate = null;
     if (action === "sign") {
@@ -200,6 +223,16 @@ function register(router) {
 
     db.prepare("UPDATE contracts SET status = ?, sign_date = COALESCE(?, sign_date) WHERE id = ?")
       .run(flow.to, signDate, c.id);
+    if (!isDemoMode()) {
+      if (action === "submit") {
+        const duplicate = db.prepare("SELECT id FROM approvals WHERE type='合同审批' AND ref_id=? AND status='待审批'").get(c.id);
+        if (!duplicate) db.prepare("INSERT INTO approvals (id,type,title,pid,ref_id,amount,by_user,sla,status,created_at,submitted_by_id) VALUES (?,?,?,?,?,?,?,?,?,?,?)")
+          .run(nextId(db,"approvals","id","AP"),"合同审批","合同签署："+c.name,p.id,c.id,c.amount,ctx.user.name,"2 个工作日","待审批",now(),ctx.user.id);
+      } else if (action === "sign") {
+        db.prepare("UPDATE approvals SET status='已通过',decided_by=?,decided_at=?,comment=? WHERE type='合同审批' AND ref_id=? AND status='待审批'")
+          .run(ctx.user.name,now(),"合同签署已确认",c.id);
+      }
+    }
     logAudit({
       user: ctx.user, module: "筹备管理", action: flow.label, target: p.id,
       detail: `${c.id} ${c.name}：${c.status} → ${flow.to}${signDate ? `（签署日期 ${signDate}）` : ""}`, ip: ctx.ip
@@ -310,6 +343,16 @@ function register(router) {
     const payeeAccount = parseBankAccount(b.payee_account);
     const invoiceNo = String(b.invoice_no || "").trim();
     if (invoiceNo.length > 40) throw bad("发票号不能超过 40 字");
+    if (!isDemoMode()) {
+      if (!invoiceNo) throw bad("生产付款申请必须填写发票号");
+      const checked = db.prepare("SELECT invoice_amount FROM verify_steps WHERE pid=? AND step_no=6 AND result='通过'").get(p.id);
+      if (!checked || !Number.isFinite(checked.invoice_amount))
+        throw conflict("必须先完成发票与已签署合同金额核对，再申请付款", "INVOICE_CHECK_REQUIRED");
+      const allocated = db.prepare("SELECT COALESCE(SUM(amount),0) AS total FROM payments WHERE pid=? AND status IN ('待审批','已审批','已付款')").get(p.id);
+      const requested = Number(b.amount);
+      if (Number.isFinite(requested) && cents(allocated.total) + cents(requested) > cents(checked.invoice_amount))
+        throw conflict("已申请及本次付款合计不能超过经核销确认的发票与合同金额", "INVOICE_AMOUNT_EXCEEDED");
+    }
     const remark = String(b.remark || "");
     if (remark.length > 300) throw bad("付款说明不能超过 300 字");
     const amount = Number(b.amount);
@@ -377,7 +420,7 @@ function register(router) {
     if (!y) throw notFound("付款单不存在");
     const p = getProject(y.pid);
     assertProjectVisible(ctx.user, p);
-    assertCan(ctx.user, "payment:approve", "只有财务与核销（或总管理员）可以登记收款账户");
+    assertCan(ctx.user, "payment:pay", "只有财务与核销（或总管理员）可以登记收款账户");
     if (y.status === "已付款") {
       throw conflict("付款已完成，收款账户不可再修改（如需更正请走线下凭证更正流程）", "PAID_LOCKED");
     }
@@ -397,7 +440,7 @@ function register(router) {
     if (!y) throw notFound("付款单不存在");
     const p = getProject(y.pid);
     assertProjectVisible(ctx.user, p);
-    assertCan(ctx.user, "payment:approve", "只有财务与核销（或总管理员）可以审批付款");
+    assertCan(ctx.user, "payment:approve", "只有协会管理员（或总管理员）可以审批付款");
     if (y.status !== "待审批") throw conflict(`付款单已是「${y.status}」状态`);
     const approve = requireDecision(ctx.body);
     const st = approve ? "已审批" : "已驳回";
@@ -441,7 +484,8 @@ function register(router) {
      */
     const canApprove = can(ctx.user, "project:approve")
       || can(ctx.user, "verify:exception_approve")
-      || can(ctx.user, "payment:approve");
+      || can(ctx.user, "payment:approve")
+      || can(ctx.user, "contract:approve");
     if (!canApprove) throw forbidden("审批中心仅对具备审批权限的角色开放");
 
     const { sql, params } = scopeFilter(ctx.user);
@@ -461,7 +505,8 @@ function register(router) {
     "立项审批": ["project:approve", "只有协会管理员（或总管理员）可以审批立项"],
     "变更审批": ["project:approve", "只有协会管理员（或总管理员）可以审批变更"],
     "例外单审批": ["verify:exception_approve", "只有财务与核销（或总管理员）可以审批例外单"],
-    "付款审批": ["payment:approve", "只有财务与核销（或总管理员）可以审批付款"]
+    "付款审批": ["payment:approve", "只有协会管理员（或总管理员）可以审批付款"],
+    "合同审批": ["contract:approve", "只有协会管理员（或总管理员）可以审批合同签署"]
   };
 
   /** 统一审批入口：按 type 分派 */
@@ -515,6 +560,20 @@ function register(router) {
         .run(approve ? "已解例外" : "不通过", approve ? `例外获批：${ex.reason}` : `例外被驳回：${ex.reason}`, ctx.user.name, at, ex.pid, ex.step_no);
       logAudit({ user: ctx.user, module: "会后核销", action: approve ? "例外通过" : "例外驳回", target: ex.pid, detail: `${ex.id} 第 ${ex.step_no} 步：${ex.reason}`, ip: ctx.ip });
       return { message: `例外单 ${ex.id} ${approve ? "已通过" : "已驳回"}`, verification: verification(ex.pid) };
+    }
+    if (a.type === "合同审批") {
+      const c = db.prepare("SELECT * FROM contracts WHERE id=? AND pid=?").get(a.ref_id,p.id);
+      if (!c) throw notFound("关联合同不存在");
+      if (c.status !== "待签署") throw conflict("只有待签署合同可以审批，当前状态：" + c.status);
+      if (!isDemoMode() && !isSuper(ctx.user) && Number(c.created_by) === Number(ctx.user.id))
+        throw conflict("签署审批必须由其他协会管理员或总管理员完成", "NEED_SECOND_PERSON");
+      const at = now();
+      db.prepare("UPDATE contracts SET status=?,sign_date=? WHERE id=?")
+        .run(approve ? "已签署" : "草稿", approve ? today() : "", c.id);
+      db.prepare("UPDATE approvals SET status=?,decided_by=?,decided_at=?,comment=? WHERE id=?")
+        .run(approve ? "已通过" : "已驳回",ctx.user.name,at,comment,a.id);
+      logAudit({user:ctx.user,module:"筹备管理",action:approve?"合同签署审批通过":"合同签署驳回",target:p.id,detail:c.id+" "+c.name,ip:ctx.ip});
+      return {message:"合同 "+c.id+(approve?" 已签署":" 已驳回，退回草稿")};
     }
     if (a.type === "付款审批") {
       const y = db.prepare("SELECT * FROM payments WHERE id = ?").get(a.ref_id);

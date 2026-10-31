@@ -53,7 +53,7 @@ export async function render(root) {
     } catch (e) { toast(e.message, "warn"); }
   });
   const nb = root.querySelector("#newBtn");
-  if (nb) nb.addEventListener("click", () => openCreate(root));
+  if (nb) nb.addEventListener("click", () => openCreate(root).catch((e) => toast(e.message, "warn")));
 
   await load(root);
 }
@@ -108,7 +108,10 @@ async function load(root) {
   });
 }
 
-function openCreate(root) {
+async function openCreate(root) {
+  const members = (await api.get("/api/users/assignable")).rows || [];
+  const optionsFor = (assoc) => members.filter((u) => u.assoc === assoc)
+    .map((u) => ({ v: String(u.id), l: u.name + "（" + u.role_name + "）" }));
   const fields = [
     { k: "name", l: "会议名称", req: 1, ph: "如：京津冀论坛 2027", full: 1 },
     { k: "assoc", l: "所属协会", t: "select", req: 1, opts: state.meta.assocs },
@@ -117,7 +120,7 @@ function openCreate(root) {
     { k: "days", l: "会期（天）", t: "number", v: "1" },
     { k: "budget", l: "预算（元）", t: "number", req: 1, ph: "如：240000" },
     { k: "people", l: "预计参会人数", t: "number", ph: "如：260" },
-    { k: "owner", l: "项目负责人", req: 1, ph: "如：王敏" },
+    { k: "owner_id", l: "项目负责人（协会成员）", t: "select", req: 1, opts: [] },
     { k: "phone", l: "联系电话", ph: "仅内部可见" },
     { k: "dept", l: "承办部门", t: "select", opts: state.meta.depts },
     { k: "agenda", l: "初版议程要点", t: "textarea", req: 1, rows: 3, full: 1, ph: "按环节列出，如：09:10 主题演讲 / 10:10 病例讨论 …" }
@@ -132,6 +135,16 @@ function openCreate(root) {
              <button class="btn btn-p" data-a="submit">保存并提交</button>`
   });
   const box = m.querySelector(".mbox");
+  const assocSelect = box.querySelector('[name="assoc"]');
+  const ownerSelect = box.querySelector('[name="owner_id"]');
+  if (assocSelect && ownerSelect) {
+    const syncOwners = () => {
+      ownerSelect.innerHTML = '<option value="">请选择本协会成员</option>' +
+        optionsFor(assocSelect.value).map((u) => `<option value="${esc(u.v)}">${esc(u.l)}</option>`).join("");
+    };
+    assocSelect.addEventListener("change", syncOwners);
+    syncOwners();
+  }
   box.querySelector('[data-a="cancel"]').onclick = () => m.classList.remove("open");
   box.querySelectorAll("[data-a]").forEach((btn) => {
     if (btn.dataset.a === "cancel") return;

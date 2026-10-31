@@ -170,6 +170,7 @@ CREATE TABLE IF NOT EXISTS verify_steps (
   name        TEXT NOT NULL,
   result      TEXT NOT NULL DEFAULT '待判定',
   remark      TEXT,
+  invoice_amount REAL,
   checked_by  TEXT,
   checked_at  TEXT,
   PRIMARY KEY (pid, step_no)
@@ -235,6 +236,7 @@ CREATE TABLE IF NOT EXISTS tasks (
   pid         TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
   name        TEXT NOT NULL,
   owner       TEXT,
+  owner_id    INTEGER,
   due         TEXT,
   status      TEXT NOT NULL DEFAULT '待开始',
   priority    TEXT DEFAULT '中',
@@ -482,6 +484,8 @@ function migrate() {
     }
   };
 
+  addColumn("verify_steps", "invoice_amount", "invoice_amount REAL");
+  addColumn("demand_items", "owner_id", "owner_id INTEGER");
   // 生产白名单：所有新用户初次登录必须通过短信验证并修改默认密码。
   addColumn("users", "must_change_password", "must_change_password INTEGER NOT NULL DEFAULT 0");
   addColumn("users", "phone_verified_at", "phone_verified_at TEXT");
