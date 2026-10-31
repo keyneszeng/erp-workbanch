@@ -86,6 +86,11 @@ function register(router) {
     assertCan(ctx.user, "contract:write", "当前角色无合同录入权限");
     if (p.status === "已归档") throw conflict("项目已归档，合同台账已封存，不可再录入合同", "ARCHIVED", { status: p.status });
     if (p.status === "已结算") throw conflict("项目已结算，合同台账已封账，不可再录入合同", "FROZEN", { status: p.status });
+    if (!isDemoMode()) {
+      if (p.status === "已核销") throw conflict("核销已通过，合同金额已锁定，不得新增合同", "CONTRACT_VERIFIED");
+      const verifiedInvoice = db.prepare("SELECT 1 FROM verify_steps WHERE pid=? AND step_no=6 AND result='通过'").get(p.id);
+      if (verifiedInvoice) throw conflict("发票与合同金额已核对，须先处理核销更正，不得新增合同", "CONTRACT_VERIFIED");
+    }
     if (!String(b.name || "").trim()) throw bad("合同名称为必填项");
     if (String(b.name).length > CONTRACT_MAX.name) throw bad(`合同名称不能超过 ${CONTRACT_MAX.name} 字`);
     if (!String(b.vendor || "").trim()) throw bad("签约方为必填项");
@@ -184,6 +189,10 @@ function register(router) {
     assertProjectVisible(ctx.user, p);
     if (["已结算", "已归档"].includes(p.status)) {
       throw conflict(`项目已「${p.status}」，合同台账已封存，不可再流转状态`, "FROZEN", { status: p.status });
+    }
+    if (!isDemoMode() && (p.status === "已核销" ||
+        db.prepare("SELECT 1 FROM verify_steps WHERE pid=? AND step_no=6 AND result='通过'").get(p.id))) {
+      throw conflict("合同已完成核票或核销，签署状态已锁定", "CONTRACT_VERIFIED");
     }
 
     const action = String(ctx.body?.action || "").trim();
