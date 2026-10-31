@@ -19,7 +19,7 @@ const { isDemoMode } = require("./runtime");
 const HERE = typeof __dirname === "string" ? __dirname : "";
 const WEB_DIR = path.join(HERE, "..", "..", "web");
 
-const PUBLIC = new Set(["/api/mini/auth/login", "/api/mini/auth/sms/send", "/api/mini/auth/bind", "/api/auth/login", "/api/health", "/api/auth/me", "/api/public/prep-invitation", "/api/public/prep-invitation-pdf", "/api/public/prep-invitation/respond"]);
+const PUBLIC = new Set(["/api/mini/auth/login", "/api/mini/auth/sms/send", "/api/mini/auth/bind", "/api/auth/login", "/api/auth/password/reset/request", "/api/auth/password/reset/confirm", "/api/health", "/api/auth/me", "/api/public/prep-invitation", "/api/public/prep-invitation-pdf", "/api/public/prep-invitation/respond"]);
 
 /**
  * 安全响应头 —— V1.2.17 SEC-03。
@@ -95,6 +95,7 @@ async function handle(req, res) {
 
   // 每个响应都带安全头（setHeader 与后续 writeHead 的 headers 会合并，writeHead 优先）
   for (const [k, v] of Object.entries(SECURITY_HEADERS)) res.setHeader(k, v);
+  if (pathname.startsWith("/api/auth/")) res.setHeader("Cache-Control", "no-store");
 
   if (req.method === "OPTIONS") {
     res.writeHead(204, { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET,POST,PATCH,DELETE", "Access-Control-Allow-Headers": "Content-Type" }).end();

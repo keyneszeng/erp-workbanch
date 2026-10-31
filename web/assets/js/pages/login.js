@@ -41,6 +41,31 @@ export function render(root, onSuccess, { demo = false } = {}) {
         </div>
         <button class="login-btn" type="submit" id="lbtn">登 录</button>
       </form>
+      ${demo ? "" : `<div style="margin-top:8px;text-align:right"><button type="button" class="link" id="forgotOpen">忘记密码？使用手机验证码找回</button></div>
+      <div id="resetPane" style="display:none">
+        <p class="hint" style="margin:12px 0">仅支持系统登记的手机号。验证短信后设置新密码，旧设备将全部退出。</p>
+        <form id="resetForm" autocomplete="off">
+          <div class="login-field" style="margin-bottom:12px">
+            <label>登记手机号</label>
+            <input name="phone" type="tel" inputmode="numeric" maxlength="11" autocomplete="tel" placeholder="11 位手机号" required>
+          </div>
+          <div class="login-field" style="margin-bottom:12px">
+            <label>短信验证码</label>
+            <input name="smsCode" inputmode="numeric" maxlength="6" autocomplete="one-time-code" placeholder="6 位验证码" required>
+            <button type="button" class="btn btn-o btn-sm" id="resetSend" style="margin-top:8px">发送短信验证码</button>
+          </div>
+          <div class="login-field" style="margin-bottom:12px">
+            <label>新密码</label>
+            <input name="newPassword" type="password" autocomplete="new-password" placeholder="8~64 位，需包含字母和数字" required>
+          </div>
+          <div class="login-field">
+            <label>确认新密码</label>
+            <input name="confirmPassword" type="password" autocomplete="new-password" placeholder="再次输入新密码" required>
+          </div>
+          <button class="login-btn" type="submit" id="resetConfirm">验证手机并重设密码</button>
+        </form>
+        <button type="button" class="link" id="forgotBack" style="margin-top:12px">返回密码登录</button>
+      </div>`}
       <div>
         <div class="hint" style="${demo ? "" : "display:none;"}margin-bottom:7px">演示账号（点击自动填入，密码均为 123456）</div>
         <div class="demo-users" style="${demo ? "" : "display:none;"}">${(demo ? DEMO : []).map(([u, n, d]) =>
@@ -76,6 +101,73 @@ export function render(root, onSuccess, { demo = false } = {}) {
       btn.textContent = "登 录";
     }
   });
+
+
+  if (!demo) {
+    const pane = root.querySelector("#resetPane");
+    const resetForm = root.querySelector("#resetForm");
+    const send = root.querySelector("#resetSend");
+    const resetConfirm = root.querySelector("#resetConfirm");
+    const setError = (message) => { err.textContent = message; err.style.display = "block"; };
+    const toggle = (show) => {
+      err.style.display = "none";
+      form.style.display = show ? "none" : "";
+      pane.style.display = show ? "" : "none";
+      root.querySelector("#forgotOpen").style.display = show ? "none" : "";
+      if (show) {
+        resetForm.elements.phone.value = form.elements.username.value.trim();
+        resetForm.elements.phone.focus();
+      } else form.elements.password.focus();
+    };
+    root.querySelector("#forgotOpen").onclick = () => toggle(true);
+    root.querySelector("#forgotBack").onclick = () => toggle(false);
+
+    send.onclick = async () => {
+      const phone = resetForm.elements.phone.value.trim();
+      if (!/^1[3-9]\\d{9}$/.test(phone)) return setError("请输入有效的 11 位登记手机号");
+      err.style.display = "none";
+      send.disabled = true;
+      send.textContent = "发送中…";
+      try {
+        const response = await api.post("/api/auth/password/reset/request", { phone });
+        // Same message regardless of whether this number exists: account enumeration protection.
+        const msg = root.querySelector("#resetNotice") || document.createElement("p");
+        msg.id = "resetNotice";
+        msg.className = "hint";
+        msg.textContent = response.message;
+        send.after(msg);
+        send.textContent = "60 秒后可重发";
+        window.setTimeout(() => { if (send.isConnected) { send.disabled = false; send.textContent = "重新发送验证码"; } }, 60000);
+      } catch (ex) {
+        setError(ex.message);
+        send.disabled = false;
+        send.textContent = "发送短信验证码";
+      }
+    };
+
+    resetForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      err.style.display = "none";
+      const data = {
+        phone: resetForm.elements.phone.value.trim(),
+        smsCode: resetForm.elements.smsCode.value.trim(),
+        newPassword: resetForm.elements.newPassword.value,
+        confirmPassword: resetForm.elements.confirmPassword.value
+      };
+      if (data.newPassword !== data.confirmPassword) return setError("两次输入的新密码不一致");
+      resetConfirm.disabled = true;
+      resetConfirm.textContent = "验证中…";
+      try {
+        await api.post("/api/auth/password/reset/confirm", data);
+        await onSuccess();
+      } catch (ex) {
+        setError(ex.message);
+      } finally {
+        resetConfirm.disabled = false;
+        resetConfirm.textContent = "验证手机并重设密码";
+      }
+    });
+  }
 
   form.username.focus();
 }
