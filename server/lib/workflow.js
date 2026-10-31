@@ -4,6 +4,7 @@ const { now, nextId, conflict, forbidden, notFound, bad, cents, yuan, parseBankA
 const { can, isSuper, ROLES } = require("./rbac");
 const { logAudit } = require("./audit");
 const { FLOW, VERIFY_STEPS, MATERIAL_KINDS } = require("./constants");
+const { isDemoMode } = require("./runtime");
 
 function getProject(id) {
   const p = db.prepare("SELECT * FROM projects WHERE id = ?").get(id);
@@ -21,6 +22,7 @@ function verification(pid) {
       ...def,
       result: r ? r.result : "待判定",
       remark: r ? r.remark : "",
+      invoiceAmount: r ? r.invoice_amount : null,
       checked_by: r ? r.checked_by : "",
       checked_at: r ? r.checked_at : ""
     };
@@ -156,6 +158,15 @@ const GUARDS = {
       .prepare("SELECT COUNT(*) AS c FROM payments WHERE pid = ? AND status IN ('待审批','已审批')")
       .get(p.id).c;
     if (pending) return `还有 ${pending} 笔付款未完成（待审批 / 已审批），需先处理完才能结算`;
+    if (!isDemoMode()) {
+      const paid = db.prepare("SELECT COUNT(*) AS n, COALESCE(SUM(amount),0) AS total FROM payments WHERE pid=? AND status='已付款'").get(p.id);
+      if (!paid.n) return "结算前必须先申请付款并由财务完成实际付款，不能跳过付款直接结算";
+      const matched = db.prepare("SELECT invoice_amount FROM verify_steps WHERE pid=? AND step_no=6 AND result='通过'").get(p.id);
+      if (!matched || !Number.isFinite(matched.invoice_amount))
+        return "发票与已签署合同金额尚未完成核对，不允许结算";
+      if (cents(paid.total) !== cents(matched.invoice_amount))
+        return `实际已付款 ¥${yuan(paid.total)} 与核销确认发票金额 ¥${yuan(matched.invoice_amount)} 不一致，不能结算`;
+    }
     return null;
   },
   archive(p) {

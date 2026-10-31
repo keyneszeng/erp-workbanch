@@ -334,6 +334,16 @@ function register(router) {
     const payeeAccount = parseBankAccount(b.payee_account);
     const invoiceNo = String(b.invoice_no || "").trim();
     if (invoiceNo.length > 40) throw bad("发票号不能超过 40 字");
+    if (!isDemoMode()) {
+      if (!invoiceNo) throw bad("生产付款申请必须填写发票号");
+      const checked = db.prepare("SELECT invoice_amount FROM verify_steps WHERE pid=? AND step_no=6 AND result='通过'").get(p.id);
+      if (!checked || !Number.isFinite(checked.invoice_amount))
+        throw conflict("必须先完成发票与已签署合同金额核对，再申请付款", "INVOICE_CHECK_REQUIRED");
+      const allocated = db.prepare("SELECT COALESCE(SUM(amount),0) AS total FROM payments WHERE pid=? AND status IN ('待审批','已审批','已付款')").get(p.id);
+      const requested = Number(b.amount);
+      if (Number.isFinite(requested) && cents(allocated.total) + cents(requested) > cents(checked.invoice_amount))
+        throw conflict("已申请及本次付款合计不能超过经核销确认的发票与合同金额", "INVOICE_AMOUNT_EXCEEDED");
+    }
     const remark = String(b.remark || "");
     if (remark.length > 300) throw bad("付款说明不能超过 300 字");
     const amount = Number(b.amount);

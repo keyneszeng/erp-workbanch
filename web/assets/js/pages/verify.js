@@ -125,7 +125,7 @@ async function renderOne(root, pid) {
   root.querySelectorAll("[data-ex]").forEach((b) => b.onclick = () => decideEx(root, pid, b.dataset.ex, b.dataset.ok === "1"));
   const pb = root.querySelector("#passBtn");
   if (pb) pb.onclick = async () => {
-    if (!await confirmBox("确认核销通过？通过后项目进入「已核销」，可结算与付款。", { ok: "确认通过" })) return;
+    if (!await confirmBox("确认核销通过？通过后必须先完成付款申请、管理员审批和财务付款，才能生成结算单。", { ok: "确认通过" })) return;
     try { const r = await api.post(`/api/projects/${pid}/transition`, { action: "verify_pass" }); toast(r.message, "ok"); render(root, [pid]); }
     catch (e) { toast(e.message, "warn"); }
   };
@@ -139,7 +139,9 @@ function openJudge(root, pid, no, d) {
       <div class="fld"><label>判定结果<span class="req">*</span></label>
         <select name="result"><option value="通过">通过</option><option value="不通过">不通过（自动生成例外单）</option></select></div>
       <div class="fld" style="margin-top:12px"><label>问题描述 / 备注</label>
-        <textarea name="remark" rows="3" placeholder="判定不通过时必填"></textarea></div>`,
+        <textarea name="remark" rows="3" placeholder="判定不通过时必填"></textarea></div>
+      ${no === 6 ? `<div class="fld" style="margin-top:12px"><label>核对发票总金额（元）</label>
+        <input type="number" name="invoiceAmount" min="0.01" step="0.01" value="${esc(String(s.invoiceAmount || ""))}" placeholder="必须与已签署合同总金额一致"></div>` : ""}`,
     footer: `<button class="btn btn-o" data-x="0">取消</button><button class="btn btn-p" data-x="1">提交判定</button>`
   });
   m.querySelector('[data-x="0"]').onclick = () => m.classList.remove("open");

@@ -162,6 +162,7 @@ CREATE TABLE IF NOT EXISTS verify_steps (
   name        TEXT NOT NULL,
   result      TEXT NOT NULL DEFAULT '待判定',
   remark      TEXT,
+  invoice_amount REAL,
   checked_by  TEXT,
   checked_at  TEXT,
   PRIMARY KEY (pid, step_no)
@@ -476,6 +477,7 @@ function migrate() {
   };
 
   addColumn("demand_items", "owner_id", "owner_id INTEGER");
+  addColumn("verify_steps", "invoice_amount", "invoice_amount REAL");
   // 生产白名单：所有新用户初次登录必须通过短信验证并修改默认密码。
   addColumn("users", "must_change_password", "must_change_password INTEGER NOT NULL DEFAULT 0");
   addColumn("users", "phone_verified_at", "phone_verified_at TEXT");
