@@ -17,7 +17,7 @@
 - 初始密码一律 `123456`，首次登录**只能进入短信验证与改密页面**，改成符合强度要求的密码后才能访问业务 API。
 - 日常改密同样要求旧密码、强新密码和发往白名单登记手机号的短信验证码；更换手机号或重置密码重新强制验证。
 - 验证码有效期 5 分钟，发送间隔 60 秒、每日最多 10 次、单码至多错误 5 次；数据库仅保存带随机盐的验证码哈希。
-- 现有**腾讯云 SMS** 代码可从阿里云 ECS 经 HTTPS 使用，两种云平台互不冲突。需要在腾讯云完成短信应用、签名和验证码模板审核，配置 `ERP_SMS_PROVIDER=tencent`、`ERP_TENCENT_SECRET_ID`、`ERP_TENCENT_SECRET_KEY`、`ERP_TENCENT_SMS_APP_ID`、`ERP_TENCENT_SMS_SIGN`、`ERP_TENCENT_SMS_TEMPLATE_ID` 等。
+- 正式短信验证码默认走**阿里云短信（Dysmsapi）**，与 ECS 同云，链路和计费都在一个账号下：配置 `ERP_SMS_PROVIDER=aliyun`、`ERP_ALIYUN_SMS_ACCESS_KEY_ID`、`ERP_ALIYUN_SMS_ACCESS_KEY_SECRET`、`ERP_ALIYUN_SMS_SIGN_NAME`、`ERP_ALIYUN_SMS_TEMPLATE_CODE`（区域默认 `cn-hangzhou`）。需先在阿里云短信控制台完成签名与模板审核。腾讯云 SMS 适配层保留兼容（`ERP_SMS_PROVIDER=tencent` + `ERP_TENCENT_*`），两者择一即可。
 - 短信验证码仅能证明收信时对号码的控制，不等于运营商实名身份认证；如需实名要求，另行对接合规实名核验服务。
 - 生产、演示数据库、附件、用户账户和域名完全隔离；旧生产账号数据不能被新规则自动接管，迁移必须事前备份和受控执行。
 
@@ -36,7 +36,7 @@ Nginx :443（反向代理 / TLS 终止）
 Node.js 22+ / systemd erp.service
     ├─ SQLite: /var/lib/erp/erp.db（持久化）
     ├─ 附件: /var/lib/erp/uploads（持久化）
-    └─ 腾讯云 SMS HTTPS API（验证码发送）
+    └─ 阿里云短信 Dysmsapi（验证码发送；腾讯云 SMS 保留兼容）
 ```
 
 ECS 安全组仅按需对外放通 443、证书验证可能用到的 80；SSH 22 限制可信来源，绝不放通 8787 或 SQLite 数据库端口。Nginx 证书签发后再启用 `deploy/aliyun/nginx-erp.conf.example` 模板，必须替换其中示例域名和证书路径。生产服务器直接使用 Node 本地持久化磁盘存附件，**不需要 Cloudflare R2 / Durable Object**。
@@ -48,7 +48,7 @@ ECS 安全组仅按需对外放通 443、证书验证可能用到的 80；SSH 22
 - `deploy/aliyun/production.env.example`：复制到 `/etc/erp-workbanch/production.env`，填入真实服务器/短信/管理员参数。禁止把真实配置提交 Git；文件设为仅受授权用户读取（如 `chmod 600`）。
 - `deploy/aliyun/erp.service`：部署到 `/etc/systemd/system/erp.service`。使用非 root 的 `erp` 服务账户，服务启动前执行环境检查，绑定本机 `127.0.0.1:8787`，`systemd` 管理自动重启。
 - `deploy/aliyun/nginx-erp.conf.example`：Nginx HTTPS / Web 反向代理参考模板；获得证书后替换示例域名再通过 `nginx -t` 验证。
-- `scripts/check-aliyun-production.cjs`：不连接阿里云、不部署，只检查运行目标、手机白名单、腾讯云真实短信、强 Secret、HTTPS 对外域名及持久化路径等参数，**缺少任何一项即拒绝生产启动**。
+- `scripts/check-aliyun-production.cjs`：不连接阿里云、不部署，只检查运行目标、手机白名单、真实短信通道（阿里云或腾讯云）、强 Secret、HTTPS 对外域名及持久化路径等参数，**缺少任何一项即拒绝生产启动**。
 
 在 ECS 上准备相应目录、Node 22、Nginx、非 root 用户、独立生产数据库文件及安全凭据，管理员审核后才可启用服务。安装路径及 Node 可执行路径必须与 `erp.service` 保持一致。
 
@@ -86,7 +86,7 @@ ECS 的 `production.env` 默认 `ERP_MINIPROGRAM_ENABLED=0`；上线小程序前
 - [x] Cloudflare 生产发布通道禁用、Worker 演示模式限制
 - [x] 阿里云 ECS 生产预检 + systemd / Nginx / 环境变量模板
 - [ ] 阿里云 ECS 服务器与地域、生产域名、证书及（适用时）ICP备案
-- [ ] 真实总管理员手机号、安全环境变量、腾讯云短信审核与送达验证
+- [ ] 真实总管理员手机号、安全环境变量、短信签名模板审核与送达验证
 - [ ] 持久化目录权限、自动备份与灾难恢复演练
 - [ ] 生产环境全流程黑盒验收、监控、告警与正式发布
 
@@ -95,11 +95,11 @@ ECS 的 `production.env` 默认 `ERP_MINIPROGRAM_ENABLED=0`；上线小程序前
 
 ## 忘记密码：手机短信验证与重置（2026-10-31）
 
-生产用户在登录页选择「忘记密码」后，先向 `POST /api/auth/password/reset/request` 提交白名单手机号。接口无论账号是否存在或被停用都返回相同文案，且不返回验证码；验证码仅发往绑定手机号。短信挑战仍使用现有腾讯云通道、五分钟有效、六十秒冷却、每号每日十次以及每个验证码最多五次尝试。新增 SQLite 持久化请求频率限制（IP 与手机号双维度），同时适用于 Cloudflare Durable Object 和 Node SQLite。
+生产用户在登录页选择「忘记密码」后，先向 `POST /api/auth/password/reset/request` 提交白名单手机号。接口无论账号是否存在或被停用都返回相同文案，且不返回验证码；验证码仅发往绑定手机号。短信挑战仍使用现有短信通道（默认阿里云 Dysmsapi）、五分钟有效、六十秒冷却、每号每日十次以及每个验证码最多五次尝试。新增 SQLite 持久化请求频率限制（IP 与手机号双维度），同时适用于 Cloudflare Durable Object 和 Node SQLite。
 
 凭短信验证码、新密码和确认密码调用 `POST /api/auth/password/reset/confirm`。服务端核验短信和新密码策略后原子更新密码哈希、重置初始改密状态、提高 token_ver、吊销所有旧会话，再签发当前新登录会话。用户无需知道旧密码；停用账号不能找回；演示模式不开放这两个公开 API。禁止将短信验证码写入日志、API 返回或浏览器持久存储。
 
-上线前须启用真实腾讯云 SMS、校验模板和手机投递，检查 Cloudflare WAF 与 IP 限流规则，并在浏览器完成忘记密码、旧 Cookie 失效、验证码重放、过期和频率上限的黑盒测试。
+上线前须启用真实短信通道、校验签名模板和手机投递，检查 Cloudflare WAF 与 IP 限流规则，并在浏览器完成忘记密码、旧 Cookie 失效、验证码重放、过期和频率上限的黑盒测试。
 
 
 ## 2026-10-31 业务流程修订（PR #17）

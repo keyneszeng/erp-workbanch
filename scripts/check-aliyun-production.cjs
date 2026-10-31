@@ -24,9 +24,16 @@ function check(env = process.env) {
   if (!/^1[3-9]\d{9}$/.test(required(env, "ERP_BOOTSTRAP_ADMIN_PHONE")))
     fail("ERP_BOOTSTRAP_ADMIN_PHONE 必须是有效的中国大陆手机号");
 
-  if (env.ERP_SMS_PROVIDER !== "tencent") fail("正式短信提供商必须配置 ERP_SMS_PROVIDER=tencent");
-  for (const key of ["ERP_TENCENT_SECRET_ID","ERP_TENCENT_SECRET_KEY","ERP_TENCENT_SMS_APP_ID",
-    "ERP_TENCENT_SMS_SIGN","ERP_TENCENT_SMS_TEMPLATE_ID"]) required(env, key);
+  const smsProvider = required(env, "ERP_SMS_PROVIDER");
+  if (smsProvider === "aliyun") {
+    for (const key of ["ERP_ALIYUN_SMS_ACCESS_KEY_ID","ERP_ALIYUN_SMS_ACCESS_KEY_SECRET",
+      "ERP_ALIYUN_SMS_SIGN_NAME","ERP_ALIYUN_SMS_TEMPLATE_CODE"]) required(env, key);
+  } else if (smsProvider === "tencent") {
+    for (const key of ["ERP_TENCENT_SECRET_ID","ERP_TENCENT_SECRET_KEY","ERP_TENCENT_SMS_APP_ID",
+      "ERP_TENCENT_SMS_SIGN","ERP_TENCENT_SMS_TEMPLATE_ID"]) required(env, key);
+  } else {
+    fail("正式短信提供商必须配置 ERP_SMS_PROVIDER=tencent 或 aliyun");
+  }
   // WeChat is optional until Mini Program launch; enabling it requires actual credentials.
   if (env.ERP_MINIPROGRAM_ENABLED === "1") {
     if (!/^wx[0-9a-f]{16}$/i.test(required(env, "ERP_WECHAT_APP_ID")))

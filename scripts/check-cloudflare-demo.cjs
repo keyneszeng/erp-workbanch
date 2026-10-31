@@ -12,6 +12,7 @@ function assertDemo(config) {
     throw new Error("Cloudflare 只能绑定 erp.aibuild.work 演示域名");
   if (config.vars?.ERP_DEMO_MODE !== "1") throw new Error("Cloudflare 必须显式 ERP_DEMO_MODE=1");
   const forbidden = ["ERP_BOOTSTRAP_ADMIN_PHONE", "ERP_TENCENT_SECRET_KEY", "ERP_TENCENT_SECRET_ID",
+    "ERP_ALIYUN_SMS_ACCESS_KEY_ID", "ERP_ALIYUN_SMS_ACCESS_KEY_SECRET",
     "ERP_SECRET", "ERP_PRODUCTION_DOMAIN", "ERP_SMS_PROVIDER"];
   for (const key of forbidden) if (key in (config.vars || {})) throw new Error("禁止在 Cloudflare 演示配置包含生产变量：" + key);
 }

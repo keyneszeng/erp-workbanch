@@ -16,7 +16,7 @@
 1. 微信公众平台注册企业小程序，取得真实 AppID/AppSecret；服务器环境配置 `ERP_MINIPROGRAM_ENABLED=1`、`ERP_WECHAT_APP_ID`、`ERP_WECHAT_APP_SECRET`；**AppSecret 只保存在 ECS**。
 2. 修改 `miniprogram/config.js` 的 `apiBase` 为实际阿里云 HTTPS 域名 + `/api`。目前的 `production.example.com` 是阻断意外上线的占位符。
 3. 修改 `project.config.json` 的 `appid`，在微信后台登记该正式服务器为 `request/downloadFile` 合法域名，校验 TLS 和域名资质。
-4. 在 ECS 配置独立持久化库、Nginx 代理、腾讯云短信、超级管理员手机号。执行 `npm run prod:check`；完成短信发收、业务授权、真机上传、微信审核的实测后发布。
+4. 在 ECS 配置独立持久化库、Nginx 代理、阿里云短信（Dysmsapi）、超级管理员手机号。执行 `npm run prod:check`；完成短信发收、业务授权、真机上传、微信审核的实测后发布。
 5. 微信登录 `wx.login` 返回临时 code，ECS 单独调用 `auth.code2Session` 得到 OpenID，不向小程序输出微信 `session_key`。首次绑定额外检查白名单手机号+密码+短信验证码。后续已绑定用户凭新的微信 code 自动登录。Bearer 会话存在同一 SQLite `sessions` 表，后端权限完全一致；退出、停用和改密后原会话失效。
 
 ## 生产 API
