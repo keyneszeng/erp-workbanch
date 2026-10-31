@@ -6,6 +6,8 @@ const { logAudit } = require("../lib/audit");
 const { listProjects } = require("./projects");
 const { getProject, assertNotFrozen } = require("../lib/workflow");
 const { DEMAND_GROUPS, DEMAND_TEMPLATE, DEMAND_NEED_OPTIONS, DEMAND_STATUSES } = require("../lib/constants");
+const { assignedMember } = require("../lib/member-directory");
+const { isDemoMode } = require("../lib/runtime");
 
 const MAX_LEN = { item: 40, spec: 200, owner: 20, due: 20, note: 120 };
 
@@ -58,7 +60,7 @@ function loadSheet(pid) {
       if (!groups[r.grp]) groups[r.grp] = [];
       groups[r.grp].push({
         item: r.item, note: r.note, need: r.need, spec: r.spec || "",
-        owner: r.owner || "", due: r.due || "", budget: r.budget || ""
+        owner: r.owner || "", owner_id: r.owner_id || "", due: r.due || "", budget: r.budget || ""
       });
     }
   } else {
@@ -66,7 +68,7 @@ function loadSheet(pid) {
     for (const g of DEMAND_GROUPS) {
       for (const t of (DEMAND_TEMPLATE[g] || [])) {
         groups[g].push({
-          item: t.item, note: t.note || "", need: "需要", spec: "", owner: "", due: "", budget: ""
+          item: t.item, note: t.note || "", need: "需要", spec: "", owner: "", owner_id: "", due: "", budget: ""
         });
       }
     }
@@ -110,8 +112,8 @@ function ensureSheet(pid) {
 function replaceItems(pid, items, at) {
   db.prepare("DELETE FROM demand_items WHERE pid = ?").run(pid);
   const ins = db.prepare(
-    `INSERT OR REPLACE INTO demand_items (pid, grp, item, note, need, spec, owner, due, budget, attach, status, ordering, updated_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`
+    `INSERT OR REPLACE INTO demand_items (pid, grp, item, note, need, spec, owner, owner_id, due, budget, attach, status, ordering, updated_at)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
   );
   let order = 0;
   const seen = new Set();
@@ -123,7 +125,7 @@ function replaceItems(pid, items, at) {
     if (seen.has(key)) continue;
     seen.add(key);
     // attach / status 已从业务上取消，列保留给旧数据，新写入统一置空
-    ins.run(pid, it.grp, item, it.note || "", it.need || "需要", it.spec || "", it.owner || "",
+    ins.run(pid, it.grp, item, it.note || "", it.need || "需要", it.spec || "", it.owner || "", it.owner_id || null,
       it.due || "", it.budget || "", "", "未开始", order++, at);
   }
   db.prepare("UPDATE demand_sheets SET updated_at = ? WHERE pid = ?").run(at, pid);
@@ -175,6 +177,7 @@ function register(router) {
     assertProjectVisible(ctx.user, p);
     const sheet = loadSheet(p.id);
     sheet.projectName = p.name;
+    sheet.projectAssoc = p.assoc;
     // 项目状态给前端判断「是不是还在筹备 / 执行阶段」——
     // 列表页已经按阶段过滤，但详情页仍可直接打开（归档记录、核销对照都要看得到）
     sheet.projectStatus = p.status;
@@ -218,6 +221,16 @@ function register(router) {
         throw bad(`「${it.grp}」分组下存在重复条目「${name}」，同一分组内条目名必须唯一`, "DUPLICATE_ITEM");
       }
       seen.add(key);
+      if (it.owner_id != null && String(it.owner_id).trim() !== "") {
+        const member = assignedMember(it.owner_id, p.assoc);
+        it.owner_id = member.id;
+        it.owner = member.name;
+      } else if (!isDemoMode() && String(it.owner || "").trim()) {
+        throw bad("需求负责人必须从本协会有效成员选择，不可手动输入姓名");
+      } else {
+        it.owner_id = null;
+        if (!isDemoMode()) it.owner = "";
+      }
       it.budget = parseAmount(it.budget, name);
       checkItem(it);
     }
