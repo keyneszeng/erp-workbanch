@@ -83,26 +83,24 @@ function register(router) {
     const invalid = () => new HttpError(400, "RESET_CODE_INVALID", "短信验证码无效或已过期，请重新获取");
     if (!u) throw invalid();
 
-    let session;
+    // Verify outside the password-update transaction. Wrong attempts MUST persist:
+    // rolling back consumePasswordCode() would also roll back its failure counter
+    // and silently allow unlimited six-digit OTP guesses.
     try {
-      session = transaction(() => {
-        consumePasswordCode(u, smsCode);
-        if (verifyPassword(next, u.pass_salt, u.pass_hash)) {
-          throw bad("新密码不能与原密码相同");
-        }
-        const { salt, hash } = hashPassword(next);
-        db.prepare("UPDATE users SET pass_salt=?,pass_hash=?,must_change_password=0,phone_verified_at=?,token_ver=token_ver+1 WHERE id=? AND active=1")
-          .run(salt, hash, new Date().toISOString(), u.id);
-        db.prepare("DELETE FROM sessions WHERE user_id=?").run(u.id);
-        return createSession(u.id, ctx.ip);
-      });
+      consumePasswordCode(u, smsCode);
     } catch (e) {
-      // Keep invalid/expired/wrong OTP responses indistinguishable. Only after a correct
-      // OTP may the verified owner see a policy error (e.g. password re-use).
-      if (e instanceof HttpError && e.code === "BAD_REQUEST" && e.message === "新密码不能与原密码相同") throw e;
       if (e instanceof HttpError && (e.status === 400 || e.status === 429)) throw invalid();
       throw e;
     }
+    if (verifyPassword(next, u.pass_salt, u.pass_hash))
+      throw bad("新密码不能与原密码相同");
+    const { salt, hash } = hashPassword(next);
+    const session = transaction(() => {
+      db.prepare("UPDATE users SET pass_salt=?,pass_hash=?,must_change_password=0,phone_verified_at=?,token_ver=token_ver+1 WHERE id=? AND active=1")
+        .run(salt, hash, new Date().toISOString(), u.id);
+      db.prepare("DELETE FROM sessions WHERE user_id=?").run(u.id);
+      return createSession(u.id, ctx.ip);
+    });
     logAudit({ user: u, module: "系统配置", action: "短信找回密码", target: String(u.id),
       detail: "绑定手机号已验证；密码重置成功，全部旧会话已吊销", ip: ctx.ip });
     return {
