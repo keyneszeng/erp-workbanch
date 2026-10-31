@@ -4,6 +4,7 @@
 let config = {
   demo: process.env.ERP_DEMO_MODE === "1",
   bootstrapPhone: process.env.ERP_BOOTSTRAP_ADMIN_PHONE || "",
+  target: String(process.env.ERP_DEPLOY_TARGET || ""),
   sms: smsFrom(process.env)
 };
 function smsFrom(env) {
@@ -32,10 +33,19 @@ function configureRuntime(env = {}) {
   config = {
     demo: String(env.ERP_DEMO_MODE || "") === "1",
     bootstrapPhone: String(env.ERP_BOOTSTRAP_ADMIN_PHONE || ""),
+    target: String(env.ERP_DEPLOY_TARGET || ""),
     sms: smsFrom(env)
   };
 }
 function isDemoMode() { return config.demo; }
 function bootstrapAdminPhone() { return config.bootstrapPhone; }
 function smsSettings() { return config.sms; }
-module.exports = { configureRuntime, isDemoMode, bootstrapAdminPhone, smsSettings };
+function deployTarget() { return config.target; }
+/**
+ * 云服务器测试环境（域名未备案、短信未开通阶段的真实环境验证）。
+ * 与演示模式严格区分：测试环境用真实数据库和真实业务逻辑，只有短信通道降级。
+ */
+function isTestEnvironment() { return config.target === "aliyun-ecs-test"; }
+module.exports = {
+  configureRuntime, isDemoMode, bootstrapAdminPhone, smsSettings, deployTarget, isTestEnvironment
+};

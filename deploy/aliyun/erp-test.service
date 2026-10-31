@@ -1,0 +1,28 @@
+# 测试环境专用单元：与生产 erp.service 完全独立（不同代码目录、数据库、端口）。
+# Place at /etc/systemd/system/erp-test.service
+# IMPORTANT: ExecStartPre fails closed when test-environment variables are incomplete.
+[Unit]
+Description=ERP test environment (Alibaba Cloud ECS, pre-ICP verification)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=erp
+Group=erp
+WorkingDirectory=/opt/erp-test/current
+EnvironmentFile=/etc/erp-workbanch/test.env
+ExecStartPre=/usr/bin/node /opt/erp-test/current/scripts/check-aliyun-test.cjs
+ExecStart=/usr/bin/node --experimental-sqlite /opt/erp-test/current/server/index.js
+Restart=on-failure
+RestartSec=5
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/erp-test
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target

@@ -7,7 +7,7 @@
  */
 const crypto = require("node:crypto");
 const { db } = require("./db");
-const { smsSettings } = require("./runtime");
+const { smsSettings, isTestEnvironment } = require("./runtime");
 const { HttpError, bad } = require("./util");
 const { normalizePhone } = require("./phone-whitelist");
 const TTL_MS = 5 * 60 * 1000;
@@ -18,6 +18,8 @@ const MAX_ATTEMPTS = 5;
 function configured() {
   const c = smsSettings();
   if (c.provider === "test") return process.env.NODE_ENV === "test" && c.testMode === "1";
+  // console 通道只写服务器日志、不发真实短信，仅限云服务器测试环境使用。
+  if (c.provider === "console") return isTestEnvironment();
   if (c.provider === "aliyun")
     return ["accessKeyId", "accessKeySecret", "signName", "templateCode"].every(k => !!c[k]);
   return c.provider === "tencent" && ["secretId", "secretKey", "sdkAppId", "signName", "templateId"]
@@ -25,7 +27,12 @@ function configured() {
 }
 function assertConfigured() {
   if (!configured())
-    throw new Error("生产系统未配置有效短信通道：ERP_SMS_PROVIDER=aliyun（或 tencent）与对应云厂商的密钥、签名、模板均为必填");
+    throw new Error("未配置有效短信通道：生产需 ERP_SMS_PROVIDER=aliyun（或 tencent）及对应云厂商密钥、签名、模板；console 通道仅限 ERP_DEPLOY_TARGET=aliyun-ecs-test");
+}
+/** 测试环境可固定验证码，方便多人同时验收；生产环境绝不走这条分支。 */
+function fixedTestCode() {
+  const v = String(process.env.ERP_TEST_FIXED_SMS_CODE || "").trim();
+  return /^\d{6}$/.test(v) ? v : "";
 }
 function hmac(key, data, encoding) {
   return crypto.createHmac("sha256", key).update(data).digest(encoding);
@@ -133,16 +140,19 @@ async function sendPasswordCode(user) {
     throw new HttpError(429, "SMS_COOLDOWN", "验证码发送过于频繁，请 60 秒后再试");
   const count = old && old.day_key === day ? Number(old.day_count) : 0;
   if (count >= DAILY_LIMIT) throw new HttpError(429, "SMS_DAILY_LIMIT", "今日验证码发送次数已达上限");
-  const code = smsSettings().provider === "test" ? "654321" : String(crypto.randomInt(100000, 1000000));
+  const provider = smsSettings().provider;
+  const code = provider === "test" ? "654321"
+    : (provider === "console" && fixedTestCode()) || String(crypto.randomInt(100000, 1000000));
   const salt = crypto.randomBytes(16).toString("hex");
   const hash = digest(salt, phone, code);
   // 先占用本人的发送额度，避免并发重复调用供应商；发送失败仅移除本次挑战。
   db.prepare("INSERT INTO sms_challenges (user_id,phone,salt,code_hash,sent_ms,expires_ms,attempts,day_key,day_count) VALUES (?,?,?,?,?,?,0,?,?) ON CONFLICT(user_id) DO UPDATE SET phone=excluded.phone,salt=excluded.salt,code_hash=excluded.code_hash,sent_ms=excluded.sent_ms,expires_ms=excluded.expires_ms,attempts=0,day_key=excluded.day_key,day_count=excluded.day_count")
     .run(id, phone, salt, hash, ms, ms + TTL_MS, day, count + 1);
   try {
-    const provider = smsSettings().provider;
     if (provider === "tencent") await sendTencent(phone, code);
     else if (provider === "aliyun") await sendAliyun(phone, code);
+    else if (provider === "console")
+      console.log("[SMS-CONSOLE] " + phone + " 验证码 " + code + "（测试环境，未真实发送）");
   } catch (e) {
     // 保留发送频次记录：供应商故障时也不能利用删除挑战无限重试。
     console.error("短信发送失败", e.message);

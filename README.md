@@ -45,6 +45,16 @@ npm run prod:check
 
 详见 [阿里云生产部署指南](docs/production-deployment.md) 和 [Cloudflare 演示环境约束](docs/cloudflare-secure-deployment.md)。
 
+## 云服务器测试版本（分支）
+
+`云服务器测试版本` 分支用于「域名未备案、短信未审核」阶段的真实服务器验证：纯 HTTP 8080 用 IP 访问，短信走 console 通道写日志，其余（数据库、RBAC、审批核销状态机、上传）与生产完全一致。它与生产环境在端口、目录、数据库、服务名上完全隔离，可在同一台 ECS 上并存。
+
+```bash
+sudo ERP_TEST_FIXED_SMS_CODE=654321 bash deploy/aliyun/deploy.sh --test --admin-phone 13800000000
+```
+
+**该环境禁止录入真实业务数据**，验收完成后应关闭 8080 端口。详见 [云服务器测试环境部署](docs/test-deployment.md)。
+
 ## 开发与质量验证
 
 ```bash
