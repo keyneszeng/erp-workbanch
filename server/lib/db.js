@@ -40,6 +40,14 @@ CREATE TABLE IF NOT EXISTS users (
   created_at  TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS password_reset_limits (
+  rate_key TEXT PRIMARY KEY,
+  bucket_ms INTEGER NOT NULL,
+  hits INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS idx_password_reset_limit_bucket ON password_reset_limits(bucket_ms);
+
 CREATE TABLE IF NOT EXISTS sms_challenges (
   user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
   phone TEXT NOT NULL,
@@ -476,8 +484,8 @@ function migrate() {
     }
   };
 
-  addColumn("demand_items", "owner_id", "owner_id INTEGER");
   addColumn("verify_steps", "invoice_amount", "invoice_amount REAL");
+  addColumn("demand_items", "owner_id", "owner_id INTEGER");
   // 生产白名单：所有新用户初次登录必须通过短信验证并修改默认密码。
   addColumn("users", "must_change_password", "must_change_password INTEGER NOT NULL DEFAULT 0");
   addColumn("users", "phone_verified_at", "phone_verified_at TEXT");
