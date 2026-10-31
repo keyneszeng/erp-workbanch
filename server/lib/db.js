@@ -40,6 +40,12 @@ CREATE TABLE IF NOT EXISTS users (
   created_at  TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS password_reset_limits (
+  rate_key TEXT PRIMARY KEY,
+  bucket_ms INTEGER NOT NULL,
+  hits INTEGER NOT NULL DEFAULT 0
+);
+
 CREATE TABLE IF NOT EXISTS sms_challenges (
   user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
   phone TEXT NOT NULL,
