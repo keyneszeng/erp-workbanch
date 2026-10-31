@@ -193,7 +193,7 @@ function openPay(root, projects) {
     { k: "payee_bank", l: "开户行", req: 1, ph: "如：中国银行北京朝阳支行" },
     { k: "payee_account", l: "银行账号", req: 1, ph: "10~25 位数字，可含空格分隔" },
     { k: "amount", l: "付款金额（元）", t: "number", req: 1 },
-    { k: "invoice_no", l: "发票号" },
+    { k: "invoice_no", l: "发票号", req: 1 },
     { k: "remark", l: "备注", t: "textarea", full: 1, rows: 2 }
   ];
   const m = modal({ title: "付款申请", body: `<div class="gate ok" style="margin-bottom:12px"><b>核销门禁</b>仅列出「已核销」项目：未核销项目不可付款，已结算项目账目已封账，已归档项目卷宗已封存。<br><b>预算门禁</b>已占用（待审批 + 已审批 + 已付款）加本笔金额超过预算时，接口返回 <code>OVER_BUDGET</code>，需总管理员特批。</div>${formHtml(fields)}`,
