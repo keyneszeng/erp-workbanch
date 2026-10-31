@@ -115,6 +115,33 @@ npm run test-env:login   # 本地跑一遍「登录 → 改密 → 进业务」�
 
 切换方式：在 ECS 上用 `main` 分支执行生产模式部署（`deploy.sh --domain ... --email ...`），生产环境独立于测试环境，不需要先卸载测试版。
 
+## 常见问题
+
+### 部署停在 `Failed to reload nginx.service: Unit nginx.service is masked`
+
+阿里云 Ubuntu 镜像预置了 `/etc/systemd/system/nginx.service -> /dev/null`，把 nginx 服务 mask 掉了，`systemctl reload` 会直接失败。部署脚本已自动 `unmask` 再 reload；手工处理：
+
+```bash
+systemctl unmask nginx.service && systemctl enable nginx && systemctl start nginx
+```
+
+### 服务器内部正常，但外网打不开 `IP:8080`
+
+安全组没放通。ECS 控制台 → 安全组 → 入方向 → 放通 `8080/tcp`（来源建议限自己的办公 IP，别开 0.0.0.0/0）。脚本只能验证服务器内部链路，管不到云防火墙。
+
+### 忘了管理员手机号 / 想换成自己的号码
+
+测试库可以随时重建，重建后总管理员按 `ERP_BOOTSTRAP_ADMIN_PHONE` 重新生成：
+
+```bash
+systemctl stop erp-test
+rm -f /var/lib/erp-test/erp.db /var/lib/erp-test/erp.db-wal /var/lib/erp-test/erp.db-shm
+sed -i 's/^ERP_BOOTSTRAP_ADMIN_PHONE=.*/ERP_BOOTSTRAP_ADMIN_PHONE=你的手机号/' /etc/erp-workbanch/test.env
+systemctl start erp-test
+```
+
+注意：这会清空全部测试数据。
+
 ## 硬性约束
 
 - **禁止录入真实业务数据**。这个库随时可能被重置，且跑在纯 HTTP 上，数据不加密传输。

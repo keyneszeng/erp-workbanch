@@ -41,6 +41,17 @@ warn() { printf '\033[1;33m[!]\033[0m %s\n' "$*" >&2; }
 die()  { printf '\033[1;31m[x]\033[0m %s\n' "$*" >&2; exit 1; }
 run()  { if [ "$DRY_RUN" = "1" ]; then printf '    + %s\n' "$*"; else "$@"; fi; }
 
+# 阿里云等云镜像会把 nginx.service 软链到 /dev/null（masked），
+# 此时 systemctl reload/start 直接报 "Unit nginx.service is masked" 而失败。
+# 先解除 mask 并确保进程在跑，再做 reload。
+ensure_nginx() {
+  if ! systemctl is-enabled nginx >/dev/null 2>&1; then
+    systemctl unmask nginx.service >/dev/null 2>&1 || true
+    systemctl enable nginx >/dev/null 2>&1 || true
+  fi
+  systemctl is-active nginx >/dev/null 2>&1 || systemctl start nginx
+}
+
 usage() {
   awk 'NR>1 && /^#/ {sub(/^# ?/,""); print; next} NR>1 {exit}' "$0"
   exit "${1:-0}"
@@ -294,6 +305,7 @@ if [ "$MODE" = "test" ]; then
     ln -sfn "$SITE_AVAIL" "$SITE_ENABLED"
     rm -f /etc/nginx/sites-enabled/default
     nginx -t
+    ensure_nginx
     systemctl reload nginx
   fi
 else
@@ -329,6 +341,7 @@ NGINX
     ln -sfn "$SITE_AVAIL" "$SITE_ENABLED"
     rm -f /etc/nginx/sites-enabled/default
     nginx -t
+    ensure_nginx
     systemctl reload nginx
   fi
 
@@ -340,7 +353,7 @@ NGINX
       if [ "$DRY_RUN" = "0" ]; then
         certbot --nginx -d "$DOMAIN" --non-interactive --agree-tos -m "$ACME_EMAIL" --redirect \
           || die "证书签发失败：确认 $DOMAIN 的 A 记录已指向本机、安全组放通 80/443 后重跑"
-        nginx -t && systemctl reload nginx
+        nginx -t && { ensure_nginx; systemctl reload nginx; }
       fi
     fi
   else
