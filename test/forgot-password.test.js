@@ -95,6 +95,18 @@ test("未登录状态：忘记密码接口开放；手机号枚举保护、验�
   const absent=await send(STAFF);
   assert.deepEqual(absent.data,known.data,"停用账号与在册账号必须返回同样发送说明");
   assert.equal((await confirm(STAFF,"654321","MoreStrong2026","MoreStrong2026")).data.error.code,"RESET_CODE_INVALID");
+
+  const LOCKED = "13600136001";
+  const lockUser = await req("POST","/api/users",{phone:LOCKED,name:"安全测试账号",role:"user"},recovered.cookie);
+  assert.equal(lockUser.status,200,JSON.stringify(lockUser.data));
+  assert.equal((await send(LOCKED)).status,200);
+  for (let i=0;i<5;i++) {
+    const badCode=await confirm(LOCKED,"000000","LockedNew2026","LockedNew2026");
+    assert.equal(badCode.status,400,"错误验证码第 "+(i+1)+" 次");
+  }
+  const refused=await confirm(LOCKED,"654321","LockedNew2026","LockedNew2026");
+  assert.equal(refused.status,400,"五次失败后正确验证码也必须被锁定（错误次数不能被事务回滚）");
+  assert.equal(refused.data.error.code,"RESET_CODE_INVALID");
 });
 
 test("公开请求频控：无效号码同样计数，持久化 IP/手机号上限",async()=>{
