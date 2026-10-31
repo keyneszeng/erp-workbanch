@@ -6,8 +6,10 @@ const { logAudit } = require("../lib/audit");
 const { getProject, verification, materialsStatus, settlementOf, demandSummary, assertNotFrozen, committed, availableActions, transition } = require("../lib/workflow");
 const { ASSOCS, FORMS, DEPTS } = require("../lib/constants");
 const { readPaging, countOf } = require("../lib/paginate");
+const { isDemoMode } = require("../lib/runtime");
+const { assignedMember } = require("../lib/member-directory");
 
-const EDITABLE = ["name", "assoc", "form", "date", "days", "budget", "people", "owner", "phone", "dept", "agenda"];
+const EDITABLE = ["name", "assoc", "form", "date", "days", "budget", "people", "owner", "owner_id", "phone", "dept", "agenda"];
 
 /**
  * 账目基准字段：结算单的 income 直接取 projects.budget，
@@ -208,6 +210,9 @@ function register(router) {
     assertCan(ctx.user, "project:create", "只有协会管理员 / 会务执行可以发起立项");
     const b = ctx.body || {};
     // 协会管理员只能为本人所属协会立项；不能靠提交其他协会名获取跨租户项目。
+    const member = b.owner_id != null && String(b.owner_id).trim() !== "" ? assignedMember(b.owner_id, b.assoc) : null;
+    if (!isDemoMode() && !member) throw bad("生产立项必须从本协会在册成员选择项目负责人（owner_id）");
+    if (member) b.owner = member.name;
     validate(b);
     if (["assoc", "exec"].includes(ctx.user.role) && ctx.user.assoc && b.assoc !== ctx.user.assoc) {
       throw forbidden("只能为本人所属协会发起立项");
@@ -218,7 +223,7 @@ function register(router) {
       `INSERT INTO projects (id,name,assoc,form,date,days,budget,people,owner,owner_id,phone,dept,agenda,status,status_at,created_by,created_at,updated_at)
        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
     ).run(id, b.name, b.assoc, b.form, b.date, Number(b.days) || 1, Number(b.budget), Number(b.people) || 0,
-      b.owner, resolveOwnerId(b.owner, ctx.user), b.phone || "", b.dept || "会务部", b.agenda, "草稿", at, ctx.user.id, at, at);
+      b.owner, member ? member.id : resolveOwnerId(b.owner, ctx.user), b.phone || "", b.dept || "会务部", b.agenda, "草稿", at, ctx.user.id, at, at);
     db.prepare("INSERT OR IGNORE INTO project_members (project_id,user_id,role) VALUES (?,?,?)").run(id, ctx.user.id, "创建人");
     logAudit({
       user: ctx.user, module: "项目管理", action: "立项申请", target: id,
@@ -247,6 +252,13 @@ function register(router) {
       }
     }
     const b = ctx.body || {};
+    if ("owner_id" in b) {
+      const member = assignedMember(b.owner_id, "assoc" in b ? b.assoc : p.assoc);
+      b.owner_id = member.id;
+      b.owner = member.name;
+    } else if (!isDemoMode() && "owner" in b) {
+      throw bad("生产环境必须按协会成员 ID 选择负责人，不接受手工姓名");
+    }
     if (!isSuper(ctx.user) && "assoc" in b && b.assoc !== p.assoc) {
       throw forbidden("项目所属协会不可通过资料编辑修改；请由总管理员办理跨协会迁移");
     }
@@ -297,7 +309,7 @@ function register(router) {
     }
 
     // 负责人改名时同步重算 owner_id，否则数据范围还挂在旧的人身上
-    if ("owner" in patch) patch.owner_id = resolveOwnerId(patch.owner, ctx.user);
+    if ("owner" in patch && !("owner_id" in patch)) patch.owner_id = resolveOwnerId(patch.owner, ctx.user);
     const sets = Object.keys(patch).map((k) => `${k} = ?`).join(", ");
     db.prepare(`UPDATE projects SET ${sets}, updated_at = ? WHERE id = ?`)
       .run(...Object.values(patch).map((v, i) => {
