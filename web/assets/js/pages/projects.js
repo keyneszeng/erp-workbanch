@@ -109,7 +109,7 @@ async function load(root) {
 }
 
 async function openCreate(root) {
-  const members = (await api.get("/api/users/pickable")).rows || [];
+  const members = (await api.get("/api/users/assignable")).rows || [];
   const optionsFor = (assoc) => members.filter((u) => u.assoc === assoc)
     .map((u) => ({ v: String(u.id), l: u.name + "（" + u.role_name + "）" }));
   const fields = [

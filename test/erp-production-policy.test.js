@@ -45,7 +45,7 @@ test("production: association member IDs, approved contract signing and pay-afte
   const b=await add("13700137000","其他协会负责人",ASSOCS[1]);
   assert.equal(a.status,200,JSON.stringify(a.body));
   assert.equal(b.status,200,JSON.stringify(b.body));
-  const members=await request("GET","/api/users/pickable?assoc="+encodeURIComponent(ASSOCS[0]),undefined,cookie);
+  const members=await request("GET","/api/users/assignable?assoc="+encodeURIComponent(ASSOCS[0]),undefined,cookie);
   assert.equal(members.status,200);
   assert.ok(members.body.rows.some(x=>x.id===a.body.user.id));
   assert.ok(!members.body.rows.some(x=>x.id===b.body.user.id));

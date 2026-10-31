@@ -371,16 +371,19 @@ function register(router) {
    * 最小字段：id / 姓名 / 角色名（前端下拉就这三样），不泄露账号与联系方式。
    */
   router.get("/api/users/pickable", async (ctx) => {
-    if (!["project:member", "project:create", "demand:write", "user:manage"].some((perm) => can(ctx.user, perm))) {
-      throw require("../lib/util").forbidden("当前角色无权选择协会成员");
-    }
+    if (!can(ctx.user, "project:member") && !can(ctx.user, "user:manage"))
+      throw require("../lib/util").forbidden("当前角色无权选择项目成员");
+    const rows = db.prepare("SELECT id, name, role FROM users WHERE active = 1 ORDER BY id").all();
+    return { rows: rows.map((u) => ({ id: u.id, name: u.name, role: u.role, role_name: ROLES[u.role]?.name || u.role })) };
+  });
+
+  router.get("/api/users/assignable", async (ctx) => {
+    if (!["project:member", "project:create", "demand:write", "user:manage"].some((perm) => can(ctx.user, perm)))
+      throw require("../lib/util").forbidden("当前角色无权选择协会负责人");
     const assoc = String(ctx.query.assoc || "");
-    const scope = isSuper(ctx.user) ? assoc : String(ctx.user.assoc || "");
     const rows = db.prepare("SELECT id, name, role, assoc FROM users WHERE active = 1 AND assoc IS NOT NULL AND assoc <> '' AND role <> 'admin' ORDER BY name,id").all()
-      .filter((u) => (!scope || u.assoc === scope) && (isSuper(ctx.user) || u.assoc === ctx.user.assoc));
-    return {
-      rows: rows.map((u) => ({ id: u.id, name: u.name, assoc: u.assoc, role: u.role, role_name: ROLES[u.role]?.name || u.role }))
-    };
+      .filter((u) => (!assoc || u.assoc === assoc) && (isSuper(ctx.user) || u.assoc === ctx.user.assoc));
+    return { rows: rows.map((u) => ({ id: u.id, name: u.name, assoc: u.assoc, role: u.role, role_name: ROLES[u.role]?.name || u.role })) };
   });
 
   router.post("/api/users", async (ctx) => {

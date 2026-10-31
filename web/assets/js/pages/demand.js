@@ -152,7 +152,7 @@ function renderList(root) {
 
 function renderSheet(root, pid) {
   return api.get(`/api/demand/${pid}`).then(async (d) => {
-    memberOptions = can("demand:write") ? (await api.get("/api/users/pickable?assoc=" + encodeURIComponent(d.projectAssoc))).rows || [] : [];
+    memberOptions = can("demand:write") ? (await api.get("/api/users/assignable?assoc=" + encodeURIComponent(d.projectAssoc))).rows || [] : [];
     const writable = can("demand:write");
     const locked = !!d.archived || !writable;
     const total = d.groups.reduce((s, g) => s + d.items[g].length, 0);
