@@ -411,7 +411,7 @@ function register(router) {
     if (!y) throw notFound("付款单不存在");
     const p = getProject(y.pid);
     assertProjectVisible(ctx.user, p);
-    assertCan(ctx.user, "payment:approve", "只有财务与核销（或总管理员）可以登记收款账户");
+    assertCan(ctx.user, "payment:pay", "只有财务与核销（或总管理员）可以登记收款账户");
     if (y.status === "已付款") {
       throw conflict("付款已完成，收款账户不可再修改（如需更正请走线下凭证更正流程）", "PAID_LOCKED");
     }
