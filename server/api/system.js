@@ -347,6 +347,7 @@ function resetSnapshot() {
 function register(router) {
   router.get("/api/dashboard", async (ctx) => dashboard(ctx.user));
 
+  const {validateAssociations,listForUser,updateForUser}=require("../lib/user-associations");
   router.get("/api/users", async (ctx) => {
     /**
      * V1.2.17 SEC-01：整本通讯录只给能管理账号的人。
@@ -362,7 +363,7 @@ function register(router) {
     const rows = db.prepare("SELECT * FROM users ORDER BY id").all();
     return {
       rows: rows.map((u) => ({
-        id: u.id, username: u.username, name: u.name, role: u.role, assoc: u.assoc, dept: u.dept,
+        id: u.id, username: u.username, name: u.name, role: u.role, assoc: u.assoc, assocs:listForUser(u.id,u.assoc), dept: u.dept,
         phone: u.phone, active: u.active, created_at: u.created_at, role_name: ROLES[u.role]?.name || u.role
       })),
       limited: false
@@ -399,18 +400,22 @@ function register(router) {
       throw require("../lib/util").forbidden("当前角色无权选择协会负责人");
     const assoc = String(ctx.query.assoc || "");
     const candidates=db.prepare("SELECT id,name,role,assoc FROM users WHERE active=1 ORDER BY name,id").all();
-    const regular=candidates.filter(u=>u.role!=="admin" && u.assoc && (!assoc||u.assoc===assoc) && (isSuper(ctx.user)||u.assoc===ctx.user.assoc));
-    // 单人部署：仅平台总管理员一个账号时，仍允许其作为新会议负责人。
-    // 一旦配置了真实协会成员，负责人恢复协会级选人，不能把总管理员跨协会常规指派。
-    const rows=regular.length ? regular : (isSuper(ctx.user) && candidates.length===1 && candidates[0].role==="admin"
-      ? [{...candidates[0],assoc:assoc||null}] : []);
-    return { rows: rows.map((u) => ({ id: u.id, name: u.name, assoc: u.assoc, role: u.role, role_name: ROLES[u.role]?.name || u.role })) };
+    const eligible=candidates.filter(u=>{
+      if(u.role==="admin")return true;
+      const associations=listForUser(u.id,u.assoc);
+      return (!assoc || associations.includes(assoc)) &&
+        (isSuper(ctx.user) || associations.some(a=>listForUser(ctx.user.id,ctx.user.assoc).includes(a)));
+    });
+    return {rows:eligible.map(u=>({id:u.id,name:u.name,assoc:u.assoc,
+      assocs:listForUser(u.id,u.assoc),role:u.role,role_name:ROLES[u.role]?.name||u.role}))};
   });
 
   router.post("/api/users", async (ctx) => {
     assertCan(ctx.user, "user:manage", "只有总管理员可以创建账号");
-    const b = ctx.body || {};
-    if(b.assoc && !require("../lib/associations").has(b.assoc)) throw bad("所属协会不在有效目录中");
+    const b = {...(ctx.body||{})};
+    const userAssocs=validateAssociations(b.assocs,b.assoc);
+    if(b.role!=="admin" && !userAssocs.length)throw bad("请为业务账号选择至少一个所属协会");
+    b.assoc=userAssocs[0]||null;
     if (!isDemoMode()) {
       const phone = normalizePhone(b.phone);
       if (!String(b.name || "").trim()) throw bad("请填写姓名");
@@ -421,6 +426,7 @@ function register(router) {
       db.prepare("INSERT INTO users (username,name,role,assoc,dept,phone,pass_salt,pass_hash,active,must_change_password,created_at) VALUES (?,?,?,?,?,?,?,?,1,1,?)")
         .run(phone, String(b.name).trim(), b.role, b.assoc || null, b.dept || "", phone, salt, hash, now());
       const u = db.prepare("SELECT id,username,name,role,assoc,phone FROM users WHERE phone = ?").get(phone);
+      updateForUser(u.id,userAssocs);
       logAudit({ user: ctx.user, module: "系统配置", action: "加入手机白名单", target: String(u.id), detail: `${u.name} / ${ROLES[b.role].name} / ${phone.slice(0,3)}****${phone.slice(-4)}`, ip: ctx.ip });
       return { user: u, message: "手机号已加入白名单，初始密码为 123456；首次登录须短信验证并改密" };
     }
@@ -435,6 +441,7 @@ function register(router) {
     db.prepare("INSERT INTO users (username,name,role,assoc,dept,phone,pass_salt,pass_hash,active,created_at) VALUES (?,?,?,?,?,?,?,?,1,?)")
       .run(b.username, b.name, b.role, b.assoc || null, b.dept || "", b.phone || "", salt, hash, now());
     const u = db.prepare("SELECT id,username,name,role,assoc FROM users WHERE username = ?").get(b.username);
+    updateForUser(u.id,userAssocs);
     logAudit({ user: ctx.user, module: "系统配置", action: "新建用户", target: String(u.id), detail: `${b.name} / ${ROLES[b.role].name}`, ip: ctx.ip });
     return { user: u, message: `账号 ${b.username} 已创建` };
   });
@@ -443,7 +450,13 @@ function register(router) {
     assertCan(ctx.user, "user:manage", "只有总管理员可以修改账号");
     const u = db.prepare("SELECT * FROM users WHERE id = ?").get(Number(ctx.params.id));
     if (!u) throw notFound("用户不存在");
-    const b = ctx.body || {};
+    const b = {...(ctx.body||{})};
+    const userAssocs=b.assocs===undefined ? null : validateAssociations(b.assocs,b.assoc);
+    if(userAssocs!==null) {
+      if(b.role==="admin" && u.role!=="admin")throw bad("不能通过协会编辑将业务用户提升为总管理员");
+      if(userAssocs.length===0 && (b.role||u.role)!=="admin")throw bad("业务账号至少关联一个协会");
+      b.assoc=userAssocs[0]||null;
+    }
     if (!isDemoMode()) {
       if (u.role === "admin") throw bad("部署时指定的总管理员身份与手机号不可在此处变更");
       const patch = {};
@@ -480,7 +493,8 @@ function register(router) {
         // Reset or phone reassignment must revoke a previously linked WeChat OpenID.
         db.prepare("DELETE FROM mini_bindings WHERE user_id = ?").run(u.id);
       }
-      if (Object.keys(patch).length || reset) {
+      if(userAssocs!==null)updateForUser(u.id,userAssocs);
+      if (Object.keys(patch).length || reset || userAssocs!==null) {
         db.prepare("UPDATE users SET token_ver = token_ver + 1 WHERE id = ?").run(u.id);
         db.prepare("DELETE FROM sessions WHERE user_id = ?").run(u.id);
         logAudit({ user: ctx.user, module: "系统配置", action: "修改手机白名单", target: String(u.id), detail: `资料/状态更新；重置初始密码：${reset || !!patch.phone}`, ip: ctx.ip });
@@ -508,6 +522,13 @@ function register(router) {
       db.prepare(`UPDATE users SET ${Object.keys(patch).map((k) => `${k} = ?`).join(", ")} WHERE id = ?`)
         .run(...Object.values(patch), u.id);
       logAudit({ user: ctx.user, module: "系统配置", action: "改角色/资料", target: String(u.id), detail: Object.entries(patch).map(([k, v]) => `${k}: ${u[k] ?? "空"} → ${v}`).join("；"), ip: ctx.ip });
+    }
+    if(userAssocs!==null){
+      updateForUser(u.id,userAssocs);
+      db.prepare("UPDATE users SET token_ver=token_ver+1 WHERE id=?").run(u.id);
+      db.prepare("DELETE FROM sessions WHERE user_id=? AND token<>?").run(u.id,ctx.token||"");
+      logAudit({user:ctx.user,module:"系统配置",action:"用户多协会范围修改",target:String(u.id),
+        detail:"协会数量 "+userAssocs.length,ip:ctx.ip});
     }
     if (b.password) {
       // 重置密码同样走统一策略（原来是「至少 6 位」，比自助改密还松）
