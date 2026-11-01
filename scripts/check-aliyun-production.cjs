@@ -53,6 +53,12 @@ function check(env = process.env) {
   if (String(env.ERP_PORT) !== "8787") fail("ERP_PORT 必须为 8787，与 Nginx 配置保持一致");
   if (env.ERP_TRUST_PROXY !== "1") fail("ERP_TRUST_PROXY 必须为 1（只信任本机 Nginx）");
   if (env.ERP_SESSION_FALLBACK === "1") fail("正式持久化 SQLite 不允许无状态会话回退");
+  if(env.ERP_REQUIRE_VERIFIED_PAYEES && !["0","1"].includes(env.ERP_REQUIRE_VERIFIED_PAYEES))
+    fail("ERP_REQUIRE_VERIFIED_PAYEES 必须为 0 或 1");
+  if(env.ERP_FINANCIAL_DATA_KEY && !/^[0-9a-f]{64}$/i.test(env.ERP_FINANCIAL_DATA_KEY))
+    fail("ERP_FINANCIAL_DATA_KEY 必须为独立 32 字节随机密钥（64 位十六进制）");
+  if(env.ERP_REQUIRE_VERIFIED_PAYEES==="1" && !/^[0-9a-f]{64}$/i.test(String(env.ERP_FINANCIAL_DATA_KEY||"")))
+    fail("启用强制核销收款人选择必须先配置 ERP_FINANCIAL_DATA_KEY");
   if (env.ERP_OCR_ENABLED && !["0","1"].includes(env.ERP_OCR_ENABLED))
     fail("ERP_OCR_ENABLED 必须为 0 或 1");
   if (env.ERP_OCR_ENABLED === "1") {
