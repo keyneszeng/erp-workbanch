@@ -554,6 +554,10 @@ function migrate() {
   addColumn("contracts", "category", "category TEXT");
   // V1.2.13：例外单自定义步骤名 —— 不属于 6 步中任何一步的问题也能登记（step_no = 0）
   addColumn("exceptions", "step_label", "step_label TEXT");
+  addColumn("exceptions", "resolution", "resolution TEXT");
+  addColumn("exceptions", "evidence_material_id", "evidence_material_id INTEGER");
+  addColumn("exceptions", "resolved_by", "resolved_by TEXT");
+  addColumn("exceptions", "resolved_at", "resolved_at TEXT");
   /**
    * V1.2.18：收款方银行信息。
    *
