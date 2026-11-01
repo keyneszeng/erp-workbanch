@@ -719,6 +719,16 @@ function migrate() {
     /* 旧库没有 settlements 表，忽略 */
   }
 
+  // 兼容历史合同：只为有原件、尚未在同项目材料中心出现的合同建立引用。
+  // 原始文件不会复制、移动或修改，迁移可重复执行。
+  try {
+    db.exec(`INSERT INTO materials(pid,kind,name,version,uploader,created_at,file_key,file_name,file_size,file_mime)
+      SELECT c.pid,'合同',c.id || ' · ' || c.name,c.status,'历史合同自动归档',c.created_at,
+             c.file_key,c.file_name,c.file_size,c.file_mime
+      FROM contracts c
+      WHERE c.file_key IS NOT NULL AND c.file_key<>''
+        AND NOT EXISTS (SELECT 1 FROM materials m WHERE m.pid=c.pid AND m.file_key=c.file_key)`);
+  }catch{/* 旧库表结构不完整时，保持安全降级 */}
   // V1.2.15：审批单 ↔ 业务单据脱钩（老种子把 ref_id 写成了项目号）
   try {
     repairApprovals();
