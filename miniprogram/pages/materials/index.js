@@ -32,8 +32,8 @@ Page({
  async addPhoto(){
   if(this.data.busy||this.data.locked)return;
   const kind=this.data.custom?this.data.customKind.trim():this.data.kind.trim();
-  if(!this.data.pid||!kind||!this.data.name.trim()||kind.length>40||this.data.name.length>120){
-   this.setData({error:"请选项目并填写有效的材料类别（≤40字）与名称（≤120字）"});return;
+  if(!this.data.pid||!kind||!this.data.name.trim()||kind.length>20||this.data.name.length>120){
+   this.setData({error:"请选项目并填写有效的材料类别（≤20字）与名称（≤120字）"});return;
   }
   this.setData({busy:true,error:"",uploaded:""});
   try{
