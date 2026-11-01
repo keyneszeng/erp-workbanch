@@ -272,20 +272,9 @@ function register(router) {
       const rows = db.prepare("SELECT * FROM demand_items WHERE pid=? AND need='需要'").all(p.id);
       if (!rows.length) throw bad("确认前至少一项需求应标记为需要");
       for (const it of rows) {
-        const missing = ["spec","owner_id","due","budget_owner","attach","status"].filter(k=>!String(it[k]??"").trim());
-        if (missing.length) throw bad("需求「"+it.item+"」缺少必填字段："+missing.join("、")+"。七项字段必须齐全");
-        if (!/^(?:[a-f0-9]{32}\.(?:jpg|png|pdf|ppt|docx|pptx|xlsx|webp|gif)|不适用)$/.test(it.attach))
-          throw bad("需求「"+it.item+"」附件必须关联已登记文件标识，或明确标记不适用");
-        if (it.attach !== "不适用") {
-          const file = db.prepare("SELECT file_key,pid,user_id FROM uploaded_files WHERE file_key=?").get(it.attach);
-          if (!file) throw bad("需求「"+it.item+"」的附件不存在，必须使用已上传文件");
-          if (file.pid && file.pid !== p.id) throw bad("需求「"+it.item+"」的附件属于其他项目");
-          const refs = db.prepare("SELECT pid FROM materials WHERE file_key=? UNION SELECT pid FROM contracts WHERE file_key=?")
-            .all(it.attach, it.attach);
-          if (refs.some(ref => ref.pid !== p.id)) throw bad("需求「"+it.item+"」的附件已被其他项目使用");
-          if (!refs.length && !file.pid && !isSuper(ctx.user) && Number(file.user_id) !== Number(ctx.user.id))
-            throw bad("需求「"+it.item+"」只能引用本人上传或同项目已登记的附件");
-        }
+        const missing = ["spec","owner_id","due"].filter(k=>!String(it[k]??"").trim());
+        if (missing.length) throw bad("需求「"+it.item+"」缺少必填字段："+missing.join("、")+"。请完善规格、负责人、交付时间");
+
       }
     }
     db.prepare("INSERT INTO demand_revisions (pid,before_json,after_json,changed_by,changed_at,action) VALUES (?,?,?,?,?,?)")
