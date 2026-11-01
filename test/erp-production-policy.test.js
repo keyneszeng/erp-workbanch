@@ -90,7 +90,8 @@ test("production: association member IDs, approved contract signing and pay-afte
   let demand=await request("PATCH","/api/demand/"+pid,{items:[fakeAttach]},cookie);
   assert.equal(demand.status,200,JSON.stringify(demand.body));
   let confirm=await request("POST","/api/demand/"+pid+"/confirm",{},cookie);
-  assert.equal(confirm.status,400,"不存在的附件不能确认会务需求");
+  assert.equal(confirm.status,200,"会务需求不再要求附件必填");
+  await request("POST","/api/demand/"+pid+"/unarchive",{},cookie);
   demand=await request("PATCH","/api/demand/"+pid,{items:[{...demandBase,attach:uploadBody.key}]},cookie);
   assert.equal(demand.status,200,JSON.stringify(demand.body));
   confirm=await request("POST","/api/demand/"+pid+"/confirm",{},cookie);
