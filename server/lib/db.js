@@ -241,6 +241,23 @@ CREATE TABLE IF NOT EXISTS meeting_material_tasks (
   UNIQUE(pid,kind,speaker,topic)
 );
 CREATE INDEX IF NOT EXISTS idx_meeting_material_tasks_pid ON meeting_material_tasks(pid);
+-- OCR 结果仅关联已有材料原件；人名课题为待审阅建议，不直接产生通过结论。
+CREATE TABLE IF NOT EXISTS material_ocr_results (
+  material_id INTEGER PRIMARY KEY REFERENCES materials(id) ON DELETE CASCADE,
+  pid TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  file_key TEXT NOT NULL,
+  recognized_text TEXT NOT NULL,
+  suggestions_json TEXT NOT NULL,
+  engine TEXT NOT NULL,
+  mode TEXT NOT NULL,
+  pages INTEGER NOT NULL,
+  total_pages INTEGER NOT NULL,
+  truncated INTEGER NOT NULL DEFAULT 0,
+  updated_at TEXT NOT NULL,
+  updated_by TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_material_ocr_results_pid ON material_ocr_results(pid);
+
 CREATE TABLE IF NOT EXISTS demand_revisions (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   pid TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
