@@ -40,12 +40,22 @@ function myTodos(user) {
       : a.type === "付款审批" ? can(user, "payment:approve") : can(user, "project:approve");
     if (need) todos.push({ kind: "审批", title: `${a.type}：${a.title}`, pid: a.pid, pname: a.pname, ref: a.id, sla: a.sla, go: "approvals" });
   }
-  if (can(user, "verify:conclude")) {
+  if (["admin","assoc","finance"].includes(user.role) && can(user, "verify:check")) {
     const rows = db.prepare(
       `SELECT p.*, (SELECT COUNT(*) FROM verify_steps v WHERE v.pid=p.id AND v.result IN ('通过','已解例外')) AS passed
        FROM projects p WHERE p.status='待核销' AND ${sql}`
     ).all(...params);
     for (const p of rows) todos.push({ kind: "核销", title: `核销待判定（${p.passed}/6 已通过）`, pid: p.id, pname: p.name, ref: p.id, sla: "会期后 5 个工作日", go: "verify" });
+  }
+  if(user.role==="exec" && can(user,"project:transition")) {
+    const handoffs=db.prepare(
+      `SELECT p.id,p.name FROM projects p
+        WHERE p.status='已立项' AND EXISTS
+          (SELECT 1 FROM project_members m WHERE m.project_id=p.id AND m.user_id=? AND m.role='执行负责人')
+        ORDER BY p.date`
+    ).all(user.id);
+    for(const p of handoffs)todos.push({kind:"筹备",title:"立项已通过，待执行负责人启动会务筹备",
+      pid:p.id,pname:p.name,ref:p.id,sla:"审批通过后及时启动",go:"projects"});
   }
   if (can(user, "settle:create")) {
     const rows = db.prepare(
