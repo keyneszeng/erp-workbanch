@@ -435,7 +435,7 @@ function register(router) {
     // 单人部署：仅平台总管理员一个账号时，仍允许其作为新会议负责人。
     // 一旦配置了真实协会成员，负责人恢复协会级选人，不能把总管理员跨协会常规指派。
     const rows=[...regular,...(isSuper(ctx.user)?candidates.filter(u=>u.role==="admin").map(u=>({...u,assoc:assoc||u.assoc||null})):[])];
-    return { rows: rows.map((u) => ({ id: u.id, name: u.name, assoc: u.assoc, role: u.role, role_name: ROLES[u.role]?.name || u.role })) };
+    return { rows: rows.map((u) => ({ id: u.id, name: u.name, assoc: u.assoc, assocs:userAssociations(u.id), role: u.role, role_name: ROLES[u.role]?.name || u.role })) };
   });
 
   router.post("/api/users", async (ctx) => {
