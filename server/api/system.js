@@ -379,12 +379,30 @@ function register(router) {
     return { rows: rows.map((u) => ({ id: u.id, name: u.name, role: u.role, role_name: ROLES[u.role]?.name || u.role })) };
   });
 
+  router.get("/api/associations", async ctx => ({rows:require("../lib/associations").list()}));
+  router.post("/api/associations", async ctx => {
+    assertCan(ctx.user,"user:manage","只有总管理员可以修改协会目录");
+    const name=require("../lib/associations").add(ctx.body?.name);
+    logAudit({user:ctx.user,module:"系统配置",action:"新增协会",target:name,detail:"协会加入目录",ip:ctx.ip});
+    return {name,rows:require("../lib/associations").list()};
+  });
+  router.delete("/api/associations/:name", async ctx => {
+    assertCan(ctx.user,"user:manage","只有总管理员可以修改协会目录");
+    const name=decodeURIComponent(ctx.params.name);
+    require("../lib/associations").remove(name);
+    logAudit({user:ctx.user,module:"系统配置",action:"停用协会",target:name,detail:"无用户、无项目后停用",ip:ctx.ip});
+    return {rows:require("../lib/associations").list()};
+  });
   router.get("/api/users/assignable", async (ctx) => {
     if (!["project:member", "project:create", "demand:write", "user:manage"].some((perm) => can(ctx.user, perm)))
       throw require("../lib/util").forbidden("当前角色无权选择协会负责人");
     const assoc = String(ctx.query.assoc || "");
-    const rows = db.prepare("SELECT id, name, role, assoc FROM users WHERE active = 1 AND assoc IS NOT NULL AND assoc <> '' AND role <> 'admin' ORDER BY name,id").all()
-      .filter((u) => (!assoc || u.assoc === assoc) && (isSuper(ctx.user) || u.assoc === ctx.user.assoc));
+    const candidates=db.prepare("SELECT id,name,role,assoc FROM users WHERE active=1 ORDER BY name,id").all();
+    const regular=candidates.filter(u=>u.role!=="admin" && u.assoc && (!assoc||u.assoc===assoc) && (isSuper(ctx.user)||u.assoc===ctx.user.assoc));
+    // 单人部署：仅平台总管理员一个账号时，仍允许其作为新会议负责人。
+    // 一旦配置了真实协会成员，负责人恢复协会级选人，不能把总管理员跨协会常规指派。
+    const rows=regular.length ? regular : (isSuper(ctx.user) && candidates.length===1 && candidates[0].role==="admin"
+      ? [{...candidates[0],assoc:assoc||null}] : []);
     return { rows: rows.map((u) => ({ id: u.id, name: u.name, assoc: u.assoc, role: u.role, role_name: ROLES[u.role]?.name || u.role })) };
   });
 
