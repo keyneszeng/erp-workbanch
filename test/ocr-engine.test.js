@@ -39,7 +39,7 @@ test("OCR requires an explicit server-side enable flag; image/PDF MIME mismatch 
 test("live native OCR recognizes real image; searchable PDF uses text layer",async(t)=>{
   // CI explicitly installs Poppler and Tesseract; test must not silently skip a missing engine.
   for(const bin of ["pdfinfo","pdftotext","pdftoppm","tesseract"]){
-    assert.doesNotThrow(()=>execFileSync(bin,["--version"],{timeout:5000,stdio:"ignore"}),"Missing OCR executable: "+bin);
+    assert.doesNotThrow(()=>execFileSync(bin,[bin==="tesseract"?"--version":"-v"],{timeout:5000,stdio:"ignore"}),"Missing OCR executable: "+bin);
   }
   const d=fs.mkdtempSync(path.join(os.tmpdir(),"ocr-e2e-"));
   const prev=process.env.ERP_OCR_ENABLED;
