@@ -346,12 +346,14 @@ function register(router) {
     if(!choice && !isDemoMode() && process.env.ERP_REQUIRE_VERIFIED_PAYEES==="1")
       throw bad("必须从核销确认的劳务记录或已签署合同中选择收款方");
     const payee=choice?choice.name:String(b.payee||"").trim();
-    if(!payee||payee.length>60)throw bad("收款方应为 1~60 字");
+    if(!payee)throw bad("收款方为必填项");
+    if(payee.length>60)throw bad("收款方不能超过 60 字");
     if(choice && b.payee && String(b.payee).trim()!==choice.name)throw bad("收款方与选定的核销资料不一致");
     const payeeBank=parseBankName(choice?.bank || b.payee_bank);
     const payeeAccount=parseBankAccount(choice?.account || b.payee_account);
     // 发票属于核销材料，不是付款单字段；专家费个人报销不存在发票号。
-    const invoiceNo="";
+    const invoiceNo=String(b.invoice_no||"").trim(); // Legacy API remains readable/deduplicated; new UI omits this field.
+    if(invoiceNo.length>40)throw bad("发票号不能超过 40 字");
     if (!isDemoMode()) {
       const checked=db.prepare("SELECT invoice_amount FROM verify_steps WHERE pid=? AND step_no=6 AND result='通过'").get(p.id);
       if(!checked || !Number.isFinite(checked.invoice_amount))
