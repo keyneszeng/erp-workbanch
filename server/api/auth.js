@@ -183,7 +183,7 @@ function register(router) {
       materialKinds: MATERIAL_KINDS,
       contractCategories: CONTRACT_CATEGORIES,
       demandStatuses: DEMAND_STATUSES,
-      assocs: ASSOCS,
+      assocs: require("../lib/associations").list(),
       forms: FORMS,
       depts: DEPTS,
       paymentTypes: PAYMENT_TYPES
