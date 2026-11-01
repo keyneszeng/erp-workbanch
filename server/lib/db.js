@@ -219,6 +219,40 @@ CREATE TABLE IF NOT EXISTS materials (
 );
 CREATE INDEX IF NOT EXISTS idx_materials_pid ON materials(pid);
 
+-- 固定材料模块启停与议程结构化待办，历史不物理删除。
+CREATE TABLE IF NOT EXISTS meeting_material_modules (
+  pid TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL,
+  enabled INTEGER NOT NULL DEFAULT 1,
+  updated_at TEXT NOT NULL,
+  updated_by TEXT,
+  PRIMARY KEY(pid,kind)
+);
+CREATE TABLE IF NOT EXISTS meeting_material_tasks (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  pid TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL,
+  speaker TEXT NOT NULL,
+  topic TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT '未提交',
+  material_id INTEGER,
+  updated_at TEXT NOT NULL,
+  updated_by TEXT,
+  UNIQUE(pid,kind,speaker,topic)
+);
+CREATE INDEX IF NOT EXISTS idx_meeting_material_tasks_pid ON meeting_material_tasks(pid);
+CREATE TABLE IF NOT EXISTS demand_revisions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  pid TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  before_json TEXT NOT NULL,
+  after_json TEXT NOT NULL,
+  changed_by TEXT NOT NULL,
+  changed_at TEXT NOT NULL,
+  action TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_demand_revisions_pid ON demand_revisions(pid);
+
+
 CREATE TABLE IF NOT EXISTS guests (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,
   pid         TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
@@ -485,6 +519,9 @@ function migrate() {
   };
 
   addColumn("verify_steps", "invoice_amount", "invoice_amount REAL");
+  addColumn("verify_steps", "evidence_json", "evidence_json TEXT");
+  addColumn("materials", "deleted_at", "deleted_at TEXT");
+  addColumn("materials", "deleted_by", "deleted_by TEXT");
   addColumn("demand_items", "owner_id", "owner_id INTEGER");
   // 生产白名单：所有新用户初次登录必须通过短信验证并修改默认密码。
   addColumn("users", "must_change_password", "must_change_password INTEGER NOT NULL DEFAULT 0");
