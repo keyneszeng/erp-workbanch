@@ -7,6 +7,7 @@
 | 环境 | 用途 | 部署位置 | 数据 |
 |---|---|---|---|
 | **演示版** | 界面体验与测试数据 | **Cloudflare：`erp.aibuild.work`** | 专用演示账号与演示项目 |
+| **测试部署版** | 真实云服务器内核与业务全链路验收（合成数据） | **阿里云 ECS 本地 127.0.0.1:8080，经 SSH 隧道访问** | 独立测试库、附件与密钥；console 测试短信 |
 | **生产版** | 真实用户和真实业务 | **阿里云 ECS Linux 服务器（未来上线）** | 独立持久化 SQLite、附件目录、真实短信 |
 | Vercel | 临时演示 | Vercel Serverless | 临时实例数据库，不承担生产 |
 
@@ -47,13 +48,17 @@ npm run prod:check
 
 ## 云服务器测试版本（分支）
 
-`云服务器测试版本` 分支用于「域名未备案、短信未审核」阶段的真实服务器验证：纯 HTTP 8080 用 IP 访问，短信走 console 通道写日志，其余（数据库、RBAC、审批核销状态机、上传）与生产完全一致。它与生产环境在端口、目录、数据库、服务名上完全隔离，可在同一台 ECS 上并存。
+`云服务器测试版本` 分支有原始测试环境实现；安全整改在 `chore/staging-prod-separation-20261101` 分支（待 PR 验证合并）。测试 Nginx **只监听本机 `127.0.0.1:8080`**，运维通过 SSH 加密隧道访问，不能公网直连。测试验证码仅写服务器受控日志，禁止录入真实业务数据。正式生产继续要求 HTTPS 和真实短信。
 
 ```bash
-sudo ERP_TEST_FIXED_SMS_CODE=654321 bash deploy/aliyun/deploy.sh --test --admin-phone 13800000000
+sudo bash deploy/aliyun/deploy.sh --test --admin-phone <测试专用手机号> \
+  --ref chore/staging-prod-separation-20261101
+# 在自己的电脑中通过 SSH 加密隧道访问（ECS 安全组不要放通 8080）：
+ssh -N -L 8080:127.0.0.1:8080 <ecs-user>@<ecs-public-ip>
+# 然后在本地浏览器打开 http://127.0.0.1:8080
 ```
 
-**该环境禁止录入真实业务数据**，验收完成后应关闭 8080 端口。详见 [云服务器测试环境部署](docs/test-deployment.md)。
+**该环境禁止录入真实业务数据**，ECS 安全组不应向公网开放 8080。代码尚未自动发布到任何 ECS，且 PR 合并前默认 `main` 尚不包含测试脚本。详见 [云服务器测试环境部署](docs/test-deployment.md)。
 
 ## 开发与质量验证
 
@@ -73,6 +78,6 @@ npm run cf:build     # 仅检查 Worker 兼容性，不部署 Cloudflare
 | `worker/` | 仅供 Cloudflare 演示版使用的适配层 |
 | `deploy/aliyun/` | ECS systemd / Nginx / 环境变量模板 |
 | `scripts/` | 阿里云上线校验、Cloudflare 生产发布拦截 |
-| `miniprogram/` | 微信嘉宾邀请确认页，非完整 ERP 小程序 |
+| `miniprogram/` | 员工微信小程序工作台、审批、材料及嘉宾邀请页（上线仍需微信审核） |
 | `api/` | Vercel 临时演示入口 |
 | `test/` | 隔离数据库下的回归测试 |
