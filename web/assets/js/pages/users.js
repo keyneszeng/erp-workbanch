@@ -18,7 +18,7 @@ export async function render(root) {
         d.rows.map((u) => ({
           c: [esc(u.name), `<span class="mono">${esc(u.username)}</span>`,
             `<span class="role-tag ${u.role === "admin" ? "super" : ""}">${esc(u.role_name)}</span>`,
-            esc(u.assoc || (u.role === "admin" ? "全平台" : "—")), esc(u.dept || "—"),
+            esc(u.assocs?.join("、") || (u.role === "admin" ? "全平台" : "—")), esc(u.dept || "—"),
             u.active ? badge("已启用") : badge("已停用"),
             `<span class="mono">${esc(u.created_at)}</span>`,
             manage ? `<button class="link" data-edit="${u.id}">编辑</button>` : "—"]
@@ -79,7 +79,7 @@ function openCreate(root, roles) {
     ...(state.demo ? [{ k: "username", l: "登录账号", req: 1, ph: "3~20 位字母/数字" }] : []),
     { k: "name", l: "姓名", req: 1 },
     { k: "role", l: "角色", t: "select", req: 1, opts: roles.filter((r) => state.demo || !r.super).map((r) => ({ v: r.key, l: r.name })) },
-    { k: "assoc", l: "所属协会", t: "select", opts: [{ v: "", l: "（全平台）" }, ...state.meta.assocs] },
+    { k: "assocs", l: "所属协会（可多选）", t: "multi", opts: state.meta.assocs, full: 1, tip: "可选择多个协会；总管理员账号始终拥有全平台权限" },
     { k: "dept", l: "部门", t: "select", opts: state.meta.depts },
     { k: "phone", l: state.demo ? "电话" : "白名单手机号（11 位）", req: !state.demo, ph: "13800138000" },
     ...(state.demo ? [{ k: "password", l: "初始密码", req: 1, ph: "至少 8 位，含字母和数字" }] : [])
@@ -158,20 +158,20 @@ function openEdit(root, u, roles) {
   const fields = [
     { k: "name", l: "姓名", req: 1 },
     { k: "role", l: "角色", t: "select", req: 1, opts: roles.map((r) => ({ v: r.key, l: r.name })) },
-    { k: "assoc", l: "所属协会", t: "select", opts: [{ v: "", l: "（全平台）" }, ...state.meta.assocs] },
+    { k: "assocs", l: "所属协会（可多选）", t: "multi", opts: state.meta.assocs, full: 1, tip: "可选择多个协会；总管理员账号始终拥有全平台权限" },
     { k: "dept", l: "部门", t: "select", opts: state.meta.depts },
     { k: "phone", l: state.demo ? "电话" : "白名单手机号", req: !state.demo },
     { k: "active", l: "账号状态", t: "select", opts: [{ v: "1", l: "启用" }, { v: "0", l: "停用" }] },
     ...(state.demo ? [{ k: "password", l: "重置密码（留空不改）", ph: "留空不改；至少 8 位，含字母和数字" }] :
       [{ k: "resetPassword", l: "重置为初始密码 123456（要求重新短信改密）", t: "select", opts: [{ v: "0", l: "不重置" }, { v: "1", l: "重置" }] }])
   ];
-  const m = modal({ title: `编辑账号 · ${esc(u.name)}`, width: "600px", body: formHtml(fields, { ...u, active: String(u.active) }),
+  const m = modal({ title: `编辑账号 · ${esc(u.name)}`, width: "600px", body: formHtml(fields, { ...u, assocs: u.assocs || (u.assoc ? [u.assoc] : []), active: String(u.active) }),
     footer: `<button class="btn btn-o" data-x="0">取消</button><button class="btn btn-p" data-x="1">保存</button>` });
   m.querySelector('[data-x="0"]').onclick = () => m.classList.remove("open");
   m.querySelector('[data-x="1"]').onclick = async () => {
     if (!validate(m, fields)) return;
     const v = readForm(m);
-    const body = { name: v.name, role: v.role, assoc: v.assoc || null, dept: v.dept, phone: v.phone, active: Number(v.active) };
+    const body = { name: v.name, role: v.role, assocs: v.assocs || [], dept: v.dept, phone: v.phone, active: Number(v.active) };
     if (state.demo && v.password) body.password = v.password;
     if (!state.demo && v.resetPassword === "1") body.resetPassword = true;
     try {
