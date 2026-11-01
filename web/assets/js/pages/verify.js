@@ -1,6 +1,7 @@
 import { api, can, state } from "../lib/api.js";
 import { badge, confirmBox, esc, modal, money, panel, readForm, table, toast } from "../lib/ui.js";
 import { exStepLabel, openStepDetail } from "../lib/verify-detail.js";
+import { sopEvidenceForm, collectSopEvidence } from "../lib/sop-fields.js";
 
 export async function render(root, params) {
   if (params && params[0]) return renderOne(root, params[0]);
@@ -80,17 +81,18 @@ async function renderOne(root, pid) {
         必须先完成材料 8 项录入才能判定（缺：${esc(d.materialsStatus.missing.join("、"))}）。
         <a class="link" data-go="projects/${p.id}">去项目详情的材料页签登记 →</a></div>`)}
   <div class="panel">
-    <div class="panel-h"><h2>6 步核销 SOP</h2>
-      <div><span class="hint">已通过 ${v.passed}/6${v.openExceptions ? ` · ${v.openExceptions} 张例外单待审批` : ""}</span></div></div>
+    <div class="panel-h"><h2>6 步核销 SOP · 严格按顺序，通过后解锁结算</h2>
+      <div><span class="hint">已通过 ${v.passed}/6${v.openExceptions ? ` · ${v.openExceptions} 张例外单待处理或待复核` : ""}</span></div></div>
     <div class="vsteps">${v.steps.map((s) => {
       const cls = ["通过", "已解例外"].includes(s.result) ? "s-pass" : s.result === "不通过" ? "s-fail" : "s-wait";
-      const prevUnjudged = v.steps.some((x) => x.no < s.no && x.result === "待判定");
+      const prevUnjudged = v.steps.some((x) => x.no < s.no && !["通过","已解例外"].includes(x.result));
       return `<div class="vstep ${cls}">
         <div class="vh"><span class="no">${s.no}</span><span class="nm">${esc(s.name)}</span><span class="who">${esc(s.who)}</span></div>
         <div class="desc">${esc(s.desc)}</div>
         <div class="res">${badge(s.result)}
           ${s.remark ? `<span class="rm">${esc(s.remark)}</span>` : ""}
           ${s.checked_by ? `<span style="color:var(--mute)">· ${esc(s.checked_by)} ${esc(s.checked_at)}</span>` : ""}
+          ${s.evidence ? `<span class="hint">· 结构化核验已留痕</span>` : ""}
           <div style="flex:1"></div>
           <button class="btn btn-o btn-sm" data-detail="${s.no}">详情</button>
           ${canJudge && s.result === "待判定" ? `<button class="btn btn-o btn-sm" data-judge="${s.no}" ${prevUnjudged ? 'disabled title="必须按顺序判定"' : ""}>判定</button>` : ""}
@@ -141,12 +143,14 @@ function openJudge(root, pid, no, d) {
       <div class="fld" style="margin-top:12px"><label>问题描述 / 备注</label>
         <textarea name="remark" rows="3" placeholder="判定不通过时必填"></textarea></div>
       ${no === 6 ? `<div class="fld" style="margin-top:12px"><label>核对发票总金额（元）</label>
-        <input type="number" name="invoiceAmount" min="0.01" step="0.01" value="${esc(String(s.invoiceAmount || ""))}" placeholder="必须与已签署合同总金额一致"></div>` : ""}`,
+        <input type="number" name="invoiceAmount" min="0.01" step="0.01" value="${esc(String(s.invoiceAmount || ""))}" placeholder="必须与已签署合同总金额一致"></div>` : ""}
+      ${sopEvidenceForm(no, d.project)}`,
     footer: `<button class="btn btn-o" data-x="0">取消</button><button class="btn btn-p" data-x="1">提交判定</button>`
   });
   m.querySelector('[data-x="0"]').onclick = () => m.classList.remove("open");
   m.querySelector('[data-x="1"]').onclick = async () => {
     const val = readForm(m);
+    val.evidence = collectSopEvidence(no, m);
     if (val.result === "不通过" && !val.remark.trim()) return toast("判定不通过必须填写问题描述", "warn");
     try {
       const r = await api.post(`/api/projects/${pid}/verify/steps/${no}`, val);
