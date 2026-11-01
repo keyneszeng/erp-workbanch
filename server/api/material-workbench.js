@@ -109,9 +109,9 @@ function register(router) {
     }
     const stamp=now();
     const insert=db.prepare("INSERT OR IGNORE INTO meeting_material_tasks (pid,kind,speaker,topic,status,updated_at,updated_by) VALUES (?,?,?,?,'未提交',?,?)");
-    for(const e of entries)for(const kind of ["课件","串场"])insert.run(p.id,kind,e.speaker.trim(),e.topic.trim(),stamp,ctx.user.name);
+    for(const e of entries)for(const kind of ["课件"])insert.run(p.id,kind,e.speaker.trim(),e.topic.trim(),stamp,ctx.user.name);
     logAudit({user:ctx.user,module:"材料中心",action:"生成议程待办",target:p.id,detail:"终版议程 "+material.id+"；"+entries.length+" 讲者课题；旧待办保留",ip:ctx.ip});
-    return {tasks:taskRows(p.id),generated:entries.length*2,note:"依结构化条目生成待办，非图像自动识别"};
+    return {tasks:taskRows(p.id),generated:entries.length,note:"依结构化条目生成待办，非图像自动识别"};
   });
   router.post("/api/projects/:id/material-workbench/tasks/:taskId/compare",async ctx=>{
     const p=getProject(ctx.params.id);assertWritable(ctx,p);
