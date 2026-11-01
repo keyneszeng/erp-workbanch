@@ -1,6 +1,8 @@
 "use strict";
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
 const { check } = require("../scripts/check-aliyun-test.cjs");
 const { check: checkProduction } = require("../scripts/check-aliyun-production.cjs");
 
@@ -88,4 +90,16 @@ test("console 通道无法混入生产：生产门禁必须拒绝", () => {
     ERP_ALIYUN_SMS_ACCESS_KEY_ID: "ak", ERP_ALIYUN_SMS_ACCESS_KEY_SECRET: "sk",
     ERP_ALIYUN_SMS_SIGN_NAME: "签名", ERP_ALIYUN_SMS_TEMPLATE_CODE: "SMS_1"
   }), /erp-test|持久/);
+});
+
+test("测试 Nginx 仅绑定回环地址，禁止通过公网 8080 暴露账号与短信流程", () => {
+  const nginx = fs.readFileSync(path.join(__dirname, "../deploy/aliyun/nginx-erp-test.conf.example"), "utf8");
+  assert.match(nginx, /listen\s+127\.0\.0\.1:8080;/);
+  assert.doesNotMatch(nginx, /listen\s+(?:8080|0\.0\.0\.0:8080|\[::\]:8080)\s*;/);
+  const deploy = fs.readFileSync(path.join(__dirname, "../deploy/aliyun/deploy.sh"), "utf8");
+  assert.match(deploy, /SSH 隧道/);
+  const start = deploy.indexOf('if [ "$MODE" = "test" ]; then\n  # 测试环境：');
+  const end = deploy.indexOf("\nelse\n  # 生产：", start);
+  assert.ok(start >= 0 && end > start, "应能定位测试站点配置段");
+  assert.doesNotMatch(deploy.slice(start, end), /rm -f \/etc\/nginx\/sites-enabled\/default/);
 });
