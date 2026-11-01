@@ -344,6 +344,21 @@ function resetSnapshot() {
   return out;
 }
 
+function normalizeUserAssociations(body, fallback = "") {
+  const source = Array.isArray(body.assocs) ? body.assocs : [body.assoc ?? fallback];
+  if (source.length>30) throw bad("一个账号最多关联 30 个协会");
+  const names=[...new Set(source.map(v=>String(v||"").trim()).filter(Boolean))];
+  for(const name of names) if(!require("../lib/associations").has(name))throw bad("协会不在有效目录："+name);
+  return names;
+}
+function userAssociations(id) {
+  return db.prepare("SELECT assoc FROM user_associations WHERE user_id=? ORDER BY assoc").all(id).map(r=>r.assoc);
+}
+function saveUserAssociations(id,names) {
+  db.prepare("DELETE FROM user_associations WHERE user_id=?").run(id);
+  for(const name of names) db.prepare("INSERT INTO user_associations(user_id,assoc) VALUES (?,?)").run(id,name);
+}
+
 function register(router) {
   router.get("/api/dashboard", async (ctx) => dashboard(ctx.user));
 
@@ -362,7 +377,7 @@ function register(router) {
     const rows = db.prepare("SELECT * FROM users ORDER BY id").all();
     return {
       rows: rows.map((u) => ({
-        id: u.id, username: u.username, name: u.name, role: u.role, assoc: u.assoc, dept: u.dept,
+        id: u.id, username: u.username, name: u.name, role: u.role, assoc: u.assoc, assocs: userAssociations(u.id), dept: u.dept,
         phone: u.phone, active: u.active, created_at: u.created_at, role_name: ROLES[u.role]?.name || u.role
       })),
       limited: false
@@ -399,18 +414,24 @@ function register(router) {
       throw require("../lib/util").forbidden("当前角色无权选择协会负责人");
     const assoc = String(ctx.query.assoc || "");
     const candidates=db.prepare("SELECT id,name,role,assoc FROM users WHERE active=1 ORDER BY name,id").all();
-    const regular=candidates.filter(u=>u.role!=="admin" && u.assoc && (!assoc||u.assoc===assoc) && (isSuper(ctx.user)||u.assoc===ctx.user.assoc));
+    const regular=candidates.filter(u=>u.role!=="admin" && (
+      !assoc ? (isSuper(ctx.user) || u.assoc===ctx.user.assoc ||
+        db.prepare("SELECT 1 FROM user_associations WHERE user_id=? AND assoc=?").get(u.id,ctx.user.assoc||""))
+      : (u.assoc===assoc || !!db.prepare("SELECT 1 FROM user_associations WHERE user_id=? AND assoc=?").get(u.id,assoc)) &&
+        (isSuper(ctx.user) || assoc===ctx.user.assoc ||
+          !!db.prepare("SELECT 1 FROM user_associations WHERE user_id=? AND assoc=?").get(ctx.user.id,assoc))
+    ));
     // 单人部署：仅平台总管理员一个账号时，仍允许其作为新会议负责人。
     // 一旦配置了真实协会成员，负责人恢复协会级选人，不能把总管理员跨协会常规指派。
-    const rows=regular.length ? regular : (isSuper(ctx.user) && candidates.length===1 && candidates[0].role==="admin"
-      ? [{...candidates[0],assoc:assoc||null}] : []);
+    const rows=[...regular,...(isSuper(ctx.user)?candidates.filter(u=>u.role==="admin").map(u=>({...u,assoc:assoc||u.assoc||null})):[])];
     return { rows: rows.map((u) => ({ id: u.id, name: u.name, assoc: u.assoc, role: u.role, role_name: ROLES[u.role]?.name || u.role })) };
   });
 
   router.post("/api/users", async (ctx) => {
     assertCan(ctx.user, "user:manage", "只有总管理员可以创建账号");
     const b = ctx.body || {};
-    if(b.assoc && !require("../lib/associations").has(b.assoc)) throw bad("所属协会不在有效目录中");
+    const assocNames=normalizeUserAssociations(b);
+    b.assoc=assocNames[0]||null;
     if (!isDemoMode()) {
       const phone = normalizePhone(b.phone);
       if (!String(b.name || "").trim()) throw bad("请填写姓名");
@@ -421,6 +442,7 @@ function register(router) {
       db.prepare("INSERT INTO users (username,name,role,assoc,dept,phone,pass_salt,pass_hash,active,must_change_password,created_at) VALUES (?,?,?,?,?,?,?,?,1,1,?)")
         .run(phone, String(b.name).trim(), b.role, b.assoc || null, b.dept || "", phone, salt, hash, now());
       const u = db.prepare("SELECT id,username,name,role,assoc,phone FROM users WHERE phone = ?").get(phone);
+      saveUserAssociations(u.id,assocNames);
       logAudit({ user: ctx.user, module: "系统配置", action: "加入手机白名单", target: String(u.id), detail: `${u.name} / ${ROLES[b.role].name} / ${phone.slice(0,3)}****${phone.slice(-4)}`, ip: ctx.ip });
       return { user: u, message: "手机号已加入白名单，初始密码为 123456；首次登录须短信验证并改密" };
     }
@@ -435,6 +457,7 @@ function register(router) {
     db.prepare("INSERT INTO users (username,name,role,assoc,dept,phone,pass_salt,pass_hash,active,created_at) VALUES (?,?,?,?,?,?,?,?,1,?)")
       .run(b.username, b.name, b.role, b.assoc || null, b.dept || "", b.phone || "", salt, hash, now());
     const u = db.prepare("SELECT id,username,name,role,assoc FROM users WHERE username = ?").get(b.username);
+    saveUserAssociations(u.id,assocNames);
     logAudit({ user: ctx.user, module: "系统配置", action: "新建用户", target: String(u.id), detail: `${b.name} / ${ROLES[b.role].name}`, ip: ctx.ip });
     return { user: u, message: `账号 ${b.username} 已创建` };
   });
@@ -444,6 +467,9 @@ function register(router) {
     const u = db.prepare("SELECT * FROM users WHERE id = ?").get(Number(ctx.params.id));
     if (!u) throw notFound("用户不存在");
     const b = ctx.body || {};
+    const changedAssocs=("assocs" in b || "assoc" in b);
+    const assocNames=changedAssocs?normalizeUserAssociations(b, u.assoc||""):userAssociations(u.id);
+    if(changedAssocs) b.assoc=assocNames[0]||null;
     if (!isDemoMode()) {
       if (u.role === "admin") throw bad("部署时指定的总管理员身份与手机号不可在此处变更");
       const patch = {};
@@ -480,6 +506,7 @@ function register(router) {
         // Reset or phone reassignment must revoke a previously linked WeChat OpenID.
         db.prepare("DELETE FROM mini_bindings WHERE user_id = ?").run(u.id);
       }
+      if (changedAssocs) saveUserAssociations(u.id,assocNames);
       if (Object.keys(patch).length || reset) {
         db.prepare("UPDATE users SET token_ver = token_ver + 1 WHERE id = ?").run(u.id);
         db.prepare("DELETE FROM sessions WHERE user_id = ?").run(u.id);
@@ -504,6 +531,7 @@ function register(router) {
       if ("active" in patch && !Number(patch.active)) throw bad("不能停用当前登录的账号");
       if ("role" in patch && patch.role !== u.role) throw bad("不能修改自己的角色，请由其他总管理员操作");
     }
+    if (changedAssocs) saveUserAssociations(u.id,assocNames);
     if (Object.keys(patch).length) {
       db.prepare(`UPDATE users SET ${Object.keys(patch).map((k) => `${k} = ?`).join(", ")} WHERE id = ?`)
         .run(...Object.values(patch), u.id);
