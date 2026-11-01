@@ -25,6 +25,11 @@ export async function render(root) {
         })), { empty: "暂无账号" })}
     </div>
 
+    ${state.super ? `<div class="panel mt" id="assocManager">
+       <div class="panel-h"><h2>协会分类管理</h2><button id="addAssoc" class="btn btn-p btn-sm">+ 增加协会</button></div>
+       <p class="hint">仅总管理员可维护。已关联用户或项目的协会不可直接删除，以免丢失历史业务归属。</p>
+       <div class="chips mt">${(state.meta.assocs||[]).map(n=>`<span class="chip"><b>${esc(n)}</b><button class="link danger" data-remove-assoc="${esc(n)}">停用</button></span>`).join("")}</div>
+     </div>` : ""}
     <div class="panel">
       <div class="panel-h"><h2>角色权限矩阵</h2><span class="hint">★ 表示该角色可见模块</span></div>
       <div class="tw"><table><thead><tr><th>模块</th>${roles.map((r) => `<th>${esc(r.name)}${r.super ? " ★全部" : ""}</th>`).join("")}</tr></thead>
@@ -48,6 +53,19 @@ export async function render(root) {
   const ra = root.querySelector("#resetAll");
   if (ra) ra.onclick = () => openReset(root);
 
+  root.querySelector("#addAssoc")?.addEventListener("click",async()=>{
+    const name=await import("../lib/ui.js").then(m=>m.promptBox({title:"增加协会分类",label:"协会名称",ok:"增加"}));
+    if(!name)return;
+    try{await api.post("/api/associations",{name});state.meta.assocs=(await api.get("/api/associations")).rows;toast("协会已增加","ok");await render(root);}
+    catch(e){toast(e.message,"warn");}
+  });
+  root.querySelectorAll("[data-remove-assoc]").forEach(btn=>btn.addEventListener("click",async()=>{
+    const name=btn.dataset.removeAssoc;
+    const ok=await import("../lib/ui.js").then(m=>m.confirmBox("确认停用 "+esc(name)+"？关联项目或账号的协会无法停用。",{title:"停用协会",ok:"确认停用"}));
+    if(!ok)return;
+    try{await api.del("/api/associations/"+encodeURIComponent(name));state.meta.assocs=(await api.get("/api/associations")).rows;toast("已停用","ok");await render(root);}
+    catch(e){toast(e.message,"warn");}
+  }));
   const nb = root.querySelector("#newU");
   if (nb) nb.onclick = () => openCreate(root, roles);
   root.querySelectorAll("[data-edit]").forEach((b) => b.onclick = () => {
