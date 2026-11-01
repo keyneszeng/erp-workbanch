@@ -1,7 +1,7 @@
 "use strict";
 const { db, transaction } = require("../lib/db");
 const { now, bad, notFound, conflict, yuan, toCsv } = require("../lib/util");
-const { assertCan, assertModule, assertProjectVisible } = require("../lib/rbac");
+const { assertCan, assertModule, assertProjectVisible, isSuper } = require("../lib/rbac");
 const { logAudit } = require("../lib/audit");
 const { listProjects } = require("./projects");
 const { getProject, assertNotFrozen } = require("../lib/workflow");
@@ -31,6 +31,7 @@ function parseAmount(v, itemName) {
 
 function checkItem(it) {
   if (it.need !== undefined && !DEMAND_NEED_OPTIONS.includes(it.need)) throw bad(`「${it.item || ""}」的「是否需要」取值非法`);
+  if (it.status !== undefined && !["未开始", "执行中", "已交付", "已验收", "不需要"].includes(it.status)) throw bad(`「${it.item || ""}」的执行状态非法`);
   for (const [k, max] of Object.entries(MAX_LEN)) {
     if (it[k] === undefined || it[k] === null) continue;
     if (String(it[k]).length > max) throw bad(`「${it.item || ""}」的${k}字段不能超过 ${max} 字`);
@@ -275,6 +276,16 @@ function register(router) {
         if (missing.length) throw bad("需求「"+it.item+"」缺少必填字段："+missing.join("、")+"。七项字段必须齐全");
         if (!/^(?:[a-f0-9]{32}\.(?:jpg|png|pdf|docx|pptx|xlsx|webp|gif)|不适用)$/.test(it.attach))
           throw bad("需求「"+it.item+"」附件必须关联已登记文件标识，或明确标记不适用");
+        if (it.attach !== "不适用") {
+          const file = db.prepare("SELECT file_key,pid,user_id FROM uploaded_files WHERE file_key=?").get(it.attach);
+          if (!file) throw bad("需求「"+it.item+"」的附件不存在，必须使用已上传文件");
+          if (file.pid && file.pid !== p.id) throw bad("需求「"+it.item+"」的附件属于其他项目");
+          const refs = db.prepare("SELECT pid FROM materials WHERE file_key=? UNION SELECT pid FROM contracts WHERE file_key=?")
+            .all(it.attach, it.attach);
+          if (refs.some(ref => ref.pid !== p.id)) throw bad("需求「"+it.item+"」的附件已被其他项目使用");
+          if (!refs.length && !file.pid && !isSuper(ctx.user) && Number(file.user_id) !== Number(ctx.user.id))
+            throw bad("需求「"+it.item+"」只能引用本人上传或同项目已登记的附件");
+        }
       }
     }
     db.prepare("INSERT INTO demand_revisions (pid,before_json,after_json,changed_by,changed_at,action) VALUES (?,?,?,?,?,?)")
