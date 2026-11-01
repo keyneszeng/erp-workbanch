@@ -99,6 +99,7 @@ test("测试 Nginx 仅绑定回环地址，禁止通过公网 8080 暴露账号�
   const deploy = fs.readFileSync(path.join(__dirname, "../deploy/aliyun/deploy.sh"), "utf8");
   assert.match(deploy, /SSH 隧道/);
   assert.match(deploy, /生产部署禁止 --skip-tls/, "生产不得通过 --skip-tls 绕过 TLS");
+  assert.doesNotMatch(deploy, /rm -f \/etc\/nginx\/sites-enabled\/default/, "安装不应删除同机现有 Nginx 默认站点");
   assert.ok(deploy.indexOf("对候选 release 执行环境预检") < deploy.indexOf("预检通过后切换 current"), "必须先预检后切换发布指针");
   assert.match(deploy, /\$RELEASE_DIR\/scripts\/\$GATE/, "预检目标必须是候选 release");
   const start = deploy.indexOf('if [ "$MODE" = "test" ]; then\n  # 测试环境：');
