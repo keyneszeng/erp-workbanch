@@ -21,7 +21,7 @@ const VERIFY_STEPS = [
 ];
 
 /** 材料中心固定模块；按项目启停，永远保留历史材料 */
-const MATERIAL_MODULE_KINDS = ["课件", "串场", "劳务收集表", "劳务协议"];
+const MATERIAL_MODULE_KINDS = ["课件", "劳务收集表", "劳务协议"];
 
 /** 归档必备材料 8 类 */
 const MATERIAL_KINDS = [
