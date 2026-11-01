@@ -9,6 +9,7 @@ const { MATERIAL_KINDS } = require("../lib/constants");
 const { readPaging, countOf } = require("../lib/paginate");
 const { storage } = require("../lib/storage");
 const { assertUploadAttachable } = require("../lib/upload-ownership");
+const { validateSopEvidence } = require("../lib/meeting-sop");
 
 function register(router) {
   /**
@@ -24,7 +25,7 @@ function register(router) {
     assertModule(ctx.user, "verify", "verify:check");
     const p = getProject(ctx.params.id);
     assertProjectVisible(ctx.user, p);
-    const materials = db.prepare("SELECT * FROM materials WHERE pid = ? ORDER BY kind, id").all(p.id);
+    const materials = db.prepare("SELECT * FROM materials WHERE pid = ? AND deleted_at IS NULL ORDER BY kind, id").all(p.id);
     const contracts = db.prepare("SELECT * FROM contracts WHERE pid = ? ORDER BY id").all(p.id);
     const payments = db.prepare("SELECT * FROM payments WHERE pid = ? ORDER BY created_at DESC, id DESC").all(p.id);
     return {
@@ -78,15 +79,15 @@ function register(router) {
 
     const v = verification(p.id);
     const prev = v.steps.filter((s) => s.no < no);
-    const unjudged = prev.filter((s) => s.result === "待判定");
-    if (unjudged.length) throw conflict(`核销必须按顺序判定，第 ${unjudged[0].no} 步尚未判定`, "OUT_OF_ORDER", { step: unjudged[0].no });
+    const unjudged = prev.filter((s) => isDemoMode() ? s.result === "待判定" : s.result !== "通过");
+    if (unjudged.length) throw conflict(`核销必须按顺序完成并通过，第 ${unjudged[0].no} 步尚未通过或仍待复核`, "OUT_OF_ORDER", { step: unjudged[0].no });
 
     const def = v.steps.find((s) => s.no === no);
     let invoiceAmount = null;
     if (!isDemoMode() && no === 6 && result === "通过") {
       const signed = db.prepare("SELECT COUNT(*) AS n, COALESCE(SUM(amount),0) AS total FROM contracts WHERE pid=? AND status='已签署'").get(p.id);
       if (!signed.n) throw conflict("核票前必须有经协会管理员审批的已签署合同", "CONTRACT_NOT_SIGNED");
-      const invoiceMaterial = db.prepare("SELECT COUNT(*) AS n FROM materials WHERE pid=? AND kind='发票' AND file_key IS NOT NULL").get(p.id);
+      const invoiceMaterial = db.prepare("SELECT COUNT(*) AS n FROM materials WHERE pid=? AND kind='发票' AND file_key IS NOT NULL AND deleted_at IS NULL").get(p.id);
       if (!invoiceMaterial.n) throw conflict("请先上传发票原件供金额核对", "INVOICE_EVIDENCE_REQUIRED");
       invoiceAmount = Number(ctx.body?.invoiceAmount);
       if (ctx.body?.invoiceAmount === "" || ctx.body?.invoiceAmount == null || !Number.isFinite(invoiceAmount) || invoiceAmount <= 0 || Number(invoiceAmount.toFixed(2)) !== invoiceAmount)
@@ -94,10 +95,39 @@ function register(router) {
       if (cents(invoiceAmount) !== cents(signed.total))
         throw conflict(`发票总金额 ¥${yuan(invoiceAmount)} 与已签署合同总金额 ¥${yuan(signed.total)} 不符，不能通过核销`, "INVOICE_CONTRACT_MISMATCH");
     }
+    if (!isDemoMode() && result==="通过") {
+      const outstanding = db.prepare("SELECT id,resolved_at,evidence_material_id FROM exceptions WHERE pid=? AND step_no=? AND status='待复核'").all(p.id,no);
+      if (outstanding.some(ex=>!ex.resolved_at || !ex.evidence_material_id))
+        throw conflict("例外已审批，但尚未登记处理结果与证据；完成整改后再返回本步核销", "EXCEPTION_REMEDIATION_REQUIRED");
+    }
+    const pending = db.prepare("SELECT COUNT(*) AS n FROM exceptions WHERE pid=? AND step_no=? AND status='待审批'").get(p.id,no).n;
+    if (!isDemoMode() && result==="通过" && pending)
+      throw conflict("此步骤存在未处理例外单，请先完成例外处理，再返回原步骤复核", "EXCEPTION_NOT_HANDLED");
+    const validated = !isDemoMode() && result==="通过"
+      ? validateSopEvidence(no,ctx.body?.evidence,p,db,invoiceAmount) : null;
     const at = now();
+    // 前置步骤重新判定后，后续步骤先前的结论不再可靠，必须按顺序复核。
+    // 判定依据完成校验后才清空，防止一个无效请求意外破坏已通过结果。
+    if (!isDemoMode() && def.result !== "待判定" && no < 6) {
+      db.prepare(
+        "UPDATE verify_steps SET result='待判定', remark='前置步骤重新核验，须依序复核', " +
+        "invoice_amount=NULL, checked_by=NULL, checked_at=NULL, evidence_json=NULL " +
+        "WHERE pid=? AND step_no>? AND result<>'待判定'"
+      ).run(p.id, no);
+      logAudit({user:ctx.user,module:"会后核销",action:"后续步骤重新复核",target:p.id,
+        detail:"第 "+no+" 步重新判定，后续步骤核验结果失效并需重新取证",ip:ctx.ip});
+    }
     db.prepare(
-      "INSERT OR REPLACE INTO verify_steps (pid,step_no,name,result,remark,invoice_amount,checked_by,checked_at) VALUES (?,?,?,?,?,?,?,?)"
-    ).run(p.id, no, def.name, result, String(remark || ""), invoiceAmount, ctx.user.name, at);
+      "INSERT OR REPLACE INTO verify_steps (pid,step_no,name,result,remark,invoice_amount,checked_by,checked_at,evidence_json) VALUES (?,?,?,?,?,?,?,?,?)"
+    ).run(p.id, no, def.name, result, String(remark || ""), invoiceAmount, ctx.user.name, at,
+      validated ? JSON.stringify(validated) : null);
+    if (!isDemoMode() && result==="通过") {
+      const pendingReview = db.prepare("SELECT id FROM exceptions WHERE pid=? AND step_no=? AND status='待复核'").all(p.id,no);
+      for(const ex of pendingReview) {
+        db.prepare("UPDATE exceptions SET status='已闭环', comment=COALESCE(comment,'') || ? WHERE id=?")
+          .run("；已返回原步骤复核通过："+at,ex.id);
+      }
+    }
 
     let message = `第 ${no} 步「${def.name}」判定：${result}`;
     let exId = "";
@@ -125,7 +155,7 @@ function register(router) {
           ctx.user.name, "2 个工作日", "待审批", at);
         exNote = `已生成例外单 ${exId} 待财务审批`;
       }
-    } else if (openEx.length) {
+    } else if (openEx.length && isDemoMode()) {
       // 改判「通过」：这一步还挂着的待审批例外单必须一并撤销。
       // 不撤的话 openExceptions 永远 > 0，核销永远 complete 不了 ——
       // 判定人只能去求财务批一张「问题已经不存在」的例外单，账就乱了。
@@ -222,12 +252,12 @@ function register(router) {
     }
     if (String(comment || "").length > 500) throw bad("审批意见不能超过 500 字");
     const at = now();
-    const status = approve ? "已通过" : "已驳回";
+    const status = approve ? (isDemoMode() ? "已通过" : "待复核") : "已驳回";
     db.prepare("UPDATE exceptions SET status = ?, approved_by = ?, approved_at = ?, comment = ? WHERE id = ?")
       .run(status, ctx.user.name, at, String(comment || ""), ex.id);
     db.prepare("UPDATE approvals SET status = ?, decided_by = ?, decided_at = ?, comment = ? WHERE ref_id = ? AND type = '例外单审批' AND status = '待审批'")
       .run(approve ? "已通过" : "已驳回", ctx.user.name, at, String(comment || ""), ex.id);
-    if (approve) {
+    if (approve && isDemoMode()) {
       db.prepare("UPDATE verify_steps SET result = '已解例外', remark = ? , checked_by = ?, checked_at = ? WHERE pid = ? AND step_no = ?")
         .run(`例外获批：${ex.reason}`, ctx.user.name, at, ex.pid, ex.step_no);
     } else {
@@ -241,6 +271,50 @@ function register(router) {
     return { verification: verification(ex.pid), message: `例外单 ${ex.id} ${status}` };
   });
 
+
+  /** 例外处理记录：已获审批的例外必须补录处理人、结论、同项目原件后才能重新核销。 */
+  router.post("/api/exceptions/:id/resolve", async (ctx) => {
+    const ex=db.prepare("SELECT * FROM exceptions WHERE id=?").get(ctx.params.id);
+    if(!ex) throw notFound("例外单不存在");
+    const p=getProject(ex.pid);
+    assertProjectVisible(ctx.user,p);
+    assertCan(ctx.user,"verify:exception","当前角色无例外处理权限");
+    if (settlementOf(p.id)) throw conflict("财务结算已完成，禁止补改例外记录", "FROZEN");
+    if(ex.status!=="待复核") throw conflict("只有审批后待复核例外可填写处理结果","EXCEPTION_NOT_READY");
+    const resolution=String(ctx.body?.resolution||"").trim();
+    if(resolution.length<4||resolution.length>500)throw bad("处理结果需填写 4～500 字");
+    const material=db.prepare("SELECT id FROM materials WHERE id=? AND pid=? AND file_key IS NOT NULL AND deleted_at IS NULL")
+      .get(Number(ctx.body?.materialId),p.id);
+    if(!material)throw bad("须选择当前项目已上传原件的材料作为整改证据");
+    const at=now();
+    db.prepare("UPDATE exceptions SET resolution=?,evidence_material_id=?,resolved_by=?,resolved_at=? WHERE id=?")
+      .run(resolution,material.id,ctx.user.name,at,ex.id);
+    logAudit({user:ctx.user,module:"会后核销",action:"例外处理完成",target:p.id,
+      detail:ex.id+"；处理人："+ctx.user.name+"；证据材料："+material.id+"；处理结果："+resolution,ip:ctx.ip});
+    return {message:ex.step_no===0?"例外已登记整改，须财务确认闭环":"例外已登记整改，请返回原核销步骤重新复核",
+      verification:verification(p.id)};
+  });
+
+  /** 只有非步骤类（0）例外由财务复核处理结果后单独闭环；1～6 步须回原步骤复核。 */
+  router.post("/api/exceptions/:id/close", async (ctx) => {
+    const ex=db.prepare("SELECT * FROM exceptions WHERE id=?").get(ctx.params.id);
+    if(!ex)throw notFound("例外单不存在");
+    const p=getProject(ex.pid);
+    assertProjectVisible(ctx.user,p);
+    assertCan(ctx.user,"verify:exception_approve","仅核销审核人可确认整体性例外闭环");
+    if(settlementOf(p.id))throw conflict("项目已结算，核销例外已冻结","FROZEN");
+    if(Number(ex.step_no)!==0)throw conflict("六步内例外必须返回原步骤复核，不得直接关闭","RECHECK_REQUIRED");
+    if(ex.status!=="待复核"||!ex.resolved_at||!ex.evidence_material_id)
+      throw conflict("例外处理人未提交证据与处理结果","EXCEPTION_REMEDIATION_REQUIRED");
+    const comment=String(ctx.body?.comment||"").trim();
+    if(comment.length<4||comment.length>500)throw bad("财务确认意见需填写 4～500 字");
+    db.prepare("UPDATE exceptions SET status='已闭环',comment=COALESCE(comment,'')||? WHERE id=?")
+      .run("；财务闭环："+comment,ex.id);
+    logAudit({user:ctx.user,module:"会后核销",action:"整体性例外闭环",target:p.id,
+      detail:ex.id+"；财务审核人："+ctx.user.name+"；审核意见："+comment,ip:ctx.ip});
+    return {message:"非步骤例外已完成财务复核并闭环",verification:verification(p.id)};
+  });
+
   /** 材料总览（跨项目） */
   router.get("/api/materials", async (ctx) => {
     // V1.2.17 SEC-02：材料中心按模块白名单，guest 不再能翻全平台材料
@@ -248,7 +322,7 @@ function register(router) {
     const { sql, params } = require("../lib/rbac").scopeFilter(ctx.user);
     const paging = readPaging(ctx.query);
 
-    const base = `FROM materials m JOIN projects p ON p.id = m.pid WHERE ${sql}`;
+    const base = `FROM materials m JOIN projects p ON p.id = m.pid WHERE ${sql} AND m.deleted_at IS NULL`;
     let rows;
     let total;
     if (paging) {
@@ -273,7 +347,8 @@ function register(router) {
       `SELECT p.id, p.name, p.status FROM projects p WHERE ${sql} AND p.status IN ('筹备中','执行中','待核销','已核销','已结算') ORDER BY p.date DESC`
     ).all(...params).map((p) => {
       const have = kindsByPid.get(p.id) || [];
-      return { ...p, have, missing: MATERIAL_KINDS.filter((k) => !have.includes(k)) };
+      const required = MATERIAL_KINDS;
+      return { ...p, have, required, missing: required.filter((k) => !have.includes(k)) };
     });
 
     return {
@@ -294,6 +369,7 @@ function register(router) {
     assertProjectVisible(ctx.user, p);
     assertCan(ctx.user, "material:write", "当前角色无材料登记权限");
     if (p.status === "已归档") throw conflict("项目已归档，材料清单已封存，不可再登记", "ARCHIVED", { status: p.status });
+    if (settlementOf(p.id)) throw conflict("结算单已生成，材料证据已冻结，不可追加或修改", "FROZEN");
     const { kind: rawKind, name, version, file_key, file_name, file_size, file_mime } = ctx.body || {};
     // 8 类是归档必备，必须用标准名，齐备校验只认这 8 个；
     // 但实际卷宗里还有会议纪要、专家简历、批文这类东西，以前一律被白名单挡在门外，
@@ -348,18 +424,13 @@ function register(router) {
       throw conflict("结算单已生成，材料作为核销凭证已冻结，不可删除", "FROZEN", { status: p.status });
     }
 
-    db.prepare("DELETE FROM materials WHERE id = ?").run(m.id);
+    // 只做软删；原件、版本与审计记录保留，避免销毁历史证据。
+    if (m.deleted_at) throw conflict("材料已处于历史冻结状态，不能重复删除", "ALREADY_DELETED");
+    db.prepare("UPDATE materials SET deleted_at=?, deleted_by=? WHERE id=?")
+      .run(now(),ctx.user.name,m.id);
 
-    // 附件一起删，但要先确认没有别的材料行还引用同一个 key
-    if (m.file_key) {
-      const still = db.prepare("SELECT COUNT(*) AS c FROM materials WHERE file_key = ?").get(m.file_key);
-      if (!(Number(still?.c) > 0)) {
-        try { await storage().del(m.file_key); } catch { /* 文件删除失败不回滚记录，避免留下删不掉的条目 */ }
-      }
-    }
-
-    logAudit({ user: ctx.user, module: "材料中心", action: "删除", target: p.id, detail: `删除 ${m.kind}：${m.name}`, ip: ctx.ip });
-    return { materialsStatus: materialsStatus(p.id), message: "已删除" };
+    logAudit({ user: ctx.user, module: "材料中心", action: "软删冻结", target: p.id, detail: `历史保留 ${m.kind}：${m.name}`, ip: ctx.ip });
+    return { materialsStatus: materialsStatus(p.id), message: "已软删并保留历史记录" };
   });
 
   router.get("/api/settlements", async (ctx) => {

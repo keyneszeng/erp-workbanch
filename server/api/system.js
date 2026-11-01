@@ -332,6 +332,7 @@ const RESET_LABEL = {
   uploaded_files: "上传文件归属", sessions: "登录会话", exports: "导出记录", sms_challenges: "短信验证码挑战", mini_bindings: "微信账号绑定",
   exceptions: "例外单", verify_steps: "核销判定", approvals: "审批记录",
   guests: "嘉宾", tasks: "任务", issues: "异常问题",
+  meeting_material_tasks: "会议材料待办", meeting_material_modules: "会议固定材料模块", demand_revisions: "需求历史变更",
   demand_items: "需求明细", demand_sheets: "需求单", project_members: "项目成员",
   settings: "系统演示配置"
 };

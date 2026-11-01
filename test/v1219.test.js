@@ -193,9 +193,10 @@ test("归档门禁没被削弱：结算前删掉一类材料，归档仍被拦",
   assert.equal(ar.status, 409, `材料缺一类不该能归档，实际 ${ar.status}`);
   assert.match(ar.data.error.message, /归档材料缺/);
 
-  await admin("POST", `/api/projects/${pid}/materials`, { kind: "签到表", name: "签到表-补.pdf" });
-  const ar2 = await admin("POST", `/api/projects/${pid}/transition`, { action: "archive" });
-  assert.equal(ar2.status, 200, JSON.stringify(ar2.data));
+  const late=await admin("POST", `/api/projects/${pid}/materials`, {kind:"签到表",name:"结算后补录"});
+  assert.equal(late.status,409,"结算后不能绕过核销补入材料");
+  const ar2=await admin("POST", `/api/projects/${pid}/transition`,{action:"archive"});
+  assert.equal(ar2.status,409,"材料缺失须继续锁定归档，走受控更正流程");
 });
 
 test("接口把材料状态一并给前端，项目详情与核销看板同源", async () => {
