@@ -59,7 +59,7 @@ Page({
   if(!this.data.pid||!kind||!this.data.name.trim()||kind.length>20||this.data.name.length>120){
    this.setData({error:"请选择会议并填写有效材料类别（20 字内）和名称（120 字内）"});return;
   }
-  if(Number(selected.size)>8*1024*1024){this.setData({error:"单个附件不能超过 8 MB"});return;}
+  if(Number(selected.size)>20*1024*1024){this.setData({error:"单个附件不能超过 20 MB"});return;}
   this.setData({busy:true,error:"",uploaded:""});
   try{
    const buffer=await new Promise((resolve,reject)=>wx.getFileSystemManager().readFile({
