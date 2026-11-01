@@ -9,6 +9,7 @@ const { MATERIAL_KINDS } = require("../lib/constants");
 const { readPaging, countOf } = require("../lib/paginate");
 const { storage } = require("../lib/storage");
 const { assertUploadAttachable } = require("../lib/upload-ownership");
+const { validateSopEvidence } = require("../lib/meeting-sop");
 
 function register(router) {
   /**
@@ -24,7 +25,7 @@ function register(router) {
     assertModule(ctx.user, "verify", "verify:check");
     const p = getProject(ctx.params.id);
     assertProjectVisible(ctx.user, p);
-    const materials = db.prepare("SELECT * FROM materials WHERE pid = ? ORDER BY kind, id").all(p.id);
+    const materials = db.prepare("SELECT * FROM materials WHERE pid = ? AND deleted_at IS NULL ORDER BY kind, id").all(p.id);
     const contracts = db.prepare("SELECT * FROM contracts WHERE pid = ? ORDER BY id").all(p.id);
     const payments = db.prepare("SELECT * FROM payments WHERE pid = ? ORDER BY created_at DESC, id DESC").all(p.id);
     return {
@@ -78,8 +79,8 @@ function register(router) {
 
     const v = verification(p.id);
     const prev = v.steps.filter((s) => s.no < no);
-    const unjudged = prev.filter((s) => s.result === "待判定");
-    if (unjudged.length) throw conflict(`核销必须按顺序判定，第 ${unjudged[0].no} 步尚未判定`, "OUT_OF_ORDER", { step: unjudged[0].no });
+    const unjudged = prev.filter((s) => isDemoMode() ? s.result === "待判定" : s.result !== "通过");
+    if (unjudged.length) throw conflict(`核销必须按顺序完成并通过，第 ${unjudged[0].no} 步尚未通过或仍待复核`, "OUT_OF_ORDER", { step: unjudged[0].no });
 
     const def = v.steps.find((s) => s.no === no);
     let invoiceAmount = null;
@@ -94,10 +95,23 @@ function register(router) {
       if (cents(invoiceAmount) !== cents(signed.total))
         throw conflict(`发票总金额 ¥${yuan(invoiceAmount)} 与已签署合同总金额 ¥${yuan(signed.total)} 不符，不能通过核销`, "INVOICE_CONTRACT_MISMATCH");
     }
+    const pending = db.prepare("SELECT COUNT(*) AS n FROM exceptions WHERE pid=? AND step_no=? AND status='待审批'").get(p.id,no).n;
+    if (!isDemoMode() && result==="通过" && pending)
+      throw conflict("此步骤存在未处理例外单，请先完成例外处理，再返回原步骤复核", "EXCEPTION_NOT_HANDLED");
+    const validated = !isDemoMode() && result==="通过"
+      ? validateSopEvidence(no,ctx.body?.evidence,p,db,invoiceAmount) : null;
     const at = now();
     db.prepare(
-      "INSERT OR REPLACE INTO verify_steps (pid,step_no,name,result,remark,invoice_amount,checked_by,checked_at) VALUES (?,?,?,?,?,?,?,?)"
-    ).run(p.id, no, def.name, result, String(remark || ""), invoiceAmount, ctx.user.name, at);
+      "INSERT OR REPLACE INTO verify_steps (pid,step_no,name,result,remark,invoice_amount,checked_by,checked_at,evidence_json) VALUES (?,?,?,?,?,?,?,?,?)"
+    ).run(p.id, no, def.name, result, String(remark || ""), invoiceAmount, ctx.user.name, at,
+      validated ? JSON.stringify(validated) : null);
+    if (!isDemoMode() && result==="通过") {
+      const pendingReview = db.prepare("SELECT id FROM exceptions WHERE pid=? AND step_no=? AND status='待复核'").all(p.id,no);
+      for(const ex of pendingReview) {
+        db.prepare("UPDATE exceptions SET status='已闭环', comment=COALESCE(comment,'') || ? WHERE id=?")
+          .run("；已返回原步骤复核通过："+at,ex.id);
+      }
+    }
 
     let message = `第 ${no} 步「${def.name}」判定：${result}`;
     let exId = "";
@@ -125,7 +139,7 @@ function register(router) {
           ctx.user.name, "2 个工作日", "待审批", at);
         exNote = `已生成例外单 ${exId} 待财务审批`;
       }
-    } else if (openEx.length) {
+    } else if (openEx.length && isDemoMode()) {
       // 改判「通过」：这一步还挂着的待审批例外单必须一并撤销。
       // 不撤的话 openExceptions 永远 > 0，核销永远 complete 不了 ——
       // 判定人只能去求财务批一张「问题已经不存在」的例外单，账就乱了。
@@ -222,12 +236,12 @@ function register(router) {
     }
     if (String(comment || "").length > 500) throw bad("审批意见不能超过 500 字");
     const at = now();
-    const status = approve ? "已通过" : "已驳回";
+    const status = approve ? (isDemoMode() ? "已通过" : "待复核") : "已驳回";
     db.prepare("UPDATE exceptions SET status = ?, approved_by = ?, approved_at = ?, comment = ? WHERE id = ?")
       .run(status, ctx.user.name, at, String(comment || ""), ex.id);
     db.prepare("UPDATE approvals SET status = ?, decided_by = ?, decided_at = ?, comment = ? WHERE ref_id = ? AND type = '例外单审批' AND status = '待审批'")
       .run(approve ? "已通过" : "已驳回", ctx.user.name, at, String(comment || ""), ex.id);
-    if (approve) {
+    if (approve && isDemoMode()) {
       db.prepare("UPDATE verify_steps SET result = '已解例外', remark = ? , checked_by = ?, checked_at = ? WHERE pid = ? AND step_no = ?")
         .run(`例外获批：${ex.reason}`, ctx.user.name, at, ex.pid, ex.step_no);
     } else {
@@ -248,7 +262,7 @@ function register(router) {
     const { sql, params } = require("../lib/rbac").scopeFilter(ctx.user);
     const paging = readPaging(ctx.query);
 
-    const base = `FROM materials m JOIN projects p ON p.id = m.pid WHERE ${sql}`;
+    const base = `FROM materials m JOIN projects p ON p.id = m.pid WHERE ${sql} AND m.deleted_at IS NULL`;
     let rows;
     let total;
     if (paging) {
