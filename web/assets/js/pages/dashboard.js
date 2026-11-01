@@ -1,5 +1,5 @@
 import { api, state } from "../lib/api.js";
-import { badge, esc, kpi, money, panel, table } from "../lib/ui.js";
+import { badge, esc, money, panel, table } from "../lib/ui.js";
 import { reachable } from "../lib/nav.js";
 
 /**
