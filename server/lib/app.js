@@ -75,6 +75,7 @@ function buildRouter() {
     require("../api/projects"),
     require("../api/verify"),
     require("../api/finance"),
+    require("../api/sponsor-income"),
     require("../api/system"),
     require("../api/demand"),
     require("../api/files"),
