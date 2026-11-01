@@ -71,7 +71,7 @@ function validate(body, partial = false) {
     if (!Number.isInteger(n) || n < 1) throw bad("会期至少 1 天");
     if (n > 60) throw bad("会期不能超过 60 天");
   }
-  if ("assoc" in body && !ASSOCS.includes(body.assoc)) throw bad("所属协会不在可选范围");
+  if ("assoc" in body && !require("../lib/associations").has(body.assoc)) throw bad("所属协会不在可选范围");
   if ("form" in body && !FORMS.includes(body.form)) throw bad("会议形式不合法");
   if ("dept" in body && body.dept && !DEPTS.includes(body.dept)) throw bad("承办部门不合法");
   if ("date" in body) {
