@@ -95,6 +95,11 @@ function register(router) {
       if (cents(invoiceAmount) !== cents(signed.total))
         throw conflict(`发票总金额 ¥${yuan(invoiceAmount)} 与已签署合同总金额 ¥${yuan(signed.total)} 不符，不能通过核销`, "INVOICE_CONTRACT_MISMATCH");
     }
+    if (!isDemoMode() && result==="通过") {
+      const outstanding = db.prepare("SELECT id,resolved_at,evidence_material_id FROM exceptions WHERE pid=? AND step_no=? AND status='待复核'").all(p.id,no);
+      if (outstanding.some(ex=>!ex.resolved_at || !ex.evidence_material_id))
+        throw conflict("例外已审批，但尚未登记处理结果与证据；完成整改后再返回本步核销", "EXCEPTION_REMEDIATION_REQUIRED");
+    }
     const pending = db.prepare("SELECT COUNT(*) AS n FROM exceptions WHERE pid=? AND step_no=? AND status='待审批'").get(p.id,no).n;
     if (!isDemoMode() && result==="通过" && pending)
       throw conflict("此步骤存在未处理例外单，请先完成例外处理，再返回原步骤复核", "EXCEPTION_NOT_HANDLED");
@@ -253,6 +258,50 @@ function register(router) {
       detail: `${ex.id} 第 ${ex.step_no} 步：${ex.reason}${comment ? "；意见：" + comment : ""}`, ip: ctx.ip
     });
     return { verification: verification(ex.pid), message: `例外单 ${ex.id} ${status}` };
+  });
+
+
+  /** 例外处理记录：已获审批的例外必须补录处理人、结论、同项目原件后才能重新核销。 */
+  router.post("/api/exceptions/:id/resolve", async (ctx) => {
+    const ex=db.prepare("SELECT * FROM exceptions WHERE id=?").get(ctx.params.id);
+    if(!ex) throw notFound("例外单不存在");
+    const p=getProject(ex.pid);
+    assertProjectVisible(ctx.user,p);
+    assertCan(ctx.user,"verify:exception","当前角色无例外处理权限");
+    if (settlementOf(p.id)) throw conflict("财务结算已完成，禁止补改例外记录", "FROZEN");
+    if(ex.status!=="待复核") throw conflict("只有审批后待复核例外可填写处理结果","EXCEPTION_NOT_READY");
+    const resolution=String(ctx.body?.resolution||"").trim();
+    if(resolution.length<4||resolution.length>500)throw bad("处理结果需填写 4～500 字");
+    const material=db.prepare("SELECT id FROM materials WHERE id=? AND pid=? AND file_key IS NOT NULL AND deleted_at IS NULL")
+      .get(Number(ctx.body?.materialId),p.id);
+    if(!material)throw bad("须选择当前项目已上传原件的材料作为整改证据");
+    const at=now();
+    db.prepare("UPDATE exceptions SET resolution=?,evidence_material_id=?,resolved_by=?,resolved_at=? WHERE id=?")
+      .run(resolution,material.id,ctx.user.name,at,ex.id);
+    logAudit({user:ctx.user,module:"会后核销",action:"例外处理完成",target:p.id,
+      detail:ex.id+"；处理人："+ctx.user.name+"；证据材料："+material.id+"；处理结果："+resolution,ip:ctx.ip});
+    return {message:ex.step_no===0?"例外已登记整改，须财务确认闭环":"例外已登记整改，请返回原核销步骤重新复核",
+      verification:verification(p.id)};
+  });
+
+  /** 只有非步骤类（0）例外由财务复核处理结果后单独闭环；1～6 步须回原步骤复核。 */
+  router.post("/api/exceptions/:id/close", async (ctx) => {
+    const ex=db.prepare("SELECT * FROM exceptions WHERE id=?").get(ctx.params.id);
+    if(!ex)throw notFound("例外单不存在");
+    const p=getProject(ex.pid);
+    assertProjectVisible(ctx.user,p);
+    assertCan(ctx.user,"verify:exception_approve","仅核销审核人可确认整体性例外闭环");
+    if(settlementOf(p.id))throw conflict("项目已结算，核销例外已冻结","FROZEN");
+    if(Number(ex.step_no)!==0)throw conflict("六步内例外必须返回原步骤复核，不得直接关闭","RECHECK_REQUIRED");
+    if(ex.status!=="待复核"||!ex.resolved_at||!ex.evidence_material_id)
+      throw conflict("例外处理人未提交证据与处理结果","EXCEPTION_REMEDIATION_REQUIRED");
+    const comment=String(ctx.body?.comment||"").trim();
+    if(comment.length<4||comment.length>500)throw bad("财务确认意见需填写 4～500 字");
+    db.prepare("UPDATE exceptions SET status='已闭环',comment=COALESCE(comment,'')||? WHERE id=?")
+      .run("；财务闭环："+comment,ex.id);
+    logAudit({user:ctx.user,module:"会后核销",action:"整体性例外闭环",target:p.id,
+      detail:ex.id+"；财务审核人："+ctx.user.name+"；审核意见："+comment,ip:ctx.ip});
+    return {message:"非步骤例外已完成财务复核并闭环",verification:verification(p.id)};
   });
 
   /** 材料总览（跨项目） */
