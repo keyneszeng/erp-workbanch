@@ -63,12 +63,12 @@ test("mobile participant application: own-association draft, edit, submit and ma
  assert.equal((await req("GET","/api/mini/applications/"+id,undefined,bob)).status,403);
  assert.equal((await req("PATCH","/api/mini/applications/"+id,{...base,name:"越权修改"},bob)).status,403);
  assert.equal((await req("POST","/api/mini/applications/"+id+"/submit",{},bob)).status,403);
- assert.equal((await req("POST","/api/projects/"+id+"/transition",{action:"approve"},alice)).status,403);
  const edited=await req("PATCH","/api/mini/applications/"+id,{...base,name:"正式提交立项"},alice);
  assert.equal(edited.status,200,JSON.stringify(edited.body));
  const submitted=await req("POST","/api/mini/applications/"+id+"/submit",{},alice);
  assert.equal(submitted.status,200,JSON.stringify(submitted.body));
  assert.equal(submitted.body.project.status,"待审批");
+ assert.equal((await req("POST","/api/projects/"+id+"/transition",{action:"approve"},alice)).status,403,"ordinary applicant cannot approve their own submitted application");
  assert.equal((await req("POST","/api/mini/applications/"+id+"/submit",{},alice)).status,409);
  assert.equal((await req("PATCH","/api/mini/applications/"+id,base,alice)).status,409);
  const aps=await req("GET","/api/approvals",undefined,adminCookie);
