@@ -8,17 +8,20 @@ const ASSOCS = [
 
 const FORMS = ["线下", "线上", "混合"];
 const DEPTS = ["会务部", "学术部", "财务部", "秘书处"];
-const PAYMENT_TYPES = ["学会公付", "个人报销", "厂家款"];
+const PAYMENT_TYPES = ["学会公付", "专家费", "个人报销", "厂家款"];
 
 /** 核销 6 步 SOP —— 顺序不可跳过，全部通过才允许进入结算 */
 const VERIFY_STEPS = [
-  { no: 1, name: "议程与课件核对", desc: "实际议程环节与提交版本一致", who: "会务执行" },
-  { no: 2, name: "签到人数与报名核对", desc: "签到人数 ≥ 报名人数 85%，名单可追溯", who: "会务执行" },
-  { no: 3, name: "现场费用凭证", desc: "场地、餐饮、物料票据齐全且金额可对", who: "会务执行" },
-  { no: 4, name: "课件与议程课题一致性", desc: "每个课件都能对应到议程上的课题", who: "财务与核销" },
-  { no: 5, name: "劳务与专家费核对", desc: "劳务表签字齐全，专家费与合同一致", who: "财务与核销" },
-  { no: 6, name: "发票与合同金额核对", desc: "核对发票原件与已审批签署合同金额；核销后另行提交付款审批，实际付款后结算", who: "财务与核销" }
+  { no: 1, name: "盖章函件与立项信息核验", desc: "文件已盖章且为终版，核对会议名、时间、主办方与招商主体", who: "会务执行" },
+  { no: 2, name: "讲者名单三处一致", desc: "议程 ∩ 劳务收集表 ∩ 劳务协议：无冒领、漏发、重复", who: "财务与核销" },
+  { no: 3, name: "参会数据与时长", desc: "线上讲者在线 >30 分钟；线下签到表；混合会议两者均满足", who: "会务执行" },
+  { no: 4, name: "课件与串场内容核验", desc: "课件课题匹配议程，串场题目与主办方名/logo 一致；药企 logo 仅首页/尾页/鸣谢页", who: "财务与核销" },
+  { no: 5, name: "劳务五字段一致", desc: "劳务收集表与协议：姓名、时间、角色、金额、银行账号逐项一致", who: "财务与核销" },
+  { no: 6, name: "会务三单一致", desc: "合同总额 = 拟请款总额；应开票合同金额 = 发票总额；专家劳务按已核验协议免票请款", who: "财务与核销" }
 ];
+
+/** 材料中心固定模块；按项目启停，永远保留历史材料 */
+const MATERIAL_MODULE_KINDS = ["课件", "串场", "劳务收集表", "劳务协议"];
 
 /** 归档必备材料 8 类 */
 const MATERIAL_KINDS = [
@@ -126,4 +129,4 @@ const DEMAND_NEED_OPTIONS = ["需要", "不需要"];
  */
 const DEMAND_STATUSES = ["筹备中", "执行中"];
 
-module.exports = { ASSOCS, FORMS, DEPTS, PAYMENT_TYPES, VERIFY_STEPS, MATERIAL_KINDS, CONTRACT_CATEGORIES, guessContractCategory, FLOW, STATUS_DESC, DEMAND_GROUPS, DEMAND_TEMPLATE, DEMAND_NEED_OPTIONS, DEMAND_STATUSES };
+module.exports = { ASSOCS, FORMS, DEPTS, PAYMENT_TYPES, VERIFY_STEPS, MATERIAL_KINDS, MATERIAL_MODULE_KINDS, CONTRACT_CATEGORIES, guessContractCategory, FLOW, STATUS_DESC, DEMAND_GROUPS, DEMAND_TEMPLATE, DEMAND_NEED_OPTIONS, DEMAND_STATUSES };

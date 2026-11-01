@@ -1,0 +1,113 @@
+name: Release ERP Cloudflare demo (never production)
+
+# Release marker 2026-11-01: fix super-admin new-account button label in Cloudflare demo only.
+# One-time release when this dedicated workflow is introduced on main.
+# Further releases require manually dispatching this workflow.
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/cloudflare-demo-release.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: erp-cloudflare-demo-deployment
+  cancel-in-progress: false
+
+jobs:
+  deploy-demo:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment:
+      name: cloudflare-demo
+      url: https://erp.aibuild.work
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || vars.CLOUDFLARE_ACCOUNT_ID }}
+      DEMO_URL: https://erp.aibuild.work
+    steps:
+      - name: Checkout reviewed main source
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Setup Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Verify demo-only release configuration and forbid production modes
+        run: |
+          set -eu
+          node scripts/check-cloudflare-demo.cjs
+          if node scripts/check-production-deploy.cjs > /dev/null 2>&1; then
+            echo "::error::Cloudflare production safety gate unexpectedly allowed deployment"
+            exit 1
+          fi
+          node - <<'NODE'
+          const fs=require('node:fs');
+          const s=fs.readFileSync('wrangler.jsonc','utf8');
+          if (!s.includes('"name": "erp-workbanch"') ||
+              !s.includes('"pattern": "erp.aibuild.work"') ||
+              !s.includes('"ERP_DEMO_MODE": "1"') ||
+              !s.includes('"name": "ERP_DB"') ||
+              !s.includes('"class_name": "ErpDatabase"'))
+            throw new Error('Demo Worker name, domain, DO binding or demo-only mode changed');
+          console.log('Preserve existing Worker name, custom domain, and Durable Object namespace.');
+          NODE
+
+      - name: Check Cloudflare deployment credentials (never print secrets)
+        run: |
+          set -eu
+          if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            echo "::error::Missing CLOUDFLARE_API_TOKEN and/or CLOUDFLARE_ACCOUNT_ID. Add them in repository/environment secrets or variables. Nothing has been deployed."
+            exit 1
+          fi
+
+      - name: Install application dependency
+        run: npm install --no-audit --no-fund
+
+      - name: Write public demo release manifest into static assets
+        env:
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          node - <<'NODE'
+          const fs=require('node:fs');
+          fs.writeFileSync('web/deploy-manifest.json',JSON.stringify({
+            environment:'cloudflare-demo',sourceCommit:process.env.SOURCE_SHA,
+            releasedAt:new Date().toISOString(),app:'会规化会务执行系统'
+          },null,2)+'\n');
+          NODE
+
+      - name: Dry-run Cloudflare Workers build (no production upload)
+        run: npx --yes wrangler@4 deploy --config wrangler.jsonc --dry-run --outdir .cf-dist
+
+      - name: Publish demo assets and Worker while preserving existing Durable Object
+        run: npx --yes wrangler@4 deploy --config wrangler.jsonc
+
+      - name: Verify deployed demo version and public health endpoint
+        env:
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          set -eu
+          for attempt in 1 2 3 4 5 6 7 8; do
+            if curl --fail --silent --show-error --max-time 15 --location --header 'Cache-Control: no-cache' \
+              "${DEMO_URL}/deploy-manifest.json?check=${SOURCE_SHA}" -o /tmp/demo-manifest.json; then
+              if node -e 'const f=require("/tmp/demo-manifest.json"); process.exit(f.environment==="cloudflare-demo"&&f.sourceCommit===process.env.SOURCE_SHA?0:1)'; then
+                echo "Demo static version verified: ${SOURCE_SHA}"
+                if curl --fail --silent --show-error --max-time 15 --location \
+                   "${DEMO_URL}/api/health" -o /tmp/demo-health.json; then
+                  echo "Demo API health endpoint responded successfully."
+                  exit 0
+                fi
+              fi
+            fi
+            echo "Demo endpoint not yet serving expected release (attempt ${attempt}/8)."
+            sleep 7
+          done
+          echo "::error::Demo deployment executed, but endpoint/version or health verification did not pass."
+          exit 1

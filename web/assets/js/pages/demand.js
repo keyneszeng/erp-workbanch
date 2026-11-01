@@ -2,7 +2,7 @@ import { api, can } from "../lib/api.js";
 import { esc, badge, toast, confirmBox, money } from "../lib/ui.js";
 
 const yuan = (n) => `¥${money(Number(n) || 0)}`;
-const blankItem = { item: "", note: "", need: "需要", spec: "", owner: "", owner_id: "", due: "", budget: "" };
+const blankItem = { item: "", note: "", need: "需要", spec: "", owner: "", owner_id: "", due: "", budget: "", budget_owner: "", attach: "", status: "未开始" };
 let memberOptions = [];
 
 function optHtml(opts, val) {
@@ -29,7 +29,10 @@ function cells(it, locked) {
           ${memberOptions.map((u) => `<option value="${esc(String(u.id))}"${Number(it.owner_id) === Number(u.id) ? " selected" : ""}>${esc(u.name)}</option>`).join("")}
         </select>`}</td>
     <td>${locked ? plain(it.due) : `<input class="mini" type="date" data-f="due" value="${esc(it.due || "")}">`}</td>
+    <td>${locked ? plain(it.budget_owner) : `<input class="mini" data-f="budget_owner" value="${esc(it.budget_owner || "")}" placeholder="预算归属部门/项目">`}</td>
     <td>${locked ? plain(it.budget, true) : `<input class="mini" data-f="budget" inputmode="decimal" value="${esc(it.budget || "")}" placeholder="0.00">`}</td>
+    <td>${locked ? plain(it.attach) : `<input class="mini" data-f="attach" value="${esc(it.attach || "")}" placeholder="附件文件 key / 不适用">`}</td>
+    <td>${locked ? plain(it.status) : `<select class="mini" data-f="status">${optHtml(["未开始","执行中","已交付","已验收","不需要"],it.status||"未开始")}</select>`}</td>
     <td style="width:34px;text-align:center">${locked ? "" : '<button class="link del" data-del="1" title="删除该条">×</button>'}</td>`;
 }
 
@@ -43,10 +46,10 @@ function groupPanel(grp, items, locked) {
       <thead><tr>
         <th>项目 / 业务提示</th><th style="width:84px">是否需要</th><th>规格数量</th>
         <th style="width:96px">负责人</th><th style="width:130px">交付时间</th>
-        <th style="width:110px">预算金额</th><th style="width:34px"></th>
+        <th>预算归属</th><th style="width:110px">预算金额</th><th>附件</th><th>执行状态</th><th style="width:34px"></th>
       </tr></thead>
       <tbody>${items.map((it) => `<tr data-grp="${esc(grp)}">${cells(it, locked)}</tr>`).join("")}
-        ${locked ? "" : `<tr class="addrow"><td colspan="7">
+        ${locked ? "" : `<tr class="addrow"><td colspan="10">
           <button class="link" data-add="${esc(grp)}">+ 新增一行</button></td></tr>`}
       </tbody>
     </table></div>
@@ -119,7 +122,7 @@ function renderList(root) {
     const needAll = d.projects.reduce((s, p) => s + (p.needCount || 0), 0);
 
     root.innerHTML = `<div class="phead">
-      <div><h2>会务需求确认</h2><p>四组清单：设计 / 制作 / 现场执行 / 其他 · 只在筹备 / 执行阶段填写，确认后归档到项目详情页，作为后续核销的依据</p></div>
+      <div><h2>会务需求确认</h2><p>设计 / 制作 / 现场执行 / 其他 · 七项必填：是否需要、规格数量、负责人、交付时间、预算归属、附件、执行状态。确认后变更必须撤销并重新确认，留存前后快照。</p></div>
       <div class="acts"></div>
     </div>
     <div class="grid g4">

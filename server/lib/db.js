@@ -25,6 +25,11 @@ const DB_FILE =
   (typeof process !== "undefined" && process.env && process.env.ERP_DB) || DEFAULT_DB_FILE;
 
 const SCHEMA = `
+CREATE TABLE IF NOT EXISTS associations (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL UNIQUE,
+  active INTEGER NOT NULL DEFAULT 1
+);
 CREATE TABLE IF NOT EXISTS users (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,
   username    TEXT UNIQUE NOT NULL,
@@ -146,6 +151,18 @@ CREATE TABLE IF NOT EXISTS contracts (
 );
 CREATE INDEX IF NOT EXISTS idx_contracts_pid ON contracts(pid);
 
+CREATE TABLE IF NOT EXISTS verified_labor_payees (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  pid TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  bank TEXT NOT NULL DEFAULT '',
+  account_cipher TEXT NOT NULL,
+  amount REAL NOT NULL,
+  confirmed_at TEXT NOT NULL,
+  UNIQUE(pid,name,account_cipher)
+);
+CREATE INDEX IF NOT EXISTS idx_verified_labor_payees_pid ON verified_labor_payees(pid);
+
 CREATE TABLE IF NOT EXISTS payments (
   id          TEXT PRIMARY KEY,
   pid         TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
@@ -218,6 +235,57 @@ CREATE TABLE IF NOT EXISTS materials (
   file_mime   TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_materials_pid ON materials(pid);
+
+-- 固定材料模块启停与议程结构化待办，历史不物理删除。
+CREATE TABLE IF NOT EXISTS meeting_material_modules (
+  pid TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL,
+  enabled INTEGER NOT NULL DEFAULT 1,
+  updated_at TEXT NOT NULL,
+  updated_by TEXT,
+  PRIMARY KEY(pid,kind)
+);
+CREATE TABLE IF NOT EXISTS meeting_material_tasks (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  pid TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL,
+  speaker TEXT NOT NULL,
+  topic TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT '未提交',
+  material_id INTEGER,
+  updated_at TEXT NOT NULL,
+  updated_by TEXT,
+  UNIQUE(pid,kind,speaker,topic)
+);
+CREATE INDEX IF NOT EXISTS idx_meeting_material_tasks_pid ON meeting_material_tasks(pid);
+-- OCR 结果仅关联已有材料原件；人名课题为待审阅建议，不直接产生通过结论。
+CREATE TABLE IF NOT EXISTS material_ocr_results (
+  material_id INTEGER PRIMARY KEY REFERENCES materials(id) ON DELETE CASCADE,
+  pid TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  file_key TEXT NOT NULL,
+  recognized_text TEXT NOT NULL,
+  suggestions_json TEXT NOT NULL,
+  engine TEXT NOT NULL,
+  mode TEXT NOT NULL,
+  pages INTEGER NOT NULL,
+  total_pages INTEGER NOT NULL,
+  truncated INTEGER NOT NULL DEFAULT 0,
+  updated_at TEXT NOT NULL,
+  updated_by TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_material_ocr_results_pid ON material_ocr_results(pid);
+
+CREATE TABLE IF NOT EXISTS demand_revisions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  pid TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  before_json TEXT NOT NULL,
+  after_json TEXT NOT NULL,
+  changed_by TEXT NOT NULL,
+  changed_at TEXT NOT NULL,
+  action TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_demand_revisions_pid ON demand_revisions(pid);
+
 
 CREATE TABLE IF NOT EXISTS guests (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -484,8 +552,15 @@ function migrate() {
     }
   };
 
+  // Existing projects keep historical evidence, only the displayed SOP labels are corrected.
+  db.exec("UPDATE verify_steps SET name='盖章函件与立项信息核验' WHERE step_no=1 AND name='盖章通知／招商函核验'");
+  db.exec("UPDATE verify_steps SET name='课件与串场内容核验' WHERE step_no=4 AND name='课件／串场一致性'");
   addColumn("verify_steps", "invoice_amount", "invoice_amount REAL");
+  addColumn("verify_steps", "evidence_json", "evidence_json TEXT");
+  addColumn("materials", "deleted_at", "deleted_at TEXT");
+  addColumn("materials", "deleted_by", "deleted_by TEXT");
   addColumn("demand_items", "owner_id", "owner_id INTEGER");
+  addColumn("demand_items", "budget_owner", "budget_owner TEXT");
   // 生产白名单：所有新用户初次登录必须通过短信验证并修改默认密码。
   addColumn("users", "must_change_password", "must_change_password INTEGER NOT NULL DEFAULT 0");
   addColumn("users", "phone_verified_at", "phone_verified_at TEXT");
@@ -516,6 +591,10 @@ function migrate() {
   addColumn("contracts", "category", "category TEXT");
   // V1.2.13：例外单自定义步骤名 —— 不属于 6 步中任何一步的问题也能登记（step_no = 0）
   addColumn("exceptions", "step_label", "step_label TEXT");
+  addColumn("exceptions", "resolution", "resolution TEXT");
+  addColumn("exceptions", "evidence_material_id", "evidence_material_id INTEGER");
+  addColumn("exceptions", "resolved_by", "resolved_by TEXT");
+  addColumn("exceptions", "resolved_at", "resolved_at TEXT");
   /**
    * V1.2.18：收款方银行信息。
    *

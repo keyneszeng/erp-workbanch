@@ -11,9 +11,9 @@ const PASS = "123456";
 
 // 与管理员的重置预览共用同一份表清单，避免预览和真正删除的范围漂移。
 const RESET_DATA_TABLES = ["uploaded_files", "sessions", "audit_logs", "exports", "settlements",
-  "exceptions", "verify_steps", "payments", "contracts", "approvals", "materials",
-  "guests", "tasks", "issues", "demand_items", "demand_sheets",
-  "project_members", "projects", "sms_challenges", "mini_bindings", "users", "settings"];
+  "verified_labor_payees", "exceptions", "verify_steps", "payments", "contracts", "approvals", "materials",
+  "guests", "tasks", "issues", "material_ocr_results", "meeting_material_tasks", "meeting_material_modules", "demand_revisions", "demand_items", "demand_sheets",
+  "project_members", "projects", "sms_challenges", "mini_bindings", "users", "associations", "settings"];
 
 const USERS = [
   { username: "admin",   name: "李静", role: "admin",   assoc: null,        dept: "秘书处", phone: "13800000001", title: "总管理员" },

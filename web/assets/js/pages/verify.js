@@ -1,6 +1,7 @@
 import { api, can, state } from "../lib/api.js";
 import { badge, confirmBox, esc, modal, money, panel, readForm, table, toast } from "../lib/ui.js";
 import { exStepLabel, openStepDetail } from "../lib/verify-detail.js";
+import { sopEvidenceForm, collectSopEvidence } from "../lib/sop-fields.js";
 
 export async function render(root, params) {
   if (params && params[0]) return renderOne(root, params[0]);
@@ -80,17 +81,18 @@ async function renderOne(root, pid) {
         必须先完成材料 8 项录入才能判定（缺：${esc(d.materialsStatus.missing.join("、"))}）。
         <a class="link" data-go="projects/${p.id}">去项目详情的材料页签登记 →</a></div>`)}
   <div class="panel">
-    <div class="panel-h"><h2>6 步核销 SOP</h2>
-      <div><span class="hint">已通过 ${v.passed}/6${v.openExceptions ? ` · ${v.openExceptions} 张例外单待审批` : ""}</span></div></div>
+    <div class="panel-h"><h2>6 步核销 SOP · 严格按顺序，通过后解锁结算</h2>
+      <div><span class="hint">已通过 ${v.passed}/6${v.openExceptions ? ` · ${v.openExceptions} 张例外单待处理或待复核` : ""}</span></div></div>
     <div class="vsteps">${v.steps.map((s) => {
       const cls = ["通过", "已解例外"].includes(s.result) ? "s-pass" : s.result === "不通过" ? "s-fail" : "s-wait";
-      const prevUnjudged = v.steps.some((x) => x.no < s.no && x.result === "待判定");
+      const prevUnjudged = v.steps.some((x) => x.no < s.no && !["通过","已解例外"].includes(x.result));
       return `<div class="vstep ${cls}">
         <div class="vh"><span class="no">${s.no}</span><span class="nm">${esc(s.name)}</span><span class="who">${esc(s.who)}</span></div>
         <div class="desc">${esc(s.desc)}</div>
         <div class="res">${badge(s.result)}
           ${s.remark ? `<span class="rm">${esc(s.remark)}</span>` : ""}
           ${s.checked_by ? `<span style="color:var(--mute)">· ${esc(s.checked_by)} ${esc(s.checked_at)}</span>` : ""}
+          ${s.evidence ? `<span class="hint">· 结构化核验已留痕</span>` : ""}
           <div style="flex:1"></div>
           <button class="btn btn-o btn-sm" data-detail="${s.no}">详情</button>
           ${canJudge && s.result === "待判定" ? `<button class="btn btn-o btn-sm" data-judge="${s.no}" ${prevUnjudged ? 'disabled title="必须按顺序判定"' : ""}>判定</button>` : ""}
@@ -105,7 +107,13 @@ async function renderOne(root, pid) {
     [{ t: "例外单号", w: "112px" }, { t: "步骤", w: "60px" }, { t: "原因" }, { t: "状态", w: "80px" }, { t: "审批人", w: "80px" }, { t: "操作", w: "110px" }],
     v.exceptions.map((e) => ({ c: [`<span class="mono">${e.id}</span>`, exStepLabel(e), esc(e.reason), badge(e.status), esc(e.approved_by || "—"),
       e.status === "待审批" && can("verify:exception_approve")
-        ? `<div class="tacts"><button class="link" data-ex="${e.id}" data-ok="1">通过</button><button class="link danger" data-ex="${e.id}" data-ok="0">驳回</button></div>` : "—"] })),
+        ? `<div class="tacts"><button class="link" data-ex="${e.id}" data-ok="1">通过</button><button class="link danger" data-ex="${e.id}" data-ok="0">驳回</button></div>`
+        : e.status === "待复核" && !e.resolved_at && can("verify:exception")
+        ? `<button class="link" data-resolve="${e.id}">提交整改结果</button>`
+        : e.status === "待复核" && e.resolved_at && Number(e.step_no)===0 && can("verify:exception_approve")
+        ? `<button class="link" data-close-ex="${e.id}">财务确认闭环</button>`
+        : e.status === "待复核" && e.resolved_at
+        ? `<span class="hint">已整改，请回第 ${e.step_no} 步复核</span>` : "—"] })),
     { empty: "无例外单" }))}
 
   ${panel("材料齐备情况（核销前置）", `${8 - d.materialsStatus.missing.length}/8`, `<div class="chips">
@@ -123,6 +131,8 @@ async function renderOne(root, pid) {
       onJudge: (no) => openJudge(root, pid, no, d)
     }));
   root.querySelectorAll("[data-ex]").forEach((b) => b.onclick = () => decideEx(root, pid, b.dataset.ex, b.dataset.ok === "1"));
+  root.querySelectorAll("[data-resolve]").forEach(b=>b.onclick=()=>submitRemediation(root,pid,b.dataset.resolve,d));
+  root.querySelectorAll("[data-close-ex]").forEach(b=>b.onclick=()=>closeGlobalException(root,pid,b.dataset.closeEx));
   const pb = root.querySelector("#passBtn");
   if (pb) pb.onclick = async () => {
     if (!await confirmBox("确认核销通过？通过后必须先完成付款申请、管理员审批和财务付款，才能生成结算单。", { ok: "确认通过" })) return;
@@ -140,13 +150,15 @@ function openJudge(root, pid, no, d) {
         <select name="result"><option value="通过">通过</option><option value="不通过">不通过（自动生成例外单）</option></select></div>
       <div class="fld" style="margin-top:12px"><label>问题描述 / 备注</label>
         <textarea name="remark" rows="3" placeholder="判定不通过时必填"></textarea></div>
-      ${no === 6 ? `<div class="fld" style="margin-top:12px"><label>核对发票总金额（元）</label>
-        <input type="number" name="invoiceAmount" min="0.01" step="0.01" value="${esc(String(s.invoiceAmount || ""))}" placeholder="必须与已签署合同总金额一致"></div>` : ""}`,
+      ${no === 6 ? `<div class="fld" style="margin-top:12px"><label>需开票合同对应的发票总额（元；纯专家劳务可填 0）</label>
+        <input type="number" name="invoiceAmount" min="0" step="0.01" value="${esc(String(s.invoiceAmount || ""))}" placeholder="应等于非劳务合同金额"></div>` : ""}
+      ${sopEvidenceForm(no, d.project)}`,
     footer: `<button class="btn btn-o" data-x="0">取消</button><button class="btn btn-p" data-x="1">提交判定</button>`
   });
   m.querySelector('[data-x="0"]').onclick = () => m.classList.remove("open");
   m.querySelector('[data-x="1"]').onclick = async () => {
     const val = readForm(m);
+    val.evidence = collectSopEvidence(no, m);
     if (val.result === "不通过" && !val.remark.trim()) return toast("判定不通过必须填写问题描述", "warn");
     try {
       const r = await api.post(`/api/projects/${pid}/verify/steps/${no}`, val);
@@ -171,5 +183,34 @@ async function decideEx(root, pid, id, ok) {
       m.classList.remove("open");
       render(root, [pid]);
     } catch (e) { toast(e.message, "warn"); }
+  };
+}
+
+async function submitRemediation(root,pid,id,d){
+  const candidates=(d.materials||[]).filter(m=>m.file_key);
+  const m=modal({title:"例外单处理记录 · 证据与处理结果",
+    body:`<div class="fld"><label>已上传整改证据原件（必选）</label>
+       <select name="materialId"><option value="">选择附件材料</option>
+       ${candidates.map(x=>`<option value="${x.id}">${esc(x.kind)} · ${esc(x.name)}</option>`).join("")}</select></div>
+       <div class="fld"><label>处理结果与依据</label><textarea name="resolution" rows="4" placeholder="说明处理人完成了哪些整改、原件如何证明问题已修正"></textarea></div>`,
+    footer:'<button class="btn btn-o" data-cancel>取消</button><button class="btn btn-p" data-save>记录整改并进入待复核</button>'});
+  m.querySelector("[data-cancel]").onclick=()=>m.classList.remove("open");
+  m.querySelector("[data-save]").onclick=async()=>{
+    const materialId=Number(m.querySelector('[name="materialId"]').value);
+    const resolution=m.querySelector('[name="resolution"]').value.trim();
+    try{const r=await api.post("/api/exceptions/"+id+"/resolve",{materialId,resolution});
+      toast(r.message,"ok");m.classList.remove("open");await render(root,[pid]);}
+    catch(e){toast(e.message,"warn");}
+  };
+}
+async function closeGlobalException(root,pid,id){
+  const m=modal({title:"非步骤例外 · 财务确认闭环",
+    body:'<div class="fld"><label>核验意见</label><textarea name="comment" rows="4" placeholder="写明证据审阅结果"></textarea></div>',
+    footer:'<button class="btn btn-o" data-cancel>取消</button><button class="btn btn-p" data-save>确认闭环</button>'});
+  m.querySelector("[data-cancel]").onclick=()=>m.classList.remove("open");
+  m.querySelector("[data-save]").onclick=async()=>{
+    try{const r=await api.post("/api/exceptions/"+id+"/close",{comment:m.querySelector('[name="comment"]').value.trim()});
+      toast(r.message,"ok");m.classList.remove("open");await render(root,[pid]);}
+    catch(e){toast(e.message,"warn");}
   };
 }

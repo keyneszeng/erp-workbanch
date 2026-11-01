@@ -13,6 +13,7 @@ const production = Object.freeze({
   NODE_ENV: "production",
   ERP_DEPLOY_TARGET: "aliyun-ecs",
   ERP_DEMO_MODE: "0",
+  ERP_DB_BACKEND: "", // Explicitly clear DO mock backend inherited by test:cf when spawning ECS preflight
   ERP_PRODUCTION_DOMAIN: "erp-prod.example.org",
   ERP_BOOTSTRAP_ADMIN_PHONE: "13800138000",
   ERP_SMS_PROVIDER: "tencent",

@@ -115,7 +115,7 @@ function openCreate(root, projects) {
     { k: "status", l: "状态", t: "select", opts: ["草稿", "待签署", "已签署"], tip: "已签署需管理员审批确认；新录入选择已签署会自动转为待签署，不能跳过审批" },
     {
       k: "file", l: "合同原件", t: "file", full: 1,
-      accept: "image/jpeg,image/png,image/webp,image/gif,application/pdf",
+      accept: "image/jpeg,image/png,image/webp,image/gif,application/pdf,.ppt,.pptx,.xlsx,.docx",
       tip: "可上传盖章扫描件 PDF 或手机拍照件，单个不超过 8 MB。图片会在本地压缩后上传，PDF 原样保存。"
     }
   ];

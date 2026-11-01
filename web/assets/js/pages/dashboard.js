@@ -1,11 +1,11 @@
 import { api, state } from "../lib/api.js";
-import { badge, esc, kpi, money, panel, table } from "../lib/ui.js";
+import { badge, esc, money, panel, table } from "../lib/ui.js";
 import { reachable } from "../lib/nav.js";
 
 /**
  * 我的工作台。
  *
- * 只保留四块：KPI / 异常预警 / 我的待办 / 近期会议。
+ * 核心四指标（普通参会者隐藏财务金额）/ 异常预警 / 我的待办 / 近期会议。
  * 「阶段分布」和「最近操作」按业务要求去掉 —— 前者在项目列表里按状态筛一次就有，
  * 后者与审计日志完全重复（审计日志还能按模块、按人、按时间查）。
  *
@@ -61,12 +61,25 @@ export async function render(root) {
   const total = Object.values(d.counts).reduce((a, b) => a + b, 0);
 
   root.innerHTML = `
-  <div class="grid g4">
-    ${kpi("在管会议", total, "场")}
-    ${kpi("待核销", d.counts["待核销"] || 0, "个", "k3")}
-    ${state.user.role === "user" ? "" : kpi("预算总额", `¥${money(d.budget)}`, "", "k2")}
-    ${state.user.role === "user" ? "" : kpi("已付款", `¥${money(d.paid)}`, "", "k4")}
+  <div class="ux-section-intro">
+    <div><h2>我的工作台 · 业务数据</h2><p>按当前账号的数据范围统计，预算与付款金额仅对内部授权角色展示</p></div>
+    ${reachable("projects") ? '<button class="btn btn-o btn-sm" data-go="projects">查看全部会议</button>' : ""}
   </div>
+  <div class="ux-kpi-grid" aria-label="我的工作台核心业务指标">
+    <div class="ux-metric"><span>在管会议</span><strong>${total}</strong><small>场</small></div>
+    <div class="ux-metric ux-metric-warn"><span>待核销</span><strong>${d.counts["待核销"] || 0}</strong><small>个</small></div>
+    ${state.user.role === "user" ? "" : `
+    <div class="ux-metric"><span>预算总额</span><strong>¥${money(d.budget)}</strong></div>
+    <div class="ux-metric ux-metric-done"><span>已付款</span><strong>¥${money(d.paid)}</strong></div>`}
+  </div>
+  <div class="ux-quick-actions mt">
+    ${reachable("projects") ? '<button class="btn btn-o btn-sm" data-go="projects">项目管理</button>' : ""}
+    ${reachable("approvals") ? '<button class="btn btn-o btn-sm" data-go="approvals">审批中心</button>' : ""}
+    ${reachable("materials") ? '<button class="btn btn-o btn-sm" data-go="materials">材料中心</button>' : ""}
+    ${reachable("verify") ? '<button class="btn btn-o btn-sm" data-go="verify">会后核销</button>' : ""}
+    ${reachable("finance") ? '<button class="btn btn-o btn-sm" data-go="finance">付款结算</button>' : ""}
+  </div>
+  ${state.user.role === "user" ? "" : '<div class="ux-finance-rule mt">财务提示：核销六步通过后才可申请付款；正式结算后相关凭证冻结。</div>'}
 
   ${d.alerts.length ? `<div class="panel mt"><div class="panel-h"><h2>异常预警</h2>
       <div><span class="hint">${d.alerts.length} 条需要处理</span></div></div>

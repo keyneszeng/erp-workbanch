@@ -182,7 +182,7 @@ test("导出核销明细：表头含 6 步列", async () => {
   const r = await fetch(`${BASE}/api/export/verify`, { headers: { cookie: await login("finance") } });
   assert.equal(r.status, 200);
   const text = Buffer.from(await r.arrayBuffer()).toString("utf8");
-  for (const h of ["1.议程与课件核对", "4.课件与议程课题一致性", "6.发票与合同金额核对", "例外单", "结算单"]) {
+  for (const h of [...require("../server/lib/constants").VERIFY_STEPS.filter(x=>[1,4,6].includes(x.no)).map(x=>x.no+"."+x.name), "例外单", "结算单"]) {
     assert.ok(text.includes(h), `导出应包含列「${h}」`);
   }
 });

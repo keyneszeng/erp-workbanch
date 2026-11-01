@@ -61,6 +61,7 @@ export async function compressImage(file, { maxEdge = 2000, quality = 0.85, skip
 /** 客户端预检，避免传完 8 MB 才被服务端拒 */
 export function checkFile(file) {
   const office = {
+    ppt: "application/vnd.ms-powerpoint",
     docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
     xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -73,7 +74,7 @@ export function checkFile(file) {
   const ok = ["image/jpeg", "image/png", "image/webp", "image/gif", "application/pdf",
     ...Object.values(office)];
   if (!ok.includes(type)) {
-    return `不支持的文件类型：${file.type || "未知"}（仅支持 JPG / PNG / WebP / GIF / PDF / DOCX / PPTX / XLSX）`;
+    return `不支持的文件类型：${file.type || "未知"}（仅支持 JPG / PNG / WebP / GIF / PDF / PPT / DOCX / PPTX / XLSX）`;
   }
   if (file.size > MAX_UPLOAD_BYTES) {
     return `文件不能超过 ${formatBytes(MAX_UPLOAD_BYTES)}，当前 ${formatBytes(file.size)}`;

@@ -1,4 +1,5 @@
 import { api, can, state } from "../lib/api.js";
+import {bindPayeePicker} from "../lib/payee-picker.js";
 import { canDownloadArchivePdf, downloadArchivePdf } from "../lib/archive-pdf.js";
 import {
   badge, confirmBox, esc, formHtml, kv, modal, money, panel, promptBox, readForm, table, timeline, toast, validate, yuan
@@ -30,6 +31,7 @@ export async function render(root, [pid]) {
   const participant = state.user.role === "user";
   if (participant) tab = "overview";
   const visibleTabs = participant ? [["overview", "会议概览"]] : TABS;
+  if (!visibleTabs.some(([k])=>k===tab)) tab="overview";
   const canEdit = (state.super || state.user.role === "assoc") && (p.status !== "已归档" || state.super);
 
   root.innerHTML = `
@@ -53,6 +55,16 @@ export async function render(root, [pid]) {
     return `${i ? '<span class="ln"></span>' : ""}<span class="st ${cls}"><i>${i < cur ? "✓" : i + 1}</i>${s}</span>`;
   }).join("")}</div></div>
 
+  <div class="ux-lifecycle">
+    <div class="ux-lifecycle-head"><b>项目全周期进度</b><span>${ORDER.indexOf(p.status)+1}/9 · ${esc(p.status)}</span></div>
+    <div class="ux-progress"><span style="width:${Math.max(0,ORDER.indexOf(p.status))/8*100}%"></span></div>
+    ${!participant ? `<div class="ux-checkpoints">
+       <button type="button" data-tab="demand"><strong>${d.demand?.archived?"已确认":"待确认"}</strong><span>会务需求</span></button>
+       <button type="button" data-tab="materials"><strong>${8-d.materialsStatus.missing.length}/8</strong><span>归档材料</span></button>
+       <button type="button" data-tab="verify"><strong>${d.verification.passed}/6</strong><span>六步核销</span></button>
+       <button type="button" data-tab="payments"><strong>${d.settlement?"已生成":"未生成"}</strong><span>财务结算</span></button>
+     </div>` : '<p class="ux-public-hint">会议审批与执行状态公开给有权查看本项目的成员；财务明细仅限授权角色。</p>'}
+  </div>
   ${d.actions.some((a) => !a.enabled && a.reason) ? `<div class="gate mt"><b>当前不能推进的原因</b>
     ${d.actions.filter((a) => !a.enabled && a.reason).map((a) => `${a.label}：${esc(a.reason)}`).join("；")}</div>` : ""}
 
@@ -379,8 +391,8 @@ function tabMaterials(d, p) {
         c: [
           esc(m.kind), esc(m.name),
           m.file_key
-            ? (m.file_mime === "application/pdf"
-                ? `<a class="link" href="${fileUrl(m.file_key)}" target="_blank" rel="noopener">PDF</a>`
+            ? ((m.file_mime === "application/pdf" || /\.(ppt|pptx|xlsx|docx)$/i.test(m.file_key))
+                ? `<a class="link" href="${fileUrl(m.file_key)}" target="_blank" rel="noopener">查看附件</a>`
                 : `<a href="${fileUrl(m.file_key)}" target="_blank" rel="noopener"><img class="thumb" src="${fileUrl(m.file_key)}" alt=""></a>`)
             : '<span style="color:var(--mute)">—</span>',
           esc(m.version || ""), esc(m.uploader || ""), `<span class="mono">${esc(m.created_at)}</span>`,
@@ -576,7 +588,7 @@ function openContract(root, pid) {
     { k: "status", l: "状态", t: "select", opts: ["草稿", "待签署", "已签署"], tip: "已签署需要管理员审批，不能通过录入直接跳过审批" },
     {
       k: "file", l: "合同原件", t: "file", full: 1,
-      accept: "image/jpeg,image/png,image/webp,image/gif,application/pdf",
+      accept: "image/jpeg,image/png,image/webp,image/gif,application/pdf,.ppt,.pptx,.xlsx,.docx",
       tip: "可上传盖章扫描件 PDF 或手机拍照件，单个不超过 8 MB。图片会在本地压缩后上传，PDF 原样保存。"
     }
   ];
@@ -649,15 +661,16 @@ function openPayAccount(root, pid, id) {
   };
 }
 
-function openPay(root, pid, d) {
+async function openPay(root, pid, d) {
   const fields = [
     { k: "type", l: "付款类型", t: "select", req: 1, opts: state.meta.paymentTypes },
+    { k: "payee_option_id", l: "按核销资料选择收款方", t: "select", opts: [{v:"",l:"载入中…"}],
+      tip:"专家费与个人报销优先使用第 5 步核验的劳务表；其他收款方来自已签署合同。" },
     { k: "payee", l: "收款方", req: 1 },
     // V1.2.18：财务要照着这两行打款
-    { k: "payee_bank", l: "开户行", req: 1, ph: "如：中国银行北京朝阳支行" },
-    { k: "payee_account", l: "银行账号", req: 1, ph: "10~25 位数字，可含空格分隔" },
+    { k: "payee_bank", l: "开户行", req: 0, ph: "如：中国银行北京朝阳支行" },
+    { k: "payee_account", l: "银行账号", req: 0, ph: "10~25 位数字，可含空格分隔" },
     { k: "amount", l: "付款金额（元）", t: "number", req: 1 },
-    { k: "invoice_no", l: "发票号", req: 1 },
     { k: "remark", l: "备注", t: "textarea", full: 1, rows: 2 }
   ];
   const m = modal({
@@ -665,8 +678,16 @@ function openPay(root, pid, d) {
     body: `<div class="gate ok" style="margin-bottom:12px"><b>核销门禁已通过</b>项目「${esc(d.project.name)}」当前状态「${d.project.status}」，允许付款。</div>${formHtml(fields)}`,
     footer: `<button class="btn btn-o" data-x="0">取消</button><button class="btn btn-p" data-x="1">提交申请</button>`
   });
+  await bindPayeePicker(m,pid,false);
   m.querySelector('[data-x="0"]').onclick = () => m.classList.remove("open");
   m.querySelector('[data-x="1"]').onclick = async () => {
+    const selected=m.querySelector('[name="payee_option_id"]')?.value;
+    const acct=m.querySelector('[name="payee_account"]')?.value.trim();
+    const bank=m.querySelector('[name="payee_bank"]')?.value.trim();
+    const rows=m.querySelector('[name="payee_option_id"]')?.__rows||[];
+    const source=rows.find(x=>x.id===selected);
+    if((!source||!source.bank)&&!bank){toast("请填写收款方开户行","warn");return;}
+    if((!source||source.source!=="labor")&&!acct){toast("请填写银行账号；合同仅提供收款方名称","warn");return;}
     if (!validate(m, fields)) return;
     try {
       const r = await api.post("/api/payments", { ...readForm(m), pid });
@@ -720,7 +741,7 @@ function openMaterial(root, pid) {
     { k: "version", l: "版本", v: "v1" },
     {
       k: "file", l: "附件", t: "file", full: 1,
-      accept: "image/jpeg,image/png,image/webp,image/gif,application/pdf",
+      accept: "image/jpeg,image/png,image/webp,image/gif,application/pdf,.ppt,.pptx,.xlsx,.docx",
       tip: "支持 JPG / PNG / WebP / PDF，单张不超过 8 MB。图片会在本地自动压缩后再上传。"
     }
   ];

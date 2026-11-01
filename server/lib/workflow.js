@@ -24,14 +24,15 @@ function verification(pid) {
       remark: r ? r.remark : "",
       invoiceAmount: r ? r.invoice_amount : null,
       checked_by: r ? r.checked_by : "",
-      checked_at: r ? r.checked_at : ""
+      checked_at: r ? r.checked_at : "",
+      evidence: r && r.evidence_json ? JSON.parse(r.evidence_json) : null
     };
   });
   const judged = steps.filter((s) => s.result !== "待判定").length;
-  const passed = steps.filter((s) => s.result === "通过" || s.result === "已解例外").length;
+  const passed = steps.filter((s) => (s.result === "通过" && (isDemoMode() || !!s.evidence)) || (isDemoMode() && s.result === "已解例外")).length;
   const failedSteps = steps.filter((s) => s.result === "不通过").map((s) => s.no);
   const openExceptions = db
-    .prepare("SELECT COUNT(*) AS c FROM exceptions WHERE pid = ? AND status = '待审批'")
+    .prepare("SELECT COUNT(*) AS c FROM exceptions WHERE pid = ? AND status IN ('待审批','待复核')")
     .get(pid).c;
   const exceptions = db.prepare("SELECT * FROM exceptions WHERE pid = ? ORDER BY created_at DESC").all(pid);
   return {
@@ -42,16 +43,20 @@ function verification(pid) {
     failedSteps,
     openExceptions,
     exceptions,
-    complete: passed === VERIFY_STEPS.length && openExceptions === 0
+    complete: passed === VERIFY_STEPS.length && openExceptions === 0 && (isDemoMode() || failedSteps.length===0)
   };
 }
 
 /** 归档材料 8 类齐备情况 */
 function materialsStatus(pid) {
-  const rows = db.prepare("SELECT DISTINCT kind FROM materials WHERE pid = ?").all(pid);
+  const rows = db.prepare("SELECT DISTINCT kind FROM materials WHERE pid = ? AND deleted_at IS NULL").all(pid);
   const have = rows.map((r) => r.kind);
-  const missing = MATERIAL_KINDS.filter((k) => !have.includes(k));
-  return { have, missing, ok: missing.length === 0, required: MATERIAL_KINDS };
+  const toggles=db.prepare("SELECT kind,enabled FROM meeting_material_modules WHERE pid=?").all(pid);
+  const disabled=new Set(toggles.filter(m=>m.enabled===0).map(m=>m.kind));
+  // 固定模块可以停用待办入口，但不能豁免归档必备 8 类（尤其课件）。
+  const required=MATERIAL_KINDS;
+  const missing = required.filter(k=>!have.includes(k));
+  return { have, missing, ok: missing.length === 0, required, disabled:[...disabled] };
 }
 
 function settlementOf(pid) {
@@ -147,7 +152,8 @@ const GUARDS = {
     const v = verification(p.id);
     if (v.judged < v.total) return `还有 ${v.total - v.judged} 步未判定，6 步必须全部判定`;
     if (v.failedSteps.length) return `第 ${v.failedSteps.join("、")} 步不通过，需提交例外单并获批`;
-    if (v.openExceptions > 0) return `存在 ${v.openExceptions} 张未审批的例外单`;
+    if (v.openExceptions > 0) return `存在 ${v.openExceptions} 张未完成处理或待复核的例外单`;
+    if (!v.complete) return "六步须全部复核通过；生产环境不接受缺少结构化证据的旧结论或以例外审批代替核销";
     return null;
   },
   settle(p) {
@@ -164,8 +170,9 @@ const GUARDS = {
       const matched = db.prepare("SELECT invoice_amount FROM verify_steps WHERE pid=? AND step_no=6 AND result='通过'").get(p.id);
       if (!matched || !Number.isFinite(matched.invoice_amount))
         return "发票与已签署合同金额尚未完成核对，不允许结算";
-      if (cents(paid.total) !== cents(matched.invoice_amount))
-        return `实际已付款 ¥${yuan(paid.total)} 与核销确认发票金额 ¥${yuan(matched.invoice_amount)} 不一致，不能结算`;
+      const signedTotal=db.prepare("SELECT COALESCE(SUM(amount),0) AS total FROM contracts WHERE pid=? AND status='已签署'").get(p.id).total;
+      if(cents(paid.total)!==cents(signedTotal))
+        return `已付款总额 ¥${yuan(paid.total)} 与已核销合同请款总额 ¥${yuan(signedTotal)} 不一致，不能结算；含免票专家劳务费`;
     }
     return null;
   },
@@ -248,7 +255,9 @@ function transition(projectId, action, user, payload = {}, ip = "") {
       status: p.status, allowed: FLOW.filter((f) => f.from === p.status).map((f) => f.action)
     });
   }
-  if (!can(user, flow.perm)) throw forbidden(`需要「${permRoleName(flow.perm)}」权限才能${flow.label}`);
+  // 普通用户只可提交由本人创建的立项草稿，其他任何项目流转仍按角色权限拦截。
+  const ownApplicationSubmit = action === "submit" && !isDemoMode() && process.env.ERP_MINIPROGRAM_ENABLED === "1" && user.role === "user" && Number(p.created_by) === Number(user.id);
+  if (!can(user, flow.perm) && !ownApplicationSubmit) throw forbidden(`需要「${permRoleName(flow.perm)}」权限才能${flow.label}`);
 
   const guardMsg = GUARDS[action] ? GUARDS[action](p) : null;
   if (guardMsg) {

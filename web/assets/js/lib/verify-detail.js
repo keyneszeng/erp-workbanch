@@ -70,166 +70,37 @@ function payRows(list) {
 }
 
 /** 按步骤组装「这一步到底要核什么」的原始数据 */
-export function stepBody(d, no) {
-  const p = d.project;
-  const agenda = agendaItems(p);
-
-  if (no === 1) {
-    const ag = matsOf(d, "议程");
-    const cw = matsOf(d, "课件");
-    return `
-      <div class="dsec"><h4>登记的议程环节（项目资料）</h4>
-        ${agenda.length
-          ? `<ul class="dlist">${agenda.map((a, i) => `<li><span class="dtag">${i + 1}</span><b>${esc(a)}</b></li>`).join("")}</ul>`
-          : `<div class="dhint">项目资料里没有填写议程要点</div>`}
-      </div>
-      <div class="dsec"><h4>议程材料（${ag.length} 份）</h4>${matList(ag, "尚未登记「议程」材料")}</div>
-      <div class="dsec"><h4>课件材料（${cw.length} 份）</h4>${matList(cw, "尚未登记「课件」材料")}</div>
-      <div class="dchk">核对要点：<b>实际执行的议程环节</b>与上面登记的版本是否一致（增、删、调序都算变更）。
-        登记议程 ${agenda.length} 个环节，已上传课件 ${cw.length} 份。</div>`;
-  }
-
-  if (no === 2) {
-    const sign = matsOf(d, "签到表");
-    const people = Number(p.people) || 0;
-    const gate = Math.ceil(people * 0.85);
-    // 报名人数没登记（0）时，85% 门槛也是 0 ——「实际签到 ≥ 0」永远成立，
-    // 这一步就退化成点一下通过。这种情况必须说清「无法核算」，而不是给个 0。
-    const noPeople = people <= 0;
-    return `
-      <div class="dsec"><h4>人数口径</h4>
-        <div class="dgrid">
-          ${cell("报名人数（项目资料）", noPeople ? "未登记" : people, noPeople)}
-          ${cell("达标门槛（报名 × 85%）", noPeople ? "无法核算" : gate, noPeople)}
-          ${cell("已登记签到表", `${sign.length} 份`, sign.length === 0)}
-        </div>
-      </div>
-      <div class="dsec"><h4>签到表材料</h4>${matList(sign, "尚未登记「签到表」材料")}</div>
-      <div class="dchk">核对要点：${noPeople
-        ? `项目资料里的报名人数是 0，<b>没有可核算的达标门槛</b>。要么先补登记报名人数再核，
-           要么直接打开签到表数实际到场人数、在备注里写清依据 —— 不能因为门槛是 0 就直接通过。`
-        : `打开签到表原件，<b>实际签到人数 ≥ ${gate}</b>（报名 ${people} 人的 85%），
-           且名单可与报名记录逐条对上。签到表没有附件就无法核对，应判不通过并生成例外单。`}</div>`;
-  }
-
-  if (no === 3) {
-    const inv = matsOf(d, "发票");
-    const pic = matsOf(d, "现场照片");
-    const byType = {};
-    for (const y of d.payments || []) {
-      if (y.status === "已驳回") continue;
-      byType[y.type] = round2((byType[y.type] || 0) + Number(y.amount));
-    }
-    // 需求单确认后即归档，记的是「当初答应花多少」；费用构成是「实际花了多少」。
-    // 两者摆在一起，判定人才看得出钱花超没超、超在哪。
-    const dm = d.demand;
-    // 「费用构成」把待审批 / 已审批的付款也算进来了 —— 判定人需要看到全部申请，
-    // 但叫「已发生」会让人以为钱都付了。这里拆开：申请了多少、其中已付多少。
-    const applied = round2(Object.values(byType).reduce((s, v) => s + v, 0));
-    const paid = round2(d.paidTotal);
-    const dmTotal = dm ? round2(dm.budgetTotal) : 0;
-    const gap = round2(dmTotal - applied);
-    const dmItems = dm && dm.items && dm.items.length
-      ? table([{ t: "分组", w: "90px" }, { t: "条目" }, { t: "预算金额", w: "110px", cls: "num" }],
-        dm.items.map((x) => ({
-          c: [esc(x.grp), esc(x.item), x.budget ? fmt(x.budget) : `<span class="dm">未定价</span>`]
-        })))
-      : "";
-    const dmBlock = !dm
-      ? `<div class="dhint">该项目没有建过会务需求单 —— 没有「当初答应花多少」的基准，只能按票据本身判断合理性</div>`
-      : dm.archived
-        ? `<div class="dgrid">
-             ${cell("需求单预算合计（归档）", fmt(dmTotal))}
-             ${cell("已申请费用（不含已驳回）", fmt(applied))}
-             ${cell("其中已付款", fmt(paid))}
-             ${cell(gap < 0 ? "超支" : "结余", fmt(Math.abs(gap)), gap < 0)}
-           </div>
-           <div class="dhint">需要 ${dm.needCount} 项 / 共 ${dm.total} 条 · 由 ${esc(dm.confirmedBy || "—")} 于 ${esc(dt(dm.confirmedAt))} 确认归档</div>
-           ${dmItems}`
-        : `<div class="dhint">需求单尚未归档（需要 ${dm.needCount} 项）—— 这份清单还没定稿，本次核销缺少「当初答应花多少」的基准</div>`;
-    return `
-      <div class="dsec"><h4>会务需求预算对照</h4>${dmBlock}</div>
-      <div class="dsec"><h4>费用构成（按付款类型，不含已驳回）</h4>
-        ${Object.keys(byType).length
-          ? `<div class="dgrid">${Object.entries(byType).map(([k, v]) => cell(esc(k), fmt(v))).join("")}</div>`
-          : `<div class="dhint">该项目还没有付款记录</div>`}
-      </div>
-      <div class="dsec"><h4>发票 / 票据材料（${inv.length} 份）</h4>${matList(inv, "尚未登记「发票」材料")}</div>
-      <div class="dsec"><h4>现场照片（${pic.length} 份）</h4>${matList(pic, "尚未登记「现场照片」材料")}</div>
-      <div class="dchk">核对要点：<b>场地、餐饮、物料</b>三类支出是否都有对应票据，票据金额能否与上面的费用构成对上。
-        现场照片用于佐证活动确实举办，本身不是金额凭证。
-        ${dm && dm.archived
-          ? `归档预算 ${fmt(dmTotal)}、已申请 ${fmt(applied)}（其中已付 ${fmt(paid)}），${gap < 0
-              ? `已<b>超支 ${fmt(Math.abs(gap))}</b>，超的部分要有正当理由并在备注写清`
-              : `尚在预算内，结余 ${fmt(gap)}`}。`
-          : ""}</div>`;
-  }
-
-  if (no === 4) {
-    const cw = matsOf(d, "课件");
-    return `
-      <div class="dsec"><h4>议程环节（应各有对应课题）</h4>
-        ${agenda.length
-          ? `<ul class="dlist">${agenda.map((a, i) => `<li><span class="dtag">${i + 1}</span><b>${esc(a)}</b></li>`).join("")}</ul>`
-          : `<div class="dhint">项目资料里没有填写议程要点</div>`}
-      </div>
-      <div class="dsec"><h4>课件清单（${cw.length} 份）</h4>${matList(cw, "尚未登记「课件」材料")}</div>
-      <div class="dchk">核对要点：<b>每一份课件都能对应到上面的某个议程课题</b>。
-        议程 ${agenda.length} 个环节、课件 ${cw.length} 份 —— 数量不等不一定有问题（一个环节可能多份课件），
-        但出现对不上议程的课件，说明实际内容与立项版本不符。</div>`;
-  }
-
-  if (no === 5) {
-    const labor = matsOf(d, "劳务表");
-    const reimb = (d.payments || []).filter((y) => y.type === "个人报销");
-    // 这一步核的是「劳务与专家费」，只该看劳务专家类合同。
-    // 以前这里直接拿 d.contracts（项目下全部合同），于是 MP-2026-012 的
-    // 「会场租赁及餐饮」被摆进了劳务核对里 —— 看着就像专家费走了场地合同。
-    // 其余类别不是漏了，是归第 6 步的全量对照管。
-    const all = d.contracts || [];
-    const contracts = all.filter((c) => c.category === "劳务专家");
-    const others = all.length - contracts.length;
-    return `
-      <div class="dsec"><h4>劳务表材料（${labor.length} 份）</h4>${matList(labor, "尚未登记「劳务表」材料")}</div>
-      <div class="dsec"><h4>劳务 / 专家类合同（${contracts.length} 份）</h4>
-        ${contracts.length
-          ? table([{ t: "编号", w: "104px" }, { t: "合同名称" }, { t: "签约方", w: "140px" },
-                   { t: "金额", w: "96px", cls: "num" }, { t: "状态", w: "72px" }],
-            contracts.map((c) => ({ c: [`<span class="mono">${c.id}</span>`, esc(c.name), esc(c.vendor),
-              fmt(c.amount), badge(c.status)] })))
-          : `<div class="dhint">该项目没有「劳务专家」类合同${others ? `（另有 ${others} 份其它类别合同，见第 6 步全量对照）` : ""}。
-             专家费若走个人报销，以下面的付款记录为准。</div>`}
-      </div>
-      <div class="dsec"><h4>专家费 / 个人报销类付款（${reimb.length} 笔）</h4>${payRows(reimb)}</div>
-      <div class="dchk">核对要点：<b>劳务表签字是否齐全</b>（每位专家都要签），
-        专家费金额是否与上面的劳务合同或劳务表约定一致，且与付款记录能对上。
-        ${others ? `本项目另有 ${others} 份非劳务类合同，不在这一步核，第 6 步会一并做金额对照。` : ""}</div>`;
-  }
-
-  if (no === 6) {
-    const inv = matsOf(d, "发票");
-    const contracts = d.contracts || [];
-    const contractTotal = round2(contracts.reduce((s, c) => s + Number(c.amount), 0));
-    const paid = round2(d.paidTotal);
-    const diff = round2(contractTotal - paid);
-    const hasDiff = cents(contractTotal) !== cents(paid);
-    return `
-      <div class="dsec"><h4>三方金额对照</h4>
-        <div class="dgrid">
-          ${cell("合同总额", fmt(contractTotal), contracts.length === 0)}
-          ${cell("已付款合计", fmt(paid))}
-          ${cell("差额（合同 − 已付）", fmt(diff), hasDiff)}
-        </div>
-      </div>
-      <div class="dsec"><h4>发票材料（${inv.length} 份）</h4>${matList(inv, "尚未登记「发票」材料")}</div>
-      <div class="dchk">核对要点：<b>发票金额 = 合同金额 = 付款金额</b>。
-        合同 ${contracts.length} 份合计 ${fmt(contractTotal)}，已付款 ${fmt(paid)}。
-        ${hasDiff
-          ? `两者相差 <b>${fmt(diff)}</b> —— 若差额有正当理由（分期付款 / 部分结算 / 尾款未付），需在备注里写清楚。`
-          : "两者一致。"}</div>`;
-  }
-
-  return `<div class="dhint">暂无该步骤的核对数据</div>`;
+export function stepBody(d,no){
+  const names={
+    1:["会议通知","招商函"],2:["议程","劳务收集表","劳务协议"],
+    3:["签到表","参会数据"],4:["终版议程","议程","课件","串场"],
+    5:["劳务收集表","劳务协议"],6:["合同","发票","拟结算单"]
+  };
+  const note={
+    1:"已盖章+终版：会议名称/日期/主办方/招商主体逐项核对。",
+    2:"议程、劳务收集表、劳务协议名单三处互相覆盖，无冒领/漏发。",
+    3:"线上有效讲者在线时长 >30 分钟；线下有签到原件；混合两项都需要。",
+    4:"课件课题匹配终版议程，串场题目及主办方 logo 匹配；药企 logo 只允许首页、尾页、鸣谢页。",
+    5:"劳务收集表与劳务协议须逐人比对姓名/时间/角色/金额/银行账号；银行账号不保存在核销证据中。",
+    6:"已签合同总额须等于拟请款总额，发票金额须等于需开票合同总额；专家劳务按第五步核验的协议与劳务表免票请款。"
+  };
+  const selected=(d.materials||[]).filter(m=>(names[no]||[]).includes(m.kind));
+  const step=d.verification.steps.find(x=>x.no===no);
+  const contractTotal=(d.contracts||[]).filter(x=>x.status==="已签署").reduce((sum,x)=>sum+Number(x.amount||0),0);
+  const laborContracts=(d.contracts||[]).filter(x=>x.category==="劳务专家");
+  const expertPayments=(d.payments||[]).filter(x=>["专家费","个人报销"].includes(x.type));
+  const evidence=step?.evidence;
+  return `<div class="dsec"><h4>业务核验规则</h4><div class="dchk">${esc(note[no]||"请核对资料")}</div></div>
+    <div class="dsec"><h4>已登记的关联材料</h4>${matList(selected,"请在材料中心补充对应原件")}</div>
+    ${no===6?`<div class="dgrid">${cell("已签合同总额",fmt(contractTotal))}${cell("核销发票总金额",step?.invoiceAmount==null?"未核对":fmt(step.invoiceAmount))}</div>`:""}
+    ${no===5?`<div class="dsec"><h4>劳务 / 专家类合同（合同分类）</h4>
+      ${laborContracts.length?table([{t:"合同名称"},{t:"合同收款方"},{t:"金额"}],
+      laborContracts.map(x=>({c:[esc(x.name),esc(x.vendor),fmt(x.amount)]}))):'<div class="dhint">暂无劳务专家类合同，请先到合同台账核验分类</div>'}
+      <h4>专家费 / 个人报销（付款类别，需核销后申请）</h4>
+      ${payRows(expertPayments)}</div>`:""}
+    <div class="dsec"><h4>结构化核验结果</h4>
+      ${evidence?`<pre class="hint" style="white-space:pre-wrap">${esc(JSON.stringify(evidence,null,2))}</pre>`:
+      '<div class="dhint">尚未完成本步骤核验。结构化证据由人工录入，文件内容 OCR 尚未启用。</div>'}</div>`;
 }
 
 /**
@@ -240,7 +111,7 @@ export function stepBody(d, no) {
  */
 export function openStepDetail(d, no, opt = {}) {
   const s = d.verification.steps.find((x) => x.no === no);
-  const prevUnjudged = d.verification.steps.some((x) => x.no < no && x.result === "待判定");
+  const prevUnjudged = d.verification.steps.some((x) => x.no < no && !["通过","已解例外"].includes(x.result));
   const canJudgeThis = !!opt.canJudge && !prevUnjudged;
 
   const m = modal({

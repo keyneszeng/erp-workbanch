@@ -1,6 +1,7 @@
 import { api, can } from "../lib/api.js";
 import { bindPager, esc, formHtml, modal, pager, panel, readForm, table, toast, validate } from "../lib/ui.js";
 import { bindFilePicker, fileUrl } from "../lib/upload.js";
+import { renderMaterialWorkbench } from "../lib/material-workbench.js";
 
 const PAGE_SIZE = 50;
 let curPage = 1;
@@ -10,7 +11,7 @@ export async function render(root) {
   const complete = d.projects.filter((p) => p.missing.length === 0).length;
 
   root.innerHTML = `<div class="phead">
-      <div><h2>材料中心</h2><p>归档必备 8 类：${d.kinds.join(" / ")}</p></div>
+      <div><h2>材料中心</h2><p>模块化采集 · 按会议管理版本、原件与归档齐备度</p></div>
       <div class="acts">${can("material:write") ? '<button class="btn btn-p" id="add">+ 登记材料</button>' : ""}</div>
     </div>
     <div class="grid g4">
@@ -20,6 +21,8 @@ export async function render(root) {
       <div class="kpi k3"><div class="t">待补齐</div><div class="v">${d.projects.length - complete}<span class="u">个</span></div></div>
     </div>
 
+    <div class="ux-section-intro mt"><div><h2>按项目收集材料</h2><p>固定模块按会议启停，自定义材料独立登记；历史版本与原件持续保留</p></div></div>
+    <div id="materialWorkbench"></div>
     <div class="panel mt">
       <div class="panel-h"><h2>项目齐备情况</h2><span class="hint">缺项项目无法归档</span></div>
       ${table([{ t: "项目" }, { t: "状态", w: "84px" }, { t: "齐备度", w: "110px" }, { t: "缺失类别" }, { t: "操作", w: "90px" }],
@@ -39,7 +42,7 @@ export async function render(root) {
           c: [`<a class="link" data-go="projects/${m.pid}">${esc(m.pname)}</a>`, esc(m.kind),
             esc(m.name),
             m.file_key
-              ? (m.file_mime === "application/pdf" || /\.(docx|pptx|xlsx)$/i.test(m.file_key)
+              ? (m.file_mime === "application/pdf" || /\.(docx|ppt|pptx|xlsx)$/i.test(m.file_key)
                   ? `<a class="link" href="${fileUrl(m.file_key)}" target="_blank" rel="noopener">${esc(m.file_name || "下载附件")}</a>`
                   : `<a href="${fileUrl(m.file_key)}" target="_blank" rel="noopener"><img class="thumb" src="${fileUrl(m.file_key)}" alt=""></a>`)
               : '<span style="color:var(--mute)">—</span>',
@@ -47,9 +50,11 @@ export async function render(root) {
         })),
         { empty: "暂无材料" })}
       ${pager(d, { unit: "条" })}
-    </div>`;
+    </div>
+`;
 
   bindPager(root, (n) => { curPage = n; render(root); });
+  renderMaterialWorkbench(root.querySelector("#materialWorkbench"),d.projects).catch(e=>toast(e.message,"warn"));
 
   const add = root.querySelector("#add");
   if (add) add.onclick = () => openAdd(root, d.projects, d.kinds);
@@ -58,14 +63,14 @@ export async function render(root) {
 function openAdd(root, projects, kinds) {
   const fields = [
     { k: "pid", l: "所属项目", t: "select", req: 1, opts: projects.map((p) => ({ v: p.id, l: `${p.id} ${p.name}` })) },
-    { k: "kind", l: "材料类别", t: "select", req: 1, custom: 1, ph: "如：会议纪要 / 专家简历",
-      opts: [...kinds, "终版议程", "课件", "串场", "劳务收集表", "劳务协议", "讲者照片"].filter((v, i, a) => a.indexOf(v) === i),
+    { k: "kind", l: "材料类别", t: "select", req: 1, custom: 1, ph: "如：盖章会议通知 / 招商函 / 终版议程 / 讲者照片",
+      opts: [...kinds, "会议通知", "招商函", "终版议程", "课件", "串场", "劳务收集表", "劳务协议", "讲者照片"].filter((v, i, a) => a.indexOf(v) === i),
       tip: "8 类是归档必备，建议优先选；确实不属于这 8 类的，选「自定义填入」自己写，能登记能查，但不顶替必备的那 8 类" },
     { k: "name", l: "材料名称", req: 1, ph: "如：签到表-终版.pdf" },
     { k: "version", l: "版本", v: "v1" },
     {
       k: "file", l: "附件", t: "file", full: 1,
-      accept: "image/jpeg,image/png,image/webp,image/gif,application/pdf,.docx,.pptx,.xlsx",
+      accept: "image/jpeg,image/png,image/webp,image/gif,application/pdf,.docx,.ppt,.pptx,.xlsx",
       tip: "支持图片、PDF、DOCX、PPTX、XLSX（Office 2007 及以上格式），每份不超过 8 MB；讲者照片请在名称栏填写讲者姓名。图片可自动压缩。"
     }
   ];

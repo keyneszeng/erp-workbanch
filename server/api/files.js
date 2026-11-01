@@ -26,13 +26,14 @@ const EXT_MIME = {
   webp: "image/webp",
   gif: "image/gif",
   pdf: "application/pdf",
+  ppt: "application/vnd.ms-powerpoint",
   docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
   pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
   xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 };
 
 /** key 必须严格匹配自己生成的格式，避免 ../ 之类的路径穿越 */
-const KEY_RE = /^[a-f0-9]{32}\.(jpg|png|webp|gif|pdf|docx|pptx|xlsx)$/;
+const KEY_RE = /^[a-f0-9]{32}\.(jpg|png|webp|gif|pdf|ppt|docx|pptx|xlsx)$/;
 
 function register(router) {
   router.post("/api/uploads", async (ctx) => {
@@ -50,11 +51,11 @@ function register(router) {
 
     // 以文件头为准，不信客户端声明的 Content-Type
     const mime = sniffMime(buf);
-    if (!mime) throw bad("无法识别文件类型，仅支持 JPG / PNG / WebP / GIF / PDF / DOCX / PPTX / XLSX");
+    if (!mime) throw bad("无法识别文件类型，仅支持 JPG / PNG / WebP / GIF / PDF / PPT / DOCX / PPTX / XLSX");
     checkMime(mime);
     // Office 附件必须与原始文件名扩展名一致，禁止把可识别的 PPTX 冒充 EXE 等格式展示。
     const officeExt = ALLOWED_MIME[mime];
-    if (["docx", "pptx", "xlsx"].includes(officeExt)) {
+    if (["ppt","docx", "pptx", "xlsx"].includes(officeExt)) {
       const declared = String(ctx.req.headers["x-file-name"] || "");
       let decoded = declared;
       try { decoded = decodeURIComponent(declared); } catch {}
@@ -130,7 +131,7 @@ function register(router) {
       buffer: obj.buffer,
       mime: EXT_MIME[ext] || "application/octet-stream",
       name: owner?.file_name ? safeName(owner.file_name) : key,
-      download: ["docx", "pptx", "xlsx"].includes(ext)
+      download: ["ppt","docx", "pptx", "xlsx"].includes(ext)
     } };
   });
 

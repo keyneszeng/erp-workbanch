@@ -13,8 +13,8 @@ export function render(root, onSuccess, { demo = false } = {}) {
   root.innerHTML = `<div class="login-box">
     <div class="login-left">
       <div>
-        <div class="sub">MEETING OPS ERP</div>
-        <h1>协会会议执行 ERP</h1>
+        <div class="sub">会规化会务执行系统 ERP</div>
+        <h1>会规化会务执行系统</h1>
       </div>
       <p>从立项审批到数字卷宗，一条链跑完会议全生命周期。<br>核销是付款的唯一前置门，6 步 SOP 不可跳过。</p>
       <div class="login-points">

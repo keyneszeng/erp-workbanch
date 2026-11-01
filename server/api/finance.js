@@ -21,7 +21,7 @@ const PAYABLE_STATUS = ["已核销"];
 const EX_DECIDED = { 已通过: "已通过", 已驳回: "已驳回", 已撤销: "已撤销" };
 
 /** 与 server/api/files.js 生成的 key 格式保持一致，避免任意字符串被写进 file_key */
-const FILE_KEY_RE = /^[a-f0-9]{32}\.(jpg|png|webp|gif|pdf)$/;
+const FILE_KEY_RE = /^[a-f0-9]{32}\.(jpg|png|webp|gif|pdf|ppt|pptx|xlsx)$/;
 
 /**
  * 合同状态白名单。
@@ -304,6 +304,13 @@ function register(router) {
     };
   });
 
+  router.get("/api/projects/:id/payee-options", async ctx => {
+    const p=getProject(ctx.params.id);assertProjectVisible(ctx.user,p);
+    assertCan(ctx.user,"payment:create","无权查看收款人信息");
+    return {rows:require("../lib/verified-payees").options(p.id),
+      note:"候选来自已签署合同与第五步已核验劳务资料，敏感银行账号只显示尾号"};
+  });
+
   /** 付款申请 —— 核销是唯一前置门 */
   router.post("/api/payments", async (ctx) => {
     const b = ctx.body || {};
@@ -335,23 +342,29 @@ function register(router) {
       );
     }
     if (!PAYMENT_TYPES.includes(b.type)) throw bad(`付款类型必须是：${PAYMENT_TYPES.join(" / ")}`);
-    const payee = String(b.payee || "").trim();
-    if (!payee) throw bad("收款方为必填项");
-    if (payee.length > 60) throw bad("收款方不能超过 60 字");
-    // V1.2.18：只有收款方名字不够，财务得知道打到哪个账户
-    const payeeBank = parseBankName(b.payee_bank);
-    const payeeAccount = parseBankAccount(b.payee_account);
-    const invoiceNo = String(b.invoice_no || "").trim();
-    if (invoiceNo.length > 40) throw bad("发票号不能超过 40 字");
+    const choice=b.payee_option_id ? require("../lib/verified-payees").resolve(p.id,b.payee_option_id) : null;
+    if(!choice && !isDemoMode() && process.env.ERP_REQUIRE_VERIFIED_PAYEES==="1")
+      throw bad("必须从核销确认的劳务记录或已签署合同中选择收款方");
+    const payee=choice?choice.name:String(b.payee||"").trim();
+    if(!payee)throw bad("收款方为必填项");
+    if(payee.length>60)throw bad("收款方不能超过 60 字");
+    if(choice && b.payee && String(b.payee).trim()!==choice.name)throw bad("收款方与选定的核销资料不一致");
+    const payeeBank=parseBankName(choice?.bank || b.payee_bank);
+    const payeeAccount=parseBankAccount(choice?.account || b.payee_account);
+    // 发票属于核销材料，不是付款单字段；专家费个人报销不存在发票号。
+    const invoiceNo=String(b.invoice_no||"").trim(); // Legacy API remains readable/deduplicated; new UI omits this field.
+    if(invoiceNo.length>40)throw bad("发票号不能超过 40 字");
     if (!isDemoMode()) {
-      if (!invoiceNo) throw bad("生产付款申请必须填写发票号");
-      const checked = db.prepare("SELECT invoice_amount FROM verify_steps WHERE pid=? AND step_no=6 AND result='通过'").get(p.id);
-      if (!checked || !Number.isFinite(checked.invoice_amount))
-        throw conflict("必须先完成发票与已签署合同金额核对，再申请付款", "INVOICE_CHECK_REQUIRED");
-      const allocated = db.prepare("SELECT COALESCE(SUM(amount),0) AS total FROM payments WHERE pid=? AND status IN ('待审批','已审批','已付款')").get(p.id);
-      const requested = Number(b.amount);
-      if (Number.isFinite(requested) && cents(allocated.total) + cents(requested) > cents(checked.invoice_amount))
-        throw conflict("已申请及本次付款合计不能超过经核销确认的发票与合同金额", "INVOICE_AMOUNT_EXCEEDED");
+      const checked=db.prepare("SELECT invoice_amount FROM verify_steps WHERE pid=? AND step_no=6 AND result='通过'").get(p.id);
+      if(!checked || !Number.isFinite(checked.invoice_amount))
+        throw conflict("必须先完成合同与开票金额核验再请款","INVOICE_CHECK_REQUIRED");
+      const signed=db.prepare("SELECT COALESCE(SUM(amount),0) AS total FROM contracts WHERE pid=? AND status='已签署'").get(p.id);
+      const allocated=db.prepare("SELECT COALESCE(SUM(amount),0) AS total FROM payments WHERE pid=? AND status IN ('待审批','已审批','已付款')").get(p.id);
+      const requested=Number(b.amount);
+      if(Number.isFinite(requested) && cents(allocated.total)+cents(requested)>cents(signed.total))
+        throw conflict("累计请款总额不得超过核销确认的已签署合同总额","CONTRACT_AMOUNT_EXCEEDED");
+      if(choice?.source==="labor" && cents(requested)>cents(choice.amount))
+        throw conflict("本笔专家费不得超过已核验的个人劳务金额","LABOR_AMOUNT_EXCEEDED");
     }
     const remark = String(b.remark || "");
     if (remark.length > 300) throw bad("付款说明不能超过 300 字");
@@ -510,6 +523,19 @@ function register(router) {
   };
 
   /** 统一审批入口：按 type 分派 */
+  router.patch("/api/approvals/:id/sla", async ctx => {
+    if(!isSuper(ctx.user))throw forbidden("只有总管理员可以修改审批时限");
+    const approval=db.prepare("SELECT * FROM approvals WHERE id=?").get(ctx.params.id);
+    if(!approval)throw notFound("审批单不存在");
+    const p=getProject(approval.pid);assertProjectVisible(ctx.user,p);
+    if(approval.status!=="待审批")throw conflict("只允许修改待审批单的时限","APPROVAL_LOCKED");
+    const sla=String(ctx.body?.sla||"").trim();
+    if(sla.length<2||sla.length>80||/[<>\r\n]/.test(sla))throw bad("时限须为 2~80 字的有效说明");
+    db.prepare("UPDATE approvals SET sla=? WHERE id=?").run(sla,approval.id);
+    logAudit({user:ctx.user,module:"审批中心",action:"修改审批时限",target:p.id,
+      detail:approval.id+" 时限："+String(approval.sla||"未设置")+" → "+sla,ip:ctx.ip});
+    return {id:approval.id,sla,message:"审批时限已更新"};
+  });
   router.post("/api/approvals/:id/decide", async (ctx) => {
     const a = db.prepare("SELECT * FROM approvals WHERE id = ?").get(ctx.params.id);
     if (!a) throw notFound("审批单不存在");
@@ -553,11 +579,14 @@ function register(router) {
       }
       const at = now();
       db.prepare("UPDATE exceptions SET status = ?, approved_by = ?, approved_at = ?, comment = ? WHERE id = ?")
-        .run(approve ? "已通过" : "已驳回", ctx.user.name, at, comment, ex.id);
+        .run(approve ? (isDemoMode() ? "已通过" : "待复核") : "已驳回", ctx.user.name, at, comment, ex.id);
       db.prepare("UPDATE approvals SET status = ?, decided_by = ?, decided_at = ?, comment = ? WHERE id = ?")
         .run(approve ? "已通过" : "已驳回", ctx.user.name, at, comment, a.id);
-      db.prepare("UPDATE verify_steps SET result = ?, remark = ?, checked_by = ?, checked_at = ? WHERE pid = ? AND step_no = ?")
-        .run(approve ? "已解例外" : "不通过", approve ? `例外获批：${ex.reason}` : `例外被驳回：${ex.reason}`, ctx.user.name, at, ex.pid, ex.step_no);
+      // 生产流程：例外审批不等于核销通过；整改后必须回原步骤重新核验。
+      if (Number(ex.step_no)>0) db.prepare("UPDATE verify_steps SET result = ?, remark = ?, checked_by = ?, checked_at = ? WHERE pid = ? AND step_no = ?")
+        .run(approve && isDemoMode() ? "已解例外" : "不通过",
+          approve ? (isDemoMode() ? `例外获批：${ex.reason}` : `整改已受理：${ex.reason}，须原步骤复核`) : `例外被驳回：${ex.reason}`,
+          ctx.user.name, at, ex.pid, ex.step_no);
       logAudit({ user: ctx.user, module: "会后核销", action: approve ? "例外通过" : "例外驳回", target: ex.pid, detail: `${ex.id} 第 ${ex.step_no} 步：${ex.reason}`, ip: ctx.ip });
       return { message: `例外单 ${ex.id} ${approve ? "已通过" : "已驳回"}`, verification: verification(ex.pid) };
     }
