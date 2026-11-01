@@ -125,3 +125,24 @@ export function bindFilePicker(root, name, onPick) {
     onPick(out, null);
   });
 }
+
+/** Multi-select for material registrations. Each original is stored as a separate audited material. */
+export function bindMultiFilePicker(root,name,onPick,{limit=12}={}) {
+  const input=root.querySelector(`input[name="${name}"]`);
+  if(!input)return;
+  input.multiple=true;
+  const text=input.closest(".upload")?.querySelector(".fn");
+  input.addEventListener("change",async()=>{
+    const files=[...input.files];
+    if(!files.length){onPick([],null);return;}
+    if(files.length>limit){input.value="";onPick([], `最多同时选择 ${limit} 个文件`);return;}
+    const processed=[];
+    for(const file of files) {
+      const error=checkFile(file);
+      if(error){input.value="";onPick([], `${file.name}：${error}`);return;}
+      processed.push(await compressImage(file));
+    }
+    if(text)text.textContent=`已选择 ${processed.length} 个文件（单个最多 20 MB）`;
+    onPick(processed,null);
+  });
+}
