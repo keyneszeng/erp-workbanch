@@ -233,6 +233,9 @@ else
   # 劳务收款人银行账号用 AES-256-GCM 加密存储，需要独立的 32 字节密钥（64 位十六进制）。
   # 缺失时不会报错，但敏感账号不写库，付款申请就选不到已核验收款人。
   GEN_FIN_KEY="$(openssl rand -hex 32)"
+  # 邀请函邮件用 Resend 发送，管理员在界面里填的 API Key 用它加密后入库。
+  # 缺失时保存发件密钥会报 MAIL_ENCRYPTION_KEY_REQUIRED，邀请函只能生成 PDF、发不出邮件。
+  GEN_MAIL_KEY="$(openssl rand -base64 48 | tr -d '\n')"
   if [ "$DRY_RUN" = "1" ]; then
     printf '    + 写入 %s（含新生成的 ERP_SECRET）\n' "$ENV_FILE"
   else
@@ -252,6 +255,7 @@ else
       printf 'ERP_SESSION_FALLBACK=0\n'
       printf 'ERP_SECRET=%s\n' "$GEN_SECRET"
       printf 'ERP_FINANCIAL_DATA_KEY=%s\n' "$GEN_FIN_KEY"
+      printf 'ERP_MAIL_CONFIG_KEY=%s\n' "$GEN_MAIL_KEY"
       printf 'ERP_SMS_PROVIDER=%s\n' "$SMS_PROVIDER"
       case "$SMS_PROVIDER" in
         console) printf 'ERP_TEST_FIXED_SMS_CODE=%s\n' "$FIXED_CODE" ;;
@@ -274,6 +278,9 @@ else
       printf 'ERP_MINIPROGRAM_ENABLED=%s\n' "${ERP_MINIPROGRAM_ENABLED:-0}"
       printf 'ERP_WECHAT_APP_ID=%s\n' "${ERP_WECHAT_APP_ID:-}"
       printf 'ERP_WECHAT_APP_SECRET=%s\n' "${ERP_WECHAT_APP_SECRET:-}"
+      # 测试环境默认开 OCR（服务器已装依赖）；生产默认关，确认依赖齐了再手动开。
+      printf 'ERP_OCR_ENABLED=%s\n' "${ERP_OCR_ENABLED:-$([ "$MODE" = "test" ] && echo 1 || echo 0)}"
+      printf 'ERP_REQUIRE_VERIFIED_PAYEES=%s\n' "${ERP_REQUIRE_VERIFIED_PAYEES:-0}"
     } > "$ENV_FILE"
     chown root:"$SERVICE_USER" "$ENV_FILE"
     chmod 0640 "$ENV_FILE"

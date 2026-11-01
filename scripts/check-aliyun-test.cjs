@@ -63,6 +63,28 @@ function check(env = process.env) {
   if (env.ERP_REQUIRE_VERIFIED_PAYEES === "1" && !/^[0-9a-f]{64}$/i.test(finKey))
     fail("启用 ERP_REQUIRE_VERIFIED_PAYEES=1 前必须先配置 ERP_FINANCIAL_DATA_KEY");
 
+  // 邀请函发件密钥加密口令：可缺省（只能生成 PDF、发不出邮件），但一旦配置不得少于 32 字符。
+  const mailKey = String(env.ERP_MAIL_CONFIG_KEY || "");
+  if (mailKey && mailKey.length < 32)
+    fail("ERP_MAIL_CONFIG_KEY 至少 32 个随机字符，否则无法加密保存发件密钥");
+
+  // OCR 开启时必须逐个校验原生依赖与语言模型，否则上传材料后才报错，排查成本高。
+  if (env.ERP_OCR_ENABLED && !["0", "1"].includes(env.ERP_OCR_ENABLED))
+    fail("ERP_OCR_ENABLED 必须为 0 或 1");
+  if (env.ERP_OCR_ENABLED === "1") {
+    const { spawnSync } = require("node:child_process");
+    for (const cmd of ["tesseract", "pdfinfo", "pdftotext", "pdftoppm"]) {
+      const args = cmd === "tesseract" ? ["--list-langs"] : ["-v"];
+      const res = spawnSync(cmd, args, { encoding: "utf8", timeout: 5000, maxBuffer: 65536 });
+      if (res.error || res.status !== 0) fail("已启用 OCR 但缺少可执行依赖 " + cmd);
+      if (cmd === "tesseract") {
+        const langs = (String(res.stdout || "") + "\n" + String(res.stderr || "")).split(/\s+/);
+        if (!langs.includes("chi_sim") || !langs.includes("eng"))
+          fail("OCR 必须安装 chi_sim 和 eng 两种语言模型");
+      }
+    }
+  }
+
   const file = required(env, "ERP_DB");
   const uploads = required(env, "ERP_UPLOAD_DIR");
   for (const [name, value] of [["ERP_DB", file], ["ERP_UPLOAD_DIR", uploads]]) {

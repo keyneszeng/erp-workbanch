@@ -16,7 +16,11 @@ async function upload(cookie,pid){
 before(async()=>{
  child=spawn(process.execPath,["--experimental-sqlite","server/index.js"],{cwd:path.resolve(__dirname,".."),stdio:["ignore","pipe","pipe"],env:{...process.env,ERP_DEMO_MODE:"1",ERP_PORT:String(port),ERP_HOST:"127.0.0.1",ERP_DB:path.join(dir,"data.db"),ERP_UPLOAD_DIR:path.join(dir,"uploads")}});
  let err="";child.stderr.on("data",s=>err+=s);
- for(let i=0;i<180;i++){if(child.exitCode!==null)throw Error(err);try{if((await request("GET","/api/health")).status===200)break;}catch{}await new Promise(r=>setTimeout(r,80));}
+ // 慢盘上 Node 冷启动（含 pdf-lib 加载）可能超过 15 秒，窗口放到 40 秒；
+ // 循环耗尽必须显式报错，否则会退化成一句无信息的 "fetch failed"。
+ let ready=false;
+ for(let i=0;i<400;i++){if(child.exitCode!==null)throw Error("Server failed: "+err);try{if((await request("GET","/api/health")).status===200){ready=true;break;}}catch{}await new Promise(r=>setTimeout(r,100));}
+ if(!ready)throw Error("Server did not start in 40s: "+err);
  admin=await login("admin");exec=await login("exec");
 });
 after(()=>{child?.kill("SIGTERM");fs.rmSync(dir,{recursive:true,force:true});});
