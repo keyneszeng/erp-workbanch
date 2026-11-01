@@ -53,6 +53,21 @@ function check(env = process.env) {
   if (String(env.ERP_PORT) !== "8787") fail("ERP_PORT 必须为 8787，与 Nginx 配置保持一致");
   if (env.ERP_TRUST_PROXY !== "1") fail("ERP_TRUST_PROXY 必须为 1（只信任本机 Nginx）");
   if (env.ERP_SESSION_FALLBACK === "1") fail("正式持久化 SQLite 不允许无状态会话回退");
+  if (env.ERP_OCR_ENABLED && !["0","1"].includes(env.ERP_OCR_ENABLED))
+    fail("ERP_OCR_ENABLED 必须为 0 或 1");
+  if (env.ERP_OCR_ENABLED === "1") {
+    const { spawnSync } = require("node:child_process");
+    for(const cmd of ["tesseract","pdfinfo","pdftotext","pdftoppm"]){
+      const args = cmd === "tesseract" ? ["--list-langs"] : ["-v"];
+      const res=spawnSync(cmd,args,{encoding:"utf8",timeout:5000,maxBuffer:65536});
+      if(res.error || res.status!==0)fail("已启用 OCR 但缺少可执行依赖 "+cmd+"，请先安装 tesseract-ocr 和 poppler-utils");
+      if(cmd==="tesseract") {
+        const langs=(String(res.stdout||"")+"\n"+String(res.stderr||"")).split(/\s+/);
+        if(!langs.includes("chi_sim") || !langs.includes("eng"))
+          fail("OCR 必须安装 chi_sim 和 eng 两种语言模型");
+      }
+    }
+  }
   return { target: "aliyun-ecs", domain };
 }
 if (require.main === module) {

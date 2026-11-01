@@ -1,0 +1,71 @@
+"use strict";
+const {test}=require("node:test");
+const assert=require("node:assert/strict");
+const fs=require("node:fs");
+const os=require("node:os");
+const path=require("node:path");
+const {execFileSync}=require("node:child_process");
+const {PDFDocument,StandardFonts,rgb}=require("pdf-lib");
+const {parseAgenda,recognize,MAX_PAGES}=require("../server/lib/ocr-engine");
+
+test("OCR agenda parsing returns reviewable bilingual candidates without treating headings as a speaker",()=>{
+  const raw=[
+    "2026年医学学术会议 终版议程",
+    "09:00-09:30 讲者：张三教授 课题：胃肠病诊疗新进展",
+    "讲者：李四主任",
+    "主题：临床研究方法与应用",
+    "Speaker: Dr Alex Topic: AI Research",
+    "讲者：张三教授 课题：胃肠病诊疗新进展",
+    "会议时间：2026-11-03"
+  ].join("\n");
+  const items=parseAgenda(raw);
+  assert.deepEqual(items,[
+    {speaker:"张三教授",topic:"胃肠病诊疗新进展"},
+    {speaker:"李四主任",topic:"临床研究方法与应用"},
+    {speaker:"Dr Alex",topic:"AI Research"}
+  ]);
+  assert.deepEqual(parseAgenda("会议时间：2026-01-01\n会场安排"),[]);
+});
+test("OCR requires an explicit server-side enable flag; image/PDF MIME mismatch blocked",async()=>{
+  const prev=process.env.ERP_OCR_ENABLED;
+  delete process.env.ERP_OCR_ENABLED;
+  try{
+    await assert.rejects(recognize(Buffer.from("%PDF-1.4\n"),"pdf"),{code:"OCR_DISABLED"});
+    process.env.ERP_OCR_ENABLED="1";
+    await assert.rejects(recognize(Buffer.from("random"),"pdf"),{code:"OCR_MIME_MISMATCH"});
+    await assert.rejects(recognize(Buffer.from("abc"),"docx"),{code:"OCR_UNSUPPORTED"});
+  }finally{if(prev===undefined)delete process.env.ERP_OCR_ENABLED;else process.env.ERP_OCR_ENABLED=prev;}
+});
+test("live native OCR recognizes real image; searchable PDF uses text layer",async(t)=>{
+  // CI explicitly installs Poppler and Tesseract; test must not silently skip a missing engine.
+  for(const bin of ["pdfinfo","pdftotext","pdftoppm","tesseract"]){
+    assert.doesNotThrow(()=>execFileSync(bin,[bin==="tesseract"?"--version":"-v"],{timeout:5000,stdio:"ignore"}),"Missing OCR executable: "+bin);
+  }
+  const d=fs.mkdtempSync(path.join(os.tmpdir(),"ocr-e2e-"));
+  const prev=process.env.ERP_OCR_ENABLED;
+  process.env.ERP_OCR_ENABLED="1";
+  try{
+    const pdf=await PDFDocument.create();
+    const page=pdf.addPage([1100,600]);const font=await pdf.embedFont(StandardFonts.Helvetica);
+    page.drawText("Speaker: Dr Alex Topic: AI Research",{x:75,y:420,font,size:45,color:rgb(0,0,0)});
+    page.drawText("Speaker: Dr Bob Topic: Clinical Practice",{x:75,y:315,font,size:43,color:rgb(0,0,0)});
+    const bytes=Buffer.from(await pdf.save());const file=path.join(d,"agenda.pdf");
+    fs.writeFileSync(file,bytes);
+    const textPdf=await recognize(bytes,"pdf");
+    assert.equal(textPdf.mode,"pdf-text");
+    assert.match(textPdf.text,/Dr Alex/);
+    assert.equal(textPdf.truncated,false);
+    const prefix=path.join(d,"raster");
+    execFileSync("pdftoppm",["-png","-singlefile","-scale-to","1800",file,prefix],{timeout:20000});
+    const image=fs.readFileSync(prefix+".png");
+    const scanned=await recognize(image,"png");
+    assert.equal(scanned.mode,"ocr");
+    assert.match(scanned.text,/Alex/);
+    assert.match(scanned.text,/Research/);
+    assert.ok(scanned.text.length>25);
+    assert.ok(parseAgenda(scanned.text).length>=1,"recognized image should generate candidate speaker/topics");
+  }finally{
+    if(prev===undefined)delete process.env.ERP_OCR_ENABLED;else process.env.ERP_OCR_ENABLED=prev;
+    fs.rmSync(d,{recursive:true,force:true});
+  }
+});
