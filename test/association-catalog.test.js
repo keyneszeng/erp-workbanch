@@ -31,5 +31,5 @@ test("singleton administrator can be selected as project owner, but cannot bypas
  assert.equal(assignedMember(admin.lastInsertRowid,"华东医学会").name,"唯一管理员");
  db.prepare("INSERT INTO users(username,name,role,assoc,pass_salt,pass_hash,active,created_at) VALUES (?,?,?,?,?,?,1,?)")
   .run("associationmember","协会成员","assoc","华东医学会","salt","hash",new Date().toISOString());
- assert.throws(()=>assignedMember(admin.lastInsertRowid,"华东医学会"),/负责人必须是该协会/);
+ assert.equal(assignedMember(admin.lastInsertRowid,"华东医学会").role,"admin","总管理员无论其他成员数量都可被指派");
 });
