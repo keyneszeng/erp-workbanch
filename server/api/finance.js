@@ -179,7 +179,8 @@ function register(router) {
    */
   const CONTRACT_FLOW = [
     { from: "草稿", action: "submit", to: "待签署", label: "提交签署", perm: "contract:write" },
-    { from: "待签署", action: "sign", to: "已签署", label: "确认签署", perm: "contract:approve" }
+    { from: "待签署", action: "sign", to: "已签署", label: "确认签署", perm: "contract:approve" },
+    { from: "待签署", action: "reject", to: "草稿", label: "驳回", perm: "contract:approve" }
   ];
 
   router.post("/api/contracts/:id/transition", async (ctx) => {
@@ -213,6 +214,17 @@ function register(router) {
       if (!approval) throw conflict("合同尚未提交有效签署审批，不能直接确认", "SIGN_APPROVAL_REQUIRED");
       if (!isSuper(ctx.user) && Number(c.created_by) === Number(ctx.user.id))
         throw conflict("合同录入人与签署审批人须分离；请交由其他协会管理员或总管理员", "NEED_SECOND_PERSON");
+    }
+    if(action==="reject") {
+      const reason=String(ctx.body?.comment||"").trim();
+      if(reason.length<4||reason.length>500)throw bad("驳回原因需填写 4～500 字");
+      db.prepare("UPDATE contracts SET status='草稿',sign_date=NULL WHERE id=?").run(c.id);
+      db.prepare("UPDATE approvals SET status='已驳回',decided_by=?,decided_at=?,comment=? WHERE type='合同审批' AND ref_id=? AND status='待审批'")
+        .run(ctx.user.name,now(),reason,c.id);
+      logAudit({user:ctx.user,module:"筹备管理",action:"合同审批驳回",target:p.id,
+        detail:c.id+"："+reason,ip:ctx.ip});
+      return {contract:db.prepare("SELECT * FROM contracts WHERE id=?").get(c.id),
+        message:"合同已驳回，退回草稿；请修改后重新提交签署"};
     }
     // 确认签署时补签署日期（默认今天），这样台账上的日期一定来自「确认」这个动作
     let signDate = null;
