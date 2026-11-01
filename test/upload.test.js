@@ -94,7 +94,7 @@ test("上传能力探测：本地磁盘后端可用", async () => {
   assert.equal(r.status, 200);
   assert.equal(r.data.enabled, true);
   assert.equal(r.data.backend, "fs");
-  assert.equal(r.data.maxBytes, 8 * 1024 * 1024);
+  assert.equal(r.data.maxBytes, 20 * 1024 * 1024);
 });
 
 test("未登录不能上传", async () => {
@@ -125,8 +125,8 @@ test("伪造扩展名被文件头嗅探拦下", async () => {
   assert.match(r.data.error.message, /无法识别文件类型/);
 });
 
-test("超过 8 MB 被拒绝", async () => {
-  const big = Buffer.concat([JPEG, Buffer.alloc(8 * 1024 * 1024)]);
+test("超过 20 MB 被拒绝", async () => {
+  const big = Buffer.concat([JPEG, Buffer.alloc(20 * 1024 * 1024)]);
   const r = await upload(exec, big);
   assert.equal(r.status, 413);
 });
