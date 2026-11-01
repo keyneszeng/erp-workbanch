@@ -5,7 +5,7 @@ import { reachable } from "../lib/nav.js";
 /**
  * 我的工作台。
  *
- * 只保留四块：KPI / 异常预警 / 我的待办 / 近期会议。
+ * 核心四指标（普通参会者隐藏财务金额）/ 异常预警 / 我的待办 / 近期会议。
  * 「阶段分布」和「最近操作」按业务要求去掉 —— 前者在项目列表里按状态筛一次就有，
  * 后者与审计日志完全重复（审计日志还能按模块、按人、按时间查）。
  *
@@ -62,16 +62,15 @@ export async function render(root) {
 
   root.innerHTML = `
   <div class="ux-section-intro">
-    <div><h2>业务总览</h2><p>仅统计当前数据范围，审批与异常按本人权限显示</p></div>
-    <button class="btn btn-o btn-sm" data-go="projects">查看全部会议</button>
+    <div><h2>我的工作台 · 业务数据</h2><p>按当前账号的数据范围统计，预算与付款金额仅对内部授权角色展示</p></div>
+    ${reachable("projects") ? '<button class="btn btn-o btn-sm" data-go="projects">查看全部会议</button>' : ""}
   </div>
-  <div class="ux-kpi-grid">
+  <div class="ux-kpi-grid" aria-label="我的工作台核心业务指标">
     <div class="ux-metric"><span>在管会议</span><strong>${total}</strong><small>场</small></div>
-    <div class="ux-metric"><span>待审批项目</span><strong>${d.counts["待审批"] || 0}</strong><small>场</small></div>
-    <div class="ux-metric ux-metric-warn"><span>我的审批待办</span><strong>${d.todos.filter(t => t.kind === "审批").length}</strong><small>项</small></div>
-    <div class="ux-metric ux-metric-danger"><span>待处理预警</span><strong>${d.alerts.length}</strong><small>条</small></div>
-    <div class="ux-metric"><span>执行中</span><strong>${d.counts["执行中"] || 0}</strong><small>场</small></div>
-    <div class="ux-metric ux-metric-done"><span>已归档</span><strong>${d.counts["已归档"] || 0}</strong><small>场</small></div>
+    <div class="ux-metric ux-metric-warn"><span>待核销</span><strong>${d.counts["待核销"] || 0}</strong><small>个</small></div>
+    ${state.user.role === "user" ? "" : `
+    <div class="ux-metric"><span>预算总额</span><strong>¥${money(d.budget)}</strong></div>
+    <div class="ux-metric ux-metric-done"><span>已付款</span><strong>¥${money(d.paid)}</strong></div>`}
   </div>
   <div class="ux-quick-actions mt">
     ${reachable("projects") ? '<button class="btn btn-o btn-sm" data-go="projects">项目管理</button>' : ""}
@@ -80,7 +79,7 @@ export async function render(root) {
     ${reachable("verify") ? '<button class="btn btn-o btn-sm" data-go="verify">会后核销</button>' : ""}
     ${reachable("finance") ? '<button class="btn btn-o btn-sm" data-go="finance">付款结算</button>' : ""}
   </div>
-  ${state.user.role === "user" ? "" : `<div class="ux-finance-note mt"><b>财务数据概览</b><span>预算总额 ¥${money(d.budget)} · 已付款 ¥${money(d.paid)}</span><small>付款需先通过核销，结算后凭证冻结</small></div>`}
+  ${state.user.role === "user" ? "" : '<div class="ux-finance-rule mt">财务提示：核销六步通过后才可申请付款；正式结算后相关凭证冻结。</div>'}
 
   ${d.alerts.length ? `<div class="panel mt"><div class="panel-h"><h2>异常预警</h2>
       <div><span class="hint">${d.alerts.length} 条需要处理</span></div></div>
