@@ -45,6 +45,12 @@ CREATE TABLE IF NOT EXISTS users (
   created_at  TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS user_associations (
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  assoc TEXT NOT NULL,
+  PRIMARY KEY(user_id,assoc)
+);
+CREATE INDEX IF NOT EXISTS idx_user_associations_assoc ON user_associations(assoc);
 CREATE TABLE IF NOT EXISTS password_reset_limits (
   rate_key TEXT PRIMARY KEY,
   bucket_ms INTEGER NOT NULL,
@@ -534,6 +540,8 @@ function transaction(fn) {
 function migrate() {
   const b = ensure();
   b.exec(SCHEMA);
+  // Legacy users retain their original association. Safe and idempotent on every start.
+  b.exec("INSERT OR IGNORE INTO user_associations(user_id,assoc) SELECT id,assoc FROM users WHERE assoc IS NOT NULL AND assoc<>''");
 
   // 兼容旧库：后加的列用 ALTER 补。CREATE TABLE IF NOT EXISTS 不会给已存在的表加列。
   const addColumn = (table, col, ddl) => {
