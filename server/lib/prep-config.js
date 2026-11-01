@@ -19,7 +19,9 @@ function defaults(){
     org_header:"协会会议执行 · 邀请函",
     org_footer:"",
     mail_from:"",
-    public_base_url:"https://erp.aibuild.work",
+    // 邀请函里的公开链接前缀。硬编码演示域名会让测试/生产环境发出的邀请函
+    // 把人带到 Cloudflare 演示站，所以改为部署时注入（ERP_PUBLIC_BASE_URL）。
+    public_base_url: String(process.env.ERP_PUBLIC_BASE_URL || "https://erp.aibuild.work"),
     mini_appid:"",
     mini_program_verified:false,
     templates:Object.fromEntries(Object.entries(TEMPLATES).map(([key,t])=>[key,{

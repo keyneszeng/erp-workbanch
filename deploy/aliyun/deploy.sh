@@ -236,6 +236,16 @@ else
   # 邀请函邮件用 Resend 发送，管理员在界面里填的 API Key 用它加密后入库。
   # 缺失时保存发件密钥会报 MAIL_ENCRYPTION_KEY_REQUIRED，邀请函只能生成 PDF、发不出邮件。
   GEN_MAIL_KEY="$(openssl rand -base64 48 | tr -d '\n')"
+  # 邀请函公开链接前缀：生产用域名，测试用 IP:端口。
+  # 测试环境没有域名，尽量从阿里云元数据取 EIP；取不到就留空，由管理员在界面里填。
+  if [ -z "${ERP_PUBLIC_BASE_URL:-}" ]; then
+    if [ "$MODE" = "test" ]; then
+      EIP="$(curl -sS --max-time 2 http://100.100.100.200/latest/meta-data/eipv4 2>/dev/null || true)"
+      [ -n "$EIP" ] && ERP_PUBLIC_BASE_URL="http://${EIP}:${NGINX_PORT}"
+    else
+      ERP_PUBLIC_BASE_URL="https://${DOMAIN}"
+    fi
+  fi
   if [ "$DRY_RUN" = "1" ]; then
     printf '    + 写入 %s（含新生成的 ERP_SECRET）\n' "$ENV_FILE"
   else
@@ -246,6 +256,7 @@ else
       printf 'ERP_DEPLOY_TARGET=%s\n' "$DEPLOY_TARGET"
       printf 'ERP_DEMO_MODE=0\n'
       printf 'ERP_PRODUCTION_DOMAIN=%s\n' "$DOMAIN"
+      printf 'ERP_PUBLIC_BASE_URL=%s\n' "${ERP_PUBLIC_BASE_URL:-}"
       printf 'ERP_BOOTSTRAP_ADMIN_PHONE=%s\n' "$ADMIN_PHONE"
       printf 'ERP_DB=%s/erp.db\n' "$DATA_ROOT"
       printf 'ERP_UPLOAD_DIR=%s/uploads\n' "$DATA_ROOT"
