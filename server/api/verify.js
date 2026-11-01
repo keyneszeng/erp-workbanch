@@ -362,18 +362,13 @@ function register(router) {
       throw conflict("结算单已生成，材料作为核销凭证已冻结，不可删除", "FROZEN", { status: p.status });
     }
 
-    db.prepare("DELETE FROM materials WHERE id = ?").run(m.id);
+    // 只做软删；原件、版本与审计记录保留，避免销毁历史证据。
+    if (m.deleted_at) throw conflict("材料已处于历史冻结状态，不能重复删除", "ALREADY_DELETED");
+    db.prepare("UPDATE materials SET deleted_at=?, deleted_by=? WHERE id=?")
+      .run(now(),ctx.user.name,m.id);
 
-    // 附件一起删，但要先确认没有别的材料行还引用同一个 key
-    if (m.file_key) {
-      const still = db.prepare("SELECT COUNT(*) AS c FROM materials WHERE file_key = ?").get(m.file_key);
-      if (!(Number(still?.c) > 0)) {
-        try { await storage().del(m.file_key); } catch { /* 文件删除失败不回滚记录，避免留下删不掉的条目 */ }
-      }
-    }
-
-    logAudit({ user: ctx.user, module: "材料中心", action: "删除", target: p.id, detail: `删除 ${m.kind}：${m.name}`, ip: ctx.ip });
-    return { materialsStatus: materialsStatus(p.id), message: "已删除" };
+    logAudit({ user: ctx.user, module: "材料中心", action: "软删冻结", target: p.id, detail: `历史保留 ${m.kind}：${m.name}`, ip: ctx.ip });
+    return { materialsStatus: materialsStatus(p.id), message: "已软删并保留历史记录" };
   });
 
   router.get("/api/settlements", async (ctx) => {
