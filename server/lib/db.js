@@ -151,6 +151,18 @@ CREATE TABLE IF NOT EXISTS contracts (
 );
 CREATE INDEX IF NOT EXISTS idx_contracts_pid ON contracts(pid);
 
+CREATE TABLE IF NOT EXISTS verified_labor_payees (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  pid TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  bank TEXT NOT NULL DEFAULT '',
+  account_cipher TEXT NOT NULL,
+  amount REAL NOT NULL,
+  confirmed_at TEXT NOT NULL,
+  UNIQUE(pid,name,account_cipher)
+);
+CREATE INDEX IF NOT EXISTS idx_verified_labor_payees_pid ON verified_labor_payees(pid);
+
 CREATE TABLE IF NOT EXISTS payments (
   id          TEXT PRIMARY KEY,
   pid         TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
