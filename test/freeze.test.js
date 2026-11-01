@@ -120,23 +120,19 @@ test("assoc 不能改已结算项目（原来只拦了已归档）", async () =>
   assert.match(r.msg, /已结算/);
 });
 
-test("已结算项目不能删材料（核销凭证冻结）", async () => {
+test("已结算项目新增材料和删除凭证均被冻结", async () => {
   const c = client(admin);
-  // 已结算项目可能没材料，先补一条
-  const add = await c("POST", `/api/projects/${SETTLED}/materials`, { kind: "发票", name: "结算后补录发票.pdf" });
-  assert.equal(add.status, 200, JSON.stringify(add.data));
-
-  const mats = (await c("GET", "/api/materials")).data.rows.filter((m) => m.pid === SETTLED);
-  assert.ok(mats.length, "应有材料");
-
-  const del = await c("DELETE", `/api/materials/${mats[0].id}`);
-  assert.equal(del.status, 409, JSON.stringify(del.data));
-  assert.equal(del.code, "FROZEN");
-  assert.match(del.msg, /凭证|冻结/);
-
-  // 材料还在
-  const still = (await c("GET", "/api/materials")).data.rows.filter((m) => m.pid === SETTLED);
-  assert.equal(still.length, mats.length, "被拒后材料不应减少");
+  const before=(await c("GET","/api/materials")).data.rows.filter(m=>m.pid===SETTLED);
+  const add=await c("POST", `/api/projects/${SETTLED}/materials`, {kind:"发票",name:"结算后补录凭证"});
+  assert.equal(add.status,409,JSON.stringify(add.data));
+  assert.equal(add.code,"FROZEN");
+  if(before.length){
+    const del=await c("DELETE",`/api/materials/${before[0].id}`);
+    assert.equal(del.status,409,JSON.stringify(del.data));
+    assert.equal(del.code,"FROZEN");
+  }
+  const after=(await c("GET","/api/materials")).data.rows.filter(m=>m.pid===SETTLED);
+  assert.equal(after.length,before.length,"财务结算后任何材料变更都不能发生");
 });
 
 test("已归档项目仍不能删材料（原有行为不被破坏）", async () => {
