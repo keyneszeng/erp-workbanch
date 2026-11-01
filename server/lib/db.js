@@ -45,6 +45,13 @@ CREATE TABLE IF NOT EXISTS users (
   created_at  TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS user_associations (
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  assoc TEXT NOT NULL,
+  PRIMARY KEY (user_id,assoc)
+);
+CREATE INDEX IF NOT EXISTS idx_user_associations_assoc ON user_associations(assoc);
+
 CREATE TABLE IF NOT EXISTS password_reset_limits (
   rate_key TEXT PRIMARY KEY,
   bucket_ms INTEGER NOT NULL,
