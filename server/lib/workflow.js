@@ -287,6 +287,12 @@ function transition(projectId, action, user, payload = {}, ip = "") {
         db.prepare("UPDATE approvals SET status = '已通过', decided_by = ?, decided_at = ?, comment = ? WHERE id = ?")
           .run(user.name, now(), String(payload.comment || "同意立项"), ap.id);
       }
+      // Assign the designated executor automatically when project owner has execution permission.
+      const owner=db.prepare("SELECT id,role,active FROM users WHERE id=?").get(p.owner_id);
+      if(owner?.active && owner.role==="exec") {
+        db.prepare("INSERT OR IGNORE INTO project_members(project_id,user_id,role) VALUES (?,?,'执行负责人')").run(p.id,owner.id);
+        db.prepare("UPDATE project_members SET role='执行负责人' WHERE project_id=? AND user_id=?").run(p.id,owner.id);
+      }
       setStatus(p, "已立项", user, ip, `立项审批通过${ap ? `（${ap.id}）` : ""}${payload.comment ? "：" + payload.comment : ""}`);
       return { project: getProject(p.id), message: "审批通过，状态 → 已立项" };
     }
@@ -334,7 +340,7 @@ function transition(projectId, action, user, payload = {}, ip = "") {
     default: {
       setStatus(p, flow.to, user, ip, `${flow.label}：${p.status} → ${flow.to}`);
       // V1.2.17 FLOW-01：核销通过后，同协会的财务必须能直接生成结算单
-      if (action === "verify_pass") grantFinanceMember(p, user, ip);
+      if (action === "request_verify" || action === "verify_pass") grantFinanceMember(p, user, ip);
       return { project: getProject(p.id), message: `${flow.label}成功，状态 → ${flow.to}` };
     }
   }
@@ -357,9 +363,10 @@ function grantFinanceMember(p, user, ip) {
     .prepare(
       `SELECT id, name FROM users
         WHERE role = 'finance' AND active = 1
-          AND (assoc IS NULL OR assoc = '' OR assoc = ?)`
+          AND (assoc IS NULL OR assoc = '' OR assoc = ?
+            OR EXISTS(SELECT 1 FROM user_associations ua WHERE ua.user_id=users.id AND ua.assoc=?))`
     )
-    .all(p.assoc || "");
+    .all(p.assoc || "", p.assoc || "");
   if (!financeUsers.length) return;
   const ins = db.prepare("INSERT OR IGNORE INTO project_members (project_id, user_id, role) VALUES (?,?,?)");
   const added = [];
