@@ -241,7 +241,7 @@ test("FLOW-01 核销通过后财务自动进成员，能直接生成结算单", 
   }
 
   // 财务此刻还看不见这个项目（不是成员、不是负责人）
-  assert.equal((await finance("GET", `/api/projects/${pid}`)).status, 403, "前置：财务原本看不见");
+  assert.equal((await finance("GET", `/api/projects/${pid}`)).status, 200, "提交核销时财务即应获得受限项目可见权限");
 
   const pass = await admin("POST", `/api/projects/${pid}/transition`, { action: "verify_pass" });
   assert.equal(pass.status, 200, JSON.stringify(pass.data));
