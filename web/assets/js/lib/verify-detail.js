@@ -43,13 +43,11 @@ export const exStepLabel = (e) =>
 function matList(list, emptyText) {
   if (!list.length) return `<div class="dhint">${emptyText}</div>`;
   return `<ul class="dlist">${list.map((m) => `<li>
-      <b>${esc(m.name)}</b>
+      <b>${m.file_key ? `<a href="/api/uploads/${esc(m.file_key)}" class="link" target="_blank" rel="noopener noreferrer" title="点击材料名称查看原件">${esc(m.name)}</a>` : esc(m.name)}</b>
       ${m.version ? `<span class="dtag">${esc(m.version)}</span>` : ""}
       ${m.file_name ? `<span class="dtag">${esc(m.file_name)}</span>` : ""}
       <span class="dm">${esc(m.uploader || "—")} · ${esc(dt(m.created_at))}</span>
-      ${m.file_key
-        ? `<a class="link" href="/api/uploads/${m.file_key}" target="_blank" rel="noopener">查看原件</a>`
-        : `<span class="dm" style="margin-left:0">无附件</span>`}
+      ${m.file_key ? "" : '<span class="dm" style="margin-left:0">无附件</span>'}
     </li>`).join("")}</ul>`;
 }
 
@@ -72,9 +70,9 @@ function payRows(list) {
 /** 按步骤组装「这一步到底要核什么」的原始数据 */
 export function stepBody(d,no){
   const names={
-    1:["会议通知","招商函"],2:["议程","劳务收集表","劳务协议"],
-    3:["签到表","参会数据"],4:["终版议程","议程","课件","串场"],
-    5:["劳务收集表","劳务协议"],6:["合同","发票","拟结算单"]
+    1:["立项文件","终版议程"],2:["终版议程","劳务收集表","劳务协议"],
+    3:["参会数据"],4:["终版议程","课件","串场"],
+    5:["劳务收集表"],6:["合同","发票","拟结算单"]
   };
   const note={
     1:"已盖章+终版：会议名称/日期/主办方/招商主体逐项核对。",
@@ -95,7 +93,7 @@ export function stepBody(d,no){
     ${no===6?`<div class="dgrid">${cell("已签合同总额",fmt(contractTotal))}${cell("核销发票总金额",step?.invoiceAmount==null?"未核对":fmt(step.invoiceAmount))}</div>`:""}
     ${no===5?`<div class="dsec"><h4>劳务 / 专家类合同（合同分类）</h4>
       ${laborContracts.length?table([{t:"合同名称"},{t:"合同收款方"},{t:"金额"}],
-      laborContracts.map(x=>({c:[esc(x.name),esc(x.vendor),fmt(x.amount)]}))):'<div class="dhint">暂无劳务专家类合同，请先到合同台账核验分类</div>'}
+      laborContracts.map(x=>({c:[x.file_key ? `<a class="link" target="_blank" rel="noopener noreferrer" href="/api/uploads/${esc(x.file_key)}">${esc(x.name)} · 查看合同原件</a>` : esc(x.name)+"（缺合同原件）",esc(x.vendor),fmt(x.amount)]}))):'<div class="dhint">暂无劳务专家类合同，请先到合同台账核验分类</div>'}
       <h4>专家费 / 个人报销（付款类别，需核销后申请）</h4>
       ${payRows(expertPayments)}</div>`:""}
     <div class="dsec"><h4>结构化核验结果</h4>
