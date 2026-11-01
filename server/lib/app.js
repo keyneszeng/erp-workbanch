@@ -77,6 +77,7 @@ function buildRouter() {
     require("../api/system"),
     require("../api/demand"),
     require("../api/files"),
+    require("../api/material-workbench"),
     require("../api/archive-pdf"),
     require("../api/prep-invitations"),
     require("../api/prep-admin"),
