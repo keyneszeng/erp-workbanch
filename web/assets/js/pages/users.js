@@ -8,7 +8,7 @@ export async function render(root) {
 
   root.innerHTML = `<div class="phead">
       <div><h2>${state.demo ? "用户与权限" : "手机号白名单与权限"}</h2><p>${state.demo ? "角色决定模块可见性与动作权限；总管理员为超级角色，拥有全部权限与全平台数据" : "仅部署指定的总管理员可维护手机白名单；统一初始密码 123456，首次须短信改密"}</p></div>
-      <div class="acts">${manage ? '<button class="btn btn-p" id="newU">+ ${state.demo ? "新建账号" : "录入手机号"}</button>' : ""}</div>
+      <div class="acts">${manage ? `<button type="button" class="btn btn-p" id="newU">+ ${state.demo ? "新建账号" : "录入手机号"}</button>` : ""}</div>
     </div>
 
     <div class="panel">
