@@ -24,14 +24,15 @@ function verification(pid) {
       remark: r ? r.remark : "",
       invoiceAmount: r ? r.invoice_amount : null,
       checked_by: r ? r.checked_by : "",
-      checked_at: r ? r.checked_at : ""
+      checked_at: r ? r.checked_at : "",
+      evidence: r && r.evidence_json ? JSON.parse(r.evidence_json) : null
     };
   });
   const judged = steps.filter((s) => s.result !== "待判定").length;
   const passed = steps.filter((s) => s.result === "通过" || s.result === "已解例外").length;
   const failedSteps = steps.filter((s) => s.result === "不通过").map((s) => s.no);
   const openExceptions = db
-    .prepare("SELECT COUNT(*) AS c FROM exceptions WHERE pid = ? AND status = '待审批'")
+    .prepare("SELECT COUNT(*) AS c FROM exceptions WHERE pid = ? AND status IN ('待审批','待复核')")
     .get(pid).c;
   const exceptions = db.prepare("SELECT * FROM exceptions WHERE pid = ? ORDER BY created_at DESC").all(pid);
   return {
@@ -42,13 +43,13 @@ function verification(pid) {
     failedSteps,
     openExceptions,
     exceptions,
-    complete: passed === VERIFY_STEPS.length && openExceptions === 0
+    complete: passed === VERIFY_STEPS.length && openExceptions === 0 && (isDemoMode() || failedSteps.length===0)
   };
 }
 
 /** 归档材料 8 类齐备情况 */
 function materialsStatus(pid) {
-  const rows = db.prepare("SELECT DISTINCT kind FROM materials WHERE pid = ?").all(pid);
+  const rows = db.prepare("SELECT DISTINCT kind FROM materials WHERE pid = ? AND deleted_at IS NULL").all(pid);
   const have = rows.map((r) => r.kind);
   const missing = MATERIAL_KINDS.filter((k) => !have.includes(k));
   return { have, missing, ok: missing.length === 0, required: MATERIAL_KINDS };
@@ -147,7 +148,7 @@ const GUARDS = {
     const v = verification(p.id);
     if (v.judged < v.total) return `还有 ${v.total - v.judged} 步未判定，6 步必须全部判定`;
     if (v.failedSteps.length) return `第 ${v.failedSteps.join("、")} 步不通过，需提交例外单并获批`;
-    if (v.openExceptions > 0) return `存在 ${v.openExceptions} 张未审批的例外单`;
+    if (v.openExceptions > 0) return `存在 ${v.openExceptions} 张未完成处理或待复核的例外单`;
     return null;
   },
   settle(p) {
