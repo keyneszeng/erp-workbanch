@@ -169,6 +169,23 @@ CREATE TABLE IF NOT EXISTS verified_labor_payees (
 );
 CREATE INDEX IF NOT EXISTS idx_verified_labor_payees_pid ON verified_labor_payees(pid);
 
+-- Incoming sponsor commitments, bank proof and issued invoice are separate from expense contracts.
+CREATE TABLE IF NOT EXISTS sponsor_income (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  pid TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  company TEXT NOT NULL,
+  amount REAL NOT NULL,
+  contract_key TEXT NOT NULL,
+  receipt_key TEXT,
+  invoice_key TEXT,
+  invoice_no TEXT,
+  status TEXT NOT NULL DEFAULT '待收款',
+  created_by INTEGER NOT NULL,
+  checked_by INTEGER,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_sponsor_income_pid ON sponsor_income(pid);
 CREATE TABLE IF NOT EXISTS payments (
   id          TEXT PRIMARY KEY,
   pid         TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
