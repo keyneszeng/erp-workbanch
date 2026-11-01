@@ -110,7 +110,7 @@ async function load(root) {
 
 async function openCreate(root) {
   const members = (await api.get("/api/users/assignable")).rows || [];
-  const optionsFor = (assoc) => members.filter((u) => u.assoc === assoc || (members.length===1 && u.role==="admin"))
+  const optionsFor = (assoc) => members.filter((u) => u.role==="admin" || u.assoc === assoc)
     .map((u) => ({ v: String(u.id), l: u.name + "（" + u.role_name + "）" }));
   const fields = [
     { k: "name", l: "会议名称", req: 1, ph: "如：京津冀论坛 2027", full: 1 },
