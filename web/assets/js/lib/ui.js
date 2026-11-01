@@ -161,7 +161,7 @@ export function formHtml(fields, values = {}) {
     } else if (f.t === "textarea") {
       input = `<textarea name="${f.k}" rows="${f.rows || 3}" placeholder="${esc(f.ph || "")}">${esc(v)}</textarea>`;
     } else if (f.t === "file") {
-      input = `<label class="upload"><input type="file" name="${f.k}"${f.accept ? ` accept="${esc(f.accept)}"` : ""} style="display:none">
+      input = `<label class="upload"><input type="file" name="${f.k}" accept="${esc(f.accept || ".jpg,.jpeg,.png,.webp,.gif,.pdf,.ppt,.pptx,.xlsx,.docx")}" style="display:none">
         <span>选择文件</span><span class="fn" style="color:var(--mute)">未选择</span></label>`;
     } else {
       input = `<input type="${f.t || "text"}" name="${f.k}" value="${esc(v)}" placeholder="${esc(f.ph || "")}"
