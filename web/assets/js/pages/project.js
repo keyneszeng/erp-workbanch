@@ -810,13 +810,16 @@ function openMember(root, pid, d) {
       title: "增加项目成员",
       body: `<div class="hint" style="margin-bottom:12px">成员可访问该项目数据（执行 / 财务 / 嘉宾视角的数据范围按成员关系计算）。</div>
         <div class="fld"><label>选择用户<span class="req">*</span></label>
-          <select name="user_id">${cand.map((u) => `<option value="${u.id}">${esc(u.name)}（${esc(u.role_name)}）</option>`).join("")}</select></div>`,
+          <select name="user_id">${cand.map((u) => `<option value="${u.id}">${esc(u.name)}（${esc(u.role_name)}）</option>`).join("")}</select></div>
+        <div class="fld"><label>项目内职责</label><select name="member_role">
+          <option value="成员">普通成员</option><option value="执行负责人">会务执行负责人（审批后进入我的待办）</option>
+        </select></div>`,
       footer: `<button class="btn btn-o" data-x="0">取消</button><button class="btn btn-p" data-x="1">加入</button>`
     });
     m.querySelector('[data-x="0"]').onclick = () => m.classList.remove("open");
     m.querySelector('[data-x="1"]').onclick = async () => {
       try {
-        const r = await api.post(`/api/projects/${pid}/members`, { user_id: Number(m.querySelector("select").value) });
+        const r = await api.post(`/api/projects/${pid}/members`, { user_id: Number(m.querySelector('[name="user_id"]').value), member_role: m.querySelector('[name="member_role"]').value });
         toast(r.message, "ok");
         m.classList.remove("open");
         await refresh(root, pid);
