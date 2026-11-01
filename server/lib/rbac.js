@@ -164,7 +164,6 @@ function scopeFilter(user) {
     case "assoc":
       return { sql: "(p.assoc = ? OR EXISTS (SELECT 1 FROM user_associations ua WHERE ua.user_id=? AND ua.assoc=p.assoc))", params: [user.assoc || "", user.id] };
     case "exec":
-    case "finance":
       // 「本人负责」按 user_id 认人，不再比对姓名 ——
       // 姓名可以重名（新建一个同名账号就能看到别人名下的项目），
       // 也可以被改（负责人一改名，名下项目全部从视野消失）。
@@ -174,6 +173,24 @@ function scopeFilter(user) {
           "(p.owner_id = ? OR (p.owner_id IS NULL AND p.owner = ?)" +
           " OR EXISTS (SELECT 1 FROM project_members m WHERE m.project_id = p.id AND m.user_id = ?))",
         params: [user.id, user.name, user.id]
+      };
+    case "finance":
+      /**
+       * 财务与核销：协会范围 **并上** 本人负责/参与的项目。
+       *
+       * 原来 finance 和 exec 共用「本人负责」分支，结果是财务登录后一场会都看不到
+       * （他既不是负责人也不在成员表），工作台「待核销」永远为空——核销、付款、
+       * 结算整条财务链路直接断掉。财务是协会级角色，处理的是本协会全部会议。
+       *
+       * 保留本人负责/参与这一档，是为了不把历史项目从财务视野里摘掉
+       * （跨协会借调、演示数据里财务恰好是负责人的情况）。
+       */
+      return {
+        sql:
+          "(p.assoc = ? OR EXISTS (SELECT 1 FROM user_associations ua WHERE ua.user_id=? AND ua.assoc=p.assoc)" +
+          " OR p.owner_id = ? OR (p.owner_id IS NULL AND p.owner = ?)" +
+          " OR EXISTS (SELECT 1 FROM project_members m WHERE m.project_id = p.id AND m.user_id = ?))",
+        params: [user.assoc || "", user.id, user.id, user.name, user.id]
       };
     case "user":
       /**
