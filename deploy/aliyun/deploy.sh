@@ -343,7 +343,7 @@ server {
     listen 80;
     listen [::]:80;
     server_name ${DOMAIN};
-    client_max_body_size 12m;
+    client_max_body_size 25m;
 
     location / {
         proxy_pass http://127.0.0.1:${APP_PORT};
