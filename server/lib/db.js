@@ -552,6 +552,9 @@ function migrate() {
     }
   };
 
+  // Existing projects keep historical evidence, only the displayed SOP labels are corrected.
+  db.exec("UPDATE verify_steps SET name='盖章函件与立项信息核验' WHERE step_no=1 AND name='盖章通知／招商函核验'");
+  db.exec("UPDATE verify_steps SET name='课件与串场内容核验' WHERE step_no=4 AND name='课件／串场一致性'");
   addColumn("verify_steps", "invoice_amount", "invoice_amount REAL");
   addColumn("verify_steps", "evidence_json", "evidence_json TEXT");
   addColumn("materials", "deleted_at", "deleted_at TEXT");
