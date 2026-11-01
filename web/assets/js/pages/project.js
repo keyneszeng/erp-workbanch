@@ -391,8 +391,8 @@ function tabMaterials(d, p) {
         c: [
           esc(m.kind), esc(m.name),
           m.file_key
-            ? (m.file_mime === "application/pdf"
-                ? `<a class="link" href="${fileUrl(m.file_key)}" target="_blank" rel="noopener">PDF</a>`
+            ? ((m.file_mime === "application/pdf" || /\.(ppt|pptx|xlsx|docx)$/i.test(m.file_key))
+                ? `<a class="link" href="${fileUrl(m.file_key)}" target="_blank" rel="noopener">查看附件</a>`
                 : `<a href="${fileUrl(m.file_key)}" target="_blank" rel="noopener"><img class="thumb" src="${fileUrl(m.file_key)}" alt=""></a>`)
             : '<span style="color:var(--mute)">—</span>',
           esc(m.version || ""), esc(m.uploader || ""), `<span class="mono">${esc(m.created_at)}</span>`,
