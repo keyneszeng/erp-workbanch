@@ -19,7 +19,7 @@ const PAYABLE = ["已核销"];
  * 页签顺序跟流程反着放，人会先去点后面那个、被拦、再回头找前一个 —— 顺序本身就是提示。
  */
 const TABS = [
-  ["overview", "概览"], ["demand", "会务需求"], ["contracts", "合同"],
+  ["overview", "概览"], ["demand", "会务需求"], ["income", "会议收入"], ["contracts", "合同"],
   ["materials", "材料"], ["verify", "核销"], ["payments", "付款"],
   ["team", "成员与授权"], ["timeline", "操作留痕"]
 ];
@@ -84,11 +84,15 @@ export async function render(root, [pid]) {
 
   const body = root.querySelector("#tabbody");
   const fn = {
-    overview: participant ? tabParticipantOverview : tabOverview, demand: tabDemand, contracts: tabContracts, payments: tabPayments,
+    overview: participant ? tabParticipantOverview : tabOverview, demand: tabDemand, income: () => '<div id="sponsorIncomePanel"></div>', contracts: tabContracts, payments: tabPayments,
     verify: tabVerify, materials: tabMaterials, team: tabTeam, timeline: tabTimeline
   }[tab];
   body.innerHTML = fn(d, p);
   wire(root, pid, d, body);
+  if (tab === "income") {
+    const { renderIncomePanel } = await import("../lib/income.js");
+    await renderIncomePanel(body.querySelector("#sponsorIncomePanel"), pid);
+  }
 }
 
 /** 普通用户 / 嘉宾只读概览：不会渲染财务、审批、内部电话和团队资料。 */
