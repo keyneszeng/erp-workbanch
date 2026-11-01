@@ -82,15 +82,22 @@ export function stepBody(d,no){
     3:"线上有效讲者在线时长 >30 分钟；线下有签到原件；混合两项都需要。",
     4:"课件课题匹配终版议程，串场题目及主办方 logo 匹配；药企 logo 只允许首页、尾页、鸣谢页。",
     5:"劳务收集表与劳务协议须逐人比对姓名/时间/角色/金额/银行账号；银行账号不保存在核销证据中。",
-    6:"比对已签署合同、拟结算明细、发票的金额/会议名称/会议日期。正式可付款结算单只能在核销通过后生成。"
+    6:"已签合同总额须等于拟请款总额，发票金额须等于需开票合同总额；专家劳务按第五步核验的协议与劳务表免票请款。"
   };
   const selected=(d.materials||[]).filter(m=>(names[no]||[]).includes(m.kind));
   const step=d.verification.steps.find(x=>x.no===no);
   const contractTotal=(d.contracts||[]).filter(x=>x.status==="已签署").reduce((sum,x)=>sum+Number(x.amount||0),0);
+  const laborContracts=(d.contracts||[]).filter(x=>x.category==="劳务专家");
+  const expertPayments=(d.payments||[]).filter(x=>["专家费","个人报销"].includes(x.type));
   const evidence=step?.evidence;
   return `<div class="dsec"><h4>业务核验规则</h4><div class="dchk">${esc(note[no]||"请核对资料")}</div></div>
     <div class="dsec"><h4>已登记的关联材料</h4>${matList(selected,"请在材料中心补充对应原件")}</div>
     ${no===6?`<div class="dgrid">${cell("已签合同总额",fmt(contractTotal))}${cell("核销发票总金额",step?.invoiceAmount==null?"未核对":fmt(step.invoiceAmount))}</div>`:""}
+    ${no===5?`<div class="dsec"><h4>劳务 / 专家类合同（合同分类）</h4>
+      ${laborContracts.length?table([{t:"合同名称"},{t:"合同收款方"},{t:"金额"}],
+      laborContracts.map(x=>({c:[esc(x.name),esc(x.vendor),fmt(x.amount)]}))):'<div class="dhint">暂无劳务专家类合同，请先到合同台账核验分类</div>'}
+      <h4>专家费 / 个人报销（付款类别，需核销后申请）</h4>
+      ${payRows(expertPayments)}</div>`:""}
     <div class="dsec"><h4>结构化核验结果</h4>
       ${evidence?`<pre class="hint" style="white-space:pre-wrap">${esc(JSON.stringify(evidence,null,2))}</pre>`:
       '<div class="dhint">尚未完成本步骤核验。结构化证据由人工录入，文件内容 OCR 尚未启用。</div>'}</div>`;
