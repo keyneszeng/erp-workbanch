@@ -26,6 +26,9 @@ jobs:
       - name: Check key JavaScript syntax
         run: |
           node --check server/api/mini.js
+          node --check server/lib/associations.js
+          node --check server/lib/verified-payees.js
+          node --input-type=module --check < web/assets/js/lib/payee-picker.js
           node --check server/api/mini-applications.js
           node --check miniprogram/pages/apply/index.js
           node --input-type=module --check < web/assets/js/pages/dashboard.js
@@ -70,6 +73,8 @@ jobs:
           sudo apt-get install -y -qq tesseract-ocr tesseract-ocr-chi-sim tesseract-ocr-eng poppler-utils
       - name: Run complete API regression
         run: npm test
+      - name: Run Cloudflare DO-SQLite compatibility regression
+        run: npm run test:cf
       - name: Install headless browser test harness
         run: npm install --no-save --no-package-lock --no-audit --no-fund playwright
       - name: "Black-box Web UI smoke: workbench, project, materials and finance"
