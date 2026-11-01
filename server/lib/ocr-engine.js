@@ -73,7 +73,11 @@ function parseAgenda(raw){
     const line=rawLine.replace(/^\d{1,2}[:：]\d{2}\s*(?:[-—~至]\s*\d{1,2}[:：]\d{2})?\s*/,"").trim();
     let m=line.match(/(?:讲者|讲师|演讲人|授课人|Speaker|Presenter)\s*[:：]?\s*([^，,;；|]{2,35}?)\s+(?:课题|主题|讲题|报告题目|Topic|Subject)\s*[:：]?\s*(.{3,160})/i);
     if(m){add(m[1],m[2]);pending="";continue;}
-    m=line.match(/^(.{2,35}?(?:教授|主任|医生|博士|老师|Dr\.?\s+\w+))\s*[：:|｜—-]\s*(.{3,160})$/iu);
+    // 「张教授：课题」「Dr Alex - Topic」这类最常见写法。
+    // 前缀必须是 .{0,35}?：写成 .{2,35}? 会强制名字前至少两个字符，
+    // 于是「张教授：X」（教授二字就是名字结尾）和「Dr Alex - X」永远匹配不上，
+    // 只有显式写「讲者：X 课题：Y」才认，等于把绝大多数议程挡在门外。
+    m=line.match(/^(.{0,35}?(?:教授|主任|医生|博士|老师|Dr\.?\s+\w+))\s*[：:|｜—-]\s*(.{3,160})$/iu);
     if(m){add(m[1],m[2]);pending="";continue;}
     m=line.match(/^(?:讲者|讲师|演讲人|授课人|Speaker|Presenter)\s*[:：]\s*(.{2,35})$/i);
     if(m){pending=m[1];continue;}
