@@ -70,6 +70,10 @@ jobs:
           sudo apt-get install -y -qq tesseract-ocr tesseract-ocr-chi-sim tesseract-ocr-eng poppler-utils
       - name: Run complete API regression
         run: npm test
+      - name: Install headless browser test harness
+        run: npm install --no-save --no-package-lock --no-audit --no-fund playwright
+      - name: Black-box Web UI smoke: role workbench, project, materials and finance
+        run: node test/ui/prototype-visual-smoke.js
       - name: Assert Cloudflare demo-only config and blocked production deploy
         run: |
           node scripts/check-cloudflare-demo.cjs
