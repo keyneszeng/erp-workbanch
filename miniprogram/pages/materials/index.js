@@ -31,27 +31,47 @@ Page({
  input(e){this.setData({[e.currentTarget.dataset.key]:e.detail.value});},
  async addPhoto(){
   if(this.data.busy||this.data.locked)return;
-  const kind=this.data.custom?this.data.customKind.trim():this.data.kind.trim();
-  if(!this.data.pid||!kind||!this.data.name.trim()||kind.length>20||this.data.name.length>120){
-   this.setData({error:"请选项目并填写有效的材料类别（≤20字）与名称（≤120字）"});return;
-  }
-  this.setData({busy:true,error:"",uploaded:""});
   try{
    const media=await new Promise((resolve,reject)=>wx.chooseMedia({
-    count:1,mediaType:["image"],sourceType:["album","camera"],
-    success:resolve,fail:reject}));
-   const selected=media.tempFiles[0];
-   if(selected.size>8*1024*1024)throw new Error("图片不得超过 8 MB");
-   const buffer=await new Promise((resolve,reject)=>wx.getFileSystemManager().readFile({
-    filePath:selected.tempFilePath,success:r=>resolve(r.data),fail:reject}));
+    count:1,mediaType:["image"],sourceType:["album","camera"],success:resolve,fail:reject}));
+   const selected=media.tempFiles?.[0];
+   if(!selected)throw new Error("没有选中照片");
    const ext=/\.png$/i.test(selected.tempFilePath)?"png":/\.webp$/i.test(selected.tempFilePath)?"webp":"jpg";
+   await this.uploadPicked(selected,"会议照片."+ext);
+  }catch(e){this.setData({error:e.message||"图片选择失败"});}
+ },
+ async addFile(){
+  if(this.data.busy||this.data.locked)return;
+  try{
+   const result=await new Promise((resolve,reject)=>wx.chooseMessageFile({
+    count:1,type:"file",extension:["ppt","pptx","xlsx","pdf","docx"],
+    success:resolve,fail:reject
+   }));
+   const selected=result.tempFiles?.[0];
+   if(!selected)throw new Error("未选择文件");
+   const name=String(selected.name||"");
+   if(!/\.(ppt|pptx|xlsx|pdf|docx)$/i.test(name))throw new Error("仅允许 PPT、PPTX、XLSX、PDF、DOCX 文件");
+   await this.uploadPicked(selected,name);
+  }catch(e){this.setData({error:e.message||"文件选择失败"});}
+ },
+ async uploadPicked(selected,fileName){
+  const kind=this.data.custom?this.data.customKind.trim():this.data.kind.trim();
+  if(!this.data.pid||!kind||!this.data.name.trim()||kind.length>20||this.data.name.length>120){
+   this.setData({error:"请选择会议并填写有效材料类别（20 字内）和名称（120 字内）"});return;
+  }
+  if(Number(selected.size)>8*1024*1024){this.setData({error:"单个附件不能超过 8 MB"});return;}
+  this.setData({busy:true,error:"",uploaded:""});
+  try{
+   const buffer=await new Promise((resolve,reject)=>wx.getFileSystemManager().readFile({
+    filePath:selected.tempFilePath||selected.path,success:r=>resolve(r.data),fail:reject}));
    const upload=await app.api("/uploads?pid="+encodeURIComponent(this.data.pid),"POST",buffer,
-    {"Content-Type":"application/octet-stream","X-File-Name":encodeURIComponent("photo."+ext)});
+    {"Content-Type":"application/octet-stream","X-File-Name":encodeURIComponent(fileName)});
    await app.api("/projects/"+encodeURIComponent(this.data.pid)+"/materials","POST",{
-     kind,name:this.data.name.trim(),file_key:upload.key,file_name:upload.name,file_size:upload.size,file_mime:upload.mime});
+    kind,name:this.data.name.trim(),file_key:upload.key,
+    file_name:upload.name,file_size:upload.size,file_mime:upload.mime});
    this.setData({uploaded:"已归档："+upload.name,name:""});
    wx.showToast({title:"归档成功",icon:"success"});
-  }catch(e){this.setData({error:e.message||"上传失败"});}
+  }catch(e){this.setData({error:e.message||"归档失败"});}
   finally{this.setData({busy:false});}
  }
 });
