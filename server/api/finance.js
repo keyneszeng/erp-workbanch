@@ -510,6 +510,19 @@ function register(router) {
   };
 
   /** 统一审批入口：按 type 分派 */
+  router.patch("/api/approvals/:id/sla", async ctx => {
+    if(!isSuper(ctx.user))throw forbidden("只有总管理员可以修改审批时限");
+    const approval=db.prepare("SELECT * FROM approvals WHERE id=?").get(ctx.params.id);
+    if(!approval)throw notFound("审批单不存在");
+    const p=getProject(approval.pid);assertProjectVisible(ctx.user,p);
+    if(approval.status!=="待审批")throw conflict("只允许修改待审批单的时限","APPROVAL_LOCKED");
+    const sla=String(ctx.body?.sla||"").trim();
+    if(sla.length<2||sla.length>80||/[<>\r\n]/.test(sla))throw bad("时限须为 2~80 字的有效说明");
+    db.prepare("UPDATE approvals SET sla=? WHERE id=?").run(sla,approval.id);
+    logAudit({user:ctx.user,module:"审批中心",action:"修改审批时限",target:p.id,
+      detail:approval.id+" 时限："+String(approval.sla||"未设置")+" → "+sla,ip:ctx.ip});
+    return {id:approval.id,sla,message:"审批时限已更新"};
+  });
   router.post("/api/approvals/:id/decide", async (ctx) => {
     const a = db.prepare("SELECT * FROM approvals WHERE id = ?").get(ctx.params.id);
     if (!a) throw notFound("审批单不存在");
