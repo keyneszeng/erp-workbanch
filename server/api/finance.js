@@ -553,11 +553,14 @@ function register(router) {
       }
       const at = now();
       db.prepare("UPDATE exceptions SET status = ?, approved_by = ?, approved_at = ?, comment = ? WHERE id = ?")
-        .run(approve ? "已通过" : "已驳回", ctx.user.name, at, comment, ex.id);
+        .run(approve ? (isDemoMode() ? "已通过" : "待复核") : "已驳回", ctx.user.name, at, comment, ex.id);
       db.prepare("UPDATE approvals SET status = ?, decided_by = ?, decided_at = ?, comment = ? WHERE id = ?")
         .run(approve ? "已通过" : "已驳回", ctx.user.name, at, comment, a.id);
-      db.prepare("UPDATE verify_steps SET result = ?, remark = ?, checked_by = ?, checked_at = ? WHERE pid = ? AND step_no = ?")
-        .run(approve ? "已解例外" : "不通过", approve ? `例外获批：${ex.reason}` : `例外被驳回：${ex.reason}`, ctx.user.name, at, ex.pid, ex.step_no);
+      // 生产流程：例外审批不等于核销通过；整改后必须回原步骤重新核验。
+      if (Number(ex.step_no)>0) db.prepare("UPDATE verify_steps SET result = ?, remark = ?, checked_by = ?, checked_at = ? WHERE pid = ? AND step_no = ?")
+        .run(approve && isDemoMode() ? "已解例外" : "不通过",
+          approve ? (isDemoMode() ? `例外获批：${ex.reason}` : `整改已受理：${ex.reason}，须原步骤复核`) : `例外被驳回：${ex.reason}`,
+          ctx.user.name, at, ex.pid, ex.step_no);
       logAudit({ user: ctx.user, module: "会后核销", action: approve ? "例外通过" : "例外驳回", target: ex.pid, detail: `${ex.id} 第 ${ex.step_no} 步：${ex.reason}`, ip: ctx.ip });
       return { message: `例外单 ${ex.id} ${approve ? "已通过" : "已驳回"}`, verification: verification(ex.pid) };
     }
