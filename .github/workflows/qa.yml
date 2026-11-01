@@ -40,6 +40,9 @@ jobs:
           node --check server/api/verify.js
           node --check server/api/system.js
           node --check server/api/files.js
+          node --check server/lib/ocr-engine.js
+          node --check server/api/material-workbench.js
+          node --input-type=module --check < web/assets/js/lib/material-workbench.js
           node --check server/lib/archive-pdf.js
           node --check server/api/archive-pdf.js
           node --check server/api/prep-invitations.js
@@ -55,6 +58,10 @@ jobs:
           node --check miniprogram/pages/invite/index.js
       - name: Install PDF generation dependency
         run: npm install --no-audit --no-fund
+      - name: Install offline OCR runtime (Tesseract Chinese/English + Poppler)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq tesseract-ocr tesseract-ocr-chi-sim tesseract-ocr-eng poppler-utils
       - name: Run complete API regression
         run: npm test
       - name: Assert Cloudflare demo-only config and blocked production deploy
