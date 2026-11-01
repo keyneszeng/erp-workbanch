@@ -39,10 +39,10 @@ export const api = {
    * 上传单个文件（原始二进制，非 multipart）。
    * 用 XHR 而不是 fetch：fetch 拿不到上传进度，几 MB 的照片没有进度条体验很差。
    */
-  upload(file, { onProgress } = {}) {
+  upload(file, { onProgress, pid } = {}) {
     return new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest();
-      xhr.open("POST", "/api/uploads");
+      xhr.open("POST", "/api/uploads" + (pid ? "?pid=" + encodeURIComponent(pid) : ""));
       xhr.withCredentials = true;
       xhr.setRequestHeader("Content-Type", file.type || "application/octet-stream");
       xhr.setRequestHeader("x-file-name", encodeURIComponent(file.name || "file"));
