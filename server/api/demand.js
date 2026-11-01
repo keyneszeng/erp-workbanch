@@ -9,7 +9,7 @@ const { DEMAND_GROUPS, DEMAND_TEMPLATE, DEMAND_NEED_OPTIONS, DEMAND_STATUSES } =
 const { assignedMember } = require("../lib/member-directory");
 const { isDemoMode } = require("../lib/runtime");
 
-const MAX_LEN = { item: 40, spec: 200, owner: 20, due: 20, note: 120 };
+const MAX_LEN = { item: 40, spec: 200, owner: 20, due: 20, note: 120, attach: 150, budget_owner: 80 };
 
 const money2 = (n) => Number(n || 0).toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
@@ -60,7 +60,8 @@ function loadSheet(pid) {
       if (!groups[r.grp]) groups[r.grp] = [];
       groups[r.grp].push({
         item: r.item, note: r.note, need: r.need, spec: r.spec || "",
-        owner: r.owner || "", owner_id: r.owner_id || "", due: r.due || "", budget: r.budget || ""
+        owner: r.owner || "", owner_id: r.owner_id || "", due: r.due || "", budget: r.budget || "",
+        budget_owner: r.budget_owner || "", attach: r.attach || "", status: r.status || "未开始"
       });
     }
   } else {
@@ -68,7 +69,8 @@ function loadSheet(pid) {
     for (const g of DEMAND_GROUPS) {
       for (const t of (DEMAND_TEMPLATE[g] || [])) {
         groups[g].push({
-          item: t.item, note: t.note || "", need: "需要", spec: "", owner: "", owner_id: "", due: "", budget: ""
+          item: t.item, note: t.note || "", need: "需要", spec: "", owner: "", owner_id: "", due: "", budget: "",
+          budget_owner: "", attach: "", status: "未开始"
         });
       }
     }
@@ -112,8 +114,8 @@ function ensureSheet(pid) {
 function replaceItems(pid, items, at) {
   db.prepare("DELETE FROM demand_items WHERE pid = ?").run(pid);
   const ins = db.prepare(
-    `INSERT OR REPLACE INTO demand_items (pid, grp, item, note, need, spec, owner, owner_id, due, budget, attach, status, ordering, updated_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+    `INSERT OR REPLACE INTO demand_items (pid, grp, item, note, need, spec, owner, owner_id, due, budget, attach, status, ordering, updated_at,budget_owner)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
   );
   let order = 0;
   const seen = new Set();
@@ -124,9 +126,8 @@ function replaceItems(pid, items, at) {
     const key = `${it.grp}@@${item}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    // attach / status 已从业务上取消，列保留给旧数据，新写入统一置空
     ins.run(pid, it.grp, item, it.note || "", it.need || "需要", it.spec || "", it.owner || "", it.owner_id || null,
-      it.due || "", it.budget || "", "", "未开始", order++, at);
+      it.due || "", it.budget || "", it.attach || "", it.status || "未开始", order++, at, it.budget_owner || "");
   }
   db.prepare("UPDATE demand_sheets SET updated_at = ? WHERE pid = ?").run(at, pid);
 }
@@ -234,9 +235,14 @@ function register(router) {
       it.budget = parseAmount(it.budget, name);
       checkItem(it);
     }
+    const before = loadSheet(p.id);
     const at = ensureSheet(p.id);
-    // 事务走 db 层统一入口：Node 用 BEGIN/COMMIT，Cloudflare 用 transactionSync
-    transaction(() => replaceItems(p.id, b.items, at));
+    // 变更前后快照留痕；已确认的需求必须先撤销确认再编辑，改后重新确认。
+    transaction(() => {
+      replaceItems(p.id, b.items, at);
+      db.prepare("INSERT INTO demand_revisions (pid,before_json,after_json,changed_by,changed_at,action) VALUES (?,?,?,?,?,?)")
+        .run(p.id,JSON.stringify(before.items),JSON.stringify(loadSheet(p.id).items),ctx.user.name,at,"保存");
+    });
     const needCnt = b.items.filter((x) => x.need === "需要").length;
     const total = yuan(b.items.filter((x) => x.need === "需要").reduce((s, x) => s + (Number(x.budget) || 0), 0));
     logAudit({
@@ -261,6 +267,18 @@ function register(router) {
     if (!db.prepare("SELECT 1 FROM demand_items WHERE pid = ?").get(p.id)) {
       replaceItems(p.id, flattenTemplate(), at);
     }
+    if (!isDemoMode()) {
+      const rows = db.prepare("SELECT * FROM demand_items WHERE pid=? AND need='需要'").all(p.id);
+      if (!rows.length) throw bad("确认前至少一项需求应标记为需要");
+      for (const it of rows) {
+        const missing = ["spec","owner_id","due","budget_owner","attach","status"].filter(k=>!String(it[k]??"").trim());
+        if (missing.length) throw bad("需求「"+it.item+"」缺少必填字段："+missing.join("、")+"。七项字段必须齐全");
+        if (!/^(?:[a-f0-9]{32}\.(?:jpg|png|pdf|docx|pptx|xlsx|webp|gif)|不适用)$/.test(it.attach))
+          throw bad("需求「"+it.item+"」附件必须关联已登记文件标识，或明确标记不适用");
+      }
+    }
+    db.prepare("INSERT INTO demand_revisions (pid,before_json,after_json,changed_by,changed_at,action) VALUES (?,?,?,?,?,?)")
+      .run(p.id,JSON.stringify({confirmed:false}),JSON.stringify({confirmed:true}),ctx.user.name,at,"确认");
     db.prepare("UPDATE demand_sheets SET confirmed=1, confirmed_by=?, confirmed_at=?, updated_at=? WHERE pid=?")
       .run(ctx.user.name, at, at, p.id);
     const s = loadSheet(p.id);
@@ -283,6 +301,8 @@ function register(router) {
     const sheetRow = db.prepare("SELECT * FROM demand_sheets WHERE pid = ?").get(p.id);
     if (!sheetRow || !sheetRow.confirmed) throw conflict("会务需求尚未归档，无需撤销", "NOT_ARCHIVED");
     const at = now();
+    db.prepare("INSERT INTO demand_revisions (pid,before_json,after_json,changed_by,changed_at,action) VALUES (?,?,?,?,?,?)")
+      .run(p.id,JSON.stringify({confirmed:true}),JSON.stringify({confirmed:false}),ctx.user.name,at,"撤销确认");
     db.prepare("UPDATE demand_sheets SET confirmed=0, confirmed_by=NULL, confirmed_at=NULL, updated_at=? WHERE pid=?")
       .run(at, p.id);
     logAudit({
@@ -309,6 +329,14 @@ function register(router) {
   });
 
   // 导出 CSV
+  router.get("/api/demand/:id/revisions", async (ctx) => {
+    assertModule(ctx.user, "demand", "demand:write");
+    const p=getProject(ctx.params.id);
+    assertProjectVisible(ctx.user,p);
+    const rows=db.prepare("SELECT id,changed_by,changed_at,action,before_json,after_json FROM demand_revisions WHERE pid=? ORDER BY id DESC LIMIT 100").all(p.id);
+    return {rows};
+  });
+
   router.get("/api/demand/:id/export", async (ctx) => {
     assertModule(ctx.user, "demand", "demand:write");
     const p = getProject(ctx.params.id);
