@@ -158,6 +158,49 @@ CREATE TABLE IF NOT EXISTS contracts (
 );
 CREATE INDEX IF NOT EXISTS idx_contracts_pid ON contracts(pid);
 
+-- 企业赞助收入独立于会务支出合同，避免错误计入核销合同费用。
+CREATE TABLE IF NOT EXISTS meeting_sponsor_contracts (
+  id TEXT PRIMARY KEY,
+  pid TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  enterprise TEXT NOT NULL,
+  contract_no TEXT NOT NULL,
+  amount REAL NOT NULL,
+  status TEXT NOT NULL DEFAULT '待确认',
+  file_key TEXT NOT NULL,
+  file_name TEXT,
+  created_by INTEGER REFERENCES users(id),
+  created_at TEXT NOT NULL,
+  approved_by INTEGER REFERENCES users(id),
+  approved_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_sponsor_contracts_pid ON meeting_sponsor_contracts(pid);
+CREATE TABLE IF NOT EXISTS meeting_sponsor_receipts (
+  id TEXT PRIMARY KEY,
+  pid TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  sponsor_id TEXT NOT NULL REFERENCES meeting_sponsor_contracts(id),
+  amount REAL NOT NULL,
+  payment_ref TEXT NOT NULL,
+  received_date TEXT NOT NULL,
+  file_key TEXT NOT NULL,
+  file_name TEXT,
+  created_by INTEGER REFERENCES users(id),
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_sponsor_receipts_pid ON meeting_sponsor_receipts(pid);
+CREATE TABLE IF NOT EXISTS meeting_sponsor_invoices (
+  id TEXT PRIMARY KEY,
+  pid TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  sponsor_id TEXT NOT NULL REFERENCES meeting_sponsor_contracts(id),
+  amount REAL NOT NULL,
+  invoice_no TEXT NOT NULL UNIQUE,
+  issued_date TEXT NOT NULL,
+  file_key TEXT NOT NULL,
+  file_name TEXT,
+  created_by INTEGER REFERENCES users(id),
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_sponsor_invoices_pid ON meeting_sponsor_invoices(pid);
+
 CREATE TABLE IF NOT EXISTS verified_labor_payees (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   pid TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
