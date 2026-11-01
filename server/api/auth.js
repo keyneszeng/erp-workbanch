@@ -173,7 +173,7 @@ function register(router) {
   router.get("/api/meta", async () => {
     const org = db.prepare("SELECT v FROM settings WHERE k = 'org'").get();
     return {
-      org: org ? org.v : "会务执行中心",
+      org: org ? org.v : "会规化会务执行系统",
       roles: Object.entries(ROLES).map(([k, v]) => ({ key: k, ...v })),
       modules: MODULES,
       statuses: STATUSES,
