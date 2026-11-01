@@ -435,7 +435,7 @@ function register(router) {
     assertCan(ctx.user, "user:manage", "只有总管理员可以创建账号");
     const b = {...(ctx.body||{})};
     const userAssocs=validateAssociations(b.assocs,b.assoc);
-    if(b.role!=="admin" && !userAssocs.length)throw bad("请为业务账号选择至少一个所属协会");
+    if(b.assocs!==undefined && b.role!=="admin" && !userAssocs.length)throw bad("请选择至少一个所属协会");
     b.assoc=userAssocs[0]||null;
     if (!isDemoMode()) {
       const phone = normalizePhone(b.phone);
