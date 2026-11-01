@@ -71,13 +71,13 @@ function parseAgenda(raw){
   for(const rawLine of lines){
     if(out.length>=100)break;
     const line=rawLine.replace(/^\d{1,2}[:：]\d{2}\s*(?:[-—~至]\s*\d{1,2}[:：]\d{2})?\s*/,"").trim();
-    let m=line.match(/(?:讲者|讲师|演讲人|授课人)\s*[:：]\s*([^，,;；|]{2,35}).*?(?:课题|主题|讲题|报告题目)\s*[:：]\s*(.{3,160})/);
+    let m=line.match(/(?:讲者|讲师|演讲人|授课人|Speaker|Presenter)\s*[:：]?\s*([^，,;；|]{2,35}?)\s+(?:课题|主题|讲题|报告题目|Topic|Subject)\s*[:：]?\s*(.{3,160})/i);
     if(m){add(m[1],m[2]);pending="";continue;}
     m=line.match(/^(.{2,35}?(?:教授|主任|医生|博士|老师|Dr\.?\s+\w+))\s*[：:|｜—-]\s*(.{3,160})$/iu);
     if(m){add(m[1],m[2]);pending="";continue;}
-    m=line.match(/^(?:讲者|讲师|演讲人|授课人)\s*[:：]\s*(.{2,35})$/);
+    m=line.match(/^(?:讲者|讲师|演讲人|授课人|Speaker|Presenter)\s*[:：]\s*(.{2,35})$/i);
     if(m){pending=m[1];continue;}
-    m=line.match(/^(?:课题|讲题|主题|演讲题目|报告题目)\s*[:：]\s*(.{3,160})$/);
+    m=line.match(/^(?:课题|讲题|主题|演讲题目|报告题目|Topic|Subject)\s*[:：]\s*(.{3,160})$/i);
     if(m&&pending){add(pending,m[1]);pending="";continue;}
     m=line.match(/^([^|｜]{2,35})\s*[|｜]\s*([^|｜]{3,160})$/);
     if(m&&!/^(讲者|姓名|课程|课题)$/.test(m[1].trim())){add(m[1],m[2]);pending="";}
