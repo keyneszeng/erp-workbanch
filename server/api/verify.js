@@ -87,7 +87,7 @@ function register(router) {
     if (!isDemoMode() && no === 6 && result === "通过") {
       const signed = db.prepare("SELECT COUNT(*) AS n, COALESCE(SUM(amount),0) AS total FROM contracts WHERE pid=? AND status='已签署'").get(p.id);
       if (!signed.n) throw conflict("核票前必须有经协会管理员审批的已签署合同", "CONTRACT_NOT_SIGNED");
-      const invoiceMaterial = db.prepare("SELECT COUNT(*) AS n FROM materials WHERE pid=? AND kind='发票' AND file_key IS NOT NULL").get(p.id);
+      const invoiceMaterial = db.prepare("SELECT COUNT(*) AS n FROM materials WHERE pid=? AND kind='发票' AND file_key IS NOT NULL AND deleted_at IS NULL").get(p.id);
       if (!invoiceMaterial.n) throw conflict("请先上传发票原件供金额核对", "INVOICE_EVIDENCE_REQUIRED");
       invoiceAmount = Number(ctx.body?.invoiceAmount);
       if (ctx.body?.invoiceAmount === "" || ctx.body?.invoiceAmount == null || !Number.isFinite(invoiceAmount) || invoiceAmount <= 0 || Number(invoiceAmount.toFixed(2)) !== invoiceAmount)
@@ -287,7 +287,8 @@ function register(router) {
       `SELECT p.id, p.name, p.status FROM projects p WHERE ${sql} AND p.status IN ('筹备中','执行中','待核销','已核销','已结算') ORDER BY p.date DESC`
     ).all(...params).map((p) => {
       const have = kindsByPid.get(p.id) || [];
-      return { ...p, have, missing: MATERIAL_KINDS.filter((k) => !have.includes(k)) };
+      const required = MATERIAL_KINDS;
+      return { ...p, have, required, missing: required.filter((k) => !have.includes(k)) };
     });
 
     return {
@@ -308,6 +309,7 @@ function register(router) {
     assertProjectVisible(ctx.user, p);
     assertCan(ctx.user, "material:write", "当前角色无材料登记权限");
     if (p.status === "已归档") throw conflict("项目已归档，材料清单已封存，不可再登记", "ARCHIVED", { status: p.status });
+    if (settlementOf(p.id)) throw conflict("结算单已生成，材料证据已冻结，不可追加或修改", "FROZEN");
     const { kind: rawKind, name, version, file_key, file_name, file_size, file_mime } = ctx.body || {};
     // 8 类是归档必备，必须用标准名，齐备校验只认这 8 个；
     // 但实际卷宗里还有会议纪要、专家简历、批文这类东西，以前一律被白名单挡在门外，
