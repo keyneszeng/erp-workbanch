@@ -98,6 +98,7 @@ test("测试 Nginx 仅绑定回环地址，禁止通过公网 8080 暴露账号�
   assert.doesNotMatch(nginx, /listen\s+(?:8080|0\.0\.0\.0:8080|\[::\]:8080)\s*;/);
   const deploy = fs.readFileSync(path.join(__dirname, "../deploy/aliyun/deploy.sh"), "utf8");
   assert.match(deploy, /SSH 隧道/);
+  assert.match(deploy, /生产部署禁止 --skip-tls/, "生产不得通过 --skip-tls 绕过 TLS");
   const start = deploy.indexOf('if [ "$MODE" = "test" ]; then\n  # 测试环境：');
   const end = deploy.indexOf("\nelse\n  # 生产：", start);
   assert.ok(start >= 0 && end > start, "应能定位测试站点配置段");
