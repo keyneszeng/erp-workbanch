@@ -48,7 +48,7 @@ function matList(list, emptyText) {
       ${m.file_name ? `<span class="dtag">${esc(m.file_name)}</span>` : ""}
       <span class="dm">${esc(m.uploader || "—")} · ${esc(dt(m.created_at))}</span>
       ${m.file_key
-        ? `<a class="link" href="/api/uploads/${m.file_key}" target="_blank" rel="noopener">查看原件</a>`
+        ? `<a class="link" href="/api/uploads/${encodeURIComponent(m.file_key)}" target="_blank" rel="noopener" title="点击打开原件">${esc(m.file_name || m.name)} · 点击原件查看</a>`
         : `<span class="dm" style="margin-left:0">无附件</span>`}
     </li>`).join("")}</ul>`;
 }
@@ -72,9 +72,9 @@ function payRows(list) {
 /** 按步骤组装「这一步到底要核什么」的原始数据 */
 export function stepBody(d,no){
   const names={
-    1:["会议通知","招商函"],2:["议程","劳务收集表","劳务协议"],
-    3:["签到表","参会数据"],4:["终版议程","议程","课件","串场"],
-    5:["劳务收集表","劳务协议"],6:["合同","发票","拟结算单"]
+    1:["立项文件","终版议程"],2:["终版议程","劳务收集表","劳务协议"],
+    3:["参会数据"],4:["终版议程","课件","串场"],
+    5:["劳务收集表"],6:["合同","发票","拟结算单"]
   };
   const note={
     1:"已盖章+终版：会议名称/日期/主办方/招商主体逐项核对。",
@@ -94,8 +94,8 @@ export function stepBody(d,no){
     <div class="dsec"><h4>已登记的关联材料</h4>${matList(selected,"请在材料中心补充对应原件")}</div>
     ${no===6?`<div class="dgrid">${cell("已签合同总额",fmt(contractTotal))}${cell("核销发票总金额",step?.invoiceAmount==null?"未核对":fmt(step.invoiceAmount))}</div>`:""}
     ${no===5?`<div class="dsec"><h4>劳务 / 专家类合同（合同分类）</h4>
-      ${laborContracts.length?table([{t:"合同名称"},{t:"合同收款方"},{t:"金额"}],
-      laborContracts.map(x=>({c:[esc(x.name),esc(x.vendor),fmt(x.amount)]}))):'<div class="dhint">暂无劳务专家类合同，请先到合同台账核验分类</div>'}
+      ${laborContracts.length?table([{t:"合同名称"},{t:"合同收款方"},{t:"金额"},{t:"原件"}],
+      laborContracts.map(x=>({c:[esc(x.name),esc(x.vendor),fmt(x.amount),x.file_key?`<a class="link" href="/api/uploads/${encodeURIComponent(x.file_key)}" target="_blank" rel="noopener">点击合同原件查看</a>`:"未上传"]}))):'<div class="dhint">暂无劳务专家类合同，请先到合同台账核验分类</div>'}
       <h4>专家费 / 个人报销（付款类别，需核销后申请）</h4>
       ${payRows(expertPayments)}</div>`:""}
     <div class="dsec"><h4>结构化核验结果</h4>
