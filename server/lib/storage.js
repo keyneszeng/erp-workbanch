@@ -35,7 +35,7 @@ const ALLOWED_MIME = {
   [OFFICE_MIME.xlsx]: "xlsx"
 };
 
-const MAX_BYTES = 8 * 1024 * 1024; // 单文件 8 MB
+const MAX_BYTES = 20 * 1024 * 1024; // 单文件 20 MB
 const MAX_FILES_PER_MATERIAL = 1;
 
 /* ---------------------------------------------------------------- 本地磁盘 */
