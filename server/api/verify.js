@@ -87,13 +87,17 @@ function register(router) {
     if (!isDemoMode() && no === 6 && result === "通过") {
       const signed = db.prepare("SELECT COUNT(*) AS n, COALESCE(SUM(amount),0) AS total FROM contracts WHERE pid=? AND status='已签署'").get(p.id);
       if (!signed.n) throw conflict("核票前必须有经协会管理员审批的已签署合同", "CONTRACT_NOT_SIGNED");
-      const invoiceMaterial = db.prepare("SELECT COUNT(*) AS n FROM materials WHERE pid=? AND kind='发票' AND file_key IS NOT NULL AND deleted_at IS NULL").get(p.id);
-      if (!invoiceMaterial.n) throw conflict("请先上传发票原件供金额核对", "INVOICE_EVIDENCE_REQUIRED");
-      invoiceAmount = Number(ctx.body?.invoiceAmount);
-      if (ctx.body?.invoiceAmount === "" || ctx.body?.invoiceAmount == null || !Number.isFinite(invoiceAmount) || invoiceAmount <= 0 || Number(invoiceAmount.toFixed(2)) !== invoiceAmount)
-        throw bad("请填写已核验的发票总金额（元，最多两位小数）");
-      if (cents(invoiceAmount) !== cents(signed.total))
-        throw conflict(`发票总金额 ¥${yuan(invoiceAmount)} 与已签署合同总金额 ¥${yuan(signed.total)} 不符，不能通过核销`, "INVOICE_CONTRACT_MISMATCH");
+      // 专家劳务费用可以按协议和核验后的劳务表请款，不要求虚构发票号。
+      // 非劳务合同仍要求：发票总额 = 应开票合同总额；总拟请款 = 全部合同总额。
+      const billable=db.prepare("SELECT COALESCE(SUM(amount),0) AS total FROM contracts WHERE pid=? AND status='已签署' AND COALESCE(category,'')<>'劳务专家'").get(p.id).total;
+      const invoiceMaterial=db.prepare("SELECT COUNT(*) AS n FROM materials WHERE pid=? AND kind='发票' AND file_key IS NOT NULL AND deleted_at IS NULL").get(p.id);
+      if(cents(billable)>0 && !invoiceMaterial.n)throw conflict("非劳务合同请先上传发票原件","INVOICE_EVIDENCE_REQUIRED");
+      invoiceAmount=Number(ctx.body?.invoiceAmount);
+      if(ctx.body?.invoiceAmount===""||ctx.body?.invoiceAmount==null||!Number.isFinite(invoiceAmount)||
+         invoiceAmount<0||Number(invoiceAmount.toFixed(2))!==invoiceAmount)
+        throw bad("请输入发票总金额（无开票合同可为 0）");
+      if(cents(invoiceAmount)!==cents(billable))
+        throw conflict(`发票金额 ¥${yuan(invoiceAmount)} 与需开票合同总额 ¥${yuan(billable)} 不符；专家劳务合同按核验劳务表另行请款`,"INVOICE_CONTRACT_MISMATCH");
     }
     if (!isDemoMode() && result==="通过") {
       const outstanding = db.prepare("SELECT id,resolved_at,evidence_material_id FROM exceptions WHERE pid=? AND step_no=? AND status='待复核'").all(p.id,no);
