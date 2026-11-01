@@ -304,6 +304,13 @@ function register(router) {
     };
   });
 
+  router.get("/api/projects/:id/payee-options", async ctx => {
+    const p=getProject(ctx.params.id);assertProjectVisible(ctx.user,p);
+    assertCan(ctx.user,"payment:create","无权查看收款人信息");
+    return {rows:require("../lib/verified-payees").options(p.id),
+      note:"候选来自已签署合同与第五步已核验劳务资料，敏感银行账号只显示尾号"};
+  });
+
   /** 付款申请 —— 核销是唯一前置门 */
   router.post("/api/payments", async (ctx) => {
     const b = ctx.body || {};
@@ -335,23 +342,27 @@ function register(router) {
       );
     }
     if (!PAYMENT_TYPES.includes(b.type)) throw bad(`付款类型必须是：${PAYMENT_TYPES.join(" / ")}`);
-    const payee = String(b.payee || "").trim();
-    if (!payee) throw bad("收款方为必填项");
-    if (payee.length > 60) throw bad("收款方不能超过 60 字");
-    // V1.2.18：只有收款方名字不够，财务得知道打到哪个账户
-    const payeeBank = parseBankName(b.payee_bank);
-    const payeeAccount = parseBankAccount(b.payee_account);
-    const invoiceNo = String(b.invoice_no || "").trim();
-    if (invoiceNo.length > 40) throw bad("发票号不能超过 40 字");
+    const choice=b.payee_option_id ? require("../lib/verified-payees").resolve(p.id,b.payee_option_id) : null;
+    if(!choice && !isDemoMode() && process.env.ERP_REQUIRE_VERIFIED_PAYEES==="1")
+      throw bad("必须从核销确认的劳务记录或已签署合同中选择收款方");
+    const payee=choice?choice.name:String(b.payee||"").trim();
+    if(!payee||payee.length>60)throw bad("收款方应为 1~60 字");
+    if(choice && b.payee && String(b.payee).trim()!==choice.name)throw bad("收款方与选定的核销资料不一致");
+    const payeeBank=parseBankName(choice?.bank || b.payee_bank);
+    const payeeAccount=parseBankAccount(choice?.account || b.payee_account);
+    // 发票属于核销材料，不是付款单字段；专家费个人报销不存在发票号。
+    const invoiceNo="";
     if (!isDemoMode()) {
-      if (!invoiceNo) throw bad("生产付款申请必须填写发票号");
-      const checked = db.prepare("SELECT invoice_amount FROM verify_steps WHERE pid=? AND step_no=6 AND result='通过'").get(p.id);
-      if (!checked || !Number.isFinite(checked.invoice_amount))
-        throw conflict("必须先完成发票与已签署合同金额核对，再申请付款", "INVOICE_CHECK_REQUIRED");
-      const allocated = db.prepare("SELECT COALESCE(SUM(amount),0) AS total FROM payments WHERE pid=? AND status IN ('待审批','已审批','已付款')").get(p.id);
-      const requested = Number(b.amount);
-      if (Number.isFinite(requested) && cents(allocated.total) + cents(requested) > cents(checked.invoice_amount))
-        throw conflict("已申请及本次付款合计不能超过经核销确认的发票与合同金额", "INVOICE_AMOUNT_EXCEEDED");
+      const checked=db.prepare("SELECT invoice_amount FROM verify_steps WHERE pid=? AND step_no=6 AND result='通过'").get(p.id);
+      if(!checked || !Number.isFinite(checked.invoice_amount))
+        throw conflict("必须先完成合同与开票金额核验再请款","INVOICE_CHECK_REQUIRED");
+      const signed=db.prepare("SELECT COALESCE(SUM(amount),0) AS total FROM contracts WHERE pid=? AND status='已签署'").get(p.id);
+      const allocated=db.prepare("SELECT COALESCE(SUM(amount),0) AS total FROM payments WHERE pid=? AND status IN ('待审批','已审批','已付款')").get(p.id);
+      const requested=Number(b.amount);
+      if(Number.isFinite(requested) && cents(allocated.total)+cents(requested)>cents(signed.total))
+        throw conflict("累计请款总额不得超过核销确认的已签署合同总额","CONTRACT_AMOUNT_EXCEEDED");
+      if(choice?.source==="labor" && cents(requested)>cents(choice.amount))
+        throw conflict("本笔专家费不得超过已核验的个人劳务金额","LABOR_AMOUNT_EXCEEDED");
     }
     const remark = String(b.remark || "");
     if (remark.length > 300) throw bad("付款说明不能超过 300 字");
