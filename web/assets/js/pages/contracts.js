@@ -1,5 +1,5 @@
 import { api, can, state } from "../lib/api.js";
-import { badge, confirmBox, esc, formHtml, modal, money, panel, readForm, table, toast, validate } from "../lib/ui.js";
+import { badge, confirmBox, promptBox, esc, formHtml, modal, money, panel, readForm, table, toast, validate } from "../lib/ui.js";
 import { bindFilePicker } from "../lib/upload.js";
 import { flowHint, flowOf, openContractDetail } from "../lib/contract-detail.js";
 
@@ -12,7 +12,7 @@ let q = "";
  */
 function flowBtn(c) {
   const f = flowOf(c);
-  if (f) return `<button class="link" data-cflow="${c.id}" data-caction="${f.action}">${f.label}</button>`;
+  if (f) return `<button class="link" data-cflow="${c.id}" data-caction="${f.action}">${f.label}</button>${c.status==="待签署" && can("contract:approve") ? `<button class="link danger" data-cflow="${c.id}" data-caction="reject">驳回</button>` : ""}`;
   const hint = flowHint(c);
   return hint
     ? `<span style="color:var(--mute)" title="${esc(hint)}">${c.status === "待签署" ? "待协会确认" : "—"}</span>`
@@ -87,6 +87,11 @@ export async function render(root) {
 
 /** 合同两步流转：提交签署 → 确认签署（确认时签署日期记为今天，可在台账核对） */
 async function contractFlow(root, id, action) {
+  let comment="";
+  if(action==="reject"){
+    comment=await promptBox({title:"驳回合同审批",label:"驳回原因（至少 4 字）",ok:"确认驳回"});
+    if(!comment)return;
+  }
   if (action === "sign") {
     const ok = await confirmBox(
       `确认合同 <b class="mono">${esc(id)}</b> 已签署？<br><br>签署日期默认记为今天，台账里可核对。`,
@@ -95,7 +100,7 @@ async function contractFlow(root, id, action) {
     if (!ok) return;
   }
   try {
-    const r = await api.post(`/api/contracts/${id}/transition`, { action });
+    const r = await api.post(`/api/contracts/${id}/transition`, { action,comment });
     toast(r.message, "ok");
     await render(root);
   } catch (e) { toast(e.message, "warn"); }
