@@ -57,12 +57,12 @@ export async function render(root) {
   renderMaterialWorkbench(root.querySelector("#materialWorkbench"),d.projects).catch(e=>toast(e.message,"warn"));
 
   const add = root.querySelector("#add");
-  if (add) add.onclick = () => openAdd(root, d.projects, d.kinds);
+  if (add) add.onclick = () => openMaterialRegistration(root, d.projects, d.kinds);
 }
 
-function openAdd(root, projects, kinds) {
+export function openMaterialRegistration(root, projects, kinds, defaultPid="", onSaved=null) {
   const fields = [
-    { k: "pid", l: "所属项目", t: "select", req: 1, opts: projects.map((p) => ({ v: p.id, l: `${p.id} ${p.name}` })) },
+    { k: "pid", l: "所属项目", t: "select", req: 1, v:defaultPid, opts: projects.map((p) => ({ v: p.id, l: `${p.id} ${p.name}` })) },
     { k: "kind", l: "材料类别", t: "select", req: 1, custom: 1, ph: "如：盖章会议通知 / 招商函 / 终版议程 / 讲者照片",
       opts: [...kinds, "会议通知", "招商函", "终版议程", "课件", "劳务收集表", "劳务协议", "讲者照片"].filter((v, i, a) => a.indexOf(v) === i),
       tip: "8 类是归档必备，建议优先选；确实不属于这 8 类的，选「自定义填入」自己写，能登记能查，但不顶替必备的那 8 类" },
@@ -124,7 +124,7 @@ function openAdd(root, projects, kinds) {
       }
       toast(picked.length?`已登记 ${picked.length} 份材料附件`:"材料已登记","ok");
       m.classList.remove("open");
-      await render(root);
+      if(onSaved)await onSaved(); else await render(root);
     } catch (e) {
       toast(e.message, "warn");
       btn.disabled = false;
