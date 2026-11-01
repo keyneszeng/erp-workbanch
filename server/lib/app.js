@@ -62,7 +62,7 @@ function isSecureRequest(req, url) {
  * 照片走这条路，不经过 JSON 解析——3 MB 的 JPEG 转成 JSON base64 会膨胀到 4 MB 且毫无必要。
  */
 const UPLOAD_PATH = "/api/uploads";
-const UPLOAD_LIMIT = 10 * 1024 * 1024;
+const UPLOAD_LIMIT = 20 * 1024 * 1024;
 
 function buildRouter() {
   const router = new Router();
