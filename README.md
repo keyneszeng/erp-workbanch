@@ -17,7 +17,7 @@
 - 首次初始化必须提供总管理员手机号码 `ERP_BOOTSTRAP_ADMIN_PHONE`，只能创建该管理员。
 - 仅总管理员可录入其他角色的手机号白名单、停用或重置账号；手机号是正式登录账号，不开放注册。
 - 白名单账号统一初始密码为 `123456`；首次登录被强制要求短信验证并改密后才允许访问业务接口。后续改密同样需要原密码和短信验证码。
-- 正式短信接口现采用**腾讯云 SMS**。生产服务器部署到阿里云 ECS **并不要求短信必须使用阿里云供应商**；更换短信供应商需要独立开发并验收。
+- 正式短信接口支持**阿里云短信（Dysmsapi，默认）**与**腾讯云 SMS**（兼容保留）。两家签名算法都已实现，切换只需改 `ERP_SMS_PROVIDER` 和对应凭据，无需改业务代码。
 - 演示模式保留原有 `admin`、`assoc`、`exec`、`finance`、`guest`、`zhaolei`、`sunqian`、`zhoutao` 8 个账号及 18 个演示项目，密码均为 `123456`。演示账号不能访问真实生产库。
 
 ## 微信小程序生产端（本轮新增）
@@ -39,11 +39,21 @@ set +a
 npm run prod:check
 ```
 
-`deploy/aliyun/` 包含 `systemd` 服务、Nginx HTTPS 和环境配置模板，`scripts/check-aliyun-production.cjs` 是生产上线门禁。强制独立持久化文件目录、安全 Secret、合法总管理员手机号、真实腾讯云短信配置，禁止演示域名和 Cloudflare 生产模式。
+`deploy/aliyun/` 包含 `systemd` 服务、Nginx HTTPS 和环境配置模板，`deploy/aliyun/deploy.sh` 是一键部署脚本，`scripts/check-aliyun-production.cjs` 是生产上线门禁。强制独立持久化文件目录、安全 Secret、合法总管理员手机号、真实短信通道配置，禁止演示域名和 Cloudflare 生产模式。
 
 **当前尚未实际提供阿里云 ECS 实例、生产域名、生产凭据、短信签名/模板或真实业务环境验收。因此仓库只完成生产部署准备，尚未上线。** 生产环境不直接使用演示数据库；上线前须完成备份恢复、真实短信、财务权限和个人信息合规核查。
 
 详见 [阿里云生产部署指南](docs/production-deployment.md) 和 [Cloudflare 演示环境约束](docs/cloudflare-secure-deployment.md)。
+
+## 云服务器测试版本（分支）
+
+`云服务器测试版本` 分支用于「域名未备案、短信未审核」阶段的真实服务器验证：纯 HTTP 8080 用 IP 访问，短信走 console 通道写日志，其余（数据库、RBAC、审批核销状态机、上传）与生产完全一致。它与生产环境在端口、目录、数据库、服务名上完全隔离，可在同一台 ECS 上并存。
+
+```bash
+sudo ERP_TEST_FIXED_SMS_CODE=654321 bash deploy/aliyun/deploy.sh --test --admin-phone 13800000000
+```
+
+**该环境禁止录入真实业务数据**，验收完成后应关闭 8080 端口。详见 [云服务器测试环境部署](docs/test-deployment.md)。
 
 ## 开发与质量验证
 

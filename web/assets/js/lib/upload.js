@@ -7,7 +7,7 @@
  *   浏览器 canvas 做同样的事几乎零成本，还能把上传时间从 12 秒降到 3 秒。
  */
 
-export const MAX_UPLOAD_BYTES = 8 * 1024 * 1024;
+export const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
 
 export function formatBytes(n) {
   const v = Number(n) || 0;

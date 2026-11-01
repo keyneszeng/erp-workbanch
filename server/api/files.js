@@ -106,7 +106,10 @@ function register(router) {
     // 尚未关联的（刚上传、还没提交单据）只要求登录，key 本身是 32 位随机串。
     const m = db.prepare("SELECT pid, file_name FROM materials WHERE file_key = ?").get(key);
     const c = m ? null : db.prepare("SELECT pid, file_name FROM contracts WHERE file_key = ?").get(key);
-    const owner = m || c;
+    const sponsor=c||m?null:db.prepare("SELECT pid,file_name FROM meeting_sponsor_contracts WHERE file_key=?").get(key);
+    const receipt=c||m||sponsor?null:db.prepare("SELECT pid,file_name FROM meeting_sponsor_receipts WHERE file_key=?").get(key);
+    const invoice=c||m||sponsor||receipt?null:db.prepare("SELECT pid,file_name FROM meeting_sponsor_invoices WHERE file_key=?").get(key);
+    const owner = m || c || sponsor || receipt || invoice;
     if (owner) {
       assertProjectVisible(ctx.user, getProject(owner.pid));
       // 单纯是项目成员的嘉宾并不自动获得合同和财务凭证的读取权限。

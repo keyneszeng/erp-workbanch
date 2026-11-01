@@ -139,6 +139,13 @@ function register(router) {
     const id = nextId(db, "contracts", "id", "HT");
     db.prepare("INSERT INTO contracts (id,pid,name,vendor,amount,sign_date,status,category,remark,created_by,created_at,file_key,file_name,file_size,file_mime) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
       .run(id, p.id, b.name, b.vendor, amount, isDemoMode() ? signDate : "", st, category, remark, ctx.user.id, now(), fk, fname, fsize, fmime);
+    if(fk) {
+      // 将合同台账原件同步登记到本项目的归档“合同”类，不需要上传第二遍。
+      // 关联同一上传 key 只是内部同步，不开放客户端重复挂载别的单据。
+      db.prepare(`INSERT INTO materials(pid,kind,name,version,uploader,created_at,file_key,file_name,file_size,file_mime)
+        VALUES (?,?,?,?,?,?,?,?,?,?)`)
+        .run(p.id,"合同",id+" · "+b.name,st,ctx.user.name,now(),fk,fname,fsize,fmime);
+    }
     if (!isDemoMode() && st === "待签署") {
       const apId = nextId(db, "approvals", "id", "AP");
       db.prepare("INSERT INTO approvals (id,type,title,pid,ref_id,amount,by_user,sla,status,created_at,submitted_by_id) VALUES (?,?,?,?,?,?,?,?,?,?,?)")
@@ -179,7 +186,8 @@ function register(router) {
    */
   const CONTRACT_FLOW = [
     { from: "草稿", action: "submit", to: "待签署", label: "提交签署", perm: "contract:write" },
-    { from: "待签署", action: "sign", to: "已签署", label: "确认签署", perm: "contract:approve" }
+    { from: "待签署", action: "sign", to: "已签署", label: "确认签署", perm: "contract:approve" },
+    { from: "待签署", action: "reject", to: "草稿", label: "驳回签署", perm: "contract:approve" }
   ];
 
   router.post("/api/contracts/:id/transition", async (ctx) => {
@@ -213,6 +221,19 @@ function register(router) {
       if (!approval) throw conflict("合同尚未提交有效签署审批，不能直接确认", "SIGN_APPROVAL_REQUIRED");
       if (!isSuper(ctx.user) && Number(c.created_by) === Number(ctx.user.id))
         throw conflict("合同录入人与签署审批人须分离；请交由其他协会管理员或总管理员", "NEED_SECOND_PERSON");
+    }
+    if(action==="reject"){
+      const reason=String(ctx.body?.reason||"").trim();
+      if(reason.length<4 || reason.length>500)throw bad("合同驳回理由需填写 4～500 字");
+      const pending=db.prepare("SELECT id FROM approvals WHERE type='合同审批' AND ref_id=? AND status='待审批' ORDER BY created_at DESC LIMIT 1").get(c.id);
+      if(!isDemoMode()&&!pending)throw conflict("没有待审批的合同签署申请","SIGN_APPROVAL_REQUIRED");
+      db.prepare("UPDATE contracts SET status='草稿' WHERE id=?").run(c.id);
+      db.prepare("UPDATE approvals SET status='已驳回',decided_by=?,decided_at=?,comment=? WHERE type='合同审批' AND ref_id=? AND status='待审批'")
+        .run(ctx.user.name,now(),reason,c.id);
+      logAudit({user:ctx.user,module:"合同审批",action:"驳回合同签署",target:p.id,
+        detail:c.id+"；原因："+reason,ip:ctx.ip});
+      return {contract:db.prepare("SELECT * FROM contracts WHERE id=?").get(c.id),
+        message:"合同已驳回并退回草稿，可修改后重新提交"};
     }
     // 确认签署时补签署日期（默认今天），这样台账上的日期一定来自「确认」这个动作
     let signDate = null;

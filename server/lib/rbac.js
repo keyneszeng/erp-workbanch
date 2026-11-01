@@ -162,7 +162,7 @@ function scopeFilter(user) {
   if (isSuper(user)) return { sql: "1=1", params: [] };
   switch (user.role) {
     case "assoc":
-      return { sql: "p.assoc = ?", params: [user.assoc || ""] };
+      return { sql: "(p.assoc = ? OR EXISTS (SELECT 1 FROM user_associations ua WHERE ua.user_id=? AND ua.assoc=p.assoc))", params: [user.assoc || "", user.id] };
     case "exec":
     case "finance":
       // 「本人负责」按 user_id 认人，不再比对姓名 ——

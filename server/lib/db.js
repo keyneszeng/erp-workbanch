@@ -45,6 +45,13 @@ CREATE TABLE IF NOT EXISTS users (
   created_at  TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS user_associations (
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  assoc TEXT NOT NULL,
+  PRIMARY KEY (user_id,assoc)
+);
+CREATE INDEX IF NOT EXISTS idx_user_associations_assoc ON user_associations(assoc);
+
 CREATE TABLE IF NOT EXISTS password_reset_limits (
   rate_key TEXT PRIMARY KEY,
   bucket_ms INTEGER NOT NULL,
@@ -150,6 +157,49 @@ CREATE TABLE IF NOT EXISTS contracts (
   file_mime   TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_contracts_pid ON contracts(pid);
+
+-- 企业赞助收入独立于会务支出合同，避免错误计入核销合同费用。
+CREATE TABLE IF NOT EXISTS meeting_sponsor_contracts (
+  id TEXT PRIMARY KEY,
+  pid TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  enterprise TEXT NOT NULL,
+  contract_no TEXT NOT NULL,
+  amount REAL NOT NULL,
+  status TEXT NOT NULL DEFAULT '待确认',
+  file_key TEXT NOT NULL,
+  file_name TEXT,
+  created_by INTEGER REFERENCES users(id),
+  created_at TEXT NOT NULL,
+  approved_by INTEGER REFERENCES users(id),
+  approved_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_sponsor_contracts_pid ON meeting_sponsor_contracts(pid);
+CREATE TABLE IF NOT EXISTS meeting_sponsor_receipts (
+  id TEXT PRIMARY KEY,
+  pid TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  sponsor_id TEXT NOT NULL REFERENCES meeting_sponsor_contracts(id),
+  amount REAL NOT NULL,
+  payment_ref TEXT NOT NULL,
+  received_date TEXT NOT NULL,
+  file_key TEXT NOT NULL,
+  file_name TEXT,
+  created_by INTEGER REFERENCES users(id),
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_sponsor_receipts_pid ON meeting_sponsor_receipts(pid);
+CREATE TABLE IF NOT EXISTS meeting_sponsor_invoices (
+  id TEXT PRIMARY KEY,
+  pid TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  sponsor_id TEXT NOT NULL REFERENCES meeting_sponsor_contracts(id),
+  amount REAL NOT NULL,
+  invoice_no TEXT NOT NULL UNIQUE,
+  issued_date TEXT NOT NULL,
+  file_key TEXT NOT NULL,
+  file_name TEXT,
+  created_by INTEGER REFERENCES users(id),
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_sponsor_invoices_pid ON meeting_sponsor_invoices(pid);
 
 CREATE TABLE IF NOT EXISTS verified_labor_payees (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -712,6 +762,16 @@ function migrate() {
     /* 旧库没有 settlements 表，忽略 */
   }
 
+  // 兼容历史合同：只为有原件、尚未在同项目材料中心出现的合同建立引用。
+  // 原始文件不会复制、移动或修改，迁移可重复执行。
+  try {
+    db.exec(`INSERT INTO materials(pid,kind,name,version,uploader,created_at,file_key,file_name,file_size,file_mime)
+      SELECT c.pid,'合同',c.id || ' · ' || c.name,c.status,'历史合同自动归档',c.created_at,
+             c.file_key,c.file_name,c.file_size,c.file_mime
+      FROM contracts c
+      WHERE c.file_key IS NOT NULL AND c.file_key<>''
+        AND NOT EXISTS (SELECT 1 FROM materials m WHERE m.pid=c.pid AND m.file_key=c.file_key)`);
+  }catch{/* 旧库表结构不完整时，保持安全降级 */}
   // V1.2.15：审批单 ↔ 业务单据脱钩（老种子把 ref_id 写成了项目号）
   try {
     repairApprovals();

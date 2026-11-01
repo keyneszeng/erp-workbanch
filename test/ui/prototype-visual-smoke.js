@@ -70,10 +70,11 @@ const assert=require("node:assert/strict");
   await createModal.waitFor({timeout:12000});
   assert.equal((await createModal.locator(".mh h3").innerText()).trim(),"新建账号",
     "button must open the correct create-account dialog");
-  for(const field of ["username","name","role","assoc","dept","phone","password"]){
+  for(const field of ["username","name","role","dept","phone","password"]){
     assert.equal(await createModal.locator('[name="'+field+'"]').count(),1,
       "required account field missing: "+field);
   }
+  assert.ok(await createModal.locator('[data-assoc-pick]').count()>0, 'association choices must be selectable');
   await createModal.locator('[data-x="0"]').click();
   assert.equal(await page.locator("#modal.open").count(),0,"cancel must close the modal");
   assert.equal(errors.length,0,"page errors: "+errors.join(" / "));

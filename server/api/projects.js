@@ -214,17 +214,21 @@ function register(router) {
     if (!isDemoMode() && !member) throw bad("生产立项必须从本协会在册成员选择项目负责人（owner_id）");
     if (member) b.owner = member.name;
     validate(b);
-    if (["assoc", "exec"].includes(ctx.user.role) && ctx.user.assoc && b.assoc !== ctx.user.assoc) {
+    if (["assoc", "exec"].includes(ctx.user.role) && !require("../lib/user-associations").listForUser(ctx.user.id,ctx.user.assoc).includes(b.assoc)) {
       throw forbidden("只能为本人所属协会发起立项");
     }
     const at = now();
     const id = nextId(db, "projects", "id", "MP");
+    const ownerId = member ? member.id : resolveOwnerId(b.owner, ctx.user);
     db.prepare(
       `INSERT INTO projects (id,name,assoc,form,date,days,budget,people,owner,owner_id,phone,dept,agenda,status,status_at,created_by,created_at,updated_at)
        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
     ).run(id, b.name, b.assoc, b.form, b.date, Number(b.days) || 1, Number(b.budget), Number(b.people) || 0,
-      b.owner, member ? member.id : resolveOwnerId(b.owner, ctx.user), b.phone || "", b.dept || "会务部", b.agenda, "草稿", at, ctx.user.id, at, at);
+      b.owner, ownerId, b.phone || "", b.dept || "会务部", b.agenda, "草稿", at, ctx.user.id, at, at);
     db.prepare("INSERT OR IGNORE INTO project_members (project_id,user_id,role) VALUES (?,?,?)").run(id, ctx.user.id, "创建人");
+    // 注意：不要在这里把负责人自动写进 project_members。
+    // 数据范围同时认 owner_id 和成员表，一旦入库，换负责人时旧负责人仍能靠成员关系看到项目
+    // （test/scope-owner.test.js 覆盖此场景）。工作台待办本来就走 owner_id，不需要成员行。
     logAudit({
       user: ctx.user, module: "项目管理", action: "立项申请", target: id,
       detail: `新建「${b.name}」，预算 ¥${Number(b.budget).toLocaleString("zh-CN")}，状态：草稿`, ip: ctx.ip

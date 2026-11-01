@@ -1,6 +1,6 @@
 import { api, can } from "../lib/api.js";
 import { bindPager, esc, formHtml, modal, pager, panel, readForm, table, toast, validate } from "../lib/ui.js";
-import { bindFilePicker, fileUrl } from "../lib/upload.js";
+import { checkFile, compressImage, fileUrl } from "../lib/upload.js";
 import { renderMaterialWorkbench } from "../lib/material-workbench.js";
 
 const PAGE_SIZE = 50;
@@ -57,21 +57,21 @@ export async function render(root) {
   renderMaterialWorkbench(root.querySelector("#materialWorkbench"),d.projects).catch(e=>toast(e.message,"warn"));
 
   const add = root.querySelector("#add");
-  if (add) add.onclick = () => openAdd(root, d.projects, d.kinds);
+  if (add) add.onclick = () => openMaterialRegistration(root, d.projects, d.kinds);
 }
 
-function openAdd(root, projects, kinds) {
+export function openMaterialRegistration(root, projects, kinds, defaultPid="", onSaved=null) {
   const fields = [
-    { k: "pid", l: "所属项目", t: "select", req: 1, opts: projects.map((p) => ({ v: p.id, l: `${p.id} ${p.name}` })) },
+    { k: "pid", l: "所属项目", t: "select", req: 1, v:defaultPid, opts: projects.map((p) => ({ v: p.id, l: `${p.id} ${p.name}` })) },
     { k: "kind", l: "材料类别", t: "select", req: 1, custom: 1, ph: "如：盖章会议通知 / 招商函 / 终版议程 / 讲者照片",
-      opts: [...kinds, "会议通知", "招商函", "终版议程", "课件", "串场", "劳务收集表", "劳务协议", "讲者照片"].filter((v, i, a) => a.indexOf(v) === i),
+      opts: [...kinds, "会议通知", "招商函", "终版议程", "课件", "劳务收集表", "劳务协议", "讲者照片"].filter((v, i, a) => a.indexOf(v) === i),
       tip: "8 类是归档必备，建议优先选；确实不属于这 8 类的，选「自定义填入」自己写，能登记能查，但不顶替必备的那 8 类" },
     { k: "name", l: "材料名称", req: 1, ph: "如：签到表-终版.pdf" },
     { k: "version", l: "版本", v: "v1" },
     {
       k: "file", l: "附件", t: "file", full: 1,
       accept: "image/jpeg,image/png,image/webp,image/gif,application/pdf,.docx,.ppt,.pptx,.xlsx",
-      tip: "支持图片、PDF、DOCX、PPTX、XLSX（Office 2007 及以上格式），每份不超过 8 MB；讲者照片请在名称栏填写讲者姓名。图片可自动压缩。"
+      tip: "支持图片、PDF、DOCX、PPTX、XLSX（Office 2007 及以上格式），每份不超过 20 MB；讲者照片请在名称栏填写讲者姓名。图片可自动压缩。"
     }
   ];
   const m = modal({
@@ -81,38 +81,50 @@ function openAdd(root, projects, kinds) {
     footer: `<button class="btn btn-o" data-x="0">取消</button><button class="btn btn-p" data-x="1">保存</button>`
   });
 
-  let picked = null;
-  bindFilePicker(m, "file", (f, err) => {
-    if (err) { picked = null; toast(err, "warn"); return; }
-    picked = f;
-    // 名称留空时自动用文件名，省一次输入
-    const nameInput = m.querySelector('[name="name"]');
-    if (nameInput && !nameInput.value.trim()) nameInput.value = f.name;
-  });
+  // 每个文件独立登记一个材料记录，保留既有原件/审计/版本约束。
+  const picker=m.querySelector('input[name="file"]');
+  picker.multiple=true;
+  let picked=[];
+  picker.onchange=()=>{
+    const files=[...(picker.files||[])];
+    if(files.length>20){toast("单次最多选择 20 份附件","warn");picker.value="";picked=[];return;}
+    const error=files.map(checkFile).find(Boolean);
+    if(error){toast(error,"warn");picker.value="";picked=[];return;}
+    picked=files;
+    const count=m.querySelector(".upload .fn");
+    if(count)count.textContent=files.length?files.length+" 份文件已选择":"未选择";
+    const name=m.querySelector('[name="name"]');
+    if(name&&!name.value.trim()&&files[0])name.value=files[0].name;
+  };
 
   m.querySelector('[data-x="0"]').onclick = () => m.classList.remove("open");
   const btn = m.querySelector('[data-x="1"]');
   btn.onclick = async () => {
     if (!validate(m, fields)) return;
     const v = readForm(m);
-    if (!v.name && picked) v.name = picked.name;
+    if (!v.name && picked.length) v.name = picked[0].name;
     if (!String(v.name || "").trim()) { toast("请填写材料名称或选择附件", "warn"); return; }
 
     btn.disabled = true;
     try {
-      let meta = {};
-      if (picked) {
-        btn.textContent = "上传中 0%";
-        const up = await api.upload(picked, {
-          onProgress: (p) => { btn.textContent = `上传中 ${Math.round(p * 100)}%`; }
-        });
-        meta = { file_key: up.key, file_name: up.name, file_size: up.size, file_mime: up.mime };
+      if(!picked.length){
+        await api.post(`/api/projects/${v.pid}/materials`,v);
+      }else{
+        let saved=0;
+        for(const file of picked){
+          const payload=await compressImage(file);
+          btn.textContent=`正在上传 ${saved+1}/${picked.length}`;
+          const up=await api.upload(payload,{pid:v.pid});
+          await api.post(`/api/projects/${v.pid}/materials`,{
+            ...v,name:picked.length===1?v.name:`${v.name} · ${file.name}`,
+            file_key:up.key,file_name:up.name,file_size:up.size,file_mime:up.mime
+          });
+          saved++;
+        }
       }
-      btn.textContent = "保存中…";
-      await api.post(`/api/projects/${v.pid}/materials`, { ...v, ...meta });
-      toast(picked ? "材料与附件已登记" : "材料已登记", "ok");
+      toast(picked.length?`已登记 ${picked.length} 份材料附件`:"材料已登记","ok");
       m.classList.remove("open");
-      await render(root);
+      if(onSaved)await onSaved(); else await render(root);
     } catch (e) {
       toast(e.message, "warn");
       btn.disabled = false;
