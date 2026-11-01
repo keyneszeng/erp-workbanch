@@ -144,7 +144,14 @@ export function formHtml(fields, values = {}) {
     const v = values[f.k] ?? f.v ?? "";
     const req = f.req ? '<span class="req">*</span>' : "";
     let input = "";
-    if (f.t === "select") {
+    if (f.t === "multi") {
+      const selected = Array.isArray(v) ? v : (v ? [v] : []);
+      input = `<div class="chips" role="group" aria-label="${esc(f.l)}">
+        ${(f.opts||[]).map(o => {
+          const val=typeof o==="string"?o:o.v, label=typeof o==="string"?o:o.l;
+          return `<label class="chip"><input type="checkbox" name="${esc(f.k)}" value="${esc(val)}" ${selected.includes(val)?"checked":""}> ${esc(label)}</label>`;
+        }).join("")}</div>`;
+    } else if (f.t === "select") {
       // custom: 下拉里多一项「自定义填入…」，选中后旁边露出一个文本框。
       // 用在下拉选项永远列不全的字段上（材料类别、例外步骤）——
       // 与其逼人从 8 个选项里挑一个最接近的，不如让他直接写。
@@ -176,6 +183,11 @@ export function readForm(root) {
   const out = {};
   root.querySelectorAll("[name]").forEach((el) => {
     if (el.type === "file") return;
+    if (el.type === "checkbox") {
+      if (!Array.isArray(out[el.name])) out[el.name]=[];
+      if (el.checked) out[el.name].push(el.value);
+      return;
+    }
     // 自定义文本框单独处理：只有对应下拉真的选了「自定义填入」时，它的值才算数，
     // 否则用户先在框里打了字又改回标准选项，这个残留值会顶掉下拉的选择。
     if (el.name.endsWith("__custom")) return;
