@@ -40,6 +40,27 @@ function myTodos(user) {
       : a.type === "付款审批" ? can(user, "payment:approve") : can(user, "project:approve");
     if (need) todos.push({ kind: "审批", title: `${a.type}：${a.title}`, pid: a.pid, pname: a.pname, ref: a.id, sla: a.sla, go: "approvals" });
   }
+  // 立项审批通过后，自动进入已指派会务执行负责人待办；由负责人执行“进入筹备”。
+  if(can(user,"project:transition") && canVisitNav(user,"projects") &&
+     (user.role==="exec" || isSuper(user))) {
+    const rows=db.prepare(`SELECT p.* FROM projects p WHERE p.status='已立项' AND p.owner_id=?
+      ORDER BY p.status_at DESC`).all(user.id);
+    for(const p of rows)todos.push({
+      kind:"筹备",title:"立项已审批，待负责人开始筹备",pid:p.id,pname:p.name,
+      ref:p.id,sla:"立项审批后尽快开始",go:"projects"
+    });
+  }
+  // 执行人提交核销后，项目进入协会管理员、核销财务和总管理员工作台队列。
+  // 严格区分可见性：协会管理员按多协会范围；财务仅分派项目；总管理员全平台。
+  if ((user.role==="assoc" || user.role==="finance" || isSuper(user)) &&
+      can(user,"verify:check") && canVisitNav(user,"verify")) {
+    const rows=db.prepare(`SELECT p.* FROM projects p WHERE p.status='待核销' AND ${sql}
+      ORDER BY p.status_at DESC`).all(...params);
+    for(const p of rows)todos.push({
+      kind:"待核销",title:"会务执行已提交，待财务核对六步 SOP",
+      pid:p.id,pname:p.name,ref:p.id,sla:"会后核销待办",go:"verify"
+    });
+  }
   if (can(user, "verify:conclude")) {
     const rows = db.prepare(
       `SELECT p.*, (SELECT COUNT(*) FROM verify_steps v WHERE v.pid=p.id AND v.result IN ('通过','已解例外')) AS passed
