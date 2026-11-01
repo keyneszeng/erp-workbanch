@@ -215,7 +215,10 @@ async function openPay(root, projects) {
     const selected=m.querySelector('[name="payee_option_id"]')?.value;
     const acct=m.querySelector('[name="payee_account"]')?.value.trim();
     const bank=m.querySelector('[name="payee_bank"]')?.value.trim();
-    if(!selected && (!acct||!bank)){toast("请填写收款账户或选择核销确认的劳务收款人","warn");return;}
+    const rows=m.querySelector('[name="payee_option_id"]')?.__rows||[];
+    const source=rows.find(x=>x.id===selected);
+    if((!source||!source.bank)&&!bank){toast("请填写收款方开户行","warn");return;}
+    if((!source||source.source!=="labor")&&!acct){toast("请填写银行账号；合同仅提供收款方名称","warn");return;}
     if (!validate(m, fields)) return;
     try {
       const r = await api.post("/api/payments", readForm(m));
