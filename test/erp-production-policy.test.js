@@ -90,14 +90,10 @@ test("production: association member IDs, approved contract signing and pay-afte
   let demand=await request("PATCH","/api/demand/"+pid,{items:[fakeAttach]},cookie);
   assert.equal(demand.status,200,JSON.stringify(demand.body));
   let confirm=await request("POST","/api/demand/"+pid+"/confirm",{},cookie);
-  assert.equal(confirm.status,400,"不存在的附件不能确认会务需求");
-  demand=await request("PATCH","/api/demand/"+pid,{items:[{...demandBase,attach:uploadBody.key}]},cookie);
-  assert.equal(demand.status,200,JSON.stringify(demand.body));
-  confirm=await request("POST","/api/demand/"+pid+"/confirm",{},cookie);
-  assert.equal(confirm.status,200,JSON.stringify(confirm.body));
+  assert.equal(confirm.status,200,"需求确认不再要求预算归属、附件与执行状态，允许历史字段保留");
   const revisions=await request("GET","/api/demand/"+pid+"/revisions",undefined,cookie);
   assert.equal(revisions.status,200);
-  assert.ok(revisions.body.rows.length>=3,"需求保存与确认应有独立版本记录");
+  assert.ok(revisions.body.rows.length>=2,"需求保存与确认应有独立版本记录");
   const editBlocked=await request("PATCH","/api/demand/"+pid,{items:[demandBase]},cookie);
   assert.equal(editBlocked.status,409,"归档需求不可直接编辑");
   const unarchive=await request("POST","/api/demand/"+pid+"/unarchive",{},cookie);
