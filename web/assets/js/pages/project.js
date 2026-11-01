@@ -732,63 +732,11 @@ function openException(root, pid, d) {
   };
 }
 
-function openMaterial(root, pid) {
-  const fields = [
-    { k: "kind", l: "材料类别", t: "select", req: 1, custom: 1, ph: "如：会议纪要 / 专家简历",
-      opts: state.meta.materialKinds,
-      tip: "8 类是归档必备，建议优先选；确实不属于这 8 类的，选「自定义填入」自己写，能登记能查，但不顶替必备的那 8 类" },
-    { k: "name", l: "材料名称", req: 1, ph: "如：签到表-终版.pdf" },
-    { k: "version", l: "版本", v: "v1" },
-    {
-      k: "file", l: "附件", t: "file", full: 1,
-      accept: "image/jpeg,image/png,image/webp,image/gif,application/pdf,.ppt,.pptx,.xlsx,.docx",
-      tip: "支持 JPG / PNG / WebP / PDF，单张不超过 8 MB。图片会在本地自动压缩后再上传。"
-    }
-  ];
-  const m = modal({
-    title: "登记材料",
-    width: "620px",
-    body: `<div class="hint" style="margin-bottom:12px">登记后即计入 8 类齐备校验；带附件的材料可在列表中直接预览或下载。</div>${formHtml(fields)}`,
-    footer: `<button class="btn btn-o" data-x="0">取消</button><button class="btn btn-p" data-x="1">保存</button>`
-  });
-
-  let picked = null;
-  bindFilePicker(m, "file", (f, err) => {
-    if (err) { picked = null; toast(err, "warn"); return; }
-    picked = f;
-    const nameInput = m.querySelector('[name="name"]');
-    if (nameInput && !nameInput.value.trim()) nameInput.value = f.name;
-  });
-
-  m.querySelector('[data-x="0"]').onclick = () => m.classList.remove("open");
-  const btn = m.querySelector('[data-x="1"]');
-  btn.onclick = async () => {
-    if (!validate(m, fields)) return;
-    const v = readForm(m);
-    if (!v.name && picked) v.name = picked.name;
-    if (!String(v.name || "").trim()) { toast("请填写材料名称或选择附件", "warn"); return; }
-
-    btn.disabled = true;
-    try {
-      let meta = {};
-      if (picked) {
-        btn.textContent = "上传中 0%";
-        const up = await api.upload(picked, {
-          onProgress: (p) => { btn.textContent = `上传中 ${Math.round(p * 100)}%`; }
-        });
-        meta = { file_key: up.key, file_name: up.name, file_size: up.size, file_mime: up.mime };
-      }
-      btn.textContent = "保存中…";
-      const r = await api.post(`/api/projects/${pid}/materials`, { ...v, ...meta });
-      toast(r.message || "已登记", "ok");
-      m.classList.remove("open");
-      await refresh(root, pid);
-    } catch (e) {
-      toast(e.message, "warn");
-      btn.disabled = false;
-      btn.textContent = "保存";
-    }
-  };
+async function openMaterial(root,pid){
+  // 两处入口使用完全相同的“归档材料 → 登记材料”弹窗和上传逻辑。
+  const {openMaterialRegistration}=await import("./materials.js");
+  openMaterialRegistration(root,[{id:pid,name:pid}],state.meta.materialKinds,pid,
+    ()=>refresh(root,pid));
 }
 
 async function delMaterial(root, pid, id) {
