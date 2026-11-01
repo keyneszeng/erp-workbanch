@@ -340,7 +340,7 @@ server {
 NGINX
     fi
     ln -sfn "$SITE_AVAIL" "$SITE_ENABLED"
-    rm -f /etc/nginx/sites-enabled/default
+    # 生产站点按 server_name 匹配；不删除同机已有默认站点。
     nginx -t
     ensure_nginx
     systemctl reload nginx
