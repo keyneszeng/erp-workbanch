@@ -256,7 +256,7 @@ const CONTRACT_LOCKED = ["已结算", "已归档"];
 function contractFlowBtn(c, locked) {
   if (locked) return '<span style="color:var(--mute)">封存</span>';
   const f = flowOf(c);
-  if (f) return `<button class="link" data-cflow="${c.id}" data-caction="${f.action}">${f.label}</button>`;
+  if (f) return `<button class="link" data-cflow="${c.id}" data-caction="${f.action}">${f.label}</button>${c.status==="待签署" && can("contract:approve") ? `<button class="link danger" data-cflow="${c.id}" data-caction="reject">驳回</button>` : ""}`;
   const hint = flowHint(c);
   return hint
     ? `<span style="color:var(--mute)" title="${esc(hint)}">${c.status === "待签署" ? "待协会确认" : "—"}</span>`
@@ -934,6 +934,11 @@ async function execChange(root, pid, id) {
 
 /** 合同两步流转：提交签署 / 确认签署 */
 async function contractFlow(root, pid, id, action) {
+  let comment="";
+  if(action==="reject"){
+    comment=await promptBox({title:"合同审批驳回",label:"驳回原因（4～500 字）",ok:"驳回"});
+    if(!comment)return;
+  }
   if (action === "sign") {
     const ok = await confirmBox(
       `确认合同 <b class="mono">${esc(id)}</b> 已签署？<br><br>签署日期默认记为今天，台账里可核对。`,
@@ -942,7 +947,7 @@ async function contractFlow(root, pid, id, action) {
     if (!ok) return;
   }
   try {
-    const r = await api.post(`/api/contracts/${id}/transition`, { action });
+    const r = await api.post(`/api/contracts/${id}/transition`, { action,comment });
     toast(r.message, "ok");
     await refresh(root, pid);
   } catch (e) { toast(e.message, "warn"); }
