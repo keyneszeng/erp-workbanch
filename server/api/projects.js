@@ -214,7 +214,7 @@ function register(router) {
     if (!isDemoMode() && !member) throw bad("生产立项必须从本协会在册成员选择项目负责人（owner_id）");
     if (member) b.owner = member.name;
     validate(b);
-    if (["assoc", "exec"].includes(ctx.user.role) && ctx.user.assoc && b.assoc !== ctx.user.assoc) {
+    if (["assoc", "exec"].includes(ctx.user.role) && !require("../lib/user-associations").listForUser(ctx.user.id,ctx.user.assoc).includes(b.assoc)) {
       throw forbidden("只能为本人所属协会发起立项");
     }
     const at = now();
