@@ -268,20 +268,20 @@ else
   fi
 fi
 
+# ---------- 环境预检（必须先于任何 current 切换） ----------
+log "对候选 release 执行环境预检（$GATE，fail closed）"
+if [ "$DRY_RUN" = "0" ]; then
+  set -a; . "$ENV_FILE"; set +a
+  if ! "$NODE_BIN" "$RELEASE_DIR/scripts/$GATE"; then
+    die "候选版本预检未通过，保留原 current，未重启服务。修正 $ENV_FILE 后重跑。"
+  fi
+fi
+
 # ---------- 切换版本 ----------
-log "切换 current → $STAMP"
+log "预检通过后切换 current → $STAMP"
 if [ "$DRY_RUN" = "0" ]; then
   ln -sfn "$RELEASE_DIR" "$APP_ROOT/current.next"
   mv -Tf "$APP_ROOT/current.next" "$APP_ROOT/current"
-fi
-
-# ---------- 环境预检 ----------
-log "执行环境预检（$GATE，fail closed）"
-if [ "$DRY_RUN" = "0" ]; then
-  set -a; . "$ENV_FILE"; set +a
-  if ! "$NODE_BIN" "$APP_ROOT/current/scripts/$GATE"; then
-    die "预检未通过，未启动服务。修正 $ENV_FILE 后重跑。"
-  fi
 fi
 
 # ---------- systemd ----------
