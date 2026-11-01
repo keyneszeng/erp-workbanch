@@ -400,7 +400,7 @@ function tabMaterials(d, p) {
                 : `<a href="${fileUrl(m.file_key)}" target="_blank" rel="noopener"><img class="thumb" src="${fileUrl(m.file_key)}" alt=""></a>`)
             : '<span style="color:var(--mute)">—</span>',
           esc(m.version || ""), esc(m.uploader || ""), `<span class="mono">${esc(m.created_at)}</span>`,
-          can("material:write") && p.status !== "已归档" ? `<button class="link danger" data-del-mat="${m.id}">删除</button>` : "—"
+          can("material:write") && p.status !== "已归档" && !m.linked_contract_id ? `<button class="link danger" data-del-mat="${m.id}">删除</button>` : (m.linked_contract_id ? "合同台账同步" : "—")
         ]
       })),
       { empty: "暂无材料" })}`,
