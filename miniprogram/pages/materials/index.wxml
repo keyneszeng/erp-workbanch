@@ -1,9 +1,25 @@
-<view class="wrap"><view class="card"><view class="heading">材料归档 · 上传照片</view>
-<view class="muted">仅开放图片采集。文件类型校验、项目权限和归档规则统一由阿里云后端执行。</view>
-<picker mode="selector" range="{{projects}}" range-key="name" value="{{index}}" bindchange="select">
-<view class="field">所属项目：{{projects[index].name||'请选择项目'}} ▾</view></picker>
-<input class="field" placeholder="类别，例如：会议照片 / 讲者照片" data-key="kind" value="{{kind}}" bindinput="input"/>
-<input class="field" placeholder="材料名称" data-key="name" value="{{name}}" bindinput="input"/>
-<view wx:if="{{error}}" class="error">{{error}}</view><view wx:if="{{uploaded}}" class="muted">{{uploaded}}</view>
-<button class="btn primary" loading="{{busy}}" disabled="{{busy}}" bindtap="addPhoto">拍照或选图并归档</button>
-</view></view>
+<view class="wrap">
+ <view class="card"><view class="heading">材料收集</view>
+ <view class="muted">按会议与类别归档照片；原始文件、权限和历史保留由 ERP 统一管理。</view>
+ <picker mode="selector" range="{{projects}}" range-key="name" value="{{index}}" bindchange="select">
+  <view class="field">所属会议：{{projects[index].name||'请选择项目'}} ▾</view>
+ </picker>
+ <view wx:if="{{locked}}" class="error">当前项目已结算或归档，材料被冻结，无法继续上传。</view>
+ </view>
+ <view class="card">
+  <view class="section-caption">01 · 固定材料模块</view>
+  <view class="muted">已停用的模块不在上传列表中，但保留历史原件。</view>
+  <view class="chip-list">
+   <view wx:for="{{activeKinds}}" wx:key="*this" data-kind="{{item}}" bindtap="chooseKind"
+     class="select-chip {{!custom&&kind===item?'chip-selected':''}}">{{item}}</view>
+   <view bindtap="chooseCustom" class="select-chip {{custom?'chip-selected':''}}">＋ 自定义类别</view>
+  </view>
+  <input wx:if="{{custom}}" class="field" value="{{customKind}}" data-key="customKind" bindinput="input" placeholder="请输入自定义材料类别"/>
+  <view class="section-caption space">02 · 材料记录</view>
+  <input class="field" placeholder="材料名称，例如：张老师课件／签到照片" data-key="name" value="{{name}}" bindinput="input"/>
+  <view wx:if="{{error}}" class="error">{{error}}</view>
+  <view wx:if="{{uploaded}}" class="success-note">{{uploaded}}</view>
+  <button class="btn primary" loading="{{busy}}" disabled="{{busy||locked||!pid}}" bindtap="addPhoto">拍照或从相册选择并归档</button>
+  <view class="muted">每次上传 1 张图片，最多 8 MB。Office/PDF 原件请在 Web 材料中心上传；OCR 内容识别不等于核销通过。</view>
+ </view>
+</view>
