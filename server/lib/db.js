@@ -25,6 +25,11 @@ const DB_FILE =
   (typeof process !== "undefined" && process.env && process.env.ERP_DB) || DEFAULT_DB_FILE;
 
 const SCHEMA = `
+CREATE TABLE IF NOT EXISTS associations (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL UNIQUE,
+  active INTEGER NOT NULL DEFAULT 1
+);
 CREATE TABLE IF NOT EXISTS users (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,
   username    TEXT UNIQUE NOT NULL,
