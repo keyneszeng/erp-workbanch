@@ -155,7 +155,7 @@ test("非法 key 返回 400，不存在的 key 返回 404", async () => {
   assert.equal(missing.status, 404);
 });
 
-test("材料登记带附件，删除材料时附件一并删除", async () => {
+test("材料软删保留附件与历史证据", async () => {
   const c = client(exec);
   const list = await c("GET", "/api/projects");
   const p = list.data.rows.find((x) => x.status !== "已归档");
@@ -182,7 +182,7 @@ test("材料登记带附件，删除材料时附件一并删除", async () => {
   assert.equal(del.status, 200);
 
   const gone = await fetch(`${BASE}/api/uploads/${up.data.key}`, { headers: { cookie: exec } });
-  assert.equal(gone.status, 404, "删除材料后附件文件应同时删除");
+  assert.equal(gone.status, 200, "软删历史材料必须保留原件，不得销毁证据");
 });
 
 test("非法 file_key 被拒绝", async () => {
