@@ -51,8 +51,11 @@ function verification(pid) {
 function materialsStatus(pid) {
   const rows = db.prepare("SELECT DISTINCT kind FROM materials WHERE pid = ? AND deleted_at IS NULL").all(pid);
   const have = rows.map((r) => r.kind);
-  const missing = MATERIAL_KINDS.filter((k) => !have.includes(k));
-  return { have, missing, ok: missing.length === 0, required: MATERIAL_KINDS };
+  const toggles=db.prepare("SELECT kind,enabled FROM meeting_material_modules WHERE pid=?").all(pid);
+  const disabled=new Set(toggles.filter(m=>m.enabled===0).map(m=>m.kind));
+  const required=MATERIAL_KINDS.filter(k=>!disabled.has(k));
+  const missing = required.filter(k=>!have.includes(k));
+  return { have, missing, ok: missing.length === 0, required, disabled:[...disabled] };
 }
 
 function settlementOf(pid) {
