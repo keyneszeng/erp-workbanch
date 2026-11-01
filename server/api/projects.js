@@ -162,7 +162,14 @@ function detail(project, user) {
   const guests = db.prepare("SELECT * FROM guests WHERE pid = ? ORDER BY id").all(pid);
   const tasks = db.prepare("SELECT * FROM tasks WHERE pid = ? ORDER BY id").all(pid);
   const issues = db.prepare("SELECT * FROM issues WHERE pid = ? ORDER BY id").all(pid);
-  const materials = db.prepare("SELECT * FROM materials WHERE pid = ? ORDER BY id").all(pid);
+  const materials = db.prepare("SELECT * FROM materials WHERE pid = ? AND deleted_at IS NULL ORDER BY id").all(pid);
+  for(const contract of contracts.filter(c=>c.status==="已签署" && c.file_key)){
+    if(materials.some(m=>m.kind==="合同" && m.file_key===contract.file_key))continue;
+    materials.push({id:"contract:"+contract.id,pid,kind:"合同",name:contract.name,
+      file_key:contract.file_key,file_name:contract.file_name,file_mime:contract.file_mime,
+      version:"合同台账自动匹配",uploader:contract.created_by_name,created_at:contract.created_at,
+      linked_contract_id:contract.id});
+  }
   const timeline = db.prepare(
     "SELECT at, user_name, role, action, detail FROM audit_logs WHERE target = ? ORDER BY id DESC LIMIT 30"
   ).all(pid);
