@@ -368,4 +368,4 @@ function register(router) {
   return router;
 }
 
-module.exports = { register, listProjects, detail };
+module.exports = { register, listProjects, detail, validate };

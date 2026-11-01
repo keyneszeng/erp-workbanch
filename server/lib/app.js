@@ -71,6 +71,7 @@ function buildRouter() {
   const modules = [
     require("../api/auth"),
     require("../api/mini"),
+    require("../api/mini-applications"),
     require("../api/projects"),
     require("../api/verify"),
     require("../api/finance"),

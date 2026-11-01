@@ -61,12 +61,26 @@ export async function render(root) {
   const total = Object.values(d.counts).reduce((a, b) => a + b, 0);
 
   root.innerHTML = `
-  <div class="grid g4">
-    ${kpi("在管会议", total, "场")}
-    ${kpi("待核销", d.counts["待核销"] || 0, "个", "k3")}
-    ${state.user.role === "user" ? "" : kpi("预算总额", `¥${money(d.budget)}`, "", "k2")}
-    ${state.user.role === "user" ? "" : kpi("已付款", `¥${money(d.paid)}`, "", "k4")}
+  <div class="ux-section-intro">
+    <div><h2>业务总览</h2><p>仅统计当前数据范围，审批与异常按本人权限显示</p></div>
+    <button class="btn btn-o btn-sm" data-go="projects">查看全部会议</button>
   </div>
+  <div class="ux-kpi-grid">
+    <div class="ux-metric"><span>在管会议</span><strong>${total}</strong><small>场</small></div>
+    <div class="ux-metric"><span>待审批项目</span><strong>${d.counts["待审批"] || 0}</strong><small>场</small></div>
+    <div class="ux-metric ux-metric-warn"><span>我的审批待办</span><strong>${d.todos.filter(t => t.kind === "审批").length}</strong><small>项</small></div>
+    <div class="ux-metric ux-metric-danger"><span>待处理预警</span><strong>${d.alerts.length}</strong><small>条</small></div>
+    <div class="ux-metric"><span>执行中</span><strong>${d.counts["执行中"] || 0}</strong><small>场</small></div>
+    <div class="ux-metric ux-metric-done"><span>已归档</span><strong>${d.counts["已归档"] || 0}</strong><small>场</small></div>
+  </div>
+  <div class="ux-quick-actions mt">
+    ${reachable("projects") ? '<button class="btn btn-o btn-sm" data-go="projects">项目管理</button>' : ""}
+    ${reachable("approvals") ? '<button class="btn btn-o btn-sm" data-go="approvals">审批中心</button>' : ""}
+    ${reachable("materials") ? '<button class="btn btn-o btn-sm" data-go="materials">材料中心</button>' : ""}
+    ${reachable("verify") ? '<button class="btn btn-o btn-sm" data-go="verify">会后核销</button>' : ""}
+    ${reachable("finance") ? '<button class="btn btn-o btn-sm" data-go="finance">付款结算</button>' : ""}
+  </div>
+  ${state.user.role === "user" ? "" : `<div class="ux-finance-note mt"><b>财务数据概览</b><span>预算总额 ¥${money(d.budget)} · 已付款 ¥${money(d.paid)}</span><small>付款需先通过核销，结算后凭证冻结</small></div>`}
 
   ${d.alerts.length ? `<div class="panel mt"><div class="panel-h"><h2>异常预警</h2>
       <div><span class="hint">${d.alerts.length} 条需要处理</span></div></div>

@@ -30,6 +30,7 @@ export async function render(root, [pid]) {
   const participant = state.user.role === "user";
   if (participant) tab = "overview";
   const visibleTabs = participant ? [["overview", "会议概览"]] : TABS;
+  if (!visibleTabs.some(([k])=>k===tab)) tab="overview";
   const canEdit = (state.super || state.user.role === "assoc") && (p.status !== "已归档" || state.super);
 
   root.innerHTML = `
@@ -53,6 +54,16 @@ export async function render(root, [pid]) {
     return `${i ? '<span class="ln"></span>' : ""}<span class="st ${cls}"><i>${i < cur ? "✓" : i + 1}</i>${s}</span>`;
   }).join("")}</div></div>
 
+  <div class="ux-lifecycle">
+    <div class="ux-lifecycle-head"><b>项目全周期进度</b><span>${ORDER.indexOf(p.status)+1}/9 · ${esc(p.status)}</span></div>
+    <div class="ux-progress"><span style="width:${Math.max(0,ORDER.indexOf(p.status))/8*100}%"></span></div>
+    ${!participant ? `<div class="ux-checkpoints">
+       <button type="button" data-tab="demand"><strong>${d.demand?.archived?"已确认":"待确认"}</strong><span>会务需求</span></button>
+       <button type="button" data-tab="materials"><strong>${8-d.materialsStatus.missing.length}/8</strong><span>归档材料</span></button>
+       <button type="button" data-tab="verify"><strong>${d.verification.passed}/6</strong><span>六步核销</span></button>
+       <button type="button" data-tab="payments"><strong>${d.settlement?"已生成":"未生成"}</strong><span>财务结算</span></button>
+     </div>` : '<p class="ux-public-hint">会议审批与执行状态公开给有权查看本项目的成员；财务明细仅限授权角色。</p>'}
+  </div>
   ${d.actions.some((a) => !a.enabled && a.reason) ? `<div class="gate mt"><b>当前不能推进的原因</b>
     ${d.actions.filter((a) => !a.enabled && a.reason).map((a) => `${a.label}：${esc(a.reason)}`).join("；")}</div>` : ""}
 

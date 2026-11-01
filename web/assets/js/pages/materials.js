@@ -11,7 +11,7 @@ export async function render(root) {
   const complete = d.projects.filter((p) => p.missing.length === 0).length;
 
   root.innerHTML = `<div class="phead">
-      <div><h2>材料中心</h2><p>归档必备 8 类：${d.kinds.join(" / ")}</p></div>
+      <div><h2>材料中心</h2><p>模块化采集 · 按会议管理版本、原件与归档齐备度</p></div>
       <div class="acts">${can("material:write") ? '<button class="btn btn-p" id="add">+ 登记材料</button>' : ""}</div>
     </div>
     <div class="grid g4">
@@ -21,6 +21,8 @@ export async function render(root) {
       <div class="kpi k3"><div class="t">待补齐</div><div class="v">${d.projects.length - complete}<span class="u">个</span></div></div>
     </div>
 
+    <div class="ux-section-intro mt"><div><h2>按项目收集材料</h2><p>固定模块按会议启停，自定义材料独立登记；历史版本与原件持续保留</p></div></div>
+    <div id="materialWorkbench"></div>
     <div class="panel mt">
       <div class="panel-h"><h2>项目齐备情况</h2><span class="hint">缺项项目无法归档</span></div>
       ${table([{ t: "项目" }, { t: "状态", w: "84px" }, { t: "齐备度", w: "110px" }, { t: "缺失类别" }, { t: "操作", w: "90px" }],
@@ -49,7 +51,7 @@ export async function render(root) {
         { empty: "暂无材料" })}
       ${pager(d, { unit: "条" })}
     </div>
-    <div id="materialWorkbench"></div>`;
+`;
 
   bindPager(root, (n) => { curPage = n; render(root); });
   renderMaterialWorkbench(root.querySelector("#materialWorkbench"),d.projects).catch(e=>toast(e.message,"warn"));

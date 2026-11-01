@@ -254,7 +254,9 @@ function transition(projectId, action, user, payload = {}, ip = "") {
       status: p.status, allowed: FLOW.filter((f) => f.from === p.status).map((f) => f.action)
     });
   }
-  if (!can(user, flow.perm)) throw forbidden(`需要「${permRoleName(flow.perm)}」权限才能${flow.label}`);
+  // 普通用户只可提交由本人创建的立项草稿，其他任何项目流转仍按角色权限拦截。
+  const ownApplicationSubmit = action === "submit" && !isDemoMode() && process.env.ERP_MINIPROGRAM_ENABLED === "1" && user.role === "user" && Number(p.created_by) === Number(user.id);
+  if (!can(user, flow.perm) && !ownApplicationSubmit) throw forbidden(`需要「${permRoleName(flow.perm)}」权限才能${flow.label}`);
 
   const guardMsg = GUARDS[action] ? GUARDS[action](p) : null;
   if (guardMsg) {

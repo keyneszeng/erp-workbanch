@@ -5,7 +5,7 @@ const { isDemoMode } = require("../lib/runtime");
 const { assertCan, assertModule, assertProjectVisible, isSuper } = require("../lib/rbac");
 const { logAudit } = require("../lib/audit");
 const { getProject, verification, materialsStatus, settlementOf, demandSummary } = require("../lib/workflow");
-const { MATERIAL_KINDS } = require("../lib/constants");
+const { MATERIAL_KINDS, MATERIAL_MODULE_KINDS } = require("../lib/constants");
 const { readPaging, countOf } = require("../lib/paginate");
 const { storage } = require("../lib/storage");
 const { assertUploadAttachable } = require("../lib/upload-ownership");
@@ -378,6 +378,11 @@ function register(router) {
     const kind = String(rawKind || "").trim();
     if (!kind) throw bad("请选择或填写材料类别");
     if (kind.length > 20) throw bad(`材料类别不能超过 20 字（当前 ${kind.length} 字）`);
+    // 页面开关不能仅在客户端隐藏：停用的固定模块必须在 API 层拒绝继续采集。
+    if (MATERIAL_MODULE_KINDS.includes(kind)) {
+      const module=db.prepare("SELECT enabled FROM meeting_material_modules WHERE pid=? AND kind=?").get(p.id,kind);
+      if (module && module.enabled===0) throw conflict("当前材料模块已停用，不可继续上传；历史资料保留","MODULE_DISABLED");
+    }
     if (!String(name || "").trim()) throw bad("请填写材料名称");
     if (String(name).trim().length > 120) throw bad("材料名称不能超过 120 字");
 

@@ -289,3 +289,39 @@ tr.row-focus td .mono{font-weight:600}
 .reset-warn{border:1px solid #efdcc8;background:#fdf7f1;border-radius:8px;padding:10px 13px;
   font-size:12.5px;color:#7b3a10;line-height:1.65}
 .reset-warn .t{font-weight:700;font-size:13px;color:var(--txt);margin-bottom:3px}
+
+
+/* 2026-11-01 screenshot alignment: B1 workbench, B3 project lifecycle, B4 materials, B5 finance */
+.ux-section-intro{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin:0 0 13px}
+.ux-section-intro h2{font-size:17px;letter-spacing:.2px}
+.ux-section-intro p{font-size:12.5px;color:var(--sub);margin-top:2px}
+.ux-kpi-grid{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:12px}
+.ux-metric{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px 14px;position:relative;min-width:0}
+.ux-metric::before{content:"";position:absolute;top:0;left:0;right:0;height:3px;background:#3f72bc;border-radius:10px 10px 0 0}
+.ux-metric span{display:block;color:var(--sub);font-size:12px;white-space:nowrap}
+.ux-metric strong{font-size:30px;line-height:1.25;font-weight:750;display:inline-block;margin-top:7px;color:#1b3760;font-variant-numeric:tabular-nums}
+.ux-metric small{margin-left:6px;color:var(--mute);font-size:11px}
+.ux-metric-warn::before{background:#ef9a47}.ux-metric-danger::before{background:#d84b50}
+.ux-metric-done::before{background:#3ca57e}
+.ux-quick-actions{display:flex;flex-wrap:wrap;gap:9px}
+.ux-finance-note{display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px;border:1px solid #d4e3f3;background:#f8fbff;border-radius:10px;padding:12px 16px;font-size:12.5px;color:#395d86}
+.ux-finance-note b{color:#1e477d}
+.ux-finance-note small{color:var(--sub)}
+.ux-lifecycle{border:1px solid #d6e5f7;background:linear-gradient(150deg,#fafcff,#f1f7ff);border-radius:10px;padding:15px 17px;margin:14px 0}
+.ux-lifecycle-head{display:flex;justify-content:space-between;gap:8px;color:#23466f;font-size:13px}
+.ux-lifecycle-head span{color:var(--sub)}
+.ux-progress{height:8px;border-radius:10px;background:#d9e4f2;overflow:hidden;margin:10px 0 14px}
+.ux-progress span{display:block;height:100%;background:#3172d1;border-radius:10px;transition:width .2s ease}
+.ux-checkpoints{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+.ux-checkpoints button{text-align:left;background:#fff;border:1px solid var(--line);border-radius:8px;padding:10px 12px;min-width:0}
+.ux-checkpoints button:hover,.ux-checkpoints button:focus-visible{border-color:#4681cd;box-shadow:0 0 0 2px #d4e5ff}
+.ux-checkpoints strong{display:block;color:#2053a0;font-size:17px}
+.ux-checkpoints span{font-size:12px;color:var(--sub)}
+.ux-public-hint{font-size:12px;color:var(--sub)}
+.ux-finance-tabs{display:flex;gap:14px;border-bottom:1px solid var(--line);margin-top:16px}
+.ux-finance-tab{font-size:13px;padding:12px 14px;border-bottom:3px solid transparent;color:var(--sub)}
+.ux-finance-tab.active{color:var(--blue);font-weight:700;border-color:var(--blue)}
+.ux-finance-rule{padding:11px 13px;background:#eff6ff;border:1px solid #d6e5fb;border-radius:8px;font-size:12px;color:#365d8d;margin:12px 0}
+#fin-payments,#fin-settlements{scroll-margin-top:18px}
+@media(max-width:1320px){.ux-kpi-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media(max-width:740px){.ux-kpi-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.ux-checkpoints{grid-template-columns:repeat(2,minmax(0,1fr))}}
