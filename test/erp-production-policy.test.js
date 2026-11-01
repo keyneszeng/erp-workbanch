@@ -84,8 +84,19 @@ test("production: association member IDs, approved contract signing and pay-afte
   const uploadBody=await uploaded.json();
   assert.equal(uploaded.status,200,JSON.stringify(uploadBody));
   for (const kind of [...new Set([...MATERIAL_KINDS,"会议通知","劳务收集表","劳务协议","串场"])]) {
+    const attachment = kind === "发票" ? uploadBody : await (async () => {
+      const response = await fetch(root + "/api/uploads?pid=" + pid, {
+        method:"POST",
+        headers:{Cookie:cookie,"Content-Type":"application/octet-stream","X-File-Name":"support.pdf"},
+        body:invoiceData
+      });
+      const data = await response.json();
+      assert.equal(response.status,200,JSON.stringify(data));
+      return data;
+    })();
     const item=await request("POST","/api/projects/"+pid+"/materials",{
-      kind,name:kind+"验收材料",version:"终版",file_key:uploadBody.key,file_name:"evidence.pdf",file_mime:"application/pdf"
+      kind,name:kind+"验收材料",version:"终版",file_key:attachment.key,
+      file_name:"support.pdf",file_mime:"application/pdf"
     },cookie);
     assert.equal(item.status,200,"material "+kind+": "+JSON.stringify(item.body));
   }
