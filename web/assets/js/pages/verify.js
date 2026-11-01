@@ -150,8 +150,8 @@ function openJudge(root, pid, no, d) {
         <select name="result"><option value="通过">通过</option><option value="不通过">不通过（自动生成例外单）</option></select></div>
       <div class="fld" style="margin-top:12px"><label>问题描述 / 备注</label>
         <textarea name="remark" rows="3" placeholder="判定不通过时必填"></textarea></div>
-      ${no === 6 ? `<div class="fld" style="margin-top:12px"><label>核对发票总金额（元）</label>
-        <input type="number" name="invoiceAmount" min="0.01" step="0.01" value="${esc(String(s.invoiceAmount || ""))}" placeholder="必须与已签署合同总金额一致"></div>` : ""}
+      ${no === 6 ? `<div class="fld" style="margin-top:12px"><label>需开票合同对应的发票总额（元；纯专家劳务可填 0）</label>
+        <input type="number" name="invoiceAmount" min="0" step="0.01" value="${esc(String(s.invoiceAmount || ""))}" placeholder="应等于非劳务合同金额"></div>` : ""}
       ${sopEvidenceForm(no, d.project)}`,
     footer: `<button class="btn btn-o" data-x="0">取消</button><button class="btn btn-p" data-x="1">提交判定</button>`
   });
