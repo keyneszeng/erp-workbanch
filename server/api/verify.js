@@ -106,6 +106,17 @@ function register(router) {
     const validated = !isDemoMode() && result==="通过"
       ? validateSopEvidence(no,ctx.body?.evidence,p,db,invoiceAmount) : null;
     const at = now();
+    // 前置步骤重新判定后，后续步骤先前的结论不再可靠，必须按顺序复核。
+    // 判定依据完成校验后才清空，防止一个无效请求意外破坏已通过结果。
+    if (!isDemoMode() && def.result !== "待判定" && no < 6) {
+      db.prepare(
+        "UPDATE verify_steps SET result='待判定', remark='前置步骤重新核验，须依序复核', " +
+        "invoice_amount=NULL, checked_by=NULL, checked_at=NULL, evidence_json=NULL " +
+        "WHERE pid=? AND step_no>? AND result<>'待判定'"
+      ).run(p.id, no);
+      logAudit({user:ctx.user,module:"会后核销",action:"后续步骤重新复核",target:p.id,
+        detail:"第 "+no+" 步重新判定，后续步骤核验结果失效并需重新取证",ip:ctx.ip});
+    }
     db.prepare(
       "INSERT OR REPLACE INTO verify_steps (pid,step_no,name,result,remark,invoice_amount,checked_by,checked_at,evidence_json) VALUES (?,?,?,?,?,?,?,?,?)"
     ).run(p.id, no, def.name, result, String(remark || ""), invoiceAmount, ctx.user.name, at,
