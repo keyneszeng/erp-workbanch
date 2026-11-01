@@ -39,6 +39,12 @@ function register(router){
       .all(ctx.user.id);
     return {rows,total:rows.length};
   });
+  router.get("/api/mini/applications/:id",async ctx=>{
+    requireMini();
+    const p=ownApplication(ctx,ctx.params.id);
+    const {id,name,assoc,form,date,days,budget,people,phone,dept,agenda,status,created_at}=p;
+    return {project:{id,name,assoc,form,date,days,budget,people,phone,dept,agenda,status,created_at}};
+  });
   router.post("/api/mini/applications",async ctx=>{
     requireMini();
     const v=formFor(ctx,ctx.body||{});
