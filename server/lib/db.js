@@ -25,6 +25,11 @@ const DB_FILE =
   (typeof process !== "undefined" && process.env && process.env.ERP_DB) || DEFAULT_DB_FILE;
 
 const SCHEMA = `
+CREATE TABLE IF NOT EXISTS associations (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL UNIQUE,
+  active INTEGER NOT NULL DEFAULT 1
+);
 CREATE TABLE IF NOT EXISTS users (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,
   username    TEXT UNIQUE NOT NULL,
@@ -145,6 +150,18 @@ CREATE TABLE IF NOT EXISTS contracts (
   file_mime   TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_contracts_pid ON contracts(pid);
+
+CREATE TABLE IF NOT EXISTS verified_labor_payees (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  pid TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  bank TEXT NOT NULL DEFAULT '',
+  account_cipher TEXT NOT NULL,
+  amount REAL NOT NULL,
+  confirmed_at TEXT NOT NULL,
+  UNIQUE(pid,name,account_cipher)
+);
+CREATE INDEX IF NOT EXISTS idx_verified_labor_payees_pid ON verified_labor_payees(pid);
 
 CREATE TABLE IF NOT EXISTS payments (
   id          TEXT PRIMARY KEY,
@@ -535,6 +552,9 @@ function migrate() {
     }
   };
 
+  // Existing projects keep historical evidence, only the displayed SOP labels are corrected.
+  db.exec("UPDATE verify_steps SET name='盖章函件与立项信息核验' WHERE step_no=1 AND name='盖章通知／招商函核验'");
+  db.exec("UPDATE verify_steps SET name='课件与串场内容核验' WHERE step_no=4 AND name='课件／串场一致性'");
   addColumn("verify_steps", "invoice_amount", "invoice_amount REAL");
   addColumn("verify_steps", "evidence_json", "evidence_json TEXT");
   addColumn("materials", "deleted_at", "deleted_at TEXT");

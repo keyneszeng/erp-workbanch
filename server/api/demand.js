@@ -274,7 +274,7 @@ function register(router) {
       for (const it of rows) {
         const missing = ["spec","owner_id","due","budget_owner","attach","status"].filter(k=>!String(it[k]??"").trim());
         if (missing.length) throw bad("需求「"+it.item+"」缺少必填字段："+missing.join("、")+"。七项字段必须齐全");
-        if (!/^(?:[a-f0-9]{32}\.(?:jpg|png|pdf|docx|pptx|xlsx|webp|gif)|不适用)$/.test(it.attach))
+        if (!/^(?:[a-f0-9]{32}\.(?:jpg|png|pdf|ppt|docx|pptx|xlsx|webp|gif)|不适用)$/.test(it.attach))
           throw bad("需求「"+it.item+"」附件必须关联已登记文件标识，或明确标记不适用");
         if (it.attach !== "不适用") {
           const file = db.prepare("SELECT file_key,pid,user_id FROM uploaded_files WHERE file_key=?").get(it.attach);

@@ -80,13 +80,16 @@ function validateSopEvidence(no, evidence, project, db, invoiceAmount) {
       return {matchedLaborRecords:a.length,matchedFields:keys.length,accountDataStored:false};
     }
     case 6: {
-      if(!Number.isFinite(invoiceAmount)||invoiceAmount<=0) throw bad("请输入核对后的发票金额");
-      if(cents(e.draftAmount)!==cents(invoiceAmount)) fail("拟结算单金额与发票总金额不一致");
+      if(!Number.isFinite(invoiceAmount)||invoiceAmount<0) throw bad("请输入核对后的发票金额");
+      const total=db.prepare("SELECT COALESCE(SUM(amount),0) AS total FROM contracts WHERE pid=? AND status='已签署'").get(pid).total;
+      if(cents(e.draftAmount)!==cents(total)) fail("拟请款总额必须与已签署合同总额一致");
+      const taxable=db.prepare("SELECT COALESCE(SUM(amount),0) AS total FROM contracts WHERE pid=? AND status='已签署' AND COALESCE(category,'')<>'劳务专家'").get(pid).total;
+      if(cents(invoiceAmount)!==cents(taxable)) fail("发票金额必须与应开票合同金额一致；劳务专家协议免票单独核验");
       if(!eq(e.meetingName,project.name)||!eq(e.meetingDate,project.date))
         fail("拟结算单/发票的会议名称或会议时间与立项信息不一致");
-      if(!materialExists(db,pid,["发票"],true)) fail("尚无发票原件","SOP_MATERIAL_MISSING");
+      if(cents(taxable)>0 && !materialExists(db,pid,["发票"],true)) fail("尚无发票原件","SOP_MATERIAL_MISSING");
       // 此处核对的是拟结算明细，不是提前生成正式可付款结算单。
-      return {draftAmount:Number(e.draftAmount),invoiceAmount,meetingMatched:true};
+      return {draftAmount:Number(e.draftAmount),invoiceAmount,nonInvoiceLaborAmount:(cents(total)-cents(taxable))/100,meetingMatched:true};
     }
     default: throw bad("核销步骤必须为 1~6");
   }

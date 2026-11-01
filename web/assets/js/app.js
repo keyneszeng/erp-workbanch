@@ -73,7 +73,7 @@ function navHtml(active) {
 function topHtml(r) {
   const role = state.role || {};
   return `<div>
-      <div style="font-size:12px;color:var(--mute);letter-spacing:.5px">协会会议执行 ERP</div>
+      <div style="font-size:12px;color:var(--mute);letter-spacing:.5px">会规化会务执行系统</div>
       <div style="font-size:12.5px;color:var(--sub);font-weight:600">${esc(r.title)}</div>
     </div>
     <div class="top-right">
@@ -235,7 +235,7 @@ function renderFirstPasswordChange(user) {
   root.style.display = "";
   const phone = String(user.phone || "");
   const masked = phone.slice(0, 3) + "****" + phone.slice(-4);
-  root.innerHTML = '<div class="login-box"><div class="login-left"><div><div class="sub">MEETING OPS ERP</div>' +
+  root.innerHTML = '<div class="login-box"><div class="login-left"><div><div class="sub">会规化会务执行系统</div>' +
     '<h1>首次登录安全验证</h1></div><p>此账号使用统一初始密码，需先验证白名单登记的手机号并修改个人密码，完成后才可使用系统。</p></div>' +
     '<div class="login-right"><h2>验证手机并修改密码</h2><div class="hint">验证码将发至 ' + esc(masked) + '</div>' +
     '<div class="login-err" id="firstErr"></div><form id="firstForm">' +

@@ -334,6 +334,7 @@ const RESET_LABEL = {
   guests: "嘉宾", tasks: "任务", issues: "异常问题",
   meeting_material_tasks: "会议材料待办", meeting_material_modules: "会议固定材料模块", demand_revisions: "需求历史变更",
   material_ocr_results: "材料 OCR 识别结果",
+  verified_labor_payees: "加密劳务收款方", associations: "协会目录",
   demand_items: "需求明细", demand_sheets: "需求单", project_members: "项目成员",
   settings: "系统演示配置"
 };
@@ -379,18 +380,37 @@ function register(router) {
     return { rows: rows.map((u) => ({ id: u.id, name: u.name, role: u.role, role_name: ROLES[u.role]?.name || u.role })) };
   });
 
+  router.get("/api/associations", async ctx => ({rows:require("../lib/associations").list()}));
+  router.post("/api/associations", async ctx => {
+    assertCan(ctx.user,"user:manage","只有总管理员可以修改协会目录");
+    const name=require("../lib/associations").add(ctx.body?.name);
+    logAudit({user:ctx.user,module:"系统配置",action:"新增协会",target:name,detail:"协会加入目录",ip:ctx.ip});
+    return {name,rows:require("../lib/associations").list()};
+  });
+  router.delete("/api/associations/:name", async ctx => {
+    assertCan(ctx.user,"user:manage","只有总管理员可以修改协会目录");
+    const name=decodeURIComponent(ctx.params.name);
+    require("../lib/associations").remove(name);
+    logAudit({user:ctx.user,module:"系统配置",action:"停用协会",target:name,detail:"无用户、无项目后停用",ip:ctx.ip});
+    return {rows:require("../lib/associations").list()};
+  });
   router.get("/api/users/assignable", async (ctx) => {
     if (!["project:member", "project:create", "demand:write", "user:manage"].some((perm) => can(ctx.user, perm)))
       throw require("../lib/util").forbidden("当前角色无权选择协会负责人");
     const assoc = String(ctx.query.assoc || "");
-    const rows = db.prepare("SELECT id, name, role, assoc FROM users WHERE active = 1 AND assoc IS NOT NULL AND assoc <> '' AND role <> 'admin' ORDER BY name,id").all()
-      .filter((u) => (!assoc || u.assoc === assoc) && (isSuper(ctx.user) || u.assoc === ctx.user.assoc));
+    const candidates=db.prepare("SELECT id,name,role,assoc FROM users WHERE active=1 ORDER BY name,id").all();
+    const regular=candidates.filter(u=>u.role!=="admin" && u.assoc && (!assoc||u.assoc===assoc) && (isSuper(ctx.user)||u.assoc===ctx.user.assoc));
+    // 单人部署：仅平台总管理员一个账号时，仍允许其作为新会议负责人。
+    // 一旦配置了真实协会成员，负责人恢复协会级选人，不能把总管理员跨协会常规指派。
+    const rows=regular.length ? regular : (isSuper(ctx.user) && candidates.length===1 && candidates[0].role==="admin"
+      ? [{...candidates[0],assoc:assoc||null}] : []);
     return { rows: rows.map((u) => ({ id: u.id, name: u.name, assoc: u.assoc, role: u.role, role_name: ROLES[u.role]?.name || u.role })) };
   });
 
   router.post("/api/users", async (ctx) => {
     assertCan(ctx.user, "user:manage", "只有总管理员可以创建账号");
     const b = ctx.body || {};
+    if(b.assoc && !require("../lib/associations").has(b.assoc)) throw bad("所属协会不在有效目录中");
     if (!isDemoMode()) {
       const phone = normalizePhone(b.phone);
       if (!String(b.name || "").trim()) throw bad("请填写姓名");
@@ -444,6 +464,7 @@ function register(router) {
           patch.username = phone;
         }
       }
+      if(patch.assoc && !require("../lib/associations").has(patch.assoc))throw bad("所属协会不在有效目录中");
       checkUserLen(patch);
       const reset = b.resetPassword === true || b.password === INITIAL_PASSWORD;
       if (b.password && b.password !== INITIAL_PASSWORD) throw bad("白名单账号的重置密码固定为 123456");
@@ -477,6 +498,7 @@ function register(router) {
       if (k in b && String(b[k] ?? "") !== String(u[k] ?? "")) patch[k] = b[k];
     }
     if (patch.role && !ROLES[patch.role]) throw bad("角色不合法");
+    if(patch.assoc && !require("../lib/associations").has(patch.assoc))throw bad("所属协会不在有效目录中");
     checkUserLen(patch);
     if (u.id === ctx.user.id) {
       if ("active" in patch && !Number(patch.active)) throw bad("不能停用当前登录的账号");

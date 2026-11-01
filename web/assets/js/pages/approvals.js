@@ -55,7 +55,7 @@ export async function render(root, params = []) {
         c: [
           `<span class="mono">${a.id}</span>`, esc(a.type), esc(a.title),
           a.pid ? `<a class="link" data-go="projects/${a.pid}">${esc(a.pname || a.pid)}</a>` : "—",
-          a.amount ? `¥${money(a.amount)}` : "—", esc(a.by_user || ""), esc(a.sla || ""), badge(a.status),
+          a.amount ? `¥${money(a.amount)}` : "—", esc(a.by_user || ""), `${esc(a.sla || "")}${state.super && a.status==="待审批" ? ` <button class="link" data-edit-sla="${esc(a.id)}" title="修改本单审批时限">修改</button>` : ""}`, badge(a.status),
           a.status === "待审批"
             ? `<div class="tacts">${canDecide(a.type) ? `<button class="link" data-ok="${a.id}">通过</button>
                  <button class="link danger" data-no="${a.id}">驳回</button>` : `<span class="link muted">无权限</span>`}</div>`
@@ -69,6 +69,13 @@ export async function render(root, params = []) {
       { empty: view === "pending" ? "没有待审批事项" : "暂无审批记录" })
   );
 
+  root.querySelectorAll("[data-edit-sla]").forEach(btn=>btn.onclick=async()=>{
+    const row=rows.find(a=>a.id===btn.dataset.editSla);if(!row)return;
+    const val=await promptBox({title:"修改待审批时限",label:"新的时限要求",ph:row.sla||"如：3 个工作日",ok:"保存"});
+    if(val===null)return;
+    try{await api.patch("/api/approvals/"+encodeURIComponent(row.id)+"/sla",{sla:val});toast("时限已更新","ok");await render(root,params);}
+    catch(e){toast(e.message,"warn");}
+  });
   root.querySelectorAll("[data-ok]").forEach((b) => b.onclick = () => decide(root, b.dataset.ok, true));
   root.querySelectorAll("[data-no]").forEach((b) => b.onclick = () => decide(root, b.dataset.no, false));
 

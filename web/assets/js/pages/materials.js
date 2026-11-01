@@ -42,7 +42,7 @@ export async function render(root) {
           c: [`<a class="link" data-go="projects/${m.pid}">${esc(m.pname)}</a>`, esc(m.kind),
             esc(m.name),
             m.file_key
-              ? (m.file_mime === "application/pdf" || /\.(docx|pptx|xlsx)$/i.test(m.file_key)
+              ? (m.file_mime === "application/pdf" || /\.(docx|ppt|pptx|xlsx)$/i.test(m.file_key)
                   ? `<a class="link" href="${fileUrl(m.file_key)}" target="_blank" rel="noopener">${esc(m.file_name || "下载附件")}</a>`
                   : `<a href="${fileUrl(m.file_key)}" target="_blank" rel="noopener"><img class="thumb" src="${fileUrl(m.file_key)}" alt=""></a>`)
               : '<span style="color:var(--mute)">—</span>',
@@ -70,7 +70,7 @@ function openAdd(root, projects, kinds) {
     { k: "version", l: "版本", v: "v1" },
     {
       k: "file", l: "附件", t: "file", full: 1,
-      accept: "image/jpeg,image/png,image/webp,image/gif,application/pdf,.docx,.pptx,.xlsx",
+      accept: "image/jpeg,image/png,image/webp,image/gif,application/pdf,.docx,.ppt,.pptx,.xlsx",
       tip: "支持图片、PDF、DOCX、PPTX、XLSX（Office 2007 及以上格式），每份不超过 8 MB；讲者照片请在名称栏填写讲者姓名。图片可自动压缩。"
     }
   ];

@@ -1,4 +1,5 @@
 import { api, can, state } from "../lib/api.js";
+import {bindPayeePicker} from "../lib/payee-picker.js";
 import { badge, bindPager, confirmBox, esc, formHtml, modal, money, pager, panel, readForm, table, toast, validate } from "../lib/ui.js";
 
 const PAGE_SIZE = 50;
@@ -189,7 +190,7 @@ function openAccount(root, id) {
   };
 }
 
-function openPay(root, projects) {
+async function openPay(root, projects) {
   if (!projects.length) return toast("当前没有已核销项目可付款", "warn");
   const fields = [
     { k: "pid", l: "付款项目", t: "select", req: 1, opts: projects.map((p) => ({
@@ -197,18 +198,27 @@ function openPay(root, projects) {
         l: `${p.id} ${p.name}（预算 ¥${Number(p.budget).toLocaleString("zh-CN")}，已付 ¥${Number(p.paid_amt || 0).toLocaleString("zh-CN")}）`
       })) },
     { k: "type", l: "付款类型", t: "select", req: 1, opts: state.meta.paymentTypes },
+    { k: "payee_option_id", l: "按核销资料选择收款方", t: "select", opts: [{v:"",l:"载入中…"}],
+      tip:"专家费与个人报销优先使用第 5 步核验的劳务表；其他收款方来自已签署合同。" },
     { k: "payee", l: "收款方", req: 1 },
     // V1.2.18：只写收款方名字，财务没法打款
-    { k: "payee_bank", l: "开户行", req: 1, ph: "如：中国银行北京朝阳支行" },
-    { k: "payee_account", l: "银行账号", req: 1, ph: "10~25 位数字，可含空格分隔" },
+    { k: "payee_bank", l: "开户行", req: 0, ph: "如：中国银行北京朝阳支行" },
+    { k: "payee_account", l: "银行账号", req: 0, ph: "10~25 位数字，可含空格分隔" },
     { k: "amount", l: "付款金额（元）", t: "number", req: 1 },
-    { k: "invoice_no", l: "发票号", req: 1 },
     { k: "remark", l: "备注", t: "textarea", full: 1, rows: 2 }
   ];
   const m = modal({ title: "付款申请", body: `<div class="gate ok" style="margin-bottom:12px"><b>核销门禁</b>仅列出「已核销」项目：未核销项目不可付款，已结算项目账目已封账，已归档项目卷宗已封存。<br><b>预算门禁</b>已占用（待审批 + 已审批 + 已付款）加本笔金额超过预算时，接口返回 <code>OVER_BUDGET</code>，需总管理员特批。</div>${formHtml(fields)}`,
     footer: `<button class="btn btn-o" data-x="0">取消</button><button class="btn btn-p" data-x="1">提交申请</button>` });
+  await bindPayeePicker(m,projects[0].id,true);
   m.querySelector('[data-x="0"]').onclick = () => m.classList.remove("open");
   m.querySelector('[data-x="1"]').onclick = async () => {
+    const selected=m.querySelector('[name="payee_option_id"]')?.value;
+    const acct=m.querySelector('[name="payee_account"]')?.value.trim();
+    const bank=m.querySelector('[name="payee_bank"]')?.value.trim();
+    const rows=m.querySelector('[name="payee_option_id"]')?.__rows||[];
+    const source=rows.find(x=>x.id===selected);
+    if((!source||!source.bank)&&!bank){toast("请填写收款方开户行","warn");return;}
+    if((!source||source.source!=="labor")&&!acct){toast("请填写银行账号；合同仅提供收款方名称","warn");return;}
     if (!validate(m, fields)) return;
     try {
       const r = await api.post("/api/payments", readForm(m));

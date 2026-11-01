@@ -29,6 +29,7 @@ const ALLOWED_MIME = {
   "image/webp": "webp",
   "image/gif": "gif",
   "application/pdf": "pdf",
+  "application/vnd.ms-powerpoint": "ppt",
   [OFFICE_MIME.docx]: "docx",
   [OFFICE_MIME.pptx]: "pptx",
   [OFFICE_MIME.xlsx]: "xlsx"
@@ -165,7 +166,7 @@ function newKey(mime) {
 function checkMime(mime) {
   const m = String(mime || "").split(";")[0].trim().toLowerCase();
   if (!ALLOWED_MIME[m]) {
-    throw Object.assign(new Error(`不支持的文件类型：${m || "未识别"}（仅支持 JPG / PNG / WebP / GIF / PDF / DOCX / PPTX / XLSX）`), {
+    throw Object.assign(new Error(`不支持的文件类型：${m || "未识别"}（仅支持 JPG / PNG / WebP / GIF / PDF / PPT / DOCX / PPTX / XLSX）`), {
       status: 415, code: "UNSUPPORTED_MEDIA"
     });
   }
@@ -180,6 +181,11 @@ function sniffMime(buf) {
   if (buf[0] === 0x47 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x38) return "image/gif";
   if (buf.length >= 12 && buf.toString("ascii", 0, 4) === "RIFF" && buf.toString("ascii", 8, 12) === "WEBP") return "image/webp";
   if (buf.toString("ascii", 0, 4) === "%PDF") return "application/pdf";
+  // Legacy PowerPoint is a CFB/OLE document, not OOXML. Require a structurally plausible header.
+  // Store as attachment only; never execute active content or embed it in a browser preview.
+  if(buf.length>=512 && buf.subarray(0,8).equals(Buffer.from([0xd0,0xcf,0x11,0xe0,0xa1,0xb1,0x1a,0xe1])) &&
+     buf.readUInt16LE(28)===0xfffe && [3,4].includes(buf.readUInt16LE(26)) &&
+     [9,12].includes(buf.readUInt16LE(30)))return "application/vnd.ms-powerpoint";
   return detectOoxml(buf);
 }
 
