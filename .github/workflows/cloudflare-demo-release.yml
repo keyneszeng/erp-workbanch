@@ -1,6 +1,6 @@
 name: Release ERP Cloudflare demo (never production)
 
-# Release marker 2026-11-01: publish corrected KPI location in Cloudflare demo only.
+# Release marker 2026-11-01: fix super-admin new-account button label in Cloudflare demo only.
 # One-time release when this dedicated workflow is introduced on main.
 # Further releases require manually dispatching this workflow.
 on:
