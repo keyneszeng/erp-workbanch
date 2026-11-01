@@ -588,7 +588,7 @@ function openContract(root, pid) {
     { k: "status", l: "状态", t: "select", opts: ["草稿", "待签署", "已签署"], tip: "已签署需要管理员审批，不能通过录入直接跳过审批" },
     {
       k: "file", l: "合同原件", t: "file", full: 1,
-      accept: "image/jpeg,image/png,image/webp,image/gif,application/pdf",
+      accept: "image/jpeg,image/png,image/webp,image/gif,application/pdf,.ppt,.pptx,.xlsx,.docx",
       tip: "可上传盖章扫描件 PDF 或手机拍照件，单个不超过 8 MB。图片会在本地压缩后上传，PDF 原样保存。"
     }
   ];
@@ -738,7 +738,7 @@ function openMaterial(root, pid) {
     { k: "version", l: "版本", v: "v1" },
     {
       k: "file", l: "附件", t: "file", full: 1,
-      accept: "image/jpeg,image/png,image/webp,image/gif,application/pdf",
+      accept: "image/jpeg,image/png,image/webp,image/gif,application/pdf,.ppt,.pptx,.xlsx,.docx",
       tip: "支持 JPG / PNG / WebP / PDF，单张不超过 8 MB。图片会在本地自动压缩后再上传。"
     }
   ];
