@@ -20,7 +20,7 @@ function formFor(ctx,b){
   const actor=ctx.user;
   if(!actor.assoc && actor.role!=="admin")throw forbidden("尚未配置所属协会，请联系管理员完善账号后再立项");
   const assoc=actor.role==="admin"?String(b.assoc||""):String(actor.assoc);
-  if(!ASSOCS.includes(assoc))throw bad("请使用系统中有效的所属协会");
+  if(!require("../lib/associations").has(assoc))throw bad("请使用系统中有效的所属协会");
   if(actor.role!=="admin" && b.assoc && b.assoc!==assoc)throw forbidden("只能申请本协会项目");
   const v={
     name:String(b.name||"").trim(),assoc,
