@@ -346,6 +346,7 @@ function register(router) {
     // 等于让新人凭一次操作就能看到已经封账的项目与封存的卷宗。
     assertNotFrozen(p, "项目成员");
     const { user_id, remove } = ctx.body || {};
+    const memberRole=ctx.body?.member_role==="执行负责人"?"执行负责人":"成员";
     const u = db.prepare("SELECT * FROM users WHERE id = ?").get(Number(user_id));
     if (!u) throw notFound("用户不存在");
     if (remove) {
@@ -353,7 +354,12 @@ function register(router) {
       logAudit({ user: ctx.user, module: "项目管理", action: "移出成员", target: p.id, detail: `移出 ${u.name}`, ip: ctx.ip });
       return { members: db.prepare("SELECT u.id,u.name,u.role FROM project_members m JOIN users u ON u.id=m.user_id WHERE m.project_id=?").all(p.id), message: `已移出 ${u.name}` };
     }
-    db.prepare("INSERT OR IGNORE INTO project_members (project_id,user_id,role) VALUES (?,?,?)").run(p.id, u.id, "成员");
+    if(memberRole==="执行负责人" && u.role!=="exec" && u.role!=="admin")
+      throw bad("只有会务执行角色或总管理员可以作为执行负责人");
+    if(memberRole==="执行负责人")
+      db.prepare("UPDATE project_members SET role='成员' WHERE project_id=? AND role='执行负责人'").run(p.id);
+    db.prepare("INSERT OR IGNORE INTO project_members (project_id,user_id,role) VALUES (?,?,?)").run(p.id, u.id, memberRole);
+    db.prepare("UPDATE project_members SET role=? WHERE project_id=? AND user_id=?").run(memberRole,p.id,u.id);
     logAudit({ user: ctx.user, module: "项目管理", action: "增加成员", target: p.id, detail: `增加 ${u.name}（${ROLES[u.role].name}）`, ip: ctx.ip });
     return { members: db.prepare("SELECT u.id,u.name,u.role FROM project_members m JOIN users u ON u.id=m.user_id WHERE m.project_id=?").all(p.id), message: `已加入 ${u.name}` };
   });
