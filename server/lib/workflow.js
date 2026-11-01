@@ -316,6 +316,12 @@ function transition(projectId, action, user, payload = {}, ip = "") {
 
       // 三个数都必须落在「分」上：140000 - 135580.6 = 4419.399999999994，
       // 不收敛的话结算单 profit 会带着 12 位小数入库，导出 CSV 也是这个数。
+      const sponsorCount=db.prepare("SELECT COUNT(*) AS n FROM sponsor_income WHERE pid=?").get(p.id).n;
+      if(sponsorCount && !isDemoMode()){
+        const s=require("../api/sponsor-income").summary(p.id,p.budget);
+        if(!s.match||!s.receivedMatched)
+          throw conflict("企业赞助合同合计及财务核验到账金额须与会议预算一致，才能生成结算单","SPONSOR_INCOME_GATE");
+      }
       const income = yuan(p.budget);
       const expense = yuan(
         db.prepare("SELECT COALESCE(ROUND(SUM(amount),2),0) AS s FROM payments WHERE pid = ? AND status = '已付款'")
