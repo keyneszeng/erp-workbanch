@@ -29,7 +29,7 @@ function verification(pid) {
     };
   });
   const judged = steps.filter((s) => s.result !== "待判定").length;
-  const passed = steps.filter((s) => s.result === "通过" || (isDemoMode() && s.result === "已解例外")).length;
+  const passed = steps.filter((s) => (s.result === "通过" && (isDemoMode() || !!s.evidence)) || (isDemoMode() && s.result === "已解例外")).length;
   const failedSteps = steps.filter((s) => s.result === "不通过").map((s) => s.no);
   const openExceptions = db
     .prepare("SELECT COUNT(*) AS c FROM exceptions WHERE pid = ? AND status IN ('待审批','待复核')")
@@ -153,7 +153,7 @@ const GUARDS = {
     if (v.judged < v.total) return `还有 ${v.total - v.judged} 步未判定，6 步必须全部判定`;
     if (v.failedSteps.length) return `第 ${v.failedSteps.join("、")} 步不通过，需提交例外单并获批`;
     if (v.openExceptions > 0) return `存在 ${v.openExceptions} 张未完成处理或待复核的例外单`;
-    if (!v.complete) return "正式核销要求六步全部重新核验通过；例外审批不能直接代替原步骤判定";
+    if (!v.complete) return "六步须全部复核通过；生产环境不接受缺少结构化证据的旧结论或以例外审批代替核销";
     return null;
   },
   settle(p) {
