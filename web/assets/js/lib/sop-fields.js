@@ -5,7 +5,7 @@ const area=(name,label,placeholder)=>`<div class="fld" style="margin-top:8px"><l
 const ck=(name,label)=>`<label style="display:block;margin-top:9px"><input type="checkbox" name="${name}"> ${label}</label>`;
 const names=v=>String(v||"").split(/[\n,，、;；]+/).map(x=>x.trim()).filter(Boolean);
 const labor=v=>String(v||"").split(/\n+/).map(line=>line.split("|").map(x=>x.trim()))
-  .filter(x=>x.some(Boolean)).map(([name,time,role,amount,bankAccount])=>({name,time,role,amount,bankAccount}));
+  .filter(x=>x.some(Boolean)).map(([name,time,role,amount,bankAccount,bankName])=>({name,time,role,amount,bankAccount,bankName}));
 export function sopEvidenceForm(no,p){
   const head=`<div class="gate" style="margin-bottom:9px">以下信息来自人工核验/结构化录入，系统只做字段比较；不具备自动 OCR。原件请先在材料中心上传。</div>`;
   const s={
@@ -24,11 +24,11 @@ export function sopEvidenceForm(no,p){
        +ck("hostTitleMatches","串场题目与议程一致")+ck("hostNameLogoMatches","主办方名称及 logo 一致")
        +`<div class="fld"><label>药企 logo 出现页面（多选，仅允许三类）</label>`
        +["首页","尾页","鸣谢页"].map(x=>ck("logo"+x,x)).join("")+`</div>`,
-    5:area("collectionRecords","劳务收集表（每行：姓名|时间|角色|金额|银行账号）","张老师|2026-11-01|讲者|1000|6222...")
-       +area("agreementRecords","劳务协议（同样按五字段逐行输入）","张老师|2026-11-01|讲者|1000|6222...")
-       +`<div class="hint">银行账号只用于本次即时比对，不会写入核销结果或审计；请仅在受控的正式 HTTPS 环境使用。</div>`,
+    5:area("collectionRecords","劳务收集表（每行：姓名|时间|角色|金额|银行账号|开户行（可选））","张老师|2026-11-01|讲者|1000|6222...")
+       +area("agreementRecords","劳务协议（同样格式逐行输入）","张老师|2026-11-01|讲者|1000|6222...")
+       +`<div class="hint">银行账号在第五步核验时对照，不进入核销正文或审计。生产环境配置专用加密密钥后，仅将核验后的劳务收款信息加密用于后续付款人选择。</div>`,
     6:input("meetingName","拟结算单会议名称",p.name)+input("meetingDate","拟结算单会议日期",p.date)
-       +input("draftAmount","拟结算金额（元，须与发票和已签合同一致）")
+       +input("draftAmount","拟请款总金额（元，须等于所有已签合同总额；专家费可免发票）")
   };
   return head+(s[no]||"");
 }
