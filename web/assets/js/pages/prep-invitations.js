@@ -1,5 +1,5 @@
 import { api, state } from "../lib/api.js";
-import { esc, toast, confirmBox } from "../lib/ui.js";
+import { esc, toast, confirmBox, modal } from "../lib/ui.js";
 
 let selectedPid = "";
 let selectedType = "enterprise";
@@ -26,7 +26,7 @@ function recordHtml(x, channels) {
   return '<tr><td class="mono">' + esc(x.id) + '</td><td>' + esc(x.template_name) +
     '</td><td>' + esc(target) + '</td><td>' + esc(x.status) + '</td><td>' +
     (x.sent_at ? esc(x.sent_at.slice(0,16)) : "—") +
-    '</td><td><button class="link" data-pdf="' + esc(x.id) + '">下载 PDF</button>' +
+    '</td><td><button class="link" data-preview="' + esc(x.id) + '">预览 PDF</button> <button class="link" data-pdf="' + esc(x.id) + '">下载 PDF</button>' +
     (closed ? "" : emailBtn + shareBtn) + "</td></tr>";
 }
 
@@ -102,6 +102,14 @@ export async function render(root) {
       await render(root);
     } catch(e) { toast(e.message,"warn"); }
   };
+  const previewPdf=id=>{
+    const src="/api/projects/"+encodeURIComponent(selectedPid)+"/prep/invitations/"+encodeURIComponent(id)+"/pdf?preview=1";
+    const m=modal({title:"专属 PDF 邀请函预览 · "+id,width:"850px",
+      body:'<iframe title="PDF邀请函" src="'+src+'" style="width:100%;height:65vh;border:1px solid #d8e3ef;border-radius:7px"></iframe><p class="hint">仅预览，不代表已发送。确认无误后可下载或使用已配置的发送渠道。</p>',
+      footer:'<button class="btn btn-o" data-close-preview>关闭</button><a class="btn btn-p" href="'+src.replace("?preview=1","")+'" target="_blank" rel="noopener">下载 PDF</a>'});
+    m.querySelector("[data-close-preview]").onclick=()=>m.classList.remove("open");
+  };
+  root.querySelectorAll("[data-preview]").forEach(btn=>btn.onclick=()=>previewPdf(btn.dataset.preview));
   root.querySelectorAll("[data-pdf]").forEach(btn=>btn.onclick=()=>{
     location.href="/api/projects/"+selectedPid+"/prep/invitations/"+encodeURIComponent(btn.dataset.pdf)+"/pdf";
   });
