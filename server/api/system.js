@@ -8,7 +8,7 @@ const { listProjects } = require("./projects");
 const { VERIFY_STEPS } = require("../lib/constants");
 const { readPaging, countOf } = require("../lib/paginate");
 const { seed, RESET_DATA_TABLES } = require("../lib/seed");
-const { isDemoMode } = require("../lib/runtime");
+const { isDemoMode, isTestEnvironment } = require("../lib/runtime");
 const { INITIAL_PASSWORD, normalizePhone, ensureAvailable } = require("../lib/phone-whitelist");
 
 function countsByStatus(user) {
@@ -641,7 +641,8 @@ function register(router) {
   });
 
   // 健康检查：公开接口，只回存活状态，不暴露数据库路径等内部信息
-  router.get("/api/health", async () => ({ ok: true, at: now() }));
+  // env 供前端渲染「测试环境」横幅；不影响健康检查语义（ok 仍表示进程可服务）。
+  router.get("/api/health", async () => ({ ok: true, at: now(), env: isTestEnvironment() ? "test" : "production" }));
 
   return router;
 }

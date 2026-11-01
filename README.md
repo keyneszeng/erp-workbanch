@@ -7,6 +7,7 @@
 | 环境 | 用途 | 部署位置 | 数据 |
 |---|---|---|---|
 | **演示版** | 界面体验与测试数据 | **Cloudflare：`erp.aibuild.work`** | 专用演示账号与演示项目 |
+| **测试部署版** | 真实云服务器内核与业务全链路验收（合成数据） | **阿里云 ECS 本地 127.0.0.1:8080，经 SSH 隧道访问** | 独立测试库、附件与密钥；console 测试短信 |
 | **生产版** | 真实用户和真实业务 | **阿里云 ECS Linux 服务器（未来上线）** | 独立持久化 SQLite、附件目录、真实短信 |
 | Vercel | 临时演示 | Vercel Serverless | 临时实例数据库，不承担生产 |
 
@@ -17,7 +18,7 @@
 - 首次初始化必须提供总管理员手机号码 `ERP_BOOTSTRAP_ADMIN_PHONE`，只能创建该管理员。
 - 仅总管理员可录入其他角色的手机号白名单、停用或重置账号；手机号是正式登录账号，不开放注册。
 - 白名单账号统一初始密码为 `123456`；首次登录被强制要求短信验证并改密后才允许访问业务接口。后续改密同样需要原密码和短信验证码。
-- 正式短信接口现采用**腾讯云 SMS**。生产服务器部署到阿里云 ECS **并不要求短信必须使用阿里云供应商**；更换短信供应商需要独立开发并验收。
+- 正式短信接口支持**阿里云短信（Dysmsapi，默认）**与**腾讯云 SMS**（兼容保留）。两家签名算法都已实现，切换只需改 `ERP_SMS_PROVIDER` 和对应凭据，无需改业务代码。
 - 演示模式保留原有 `admin`、`assoc`、`exec`、`finance`、`guest`、`zhaolei`、`sunqian`、`zhoutao` 8 个账号及 18 个演示项目，密码均为 `123456`。演示账号不能访问真实生产库。
 
 ## 微信小程序生产端（本轮新增）
@@ -39,11 +40,25 @@ set +a
 npm run prod:check
 ```
 
-`deploy/aliyun/` 包含 `systemd` 服务、Nginx HTTPS 和环境配置模板，`scripts/check-aliyun-production.cjs` 是生产上线门禁。强制独立持久化文件目录、安全 Secret、合法总管理员手机号、真实腾讯云短信配置，禁止演示域名和 Cloudflare 生产模式。
+`deploy/aliyun/` 包含 `systemd` 服务、Nginx HTTPS 和环境配置模板，`deploy/aliyun/deploy.sh` 是一键部署脚本，`scripts/check-aliyun-production.cjs` 是生产上线门禁。强制独立持久化文件目录、安全 Secret、合法总管理员手机号、真实短信通道配置，禁止演示域名和 Cloudflare 生产模式。
 
 **当前尚未实际提供阿里云 ECS 实例、生产域名、生产凭据、短信签名/模板或真实业务环境验收。因此仓库只完成生产部署准备，尚未上线。** 生产环境不直接使用演示数据库；上线前须完成备份恢复、真实短信、财务权限和个人信息合规核查。
 
 详见 [阿里云生产部署指南](docs/production-deployment.md) 和 [Cloudflare 演示环境约束](docs/cloudflare-secure-deployment.md)。
+
+## 云服务器测试版本（分支）
+
+`云服务器测试版本` 分支有原始测试环境实现；安全整改在 `chore/staging-prod-separation-20261101` 分支（待 PR 验证合并）。测试 Nginx **只监听本机 `127.0.0.1:8080`**，运维通过 SSH 加密隧道访问，不能公网直连。测试验证码仅写服务器受控日志，禁止录入真实业务数据。正式生产继续要求 HTTPS 和真实短信。
+
+```bash
+sudo bash deploy/aliyun/deploy.sh --test --admin-phone <测试专用手机号> \
+  --ref chore/staging-prod-separation-20261101
+# 在自己的电脑中通过 SSH 加密隧道访问（ECS 安全组不要放通 8080）：
+ssh -N -L 8080:127.0.0.1:8080 <ecs-user>@<ecs-public-ip>
+# 然后在本地浏览器打开 http://127.0.0.1:8080
+```
+
+**该环境禁止录入真实业务数据**，ECS 安全组不应向公网开放 8080。代码尚未自动发布到任何 ECS，且 PR 合并前默认 `main` 尚不包含测试脚本。详见 [云服务器测试环境部署](docs/test-deployment.md)。
 
 ## 开发与质量验证
 
@@ -63,6 +78,6 @@ npm run cf:build     # 仅检查 Worker 兼容性，不部署 Cloudflare
 | `worker/` | 仅供 Cloudflare 演示版使用的适配层 |
 | `deploy/aliyun/` | ECS systemd / Nginx / 环境变量模板 |
 | `scripts/` | 阿里云上线校验、Cloudflare 生产发布拦截 |
-| `miniprogram/` | 微信嘉宾邀请确认页，非完整 ERP 小程序 |
+| `miniprogram/` | 员工微信小程序工作台、审批、材料及嘉宾邀请页（上线仍需微信审核） |
 | `api/` | Vercel 临时演示入口 |
 | `test/` | 隔离数据库下的回归测试 |
