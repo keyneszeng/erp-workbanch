@@ -144,8 +144,9 @@ if [ -n "$FIXED_CODE" ]; then
   [ "$SMS_PROVIDER" = "console" ] || die "ERP_TEST_FIXED_SMS_CODE 仅可与 console 通道同时使用"
 fi
 
-if [ "$MODE" = "prod" ] && [ "$SKIP_TLS" = "0" ]; then
-  [ -n "$ACME_EMAIL" ] || die "签发证书需要 --email（或加 --skip-tls 先不配 HTTPS）"
+if [ "$MODE" = "prod" ]; then
+  [ "$SKIP_TLS" = "0" ] || die "生产部署禁止 --skip-tls：正式域名必须使用有效 HTTPS 证书"
+  [ -n "$ACME_EMAIL" ] || die "生产证书签发需要 --email"
 fi
 
 # ---------- 系统依赖 ----------
