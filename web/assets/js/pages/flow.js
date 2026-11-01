@@ -1,5 +1,5 @@
 import { api, state } from "../lib/api.js";
-import { esc, kpi, money, panel, table } from "../lib/ui.js";
+import { esc, panel, table } from "../lib/ui.js";
 
 export async function render(root) {
   const d = await api.get("/api/dashboard");
@@ -18,13 +18,6 @@ export async function render(root) {
 
   root.innerHTML = `<div class="phead">
       <div><h2>全流程总览</h2><p>9 状态 8 流转 · 3 道硬门禁 · 每个动作写入审计</p></div>
-    </div>
-
-    <div class="grid g4">
-      ${kpi("在管会议", Object.values(c).reduce((a, b) => a + b, 0), "场")}
-      ${kpi("待核销", c["待核销"] || 0, "个", "k3")}
-      ${kpi("预算总额", `¥${money(d.budget)}`, "", "k2")}
-      ${kpi("已付款", `¥${money(d.paid)}`, "", "k4")}
     </div>
 
     <div class="panel mt">

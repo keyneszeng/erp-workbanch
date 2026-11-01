@@ -29,8 +29,16 @@ const assert=require("node:assert/strict");
   await page.locator('input[name="password"]').fill("123456");
   await page.locator("#lbtn").click();
   await page.locator(".ux-kpi-grid").waitFor({timeout:12000});
-  assert.equal(await page.locator(".ux-metric").count(),6,"dashboard should have six role-scoped KPI cards");
-  assert.ok((await page.locator("body").innerText()).includes("我的待办"));
+  assert.equal(await page.locator(".ux-metric").count(),4,"dashboard should show the four workbench KPI cards");
+  const kpis=await page.locator(".ux-metric span").allTextContents();
+  assert.deepEqual(kpis,["在管会议","待核销","预算总额","已付款"],
+    "four business summary KPIs belong on my workbench in the requested order");
+  assert.ok((await page.locator("body").innerText()).includes("我的待办"),
+    "my workbench must retain the to-do panel");
+  await page.goto(origin+"/#/flow");
+  await page.locator(".flowwrap").waitFor({timeout:12000});
+  assert.equal(await page.locator(".ux-metric, .grid.g4 .kpi").count(),0,
+    "flow overview should not duplicate dashboard KPIs");
   const list=await page.request.get(origin+"/api/projects");
   assert.ok(list.ok(),"project list should remain accessible");
   const projects=(await list.json()).rows;
