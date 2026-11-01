@@ -83,21 +83,30 @@ test("production: association member IDs, approved contract signing and pay-afte
   });
   const uploadBody=await uploaded.json();
   assert.equal(uploaded.status,200,JSON.stringify(uploadBody));
-  for (const kind of MATERIAL_KINDS) {
+  for (const kind of [...new Set([...MATERIAL_KINDS,"会议通知","劳务收集表","劳务协议","串场"])]) {
     const item=await request("POST","/api/projects/"+pid+"/materials",{
-      kind,name:kind+"验收材料",...(kind==="发票"?{file_key:uploadBody.key,file_name:"invoice.pdf",file_mime:"application/pdf"}:{})
+      kind,name:kind+"验收材料",version:"终版",file_key:uploadBody.key,file_name:"evidence.pdf",file_mime:"application/pdf"
     },cookie);
     assert.equal(item.status,200,"material "+kind+": "+JSON.stringify(item.body));
   }
   let step=await request("POST","/api/projects/"+pid+"/transition",{action:"request_verify"},cookie);
   assert.equal(step.status,200,JSON.stringify(step.body));
+  const record={name:"测试讲者",time:"2027-08-10",role:"讲者",amount:"1000",bankAccount:"TEST_ACCOUNT_REFERENCE"};
+  const sop={
+    1:{documentKind:"会议通知",meetingName:base.name,meetingDate:base.date,organizer:base.assoc,sponsor:"不适用",stamped:true,final:true},
+    2:{agendaSpeakers:["测试讲者"],collectionSpeakers:["测试讲者"],agreementSpeakers:["测试讲者"],noOmissions:true},
+    3:{signedAttendance:true},
+    4:{agendaTopics:["课题甲"],courseTopics:["课题甲"],hostTitleMatches:true,hostNameLogoMatches:true,sponsorLogoPages:[]},
+    5:{collectionRecords:[record],agreementRecords:[record]},
+    6:{draftAmount:8000,meetingName:base.name,meetingDate:base.date}
+  };
   for(let no=1;no<=5;no++){
-    step=await request("POST","/api/projects/"+pid+"/verify/steps/"+no,{result:"通过"},cookie);
+    step=await request("POST","/api/projects/"+pid+"/verify/steps/"+no,{result:"通过",evidence:sop[no]},cookie);
     assert.equal(step.status,200,"verification "+no+": "+JSON.stringify(step.body));
   }
-  step=await request("POST","/api/projects/"+pid+"/verify/steps/6",{result:"通过",invoiceAmount:7999},cookie);
+  step=await request("POST","/api/projects/"+pid+"/verify/steps/6",{result:"通过",invoiceAmount:7999,evidence:sop[6]},cookie);
   assert.equal(step.status,409,"invoice total cannot differ from signed contracts");
-  step=await request("POST","/api/projects/"+pid+"/verify/steps/6",{result:"通过",invoiceAmount:8000},cookie);
+  step=await request("POST","/api/projects/"+pid+"/verify/steps/6",{result:"通过",invoiceAmount:8000,evidence:sop[6]},cookie);
   assert.equal(step.status,200,JSON.stringify(step.body));
   const freeze=await request("POST","/api/contracts",{pid,name:"Late Contract",vendor:"X",amount:1,status:"草稿"},cookie);
   assert.equal(freeze.status,409,"contracts must freeze after invoice verification");
