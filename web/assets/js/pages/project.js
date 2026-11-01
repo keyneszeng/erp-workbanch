@@ -1,4 +1,5 @@
 import { api, can, state } from "../lib/api.js";
+import {bindPayeePicker} from "../lib/payee-picker.js";
 import { canDownloadArchivePdf, downloadArchivePdf } from "../lib/archive-pdf.js";
 import {
   badge, confirmBox, esc, formHtml, kv, modal, money, panel, promptBox, readForm, table, timeline, toast, validate, yuan
@@ -660,15 +661,16 @@ function openPayAccount(root, pid, id) {
   };
 }
 
-function openPay(root, pid, d) {
+async function openPay(root, pid, d) {
   const fields = [
     { k: "type", l: "付款类型", t: "select", req: 1, opts: state.meta.paymentTypes },
+    { k: "payee_option_id", l: "按核销资料选择收款方", t: "select", opts: [{v:"",l:"载入中…"}],
+      tip:"专家费与个人报销优先使用第 5 步核验的劳务表；其他收款方来自已签署合同。" },
     { k: "payee", l: "收款方", req: 1 },
     // V1.2.18：财务要照着这两行打款
-    { k: "payee_bank", l: "开户行", req: 1, ph: "如：中国银行北京朝阳支行" },
-    { k: "payee_account", l: "银行账号", req: 1, ph: "10~25 位数字，可含空格分隔" },
+    { k: "payee_bank", l: "开户行", req: 0, ph: "如：中国银行北京朝阳支行" },
+    { k: "payee_account", l: "银行账号", req: 0, ph: "10~25 位数字，可含空格分隔" },
     { k: "amount", l: "付款金额（元）", t: "number", req: 1 },
-    { k: "invoice_no", l: "发票号", req: 1 },
     { k: "remark", l: "备注", t: "textarea", full: 1, rows: 2 }
   ];
   const m = modal({
@@ -676,8 +678,13 @@ function openPay(root, pid, d) {
     body: `<div class="gate ok" style="margin-bottom:12px"><b>核销门禁已通过</b>项目「${esc(d.project.name)}」当前状态「${d.project.status}」，允许付款。</div>${formHtml(fields)}`,
     footer: `<button class="btn btn-o" data-x="0">取消</button><button class="btn btn-p" data-x="1">提交申请</button>`
   });
+  await bindPayeePicker(m,pid,false);
   m.querySelector('[data-x="0"]').onclick = () => m.classList.remove("open");
   m.querySelector('[data-x="1"]').onclick = async () => {
+    const selected=m.querySelector('[name="payee_option_id"]')?.value;
+    const acct=m.querySelector('[name="payee_account"]')?.value.trim();
+    const bank=m.querySelector('[name="payee_bank"]')?.value.trim();
+    if(!selected && (!acct||!bank)){toast("请填写收款账户或选择核销确认的劳务收款人","warn");return;}
     if (!validate(m, fields)) return;
     try {
       const r = await api.post("/api/payments", { ...readForm(m), pid });
