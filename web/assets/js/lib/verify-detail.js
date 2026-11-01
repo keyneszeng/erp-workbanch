@@ -48,7 +48,7 @@ function matList(list, emptyText) {
       ${m.file_name ? `<span class="dtag">${esc(m.file_name)}</span>` : ""}
       <span class="dm">${esc(m.uploader || "—")} · ${esc(dt(m.created_at))}</span>
       ${m.file_key
-        ? `<a class="link" href="/api/uploads/${m.file_key}" target="_blank" rel="noopener">查看原件</a>`
+        ? `<a class="link" href="/api/uploads/${m.file_key}" target="_blank" rel="noopener">点击原件跳转查看</a>`
         : `<span class="dm" style="margin-left:0">无附件</span>`}
     </li>`).join("")}</ul>`;
 }
@@ -72,8 +72,8 @@ function payRows(list) {
 /** 按步骤组装「这一步到底要核什么」的原始数据 */
 export function stepBody(d,no){
   const names={
-    1:["会议通知","招商函"],2:["议程","劳务收集表","劳务协议"],
-    3:["签到表","参会数据"],4:["终版议程","议程","课件","串场"],
+    1:["会议通知","招商函","立项文件","终版议程"],2:["终版议程","劳务收集表","劳务协议"],
+    3:["参会数据"],4:["终版议程","课件","串场"],
     5:["劳务收集表","劳务协议"],6:["合同","发票","拟结算单"]
   };
   const note={
