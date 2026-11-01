@@ -77,8 +77,16 @@ export async function renderMaterialWorkbench(root,projects) {
   root.querySelectorAll("[data-wb-compare]").forEach(btn=>btn.onclick=async()=>{
     const id=btn.dataset.wbCompare;
     const materialId=Number(root.querySelector('[data-wb-file="'+id+'"]').value);
-    try{const r=await api.post("/api/projects/"+selected+"/material-workbench/tasks/"+id+"/compare",{materialId});
-      toast(r.status==="比对通过"?"题目/讲者字符串比对通过":"不一致，转人工复核",r.status==="比对通过"?"ok":"warn");
+    try{
+      const material=available.find(x=>Number(x.id)===materialId);
+      const ext=String(material?.file_key||"").split(".").pop();
+      if(d.ocrAvailable && ["png","jpg","pdf"].includes(ext)) {
+        toast("正在识别原件正文并匹配讲者和课题…","ok");
+        await api.post("/api/projects/"+selected+"/material-workbench/ocr",{materialId});
+      }
+      const r=await api.post("/api/projects/"+selected+"/material-workbench/tasks/"+id+"/compare",{materialId});
+      toast(r.status==="比对通过"?"OCR 原文包含对应讲者和课题，请再人工核验原件":
+        "未匹配到讲者和课题，转人工复核",r.status==="比对通过"?"ok":"warn");
       await renderMaterialWorkbench(root,projects);}catch(err){toast(err.message,"warn");}
   });
   root.querySelectorAll("[data-wb-review]").forEach(btn=>btn.onclick=()=>{
