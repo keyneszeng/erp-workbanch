@@ -179,6 +179,15 @@ if [ "$MODE" = "prod" ]; then
   run apt-get install -y -qq certbot python3-certbot-nginx
 fi
 
+# 材料/议程离线 OCR（PR #21）依赖原生二进制：tesseract 负责识别，poppler 负责 PDF 拆页取字。
+# 缺任何一个，上传 PDF/图片后识别都会报 "Missing OCR executable"。
+log "安装 OCR 依赖（tesseract + 中文语言包 + poppler）"
+run apt-get install -y -qq tesseract-ocr tesseract-ocr-chi-sim tesseract-ocr-eng poppler-utils
+if [ "$DRY_RUN" = "0" ]; then
+  tesseract --list-langs 2>/dev/null | grep -qx "chi_sim" \
+    || warn "tesseract 中文语言包 chi_sim 未就绪，中文材料识别会退化"
+fi
+
 # ---------- 服务账户与目录 ----------
 if ! id -u "$SERVICE_USER" >/dev/null 2>&1; then
   log "创建服务账户 $SERVICE_USER"
@@ -221,6 +230,9 @@ if [ -f "$ENV_FILE" ]; then
 else
   log "生成 $ENV_FILE"
   GEN_SECRET="$(openssl rand -base64 48 | tr -d '\n')"
+  # 劳务收款人银行账号用 AES-256-GCM 加密存储，需要独立的 32 字节密钥（64 位十六进制）。
+  # 缺失时不会报错，但敏感账号不写库，付款申请就选不到已核验收款人。
+  GEN_FIN_KEY="$(openssl rand -hex 32)"
   if [ "$DRY_RUN" = "1" ]; then
     printf '    + 写入 %s（含新生成的 ERP_SECRET）\n' "$ENV_FILE"
   else
@@ -239,6 +251,7 @@ else
       printf 'ERP_TRUST_PROXY=1\n'
       printf 'ERP_SESSION_FALLBACK=0\n'
       printf 'ERP_SECRET=%s\n' "$GEN_SECRET"
+      printf 'ERP_FINANCIAL_DATA_KEY=%s\n' "$GEN_FIN_KEY"
       printf 'ERP_SMS_PROVIDER=%s\n' "$SMS_PROVIDER"
       case "$SMS_PROVIDER" in
         console) printf 'ERP_TEST_FIXED_SMS_CODE=%s\n' "$FIXED_CODE" ;;

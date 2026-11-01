@@ -56,6 +56,13 @@ function check(env = process.env) {
   const secret = required(env, "ERP_SECRET");
   if (secret.length < 32 || new Set(secret).size < 8) fail("ERP_SECRET 必须是独立的高熵随机长密钥，至少 32 字符");
 
+  // 劳务收款人银行账号加密密钥：可缺省（功能降级为不落库），但一旦配置必须是合法 32 字节。
+  const finKey = String(env.ERP_FINANCIAL_DATA_KEY || "");
+  if (finKey && !/^[0-9a-f]{64}$/i.test(finKey))
+    fail("ERP_FINANCIAL_DATA_KEY 必须为 64 位十六进制（32 字节）");
+  if (env.ERP_REQUIRE_VERIFIED_PAYEES === "1" && !/^[0-9a-f]{64}$/i.test(finKey))
+    fail("启用 ERP_REQUIRE_VERIFIED_PAYEES=1 前必须先配置 ERP_FINANCIAL_DATA_KEY");
+
   const file = required(env, "ERP_DB");
   const uploads = required(env, "ERP_UPLOAD_DIR");
   for (const [name, value] of [["ERP_DB", file], ["ERP_UPLOAD_DIR", uploads]]) {
