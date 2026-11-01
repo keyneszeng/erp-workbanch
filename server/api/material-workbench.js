@@ -122,13 +122,19 @@ function register(router) {
     const m=db.prepare("SELECT * FROM materials WHERE id=? AND pid=? AND kind=? AND deleted_at IS NULL")
       .get(Number(ctx.body?.materialId),p.id,task.kind);
     if(!m||!m.file_key)throw bad("请选择同项目、相同类别且已上传原件的材料");
-    // 字符串比对保守：需包含讲者和课题，无法识别图像中文字。
-    const match=normalize(m.name).includes(normalize(task.speaker))&&normalize(m.name).includes(normalize(task.topic));
+    // 生产内容比对优先看 OCR 实际原文；文件名不能作为"材料内容已一致"的证明。
+    // 演示环境保持旧版文件名比对体验；未完成 OCR 的生产材料进入人工复核。
+    const ocrRow=db.prepare("SELECT recognized_text FROM material_ocr_results WHERE material_id=? AND pid=? AND file_key=?")
+      .get(m.id,p.id,m.file_key);
+    const basis=ocrRow?.recognized_text || (isDemoMode()?m.name:"");
+    const method=ocrRow?"ocr-text":(isDemoMode()?"demo-filename":"manual-required");
+    const match=!!basis && normalize(basis).includes(normalize(task.speaker)) &&
+      normalize(basis).includes(normalize(task.topic));
     const status=match?"比对通过":"不一致";
     db.prepare("UPDATE meeting_material_tasks SET status=?,material_id=?,updated_at=?,updated_by=? WHERE id=?")
       .run(status,m.id,now(),ctx.user.name,task.id);
-    logAudit({user:ctx.user,module:"材料中心",action:"待办字符串比对",target:p.id,detail:"待办 "+task.id+" "+status,ip:ctx.ip});
-    return {status,task:taskRows(p.id).find(t=>t.id===task.id)};
+    logAudit({user:ctx.user,module:"材料中心",action:"待办字符串比对",target:p.id,detail:"待办 "+task.id+" "+status+"；依据："+method,ip:ctx.ip});
+    return {status,method,task:taskRows(p.id).find(t=>t.id===task.id)};
   });
   router.post("/api/projects/:id/material-workbench/tasks/:taskId/review",async ctx=>{
     const p=getProject(ctx.params.id);assertWritable(ctx,p);
