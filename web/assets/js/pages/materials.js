@@ -114,7 +114,7 @@ export function openMaterialRegistration(root, projects, kinds, defaultPid="", o
         for(const file of picked){
           const payload=await compressImage(file);
           btn.textContent=`正在上传 ${saved+1}/${picked.length}`;
-          const up=await api.upload(payload);
+          const up=await api.upload(payload,{pid:v.pid});
           await api.post(`/api/projects/${v.pid}/materials`,{
             ...v,name:picked.length===1?v.name:`${v.name} · ${file.name}`,
             file_key:up.key,file_name:up.name,file_size:up.size,file_mime:up.mime

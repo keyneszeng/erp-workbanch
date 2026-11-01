@@ -219,12 +219,20 @@ function register(router) {
     }
     const at = now();
     const id = nextId(db, "projects", "id", "MP");
+    const ownerId = member ? member.id : resolveOwnerId(b.owner, ctx.user);
     db.prepare(
       `INSERT INTO projects (id,name,assoc,form,date,days,budget,people,owner,owner_id,phone,dept,agenda,status,status_at,created_by,created_at,updated_at)
        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
     ).run(id, b.name, b.assoc, b.form, b.date, Number(b.days) || 1, Number(b.budget), Number(b.people) || 0,
-      b.owner, member ? member.id : resolveOwnerId(b.owner, ctx.user), b.phone || "", b.dept || "会务部", b.agenda, "草稿", at, ctx.user.id, at, at);
+      b.owner, ownerId, b.phone || "", b.dept || "会务部", b.agenda, "草稿", at, ctx.user.id, at, at);
     db.prepare("INSERT OR IGNORE INTO project_members (project_id,user_id,role) VALUES (?,?,?)").run(id, ctx.user.id, "创建人");
+    // 负责人若本身就是会务执行岗，直接登记为项目「执行负责人」：
+    // 立项审批通过后待办要落到他工作台，团队列表里也得看得到这个人。
+    if (ownerId && ownerId !== ctx.user.id) {
+      const ownerUser = db.prepare("SELECT id,role,active FROM users WHERE id=?").get(ownerId);
+      if (ownerUser?.active && ownerUser.role === "exec")
+        db.prepare("INSERT OR IGNORE INTO project_members (project_id,user_id,role) VALUES (?,?,'执行负责人')").run(id, ownerUser.id);
+    }
     logAudit({
       user: ctx.user, module: "项目管理", action: "立项申请", target: id,
       detail: `新建「${b.name}」，预算 ¥${Number(b.budget).toLocaleString("zh-CN")}，状态：草稿`, ip: ctx.ip

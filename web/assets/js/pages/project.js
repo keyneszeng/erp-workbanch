@@ -618,7 +618,8 @@ function openContract(root, pid) {
       if (picked) {
         btn.textContent = "上传中 0%";
         const up = await api.upload(picked, {
-          onProgress: (p) => { btn.textContent = `上传中 ${Math.round(p * 100)}%`; }
+          onProgress: (p) => { btn.textContent = `上传中 ${Math.round(p * 100)}%`; },
+          pid
         });
         meta = { file_key: up.key, file_name: up.name, file_size: up.size, file_mime: up.mime };
       }

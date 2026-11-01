@@ -154,7 +154,8 @@ function openCreate(root, projects) {
       if (picked) {
         btn.textContent = "上传中 0%";
         const up = await api.upload(picked, {
-          onProgress: (p) => { btn.textContent = `上传中 ${Math.round(p * 100)}%`; }
+          onProgress: (p) => { btn.textContent = `上传中 ${Math.round(p * 100)}%`; },
+          pid: v.pid
         });
         meta = { file_key: up.key, file_name: up.name, file_size: up.size, file_mime: up.mime };
       }

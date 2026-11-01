@@ -86,7 +86,7 @@ function formIncome(root,projects,type,sponsorId=""){
    const btn=modalEl.querySelector("[data-save]");btn.disabled=true;
    try{
      const values=readForm(modalEl);
-     const saved=await api.upload(picked);
+     const saved=await api.upload(picked,{pid:chosen});
      const body={...values,file_key:saved.key,file_name:saved.name,...(sponsorId?{sponsorId}:{})};
      await api.post("/api/projects/"+chosen+"/income/"+cfg.url,body);
      toast("收入资料已登记","ok");modalEl.classList.remove("open");

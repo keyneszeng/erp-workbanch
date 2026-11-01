@@ -14,7 +14,7 @@ export async function renderMaterialWorkbench(root,projects) {
   const canEdit=can("material:write");
   root.innerHTML=`<div class="panel mt"><div class="panel-h"><h2>终版议程 · 材料模块与待办</h2>
     <select id="wbProject">${projects.map(p=>`<option value="${esc(p.id)}" ${p.id===selected?"selected":""}>${esc(p.name)}</option>`).join("")}</select>
-    </div><div class="hint" style="padding:10px">先上传终版议程原件。阿里云 ECS 可用离线中文/英文 OCR 自动提取 JPG/PNG/PDF 的文字并生成讲者课题建议；必须人工核对后才能转成课件/串场待办，不能以 OCR 代替原件审核。</div>
+    </div><div class="hint" style="padding:10px">先上传终版议程原件。阿里云 ECS 可用离线中文/英文 OCR 自动提取 JPG/PNG/PDF 的文字并生成讲者课题建议；必须人工核对后才能转成课件待办，不能以 OCR 代替原件审核。</div>
     <div style="padding:8px 12px"><b>固定材料模块</b><div class="tacts">${d.modules.map(m=>
       `<button class="btn btn-o btn-sm" data-wb-toggle="${esc(m.kind)}" data-enabled="${m.enabled?1:0}" ${canEdit?"":"disabled"}>
       ${esc(m.kind)}：${m.enabled?"已启用":"已停用"}</button>`).join("")}</div>
