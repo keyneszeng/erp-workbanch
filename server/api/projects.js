@@ -226,13 +226,9 @@ function register(router) {
     ).run(id, b.name, b.assoc, b.form, b.date, Number(b.days) || 1, Number(b.budget), Number(b.people) || 0,
       b.owner, ownerId, b.phone || "", b.dept || "会务部", b.agenda, "草稿", at, ctx.user.id, at, at);
     db.prepare("INSERT OR IGNORE INTO project_members (project_id,user_id,role) VALUES (?,?,?)").run(id, ctx.user.id, "创建人");
-    // 负责人若本身就是会务执行岗，直接登记为项目「执行负责人」：
-    // 立项审批通过后待办要落到他工作台，团队列表里也得看得到这个人。
-    if (ownerId && ownerId !== ctx.user.id) {
-      const ownerUser = db.prepare("SELECT id,role,active FROM users WHERE id=?").get(ownerId);
-      if (ownerUser?.active && ownerUser.role === "exec")
-        db.prepare("INSERT OR IGNORE INTO project_members (project_id,user_id,role) VALUES (?,?,'执行负责人')").run(id, ownerUser.id);
-    }
+    // 注意：不要在这里把负责人自动写进 project_members。
+    // 数据范围同时认 owner_id 和成员表，一旦入库，换负责人时旧负责人仍能靠成员关系看到项目
+    // （test/scope-owner.test.js 覆盖此场景）。工作台待办本来就走 owner_id，不需要成员行。
     logAudit({
       user: ctx.user, module: "项目管理", action: "立项申请", target: id,
       detail: `新建「${b.name}」，预算 ¥${Number(b.budget).toLocaleString("zh-CN")}，状态：草稿`, ip: ctx.ip
