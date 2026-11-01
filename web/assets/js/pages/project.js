@@ -467,7 +467,12 @@ function wire(root, pid, d, body) {
   const ac = body.querySelector("#addContract"); if (ac) ac.onclick = () => openContract(root, pid);
   const ap = body.querySelector("#addPay"); if (ap) ap.onclick = () => openPay(root, pid, d);
   const ae = body.querySelector("#addEx"); if (ae) ae.onclick = () => openException(root, pid, d);
-  const am = body.querySelector("#addMat"); if (am) am.onclick = () => openMaterial(root, pid);
+  const am = body.querySelector("#addMat"); if (am) am.onclick = async () => {
+    try {
+      const { openMaterialRegistration }=await import("./materials.js");
+      await openMaterialRegistration(root,{pid,onSaved:()=>refresh(root,pid)});
+    }catch(e){toast(e.message,"warn");}
+  };
   const amm = body.querySelector("#addMem"); if (amm) amm.onclick = () => openMember(root, pid, d);
 }
 
