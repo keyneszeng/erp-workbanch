@@ -11,7 +11,7 @@
 #
 # 测试模式（--test）：
 #   sudo ./deploy.sh --test --admin-phone 13800000000
-#   面向「域名未备案、短信未开通」阶段：纯 HTTP 监听 8080，用 IP 直接访问；
+#   临时验收端口 8080 仅绑定 127.0.0.1，通过 SSH 加密隧道访问（不可公网直连）；
 #   验证码走 console 通道写入服务器日志，不发真实短信。
 #   与生产完全隔离：独立代码目录 /opt/erp-test、数据库 /var/lib/erp-test、端口 8788。
 #
@@ -298,12 +298,12 @@ SITE_AVAIL="/etc/nginx/sites-available/${SITE_NAME}.conf"
 SITE_ENABLED="/etc/nginx/sites-enabled/${SITE_NAME}.conf"
 
 if [ "$MODE" = "test" ]; then
-  # 测试环境：纯 HTTP + 8080，直接吃 IP 访问，不碰 80/443（未备案会被拦）
-  log "配置 Nginx（$NGINX_PORT，纯 HTTP，无需备案）"
+  # 测试环境：仅绑定 127.0.0.1:8080，禁止公网直连，验收走 SSH 隧道。
+  log "配置 Nginx（127.0.0.1:$NGINX_PORT，仅 SSH 隧道访问）"
   if [ "$DRY_RUN" = "0" ]; then
     install -m 0644 "$APP_ROOT/current/deploy/aliyun/nginx-erp-test.conf.example" "$SITE_AVAIL"
     ln -sfn "$SITE_AVAIL" "$SITE_ENABLED"
-    rm -f /etc/nginx/sites-enabled/default
+    # 测试只增加本地 8080 站点，不删除同机已有的 Nginx 默认站点。
     nginx -t
     ensure_nginx
     systemctl reload nginx
@@ -414,7 +414,7 @@ fi
 
 # ---------- 完成 ----------
 PUBLIC_HINT="https://${DOMAIN}"
-[ "$MODE" = "test" ] && PUBLIC_HINT="http://<ECS公网IP>:${NGINX_PORT}（安全组需放通 ${NGINX_PORT}）"
+[ "$MODE" = "test" ] && PUBLIC_HINT="http://127.0.0.1:${NGINX_PORT}（本地浏览器，先通过 SSH 隧道转发）"
 
 cat <<EOF
 
@@ -444,7 +444,8 @@ EOF
 cat <<EOF
 
  注意        本环境仅供功能验证，禁止录入真实业务数据。
-             域名备案与短信审核通过后，用生产模式重新部署，两者互不影响。
+             ECS 安全组不要放通公网 8080；通过 SSH -L 8080:127.0.0.1:8080 访问。
+             域名及短信合规准备完成后，使用独立生产模式部署。
 ────────────────────────────────────────────────────────
 EOF
 else
