@@ -121,6 +121,12 @@ function register(router) {
       "INSERT OR REPLACE INTO verify_steps (pid,step_no,name,result,remark,invoice_amount,checked_by,checked_at,evidence_json) VALUES (?,?,?,?,?,?,?,?,?)"
     ).run(p.id, no, def.name, result, String(remark || ""), invoiceAmount, ctx.user.name, at,
       validated ? JSON.stringify(validated) : null);
+    // 第五步通过后保留 AES-GCM 加密的已核验劳务收款资料供财务选用。
+    // 如未配置服务器专用密钥，不落地敏感账号，仍需手工登记。
+    if(!isDemoMode() && (no===5 || no<5)){
+      if(no<5 || result!=="通过") db.prepare("DELETE FROM verified_labor_payees WHERE pid=?").run(p.id);
+      else require("../lib/verified-payees").saveLabor(p.id,ctx.body.evidence.collectionRecords);
+    }
     if (!isDemoMode() && result==="通过") {
       const pendingReview = db.prepare("SELECT id FROM exceptions WHERE pid=? AND step_no=? AND status='待复核'").all(p.id,no);
       for(const ex of pendingReview) {
