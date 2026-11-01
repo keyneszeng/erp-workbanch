@@ -51,6 +51,10 @@ function verification(pid) {
 function materialsStatus(pid) {
   const rows = db.prepare("SELECT DISTINCT kind FROM materials WHERE pid = ? AND deleted_at IS NULL").all(pid);
   const have = rows.map((r) => r.kind);
+  // Signed/approved contract originals already stored in the contract ledger satisfy
+  // the archive "合同" category without a duplicate manual upload.
+  const archivedContract=db.prepare("SELECT 1 FROM contracts WHERE pid=? AND status='已签署' AND file_key IS NOT NULL LIMIT 1").get(pid);
+  if(archivedContract && !have.includes("合同"))have.push("合同");
   const toggles=db.prepare("SELECT kind,enabled FROM meeting_material_modules WHERE pid=?").all(pid);
   const disabled=new Set(toggles.filter(m=>m.enabled===0).map(m=>m.kind));
   // 固定模块可以停用待办入口，但不能豁免归档必备 8 类（尤其课件）。
