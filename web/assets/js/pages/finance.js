@@ -1,5 +1,6 @@
 import { api, can, state } from "../lib/api.js";
 import {bindPayeePicker} from "../lib/payee-picker.js";
+import {renderIncomeWorkbench} from "../lib/income-workbench.js";
 import { badge, bindPager, confirmBox, esc, formHtml, modal, money, pager, panel, readForm, table, toast, validate } from "../lib/ui.js";
 
 const PAGE_SIZE = 50;
@@ -56,6 +57,7 @@ export async function render(root, params = []) {
         <div style="font-size:12px;color:var(--sub);margin-top:4px">未核销不可付款</div></div>
     </div>
 
+    <div id="incomeWorkbench"></div>
     <div class="ux-finance-tabs" role="navigation" aria-label="财务业务分区">
        <button class="ux-finance-tab active" data-finance-jump="fin-payments">付款申请与执行</button>
        <button class="ux-finance-tab" data-finance-jump="fin-settlements">结算与归档</button>
@@ -117,6 +119,8 @@ export async function render(root, params = []) {
     <div class="foot-note">门禁说明：未通过 6 步核销的项目，付款接口会返回 <code>VERIFY_GATE</code> 并记录审计；
       已生成结算单的项目，核销结论与资料修改均被冻结（总管理员可例外操作，同样留痕）。</div>`;
 
+  renderIncomeWorkbench(root.querySelector("#incomeWorkbench"),
+    proj.rows.filter(p=>!["已归档"].includes(p.status)),focusPid).catch(e=>toast(e.message,"warn"));
   bindPager(root, (n) => { curPage = n; render(root, params); });
   root.querySelectorAll("[data-st]").forEach((b) => b.onclick = () => { filterStatus = b.dataset.st; curPage = 1; render(root, params); });
   root.querySelectorAll("[data-finance-jump]").forEach(b=>b.onclick=()=>{
