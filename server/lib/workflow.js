@@ -170,8 +170,9 @@ const GUARDS = {
       const matched = db.prepare("SELECT invoice_amount FROM verify_steps WHERE pid=? AND step_no=6 AND result='通过'").get(p.id);
       if (!matched || !Number.isFinite(matched.invoice_amount))
         return "发票与已签署合同金额尚未完成核对，不允许结算";
-      if (cents(paid.total) !== cents(matched.invoice_amount))
-        return `实际已付款 ¥${yuan(paid.total)} 与核销确认发票金额 ¥${yuan(matched.invoice_amount)} 不一致，不能结算`;
+      const signedTotal=db.prepare("SELECT COALESCE(SUM(amount),0) AS total FROM contracts WHERE pid=? AND status='已签署'").get(p.id).total;
+      if(cents(paid.total)!==cents(signedTotal))
+        return `已付款总额 ¥${yuan(paid.total)} 与已核销合同请款总额 ¥${yuan(signedTotal)} 不一致，不能结算；含免票专家劳务费`;
     }
     return null;
   },
