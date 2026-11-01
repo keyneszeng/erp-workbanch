@@ -272,11 +272,11 @@ function register(router) {
       const rows = db.prepare("SELECT * FROM demand_items WHERE pid=? AND need='需要'").all(p.id);
       if (!rows.length) throw bad("确认前至少一项需求应标记为需要");
       for (const it of rows) {
-        const missing = ["spec","owner_id","due","budget_owner","attach","status"].filter(k=>!String(it[k]??"").trim());
-        if (missing.length) throw bad("需求「"+it.item+"」缺少必填字段："+missing.join("、")+"。七项字段必须齐全");
-        if (!/^(?:[a-f0-9]{32}\.(?:jpg|png|pdf|ppt|docx|pptx|xlsx|webp|gif)|不适用)$/.test(it.attach))
+        const missing = ["spec","owner_id","due","budget"].filter(k=>!String(it[k]??"").trim());
+        if (missing.length) throw bad("需求「"+it.item+"」缺少必填字段："+missing.join("、")+"。需求单必填字段必须齐全");
+        if (it.attach && !/^(?:[a-f0-9]{32}\.(?:jpg|png|pdf|ppt|docx|pptx|xlsx|webp|gif)|不适用)$/.test(it.attach))
           throw bad("需求「"+it.item+"」附件必须关联已登记文件标识，或明确标记不适用");
-        if (it.attach !== "不适用") {
+        if (it.attach && it.attach !== "不适用") {
           const file = db.prepare("SELECT file_key,pid,user_id FROM uploaded_files WHERE file_key=?").get(it.attach);
           if (!file) throw bad("需求「"+it.item+"」的附件不存在，必须使用已上传文件");
           if (file.pid && file.pid !== p.id) throw bad("需求「"+it.item+"」的附件属于其他项目");
