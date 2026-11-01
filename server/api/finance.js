@@ -139,6 +139,13 @@ function register(router) {
     const id = nextId(db, "contracts", "id", "HT");
     db.prepare("INSERT INTO contracts (id,pid,name,vendor,amount,sign_date,status,category,remark,created_by,created_at,file_key,file_name,file_size,file_mime) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
       .run(id, p.id, b.name, b.vendor, amount, isDemoMode() ? signDate : "", st, category, remark, ctx.user.id, now(), fk, fname, fsize, fmime);
+    if(fk) {
+      // 将合同台账原件同步登记到本项目的归档“合同”类，不需要上传第二遍。
+      // 关联同一上传 key 只是内部同步，不开放客户端重复挂载别的单据。
+      db.prepare(`INSERT INTO materials(pid,kind,name,version,uploader,created_at,file_key,file_name,file_size,file_mime)
+        VALUES (?,?,?,?,?,?,?,?,?,?)`)
+        .run(p.id,"合同",id+" · "+b.name,st,ctx.user.name,now(),fk,fname,fsize,fmime);
+    }
     if (!isDemoMode() && st === "待签署") {
       const apId = nextId(db, "approvals", "id", "AP");
       db.prepare("INSERT INTO approvals (id,type,title,pid,ref_id,amount,by_user,sla,status,created_at,submitted_by_id) VALUES (?,?,?,?,?,?,?,?,?,?,?)")
