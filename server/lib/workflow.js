@@ -53,7 +53,8 @@ function materialsStatus(pid) {
   const have = rows.map((r) => r.kind);
   const toggles=db.prepare("SELECT kind,enabled FROM meeting_material_modules WHERE pid=?").all(pid);
   const disabled=new Set(toggles.filter(m=>m.enabled===0).map(m=>m.kind));
-  const required=MATERIAL_KINDS.filter(k=>!disabled.has(k));
+  // 固定模块可以停用待办入口，但不能豁免归档必备 8 类（尤其课件）。
+  const required=MATERIAL_KINDS;
   const missing = required.filter(k=>!have.includes(k));
   return { have, missing, ok: missing.length === 0, required, disabled:[...disabled] };
 }
