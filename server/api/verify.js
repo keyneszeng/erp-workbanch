@@ -356,7 +356,9 @@ function register(router) {
     const projects = db.prepare(
       `SELECT p.id, p.name, p.status FROM projects p WHERE ${sql} AND p.status IN ('筹备中','执行中','待核销','已核销','已结算') ORDER BY p.date DESC`
     ).all(...params).map((p) => {
-      const have = kindsByPid.get(p.id) || [];
+      const have = [...(kindsByPid.get(p.id) || [])];
+      if(db.prepare("SELECT 1 FROM contracts WHERE pid=? AND status='已签署' AND file_key IS NOT NULL LIMIT 1").get(p.id) && !have.includes("合同"))
+        have.push("合同");
       const required = MATERIAL_KINDS;
       return { ...p, have, required, missing: required.filter((k) => !have.includes(k)) };
     });
