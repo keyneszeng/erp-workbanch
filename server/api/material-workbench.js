@@ -80,6 +80,11 @@ function register(router) {
     const task=db.prepare("SELECT * FROM meeting_material_tasks WHERE id=? AND pid=?").get(Number(ctx.params.taskId),p.id);
     if(!task)throw notFound("待办不存在");
     if(task.status!=="不一致" && task.status!=="待补件")throw conflict("只有不一致或待补件待办可人工复核");
+    if(moduleRows(p.id).find(m=>m.kind===task.kind)?.enabled===0)
+      throw conflict("材料模块已停用，不能借人工复核绕过停用门禁","MODULE_DISABLED");
+    const evidence=db.prepare("SELECT id FROM materials WHERE id=? AND pid=? AND kind=? AND file_key IS NOT NULL AND deleted_at IS NULL")
+      .get(task.material_id,p.id,task.kind);
+    if(!evidence)throw conflict("关联材料原件已缺失或已删除，请重新上传并比对","MATERIAL_EVIDENCE_REQUIRED");
     const reason=String(ctx.body?.reason||"").trim();
     const approved=ctx.body?.approved;
     if(typeof approved!=="boolean"||reason.length<4||reason.length>300)throw bad("复核必须写明理由（4~300字）与结论");
