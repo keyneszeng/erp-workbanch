@@ -31,6 +31,7 @@ jobs:
           node --input-type=module --check < web/assets/js/lib/payee-picker.js
           node --check server/api/mini-applications.js
           node --check miniprogram/pages/apply/index.js
+          node --input-type=module --check < web/assets/js/pages/users.js
           node --input-type=module --check < web/assets/js/pages/dashboard.js
           node --input-type=module --check < web/assets/js/pages/project.js
           node --input-type=module --check < web/assets/js/pages/finance.js

@@ -55,6 +55,27 @@ const assert=require("node:assert/strict");
   await page.locator(".ux-finance-tabs").waitFor({timeout:12000});
   await page.locator('[data-finance-jump="fin-settlements"]').click();
   assert.equal(await page.locator(".ux-finance-tab.active").count(),1);
+
+  // Regression: a plain quoted HTML string previously displayed the raw
+  // ${state.demo ? "新建账号" : "录入手机号"} expression as garbled button text.
+  await page.goto(origin+"/#/users");
+  const createAccount=page.locator("#newU");
+  await createAccount.waitFor({timeout:12000});
+  assert.equal((await createAccount.innerText()).trim(),"+ 新建账号",
+    "super-admin new-account action should display Chinese text, never template source");
+  assert.ok(!(await page.locator("#content").innerText()).includes("${state.demo"),
+    "do not expose raw JavaScript interpolation in user/permissions UI");
+  await createAccount.click();
+  const createModal=page.locator("#modal.open");
+  await createModal.waitFor({timeout:12000});
+  assert.equal((await createModal.locator(".mh h3").innerText()).trim(),"新建账号",
+    "button must open the correct create-account dialog");
+  for(const field of ["username","name","role","assoc","dept","phone","password"]){
+    assert.equal(await createModal.locator('[name="'+field+'"]').count(),1,
+      "required account field missing: "+field);
+  }
+  await createModal.locator('[data-x="0"]').click();
+  assert.equal(await page.locator("#modal.open").count(),0,"cancel must close the modal");
   assert.equal(errors.length,0,"page errors: "+errors.join(" / "));
   console.log("Browser B1/B3/B4/B5 visual smoke PASSED");
  }finally{
