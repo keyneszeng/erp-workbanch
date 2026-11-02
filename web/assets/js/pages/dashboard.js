@@ -1,6 +1,7 @@
 import { api, state } from "../lib/api.js";
 import { badge, esc, money, panel, table } from "../lib/ui.js";
 import { reachable } from "../lib/nav.js";
+import { targetForTodo, badgeForTodo } from "../lib/todo-target.js";
 
 /**
  * 我的工作台。
@@ -24,17 +25,7 @@ import { reachable } from "../lib/nav.js";
  *   结算 / 归档 / 变更落账 → 项目详情页（「生成结算单」「归档」「执行落账」按钮在那里）
  */
 function todoHref(t) {
-  let target;
-  switch (t.kind) {
-    case "审批": target = `approvals/${t.ref || t.pid}`; break;
-    case "核销": target = `verify/${t.pid}`; break;
-    case "付款": target = `finance/${t.pid}`; break;
-    case "结算":
-    case "归档":
-    case "变更落账": target = `projects/${t.pid}`; break;
-    default: target = t.go || "dashboard";
-  }
-  return safeTarget(target, t.pid);
+  return safeTarget(targetForTodo(t), t.pid);
 }
 
 /** 预警同理：例外单待审批要落到审批中心并定位到该项目 */
@@ -96,7 +87,7 @@ export async function render(root) {
   <div class="mt">${panel("我的待办", `${d.todos.length} 项`, d.todos.length ? table(
     [{ t: "类型", w: "86px" }, { t: "事项" }, { t: "项目", w: "190px" }, { t: "时限", w: "132px" }, { t: "操作", w: "76px" }],
     d.todos.map((t) => ({
-      c: [badge(t.kind === "审批" ? "待审批" : t.kind === "核销" ? "待核销" : t.kind === "结算" ? "已核销" : t.kind === "归档" ? "已结算" : "已审批"),
+      c: [badge(badgeForTodo(t)),
         `<b style="font-size:12.8px">${esc(t.title)}</b>`,
         `<span class="mono">${esc(t.pname || t.pid || "—")}</span>`,
         `<span style="font-size:12px;color:var(--sub)">${esc(t.sla || "")}</span>`,
