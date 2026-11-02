@@ -250,7 +250,12 @@ async function openPay(root, projects) {
     if(!hasVerifiedAccount&&!acct){toast("请填写银行账号（或选择带账号的核销收款方）","warn");return;}
     if (!validate(m, fields)) return;
     try {
-      const r = await api.post("/api/payments", readForm(m));
+      const payload = readForm(m);
+      // 自动带入的是「尾号 7946」这种展示值，不是账号本身 ——
+      // 真账号由服务端按 payee_option_id 解密，这里必须去掉，否则会被当成非法账号拒掉
+      const acctEl = m.querySelector('[name="payee_account"]');
+      if (acctEl?.dataset.auto === "1") delete payload.payee_account;
+      const r = await api.post("/api/payments", payload);
       toast(r.message, "ok");
       m.classList.remove("open");
       await render(root);
