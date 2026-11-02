@@ -124,7 +124,7 @@ export function render(root, onSuccess, { demo = false } = {}) {
 
     send.onclick = async () => {
       const phone = resetForm.elements.phone.value.trim();
-      if (!/^1[3-9]\\d{9}$/.test(phone)) return setError("请输入有效的 11 位登记手机号");
+      if (!/^1[3-9]\d{9}$/.test(phone)) return setError("请输入有效的 11 位登记手机号");
       err.style.display = "none";
       send.disabled = true;
       send.textContent = "发送中…";

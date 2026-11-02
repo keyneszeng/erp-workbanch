@@ -125,3 +125,17 @@ test("验证码不能直接换取会话：必须同时提交合规新密码",asy
   assert.equal((await req("GET","/api/auth/password/reset/request")).status,405);
   assert.equal((await req("POST","/api/auth/password/reset/confirm",{phone:ROOT,smsCode:"654321"})).status,400);
 });
+
+
+test("前端忘记密码：手机号正则必须接受合法号码并拒绝无效号码", () => {
+  const loginPage = fs.readFileSync(path.join(__dirname, "..", "web/assets/js/pages/login.js"), "utf8");
+  const match = loginPage.match(/if \(!\/([^/\n]+)\/\.test\(phone\)\) return setError\("请输入有效的 11 位登记手机号"\)/);
+  assert.ok(match, "找回密码页面须继续做手机号格式校验");
+  const phonePattern = new RegExp(match[1]);
+  for (const valid of [ROOT, STAFF, "18620867488", "18802080472"]) {
+    assert.equal(phonePattern.test(valid), true, "合法手机号被前端阻止：" + valid);
+  }
+  for (const invalid of ["", "1380013800", "138001380000", "12800138000", "1380013800a"]) {
+    assert.equal(phonePattern.test(invalid), false, "错误手机号被前端接受：" + invalid);
+  }
+});
