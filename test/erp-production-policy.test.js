@@ -251,6 +251,29 @@ test("production: association member IDs, approved contract signing and pay-afte
   assert.equal(step.status,200,JSON.stringify(step.body));
   step=await request("POST","/api/projects/"+pid+"/transition",{action:"verify_pass"},cookie);
   assert.equal(step.status,200,JSON.stringify(step.body));
+
+  /**
+   * 老板 2026-11-02 实测撞出来的洞：项目已经「已核销」，回头重新判定第 1 步，
+   * 后续步骤会被清空成待判定，但项目状态还挂在「已核销」——
+   * 于是出现「已核销 + 核销 5/6」，付款门禁按状态放行、结算按核销拦住，两头都不对。
+   * 重新判定前置步骤 = 核销结论作废，状态必须跟着退回「待核销」。
+   */
+  const redo=await request("POST","/api/projects/"+pid+"/verify/steps/1",{result:"通过",evidence:sop[1]},cookie);
+  assert.equal(redo.status,200,JSON.stringify(redo.body));
+  const afterRedo=await request("GET","/api/projects/"+pid,undefined,cookie);
+  assert.equal(afterRedo.body.project.status,"待核销",
+    "重新判定前置步骤后，已核销必须退回待核销，实际："+afterRedo.body.project.status);
+  assert.equal(afterRedo.body.verification.judged<6,true,"后续步骤应已失效");
+  // 恢复：重新走一遍 2~6 再核销通过
+  for(let no=2;no<=5;no++){
+    const r=await request("POST","/api/projects/"+pid+"/verify/steps/"+no,{result:"通过",evidence:sop[no]},cookie);
+    assert.equal(r.status,200,"redo verification "+no+": "+JSON.stringify(r.body));
+  }
+  const re6=await request("POST","/api/projects/"+pid+"/verify/steps/6",{result:"通过",evidence:sop[6]},cookie);
+  assert.equal(re6.status,200,JSON.stringify(re6.body));
+  const rePass=await request("POST","/api/projects/"+pid+"/transition",{action:"verify_pass"},cookie);
+  assert.equal(rePass.status,200,JSON.stringify(rePass.body));
+
   const settlementData={action:"settle",payee_bank:"中国银行北京分行",payee_account:"1234567890123456"};
   let settle=await request("POST","/api/projects/"+pid+"/transition",settlementData,cookie);
   assert.equal(settle.status,409,"no payment must block settlement");

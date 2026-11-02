@@ -103,8 +103,27 @@ export function stepBody(d,no){
   const laborContracts=spendContracts.filter(x=>x.category==="劳务专家");
   const expertPayments=(d.payments||[]).filter(x=>["专家费","个人报销"].includes(x.type));
   const evidence=step?.evidence;
+  /**
+   * 材料中心 ≠ 合同台账。
+   *
+   * 老板 2026-11-02 把谢就坤的劳务协议传进了材料中心，以为合同就录好了，
+   * 结果第 6 步的合同总额还是旧数 —— 因为金额只认合同台账。
+   * 这里把「材料里有原件、台账里找不到对应合同」的挑出来点名，
+   * 一眼就知道是漏登记还是系统没收到。
+   */
+  const contractMaterials=(d.materials||[]).filter(m=>["合同","劳务协议"].includes(m.kind));
+  const orphanMaterials=contractMaterials.filter(m=>!spendContracts.some(c=>
+    String(m.name||"").includes(c.id) || (c.vendor && String(m.name||"").includes(String(c.vendor)))));
+  const ledgerGap=[5,6].includes(no)&&orphanMaterials.length
+    ? `<div class="dsec"><h4>这些原件还没进合同台账</h4>
+        <div class="dchk" style="color:#a23b2b">核销的合同总额<b>只按合同台账算</b>，材料中心只存原件、不产生金额。
+        下面 ${orphanMaterials.length} 份原件在台账里找不到对应合同，金额不会计入：
+        ${orphanMaterials.map(m=>"「"+esc(m.name)+"」").join("、")}。
+        请到「合同台账 → 录入合同」补登记（原件可复用，不用再传一遍）。</div></div>`
+    : "";
   return `<div class="dsec"><h4>业务核验规则</h4><div class="dchk">${esc(note[no]||"请核对资料")}</div></div>
     <div class="dsec"><h4>已登记的关联材料（${esc(names.join(" / ")||"—")}）</h4>${matList(selected,"请在材料中心补充对应原件")}</div>
+    ${ledgerGap}
     ${selected.length?`<div class="dsec"><h4>文件内容 OCR</h4>
       <div class="dhint" style="margin-bottom:8px">把本步关联的原件识别成文字，方便逐项对照；结果仅供辅助，判定仍须以原件为准。</div>
       <button class="btn btn-o btn-sm" type="button" data-step-ocr="${no}">识别本步 ${selected.length} 份原件</button>

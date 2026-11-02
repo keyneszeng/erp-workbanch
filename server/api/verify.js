@@ -286,6 +286,18 @@ function register(router) {
       ).run(p.id, no);
       logAudit({user:ctx.user,module:"会后核销",action:"后续步骤重新复核",target:p.id,
         detail:"第 "+no+" 步重新判定，后续步骤核验结果失效并需重新取证",ip:ctx.ip});
+      /**
+       * 已核销的项目被重新判定前置步骤后，核销结论已经不成立了，
+       * 状态必须跟着退回「待核销」。
+       * 否则会出现「项目显示已核销、核销却只有 5/6」——
+       * 付款门禁只看状态就会误放行，结算又会被核销门禁拦住，两头都不对。
+       */
+      if (p.status === "已核销") {
+        const at2 = now();
+        db.prepare("UPDATE projects SET status='待核销', status_at=?, updated_at=? WHERE id=?").run(at2, at2, p.id);
+        logAudit({user:ctx.user,module:"会后核销",action:"核销结论作废重判",target:p.id,
+          detail:`第 ${no} 步重新判定导致后续步骤失效，项目状态 已核销 → 待核销`,ip:ctx.ip});
+      }
     }
     db.prepare(
       "INSERT OR REPLACE INTO verify_steps (pid,step_no,name,result,remark,invoice_amount,checked_by,checked_at,evidence_json) VALUES (?,?,?,?,?,?,?,?,?)"
