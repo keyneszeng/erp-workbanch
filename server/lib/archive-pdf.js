@@ -186,9 +186,18 @@ function makeLines(d) {
   add("归档日期：" + display(p.status_at) + "　生成时间：" +
     new Date().toISOString().replace("T", " ").slice(0, 19) + " UTC");
   section("核销六步");
+  /**
+   * 收入类（赞助）合同不参与核销，它的原件也不该出现在任何一步的「关联原件」里。
+   * 自动归档把合同原件登记成 kind=合同、名字是「HT-xxxx · 合同名」，
+   * 只按类别过滤会把赞助协议混进第 6 步 —— 卷宗看着像这份赞助也被核销了。
+   */
+  const incomeIds = (records.contracts || [])
+    .filter((c) => String(c.category || "").trim() === "赞助收入")
+    .map((c) => c.id);
+  const fromIncome = (m) => incomeIds.some((id) => String(m.name || "").includes(id));
   const matsOf = (def) => {
     const kinds = [...(def.materials || []), ...(def.altMaterials || [])];
-    return (records.materials || []).filter(m => kinds.includes(m.kind) && !m.deleted_at);
+    return (records.materials || []).filter(m => kinds.includes(m.kind) && !m.deleted_at && !fromIncome(m));
   };
   for (const def of VERIFY_STEPS) {
     const row = (records.verifySteps || []).find(x => Number(x.step_no) === def.no);

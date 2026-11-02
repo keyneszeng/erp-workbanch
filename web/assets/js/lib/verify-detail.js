@@ -99,6 +99,14 @@ export function stepBody(d,no){
   // 收入类（赞助）合同不参与核销：它不产生支出，算进合同总额会让拟请款永远对不上
   const isIncome=(x)=>String(x?.category||"").trim()==="赞助收入";
   const spendContracts=(d.contracts||[]).filter(x=>!isIncome(x));
+  /**
+   * 收入类合同的原件也不能出现在核销步骤的「关联材料」里。
+   * 自动归档会把它登记成 kind=合同、名字是「HT-xxxx · 合同名」，
+   * 按类别一过滤就混进第 6 步，看着像这份赞助也被核销了。
+   */
+  const incomeIds=(d.contracts||[]).filter(isIncome).map(x=>x.id);
+  const fromIncomeContract=(m)=>incomeIds.some(id=>String(m.name||"").includes(id));
+  const stepMaterials=selected.filter(m=>!fromIncomeContract(m));
   const contractTotal=spendContracts.filter(x=>x.status==="已签署").reduce((sum,x)=>sum+Number(x.amount||0),0);
   const laborContracts=spendContracts.filter(x=>x.category==="劳务专家");
   const expertPayments=(d.payments||[]).filter(x=>["专家费","个人报销"].includes(x.type));
@@ -112,7 +120,10 @@ export function stepBody(d,no){
    * 一眼就知道是漏登记还是系统没收到。
    */
   const contractMaterials=(d.materials||[]).filter(m=>["合同","劳务协议"].includes(m.kind));
-  const orphanMaterials=contractMaterials.filter(m=>!spendContracts.some(c=>
+  // 匹配要看「全部合同」，不能只看支出合同：收入类（赞助）合同的原件也是台账里的，
+  // 拿支出合同去比会把德镁那份赞助协议误报成「没进台账」。
+  const allContracts=d.contracts||[];
+  const orphanMaterials=contractMaterials.filter(m=>!allContracts.some(c=>
     String(m.name||"").includes(c.id) || (c.vendor && String(m.name||"").includes(String(c.vendor)))));
   const ledgerGap=[5,6].includes(no)&&orphanMaterials.length
     ? `<div class="dsec"><h4>这些原件还没进合同台账</h4>
@@ -122,11 +133,11 @@ export function stepBody(d,no){
         请到「合同台账 → 录入合同」补登记（原件可复用，不用再传一遍）。</div></div>`
     : "";
   return `<div class="dsec"><h4>业务核验规则</h4><div class="dchk">${esc(note[no]||"请核对资料")}</div></div>
-    <div class="dsec"><h4>已登记的关联材料（${esc(names.join(" / ")||"—")}）</h4>${matList(selected,"请在材料中心补充对应原件")}</div>
+    <div class="dsec"><h4>已登记的关联材料（${esc(names.join(" / ")||"—")}）</h4>${matList(stepMaterials,"请在材料中心补充对应原件")}</div>
     ${ledgerGap}
-    ${selected.length?`<div class="dsec"><h4>文件内容 OCR</h4>
+    ${stepMaterials.length?`<div class="dsec"><h4>文件内容 OCR</h4>
       <div class="dhint" style="margin-bottom:8px">把本步关联的原件识别成文字，方便逐项对照；结果仅供辅助，判定仍须以原件为准。</div>
-      <button class="btn btn-o btn-sm" type="button" data-step-ocr="${no}">识别本步 ${selected.length} 份原件</button>
+      <button class="btn btn-o btn-sm" type="button" data-step-ocr="${no}">识别本步 ${stepMaterials.length} 份原件</button>
       <span class="hint" data-step-ocr-hint style="margin-left:8px"></span>
       <div data-step-ocr-out></div>
       <div data-step-names-out></div>
