@@ -1,6 +1,7 @@
-import { badge, esc, modal, money, table } from "./ui.js";
+import { badge, esc, modal, money, table, toast, readForm } from "./ui.js";
 import { fileLink } from "./file-preview.js";
 import { api } from "./api.js";
+import { sopEvidenceForm, collectSopEvidence } from "./sop-fields.js";
 
 /**
  * 核销 6 步 SOP 的「详情」面板。
@@ -217,6 +218,47 @@ function renderTopics(box, t) {
       setTimeout(() => { btn.textContent = btn.dataset.copyTopics === "course" ? "复制课件题目" : "复制议程课题"; }, 1600);
     };
   });
+}
+
+/**
+ * 核销判定弹窗 —— 核销看板与项目详情页共用这一份。
+ *
+ * 以前两个页面各写了一套：项目详情那套只有「通过/不通过 + 备注」，
+ * 没有结构化核验表单，提交时服务端因缺 evidence 直接拒绝，
+ * 表现就是「点判定没反应 / 做不了判定」。现在只保留这一处实现。
+ */
+export function openJudgeModal(d, no, opt = {}) {
+  const step = d.verification.steps.find((x) => x.no === no);
+  if (!step) return null;
+  // 第 6 步要填「拟请款总额」= 所有已签合同之和，直接算好带进表单，免得判定人靠猜
+  const signedTotal = (d.contracts || []).filter((x) => x.status === "已签署")
+    .reduce((a, x) => a + Number(x.amount || 0), 0);
+
+  const m = modal({
+    title: `第 ${no} 步 · ${esc(step.name)}`,
+    width: "720px",
+    body: `<div class="hint" style="margin-bottom:12px">${esc(step.desc)}</div>
+      <div class="fld"><label>判定结果<span class="req">*</span></label>
+        <select name="result"><option value="通过">通过</option><option value="不通过">不通过（自动生成例外单）</option></select></div>
+      <div class="fld" style="margin-top:12px"><label>问题描述 / 备注</label>
+        <textarea name="remark" rows="3" placeholder="判定不通过时必填"></textarea></div>
+      ${sopEvidenceForm(no, d.project, { signedTotal })}`,
+    footer: `<button class="btn btn-o" data-x="0">取消</button><button class="btn btn-p" data-x="1">提交判定</button>`
+  });
+  m.querySelector('[data-x="0"]').onclick = () => m.classList.remove("open");
+  m.querySelector('[data-x="1"]').onclick = async () => {
+    const val = readForm(m);
+    val.evidence = collectSopEvidence(no, m);
+    if (val.result === "不通过" && !String(val.remark || "").trim())
+      return toast("判定不通过必须填写问题描述", "warn");
+    try {
+      const r = await api.post(`/api/projects/${d.project.id}/verify/steps/${no}`, val);
+      toast(r.message, "ok");
+      m.classList.remove("open");
+      if (typeof opt.onDone === "function") await opt.onDone();
+    } catch (e) { toast(e.message, "warn"); }
+  };
+  return m;
 }
 
 export function openStepDetail(d, no, opt = {}) {

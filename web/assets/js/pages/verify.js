@@ -1,7 +1,6 @@
 import { api, can, state } from "../lib/api.js";
 import { badge, confirmBox, esc, modal, money, panel, readForm, table, toast } from "../lib/ui.js";
-import { exStepLabel, openStepDetail } from "../lib/verify-detail.js";
-import { sopEvidenceForm, collectSopEvidence } from "../lib/sop-fields.js";
+import { exStepLabel, openStepDetail, openJudgeModal } from "../lib/verify-detail.js";
 
 export async function render(root, params) {
   if (params && params[0]) return renderOne(root, params[0]);
@@ -142,34 +141,8 @@ async function renderOne(root, pid) {
 }
 
 function openJudge(root, pid, no, d) {
-  const s = d.verification.steps.find((x) => x.no === no);
-  // 第 6 步要填「拟请款总额」，等于所有已签合同之和。金额不摆出来，判定人只能猜，
-  // 猜错就一直是「拟请款总额与合同总额不一致」——所以算好直接带进表单。
-  const signedTotal = (d.contracts || []).filter((x) => x.status === "已签署")
-    .reduce((a, x) => a + Number(x.amount || 0), 0);
-  const m = modal({
-    title: `第 ${no} 步 · ${s.name}`,
-    body: `<div class="hint" style="margin-bottom:12px">${esc(s.desc)}</div>
-      <div class="fld"><label>判定结果<span class="req">*</span></label>
-        <select name="result"><option value="通过">通过</option><option value="不通过">不通过（自动生成例外单）</option></select></div>
-      <div class="fld" style="margin-top:12px"><label>问题描述 / 备注</label>
-        <textarea name="remark" rows="3" placeholder="判定不通过时必填"></textarea></div>
-      ${""/* 第 6 步不再比对发票金额（老板 2026-11-02 决定），表单不再收这个字段 */}
-      ${sopEvidenceForm(no, d.project, { signedTotal })}`,
-    footer: `<button class="btn btn-o" data-x="0">取消</button><button class="btn btn-p" data-x="1">提交判定</button>`
-  });
-  m.querySelector('[data-x="0"]').onclick = () => m.classList.remove("open");
-  m.querySelector('[data-x="1"]').onclick = async () => {
-    const val = readForm(m);
-    val.evidence = collectSopEvidence(no, m);
-    if (val.result === "不通过" && !val.remark.trim()) return toast("判定不通过必须填写问题描述", "warn");
-    try {
-      const r = await api.post(`/api/projects/${pid}/verify/steps/${no}`, val);
-      toast(r.message, "ok");
-      m.classList.remove("open");
-      render(root, [pid]);
-    } catch (e) { toast(e.message, "warn"); }
-  };
+  // 与项目详情页共用同一份判定弹窗（含结构化核验表单）
+  openJudgeModal(d, no, { onDone: () => render(root, [pid]) });
 }
 
 async function decideEx(root, pid, id, ok) {

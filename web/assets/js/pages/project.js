@@ -5,7 +5,7 @@ import {
   badge, confirmBox, esc, formHtml, kv, modal, money, panel, promptBox, readForm, table, timeline, toast, validate, yuan
 } from "../lib/ui.js";
 import { bindFilePicker, fileUrl } from "../lib/upload.js";
-import { exStepLabel, openStepDetail } from "../lib/verify-detail.js";
+import { exStepLabel, openStepDetail, openJudgeModal } from "../lib/verify-detail.js";
 import { flowHint, flowOf, openContractDetail } from "../lib/contract-detail.js";
 
 const ORDER = ["草稿", "待审批", "已立项", "筹备中", "执行中", "待核销", "已核销", "已结算", "已归档"];
@@ -530,27 +530,9 @@ function openSettle(root, pid, p) {
 }
 
 function openJudge(root, pid, no, d) {
-  const step = d.verification.steps.find((s) => s.no === no);
-  const m = modal({
-    title: `第 ${no} 步 · ${step.name}`,
-    body: `<div class="hint" style="margin-bottom:12px">${esc(step.desc)}</div>
-      <div class="fld"><label>判定结果<span class="req">*</span></label>
-        <select name="result"><option value="通过">通过</option><option value="不通过">不通过（自动生成例外单）</option></select></div>
-      <div class="fld" style="margin-top:12px"><label>问题描述 / 备注</label>
-        <textarea name="remark" rows="3" placeholder="判定不通过时必填，如：课件「XX」不在议程课题内"></textarea></div>`,
-    footer: `<button class="btn btn-o" data-x="0">取消</button><button class="btn btn-p" data-x="1">提交判定</button>`
-  });
-  m.querySelector('[data-x="0"]').onclick = () => m.classList.remove("open");
-  m.querySelector('[data-x="1"]').onclick = async () => {
-    const v = readForm(m);
-    if (v.result === "不通过" && !v.remark.trim()) { toast("判定不通过必须填写问题描述", "warn"); return; }
-    try {
-      const r = await api.post(`/api/projects/${pid}/verify/steps/${no}`, v);
-      toast(r.message, "ok");
-      m.classList.remove("open");
-      await refresh(root, pid);
-    } catch (e) { toast(e.message, "warn"); }
-  };
+  // 与核销看板共用同一份判定弹窗；以前这里自己写了一个没有核验表单的版本，
+  // 提交时服务端因缺 evidence 直接拒绝，表现就是「判定没反应」
+  openJudgeModal(d, no, { onDone: () => refresh(root, pid) });
 }
 
 async function exDecide(root, pid, id, ok) {
