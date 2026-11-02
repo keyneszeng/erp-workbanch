@@ -17,8 +17,9 @@ export async function bindPayeePicker(modal,pid,watchProject=false){
   if(bank&&x.bank)bank.value=x.bank;
   const account=modal.querySelector('[name="payee_account"]');
   if(account&&x.maskedAccount)account.placeholder=x.maskedAccount+"（账号由服务器加密读取，不需重复填写）";
+  // 金额也一并带出：劳务表是应发额，合同是合同总额（可改，允许部分付款）
   const amount=modal.querySelector('[name="amount"]');
-  if(amount&&x.source==="labor"&&x.amount)amount.value=x.amount;
+  if(amount&&x.amount)amount.value=x.amount;
  };
  async function update(pid){
   const n=++seq;

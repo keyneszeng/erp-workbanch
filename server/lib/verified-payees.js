@@ -35,8 +35,13 @@ function saveLabor(pid,records){
  return {saved:true,count:records.length};
 }
 function options(pid){
- const contracts=db.prepare("SELECT id,vendor,amount,category FROM contracts WHERE pid=? AND status='已签署' ORDER BY id").all(pid);
- const rows=contracts.map(x=>({id:"contract:"+x.id,label:x.vendor+"（"+x.category+"合同）",payee:x.vendor,amount:x.amount,source:"contract",bank:"",maskedAccount:""}));
+ const contracts=db.prepare("SELECT id,vendor,amount,category,payee_bank,payee_account_cipher FROM contracts WHERE pid=? AND status='已签署' ORDER BY id").all(pid);
+ const rows=contracts.map(x=>{
+  const account=reveal(x.payee_account_cipher);
+  return {id:"contract:"+x.id,label:x.vendor+"（"+x.category+"合同）",payee:x.vendor,
+    amount:x.amount,source:"contract",bank:x.payee_bank||"",
+    maskedAccount:account?"尾号 "+account.slice(-4):""};
+ });
  const labor=db.prepare("SELECT id,name,bank,account_cipher,amount FROM verified_labor_payees WHERE pid=? ORDER BY id").all(pid);
  for(const x of labor){
   const account=reveal(x.account_cipher);
@@ -48,9 +53,10 @@ function options(pid){
 function resolve(pid,id){
  const value=String(id||"");
  if(value.startsWith("contract:")){
-  const x=db.prepare("SELECT vendor,amount FROM contracts WHERE id=? AND pid=? AND status='已签署'").get(value.slice(9),pid);
+  const x=db.prepare("SELECT vendor,amount,payee_bank,payee_account_cipher FROM contracts WHERE id=? AND pid=? AND status='已签署'").get(value.slice(9),pid);
   if(!x)throw bad("选择的合同收款方不存在或未签署");
-  return {name:x.vendor,amount:x.amount,bank:"",account:"",source:"contract"};
+  return {name:x.vendor,amount:x.amount,bank:x.payee_bank||"",
+    account:reveal(x.payee_account_cipher)||"",source:"contract"};
  }
  if(value.startsWith("labor:")){
   const x=db.prepare("SELECT * FROM verified_labor_payees WHERE id=? AND pid=?").get(Number(value.slice(6)),pid);
@@ -61,4 +67,4 @@ function resolve(pid,id){
  }
  throw bad("请选择合同或已核销的劳务收款记录");
 }
-module.exports={options,resolve,saveLabor};
+module.exports={options,resolve,saveLabor,sealAccount:seal,revealAccount:reveal,keyAvailable:()=>!!key()};

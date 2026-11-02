@@ -605,6 +605,9 @@ function migrate() {
   // Existing projects keep historical evidence, only the displayed SOP labels are corrected.
   db.exec("UPDATE verify_steps SET name='盖章函件与立项信息核验' WHERE step_no=1 AND name='盖章通知／招商函核验'");
   db.exec("UPDATE verify_steps SET name='课件与串场内容核验' WHERE step_no=4 AND name='课件／串场一致性'");
+  // 合同收款账户：付款申请要能按合同直接带出开户行与账号，避免财务回头问人
+  addColumn("contracts", "payee_bank", "payee_bank TEXT");
+  addColumn("contracts", "payee_account_cipher", "payee_account_cipher TEXT");
   addColumn("verify_steps", "invoice_amount", "invoice_amount REAL");
   addColumn("verify_steps", "evidence_json", "evidence_json TEXT");
   addColumn("materials", "deleted_at", "deleted_at TEXT");

@@ -136,9 +136,25 @@ function register(router) {
       fmime = String(b.file_mime || "").slice(0, 60) || null;
     }
 
+    /**
+     * 合同收款账户（可选）：录了以后，付款申请选这份合同时能直接带出
+     * 收款方 / 开户行 / 账号 / 金额，财务不用回头问人。
+     * 账号与劳务表一样加密存储，明文只在服务端内存里出现。
+     */
+    const payeeBank = String(b.payee_bank || "").trim();
+    if (payeeBank.length > 60) throw bad("开户行不能超过 60 字");
+    const rawAccount = String(b.payee_account || "").replace(/\s/g, "");
+    let accountCipher = null;
+    if (rawAccount) {
+      if (!/^\d{10,25}$/.test(rawAccount)) throw bad("银行账号应为 10~25 位数字");
+      const vp = require("../lib/verified-payees");
+      if (!vp.keyAvailable()) throw bad("未配置财务加密密钥，暂不能保存银行账号");
+      accountCipher = vp.sealAccount(rawAccount);
+    }
+
     const id = nextId(db, "contracts", "id", "HT");
-    db.prepare("INSERT INTO contracts (id,pid,name,vendor,amount,sign_date,status,category,remark,created_by,created_at,file_key,file_name,file_size,file_mime) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
-      .run(id, p.id, b.name, b.vendor, amount, isDemoMode() ? signDate : "", st, category, remark, ctx.user.id, now(), fk, fname, fsize, fmime);
+    db.prepare("INSERT INTO contracts (id,pid,name,vendor,amount,sign_date,status,category,remark,created_by,created_at,file_key,file_name,file_size,file_mime,payee_bank,payee_account_cipher) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
+      .run(id, p.id, b.name, b.vendor, amount, isDemoMode() ? signDate : "", st, category, remark, ctx.user.id, now(), fk, fname, fsize, fmime, payeeBank || null, accountCipher);
     if(fk) {
       // 将合同台账原件同步登记到本项目的归档“合同”类，不需要上传第二遍。
       // 关联同一上传 key 只是内部同步，不开放客户端重复挂载别的单据。

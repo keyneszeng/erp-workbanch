@@ -111,6 +111,8 @@ function openCreate(root, projects) {
     { k: "pid", l: "所属项目", t: "select", req: 1, opts: projects.map((p) => ({ v: p.id, l: `${p.id} ${p.name}` })) },
     { k: "name", l: "合同名称", req: 1, full: 1 },
     { k: "vendor", l: "签约方", req: 1 },
+    { k: "payee_bank", l: "收款开户行（选填）", ph: "如：中国银行广州员村支行" },
+    { k: "payee_account", l: "收款账号（选填）", ph: "10~25 位数字" },
     { k: "amount", l: "合同金额（元）", t: "number", req: 1 },
     { k: "category", l: "合同类别", t: "select", opts: state.meta.contractCategories || [],
       tip: "核销第 5 步「劳务与专家费核对」只列「劳务专家」类，其余类别在第 6 步全量对照里核" },
