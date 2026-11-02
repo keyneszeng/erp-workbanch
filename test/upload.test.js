@@ -245,3 +245,26 @@ test("预览接口同样校验 key 合法性", async () => {
   const r = await fetch(`${BASE}/api/uploads/not-a-key/preview`, { headers: { cookie: admin } });
   assert.equal(r.status, 400);
 });
+
+test("LibreOffice 缺失时，Office 转换给出明确错误码而不是静默失败", async () => {
+  // 用空 PATH 起一个子进程，模拟「服务器没装 LibreOffice」的机器。
+  // 断言的是失败形态：必须能识别为 SOFFICE_MISSING，前端据此提示下载。
+  const { spawnSync } = require("node:child_process");
+  const probe = spawnSync(process.execPath, ["-e", `
+    const { hasLibreOffice, toPdf } = require("./server/lib/office-preview");
+    (async () => {
+      const has = await hasLibreOffice();
+      console.log("available=" + has);
+      try { await toPdf(Buffer.from("not-a-real-docx"), "docx", "probe"); console.log("code=CONVERTED"); }
+      catch (e) { console.log("code=" + e.code); }
+    })();
+  `], {
+    cwd: path.join(__dirname, ".."),
+    encoding: "utf8",
+    env: { ...process.env, PATH: "/nonexistent" },
+    timeout: 30000
+  });
+  const out = String(probe.stdout || "");
+  assert.match(out, /available=false/, "空 PATH 下不应探测到 LibreOffice：" + out + String(probe.stderr || ""));
+  assert.match(out, /code=SOFFICE_MISSING/, "缺少 LibreOffice 时必须报 SOFFICE_MISSING：" + out);
+});

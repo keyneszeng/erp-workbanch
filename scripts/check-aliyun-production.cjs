@@ -81,6 +81,19 @@ function check(env = process.env) {
       }
     }
   }
+  // Office 原件在线预览依赖 LibreOffice（缺失不阻断启动：预览会退化为下载入口）。
+  {
+    const { spawnSync } = require("node:child_process");
+    const lo = spawnSync("soffice", ["--version"], { encoding: "utf8", timeout: 8000, maxBuffer: 65536 });
+    if (lo.error || lo.status !== 0) {
+      console.warn("[warn] 未检测到 LibreOffice（soffice）：Office 原件将无法在线预览，只能下载");
+    } else {
+      const fonts = spawnSync("fc-list", [], { encoding: "utf8", timeout: 8000, maxBuffer: 8 * 1024 * 1024 });
+      if (!/wqy|noto.*cjk|source han/i.test(String(fonts.stdout || "")))
+        console.warn("[warn] 未检测到中文字体：Office 转 PDF 后中文可能显示为方框");
+    }
+  }
+
   return { target: "aliyun-ecs", domain };
 }
 if (require.main === module) {

@@ -35,6 +35,9 @@ const EXT_MIME = {
 /** key 必须严格匹配自己生成的格式，避免 ../ 之类的路径穿越 */
 const KEY_RE = /^[a-f0-9]{32}\.(jpg|png|webp|gif|pdf|ppt|docx|pptx|xlsx)$/;
 
+/** 需要先转 PDF 才能预览的 Office 格式（下载路由里它们仍是 attachment） */
+const OFFICE_EXT = ["doc", "docx", "xls", "xlsx", "ppt", "pptx"];
+
 /** 在线预览渲染的 PDF 页数上限，防止超大文档把临时目录撑爆 */
 const PREVIEW_MAX_PAGES = 300;
 /** 预览渲染宽度（像素）：A4 竖版约等于 150 dpi，合同小字能看清 */
@@ -173,11 +176,13 @@ function register(router) {
    *
    * 为什么不能只靠 <a target="_blank">：
    *   PDF 能不能在标签页里直接打开，取决于浏览器设置（很多国产浏览器默认下载），
-   *   Office 文件（课件、串场 PPT、劳务表 Excel）浏览器根本没有渲染能力。
+   *   Office 文件（课件、串场 PPT、劳务表 Excel）浏览器更是完全没有渲染能力。
    *   核销时点「查看原件」是要核对内容，落到下载就是把核对动作打断了。
    *
-   * 做法：图片原样返回；PDF 用 poppler 按页渲染成 PNG（与 OCR 同一套依赖）；
-   *       Office 明确告诉前端「无法在线预览」，由前端给出下载入口，不再假装能看。
+   * 做法：
+   *   图片 → 原样返回；
+   *   PDF  → poppler 按页渲染成 PNG（与 OCR 同一套依赖）；
+   *   Office → LibreOffice 无头转 PDF，再走同一条 PDF 渲染链路（结果按 key 缓存）。
    */
   router.get("/api/uploads/:key/preview", async (ctx) => {
     const key = String(ctx.params.key || "");
@@ -190,7 +195,24 @@ function register(router) {
     if (["jpg", "png", "webp", "gif"].includes(ext)) {
       return { __file: { buffer: obj.buffer, mime: EXT_MIME[ext], name, download: false } };
     }
-    if (ext !== "pdf") {
+
+    let pdf = obj.buffer;
+    if (OFFICE_EXT.includes(ext)) {
+      const { toPdf, hasLibreOffice } = require("../lib/office-preview");
+      if (!(await hasLibreOffice())) {
+        throw new HttpError(415, "PREVIEW_UNSUPPORTED",
+          `服务器未安装 LibreOffice，${ext.toUpperCase()} 无法在线预览，请下载后用本地软件打开`);
+      }
+      try {
+        pdf = await toPdf(obj.buffer, ext, key.replace(/\.[^.]+$/, ""));
+      } catch (e) {
+        const timeout = e.code === "SOFFICE_TIMEOUT";
+        throw new HttpError(422, timeout ? "PREVIEW_TIMEOUT" : "PREVIEW_CONVERT_FAILED",
+          timeout
+            ? "原件转换超时（文件可能过大），请下载后查看"
+            : "原件无法转换（可能已加密或损坏），请下载后查看");
+      }
+    } else if (ext !== "pdf") {
       throw new HttpError(415, "PREVIEW_UNSUPPORTED",
         `该格式（${ext.toUpperCase()}）无法在线预览，请下载后用本地软件打开`);
     }
@@ -202,7 +224,7 @@ function register(router) {
     try {
       await fs.chmod(dir, 0o700);
       const file = path.join(dir, "original.pdf");
-      await fs.writeFile(file, obj.buffer, { mode: 0o600 });
+      await fs.writeFile(file, pdf, { mode: 0o600 });
 
       const info = await runTool("pdfinfo", [file], 10000);
       const pages = Number((/^Pages:\s+(\d+)/im.exec(info) || [])[1] || 0);

@@ -11,14 +11,13 @@
  * 所以统一走应用内预览：
  *   图片   → 直接铺开
  *   PDF    → 服务端按页渲染成 PNG（/api/uploads/:key/preview），任何浏览器都能看
- *   Office → 明确说明无法在线预览，给出下载入口（不假装能看）
+ *   Office → 服务端先用 LibreOffice 转成 PDF，再走同一条渲染链路
  *
  * 链接本身仍然保留 href + target，JS 失效时退化为新窗口打开。
  */
 import { esc, modal } from "./ui.js";
 
 const IMAGE_EXT = ["jpg", "jpeg", "png", "webp", "gif"];
-const OFFICE_EXT = ["doc", "docx", "xls", "xlsx", "ppt", "pptx"];
 
 export function fileExt(key) {
   const m = /\.([a-z0-9]+)$/i.exec(String(key || ""));
@@ -53,21 +52,8 @@ export function openFilePreview(key, name = "") {
   const title = name || `原件${ext ? " · " + ext.toUpperCase() : ""}`;
   const url = fileUrl(key);
 
-  if (OFFICE_EXT.includes(ext)) {
-    const root = modal({
-      title: `原件预览 · ${esc(title)}`,
-      width: "560px",
-      body: `<div class="fp-note">
-          <b>${esc(ext.toUpperCase())} 无法在浏览器里直接显示</b>
-          浏览器不支持在线渲染 Word / Excel / PowerPoint，这是格式限制，不是权限问题。
-          可以下载后用本地 Office 打开核对；如果希望全程在线，建议把这类原件同时导出一份 PDF 上传。
-        </div>`,
-      footer: `<a class="btn btn-o" href="${url}" target="_blank" rel="noopener">新窗口打开</a>
-               <a class="btn btn-p" href="${url}" download>下载原件</a>`
-    });
-    return root;
-  }
-
+  // Office 原件由服务端用 LibreOffice 转 PDF 后再按页渲染，
+  // 所以和 PDF 走同一条「分页图片」链路；转换失败时下面的错误分支会给下载入口。
   const isImage = IMAGE_EXT.includes(ext);
   const root = modal({
     title: `原件预览 · ${esc(title)}`,

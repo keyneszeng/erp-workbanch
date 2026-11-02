@@ -188,6 +188,24 @@ if [ "$DRY_RUN" = "0" ]; then
     || warn "tesseract 中文语言包 chi_sim 未就绪，中文材料识别会退化"
 fi
 
+# Office 原件在线预览（课件 / 串场 PPT、劳务表 Excel）。
+# 浏览器没有 Office 渲染能力，预览时由 LibreOffice 无头模式转成 PDF，再用 poppler 拆成图片。
+# 只装 writer/calc/impress 三个组件，不装全套（省 ~300MB）；中文字体必须装，
+# 否则转出来的 PDF 里中文全是方框。
+log "安装 Office 预览依赖（LibreOffice + 中文字体）"
+if [ "$DRY_RUN" = "0" ] && command -v soffice >/dev/null 2>&1; then
+  log "  LibreOffice 已安装，跳过"
+else
+  run apt-get install -y -qq --no-install-recommends \
+    libreoffice-writer libreoffice-calc libreoffice-impress fonts-wqy-zenhei
+fi
+if [ "$DRY_RUN" = "0" ]; then
+  command -v soffice >/dev/null 2>&1 \
+    || warn "LibreOffice 未就绪，Office 原件只能下载查看"
+  fc-list 2>/dev/null | grep -qi "wqy\|noto.*cjk" \
+    || warn "未检测到中文字体，Office 转 PDF 后中文可能显示为方框"
+fi
+
 # ---------- 服务账户与目录 ----------
 if ! id -u "$SERVICE_USER" >/dev/null 2>&1; then
   log "创建服务账户 $SERVICE_USER"
@@ -198,6 +216,9 @@ log "准备目录（$DATA_ROOT）"
 run install -d -m 0755 "$APP_ROOT" "$APP_ROOT/releases"
 run install -d -m 0700 -o "$SERVICE_USER" -g "$SERVICE_USER" "$DATA_ROOT"
 run install -d -m 0700 -o "$SERVICE_USER" -g "$SERVICE_USER" "$DATA_ROOT/uploads"
+# Office 转 PDF 的缓存目录：key 一次上传一个、永不改写，所以转换结果可以长期复用，
+# 否则每次翻页都要重跑一遍 LibreOffice（1~3 秒）。
+run install -d -m 0700 -o "$SERVICE_USER" -g "$SERVICE_USER" "$DATA_ROOT/preview-cache"
 run install -d -m 0700 "$DATA_ROOT/backup"
 run install -d -m 0750 -o root -g "$SERVICE_USER" "$CONF_DIR"
 
@@ -260,6 +281,7 @@ else
       printf 'ERP_BOOTSTRAP_ADMIN_PHONE=%s\n' "$ADMIN_PHONE"
       printf 'ERP_DB=%s/erp.db\n' "$DATA_ROOT"
       printf 'ERP_UPLOAD_DIR=%s/uploads\n' "$DATA_ROOT"
+      printf 'ERP_PREVIEW_CACHE_DIR=%s/preview-cache\n' "$DATA_ROOT"
       printf 'ERP_HOST=127.0.0.1\n'
       printf 'ERP_PORT=%s\n' "$APP_PORT"
       printf 'ERP_TRUST_PROXY=1\n'
