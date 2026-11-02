@@ -104,6 +104,8 @@ function parseAgendaRows(raw){
   const HEADER=/^(姓名|职务|职称|单位|医院|时间|内容|讲者|讲师|主持|备注|序号|日程|环节|课程)$/;
   // 两三个字但不是人名的常见词：OCR 里它们常出现在「讲者」列的位置
   const NOT_NAME=/^(临床|讨论|总结|主持|致辞|专题|病例|手术|影像|诊疗|指南|研究|进展|交流|提问|答疑|签到|茶歇|开幕|闭幕|会议|日程|环节|内容|主题|课题)$/;
+  // 「讨论主持」「开场致辞」「学术讨论」这类组合也要认成环节，不能当课题
+  const isStep=x=>STEP.test(x)||/(主持|致辞|讨论|总结|签到|茶歇|答疑)$/.test(x);
 
   return rows.filter(r=>{
     // 带显式标签的行交给 parseAgenda 的标签路径处理，这里跳过，
@@ -144,14 +146,14 @@ function parseAgendaRows(raw){
       org=usable[orgIdx];
       for(let i=orgIdx-1;i>=0;i--){
         const c=usable[i];
-        if(c.length>=2&&c.length<=6&&!STEP.test(c)&&!ORG.test(c)&&!NOT_NAME.test(c)&&!HEADER.test(c)){speaker=c;break;}
+        if(c.length>=2&&c.length<=6&&!isStep(c)&&!ORG.test(c)&&!NOT_NAME.test(c)&&!HEADER.test(c)){speaker=c;break;}
       }
     }else{
       speaker=usable.find(x=>TITLE.test(x)&&x.length<=20)||"";
     }
     // 课题：讲者/单位之外最长的一条，且像内容（≥4 字、含中文、不是环节词或机构名）
     const topicPool=usable.filter(x=>x!==speaker&&x!==org&&x.length>=4
-      &&/[\u4e00-\u9fa5]{2,}/.test(x)&&!STEP.test(x)&&!ORG.test(x)&&!HEADER.test(x));
+      &&/[\u4e00-\u9fa5]{2,}/.test(x)&&!isStep(x)&&!ORG.test(x)&&!HEADER.test(x));
     topicPool.sort((a,b)=>b.length-a.length);
     let topic=topicPool[0]||"";
     if(!speaker){
