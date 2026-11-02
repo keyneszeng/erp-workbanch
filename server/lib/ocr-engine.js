@@ -1,6 +1,6 @@
 "use strict";
 const path=require("node:path");
-const MAX_PAGES=3, MAX_SIZE=20*1024*1024;
+const MAX_PAGES=3, MAX_SIZE=Math.max(1,Number(process.env.ERP_MAX_FILE_MB||50))*1024*1024;
 function fail(code,message,status=503){return Object.assign(new Error(message),{status,code});}
 function enabled(){return typeof process!=="undefined"&&process.env?.ERP_OCR_ENABLED==="1";}
 async function execNative(program,args,opts={}){
@@ -22,7 +22,7 @@ async function runOCRImage(file,exec=execNative){
 }
 async function recognize(buffer,ext,opts={}){
   if(!enabled())throw fail("OCR_DISABLED","OCR 尚未启用，请在 ECS 设置 ERP_OCR_ENABLED=1");
-  if(!Buffer.isBuffer(buffer)||!buffer.length||buffer.length>MAX_SIZE)throw fail("OCR_INVALID_INPUT","OCR 文件必须在 20 MB 以内",400);
+  if(!Buffer.isBuffer(buffer)||!buffer.length||buffer.length>MAX_SIZE)throw fail("OCR_INVALID_INPUT",`OCR 文件必须在 ${Math.round(MAX_SIZE/1024/1024)} MB 以内`,400);
   if(!["png","jpg","pdf"].includes(ext))throw fail("OCR_UNSUPPORTED","OCR 支持 JPG、PNG 和 PDF；Office 文件请先导出 PDF",415);
   if(!process.getBuiltinModule?.("node:child_process"))throw fail("OCR_UNAVAILABLE","Cloudflare 等运行环境不支持本地 OCR");
   const fs=process.getBuiltinModule("node:fs/promises"),os=process.getBuiltinModule("node:os");

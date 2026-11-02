@@ -35,8 +35,11 @@ const ALLOWED_MIME = {
   [OFFICE_MIME.xlsx]: "xlsx"
 };
 
-/** 落库的单份文件上限：20 MB。超过的会在上传时先压缩到这个值以内。 */
-const MAX_BYTES = 20 * 1024 * 1024;
+/**
+ * 落库的单份文件上限：默认 50 MB（ERP_MAX_FILE_MB 可调）。
+ * 超过这个值的原件会在上传时先压缩到该值以内再存。
+ */
+const MAX_BYTES = Math.max(1, Number(process.env.ERP_MAX_FILE_MB || 50)) * 1024 * 1024;
 /**
  * 允许上传的原始大小上限（压缩前）。给扫描件留出空间：
  * 300dpi 的合同扫描件动辄 40~80 MB，先收进来再压，比让用户自己找工具更现实。

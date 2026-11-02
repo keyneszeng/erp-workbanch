@@ -137,7 +137,7 @@ function register(router) {
       assertProjectVisible(ctx.user, p);
     }
     /**
-     * 超过 20 MB 的原件先压缩再落库。
+     * 超过上限（默认 50 MB）的原件先压缩再落库。
      * 扫描件体积几乎全在图片上，PDF 降采样、图片限长边都能压到十分之一左右；
      * Office 是压缩包，压不动，明确拒绝而不是收下一个 50 MB 的 pptx。
      */
@@ -153,9 +153,9 @@ function register(router) {
             ? "服务器未安装压缩工具，请先在本地压缩后再上传"
             : r.reason === "failed"
               ? "文件可能已加密或损坏，无法自动压缩，请先在本地处理后重试"
-              : "自动压缩后仍超过 20 MB，请降低扫描分辨率或拆分文件后重试";
+              : `自动压缩后仍超过 ${Math.round(MAX_BYTES / 1024 / 1024)} MB，请降低扫描分辨率或拆分文件后重试`;
         throw new HttpError(413, "PAYLOAD_TOO_LARGE",
-          `单个文件不能超过 20 MB，当前 ${mb(buf.length)} MB。${reason}`);
+          `单个文件不能超过 ${Math.round(MAX_BYTES / 1024 / 1024)} MB，当前 ${mb(buf.length)} MB。${reason}`);
       }
       stored = r.buffer;
       compressed = { originalSize: r.originalSize, engine: r.engine };

@@ -62,7 +62,7 @@ function isSecureRequest(req, url) {
  * 照片走这条路，不经过 JSON 解析——3 MB 的 JPEG 转成 JSON base64 会膨胀到 4 MB 且毫无必要。
  */
 const UPLOAD_PATH = "/api/uploads";
-// 上传入口按「压缩前的上限」收字节：超过 20 MB 的扫描件先收进来，由上传路由压到 20 MB 内再落库。
+// 上传入口按「压缩前的上限」收字节：超过落库上限（默认 50 MB）的扫描件先收进来，压缩后再落库。
 // 这里多留 1 MB 给请求头，真正的业务校验在 files.js 里做。
 const { MAX_UPLOAD_BYTES } = require("./storage");
 const UPLOAD_LIMIT = MAX_UPLOAD_BYTES + 2 * 1024 * 1024;

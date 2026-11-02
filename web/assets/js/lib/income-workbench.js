@@ -75,7 +75,7 @@ function formIncome(root,projects,type,sponsorId=""){
  };
  const cfg=defs[type];
  const fields=[...cfg.fields,{k:"file",l:"佐证原件（必需）",t:"file",full:1,
-   accept:".jpg,.png,.pdf,.ppt,.pptx,.xlsx,.docx",tip:"必须上传合同原件、银行回款凭证或开票原件（单份≤20MB）"}];
+   accept:".jpg,.png,.pdf,.ppt,.pptx,.xlsx,.docx",tip:"必须上传合同原件、银行回款凭证或开票原件（单份≤50MB）"}];
  const modalEl=modal({title:cfg.title,width:"640px",body:formHtml(fields),
     footer:'<button class="btn btn-o" data-cancel>取消</button><button class="btn btn-p" data-save>提交</button>'});
  let picked=null;

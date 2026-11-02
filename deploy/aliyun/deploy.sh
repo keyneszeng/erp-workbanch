@@ -298,6 +298,7 @@ else
       printf 'ERP_UPLOAD_DIR=%s/uploads\n' "$DATA_ROOT"
       printf 'ERP_PREVIEW_CACHE_DIR=%s/preview-cache\n' "$DATA_ROOT"
       printf 'ERP_MAX_UPLOAD_MB=%s\n' "${ERP_MAX_UPLOAD_MB:-200}"
+      printf 'ERP_MAX_FILE_MB=%s\n' "${ERP_MAX_FILE_MB:-50}"
       printf 'ERP_HOST=127.0.0.1\n'
       printf 'ERP_PORT=%s\n' "$APP_PORT"
       printf 'ERP_TRUST_PROXY=1\n'

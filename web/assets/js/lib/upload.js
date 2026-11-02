@@ -8,7 +8,7 @@
  */
 
 /** 落库上限：超过这个值服务端会自动压缩（PDF 降采样 / 图片限长边） */
-export const MAX_STORED_BYTES = 20 * 1024 * 1024;
+export const MAX_STORED_BYTES = 50 * 1024 * 1024;
 /** 允许上传的原始大小：再大就不收了，避免把服务器当网盘 */
 export const MAX_UPLOAD_BYTES = 200 * 1024 * 1024;
 
@@ -85,7 +85,7 @@ export function checkFile(file) {
   return null;
 }
 
-/** 是否需要服务端压缩（>20 MB 的扫描件/大图） */
+/** 是否需要服务端压缩（超过落库上限的扫描件/大图） */
 export function needsCompression(file) {
   return !!file && file.size > MAX_STORED_BYTES;
 }

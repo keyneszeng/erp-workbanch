@@ -59,7 +59,7 @@ export const api = {
         let data = null;
         try { data = JSON.parse(xhr.responseText); } catch { data = null; }
         if (xhr.status >= 200 && xhr.status < 300) {
-          // 服务端对超过 20 MB 的原件做了自动压缩，这里明确告诉用户，
+          // 服务端对超过上限（默认 50 MB）的原件做了自动压缩，这里明确告诉用户，
           // 否则他会以为传上去的还是原来那份 50 MB 的文件。
           if (data?.compressed) {
             const mb = (n) => (Number(n || 0) / 1024 / 1024).toFixed(1);

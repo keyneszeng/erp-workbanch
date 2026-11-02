@@ -72,9 +72,10 @@ before(async () => {
   clean();
   proc = spawn(process.execPath, ["--experimental-sqlite", "server/index.js"], {
     cwd: path.join(__dirname, ".."),
-    // 压缩前上限压到 30 MB，方便用 31 MB 的样本验证「超上限直接拒」，
-    // 否则要造 200 MB 的请求体才能测到这条分支。
-    env: { ...process.env, ERP_PORT: String(PORT), ERP_DB: DB, ERP_UPLOAD_DIR: UP, ERP_MAX_UPLOAD_MB: "30" },
+    // 落库上限压到 20 MB、压缩前上限压到 30 MB，方便用 31 MB 的样本验证
+    // 「超上限直接拒」，否则要造 200 MB 的请求体才能测到这条分支。
+    env: { ...process.env, ERP_PORT: String(PORT), ERP_DB: DB, ERP_UPLOAD_DIR: UP,
+      ERP_MAX_FILE_MB: "20", ERP_MAX_UPLOAD_MB: "30" },
     stdio: ["ignore", "pipe", "pipe"]
   });
   proc.stderr.on("data", (d) => {
@@ -127,7 +128,7 @@ test("伪造扩展名被文件头嗅探拦下", async () => {
   assert.match(r.data.error.message, /无法识别文件类型/);
 });
 
-test("超过 20 MB 被拒绝", async () => {
+test("超过落库上限（20 MB）且压不动时被拒绝", async () => {
   const big = Buffer.concat([JPEG, Buffer.alloc(20 * 1024 * 1024)]);
   const r = await upload(exec, big);
   assert.equal(r.status, 413);

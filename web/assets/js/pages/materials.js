@@ -72,7 +72,7 @@ export function openMaterialRegistration(root, projects, kinds, defaultPid="", o
     {
       k: "file", l: "附件", t: "file", full: 1,
       accept: "image/jpeg,image/png,image/webp,image/gif,application/pdf,.docx,.ppt,.pptx,.xlsx",
-      tip: "支持图片、PDF、DOCX、PPTX、XLSX（Office 2007 及以上格式），每份不超过 20 MB；讲者照片请在名称栏填写讲者姓名。图片可自动压缩。"
+      tip: "支持图片、PDF、DOCX、PPTX、XLSX（Office 2007 及以上格式），每份不超过 50 MB；讲者照片请在名称栏填写讲者姓名。超过 50 MB 的会自动压缩。"
     }
   ];
   const m = modal({
