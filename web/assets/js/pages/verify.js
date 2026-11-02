@@ -143,6 +143,10 @@ async function renderOne(root, pid) {
 
 function openJudge(root, pid, no, d) {
   const s = d.verification.steps.find((x) => x.no === no);
+  // 第 6 步要填「拟请款总额」，等于所有已签合同之和。金额不摆出来，判定人只能猜，
+  // 猜错就一直是「拟请款总额与合同总额不一致」——所以算好直接带进表单。
+  const signedTotal = (d.contracts || []).filter((x) => x.status === "已签署")
+    .reduce((a, x) => a + Number(x.amount || 0), 0);
   const m = modal({
     title: `第 ${no} 步 · ${s.name}`,
     body: `<div class="hint" style="margin-bottom:12px">${esc(s.desc)}</div>
@@ -151,7 +155,7 @@ function openJudge(root, pid, no, d) {
       <div class="fld" style="margin-top:12px"><label>问题描述 / 备注</label>
         <textarea name="remark" rows="3" placeholder="判定不通过时必填"></textarea></div>
       ${""/* 第 6 步不再比对发票金额（老板 2026-11-02 决定），表单不再收这个字段 */}
-      ${sopEvidenceForm(no, d.project)}`,
+      ${sopEvidenceForm(no, d.project, { signedTotal })}`,
     footer: `<button class="btn btn-o" data-x="0">取消</button><button class="btn btn-p" data-x="1">提交判定</button>`
   });
   m.querySelector('[data-x="0"]').onclick = () => m.classList.remove("open");

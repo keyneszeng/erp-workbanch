@@ -26,7 +26,7 @@ const labor=v=>String(v||"").split(/\n+/).map(s=>s.trim()).filter(Boolean).map(l
   }
   return rec;
 });
-export function sopEvidenceForm(no,p){
+export function sopEvidenceForm(no,p,opt={}){
   const head=`<div class="gate" style="margin-bottom:9px">以下信息来自人工核验/结构化录入，系统只做字段比较；不具备自动 OCR。原件请先在材料中心上传。</div>`;
   const s={
     1:`<div class="hint" style="margin-bottom:8px">关联原件：<b>立项文件</b> + <b>终版议程</b>（须已在材料中心上传）。</div>`
@@ -47,8 +47,9 @@ export function sopEvidenceForm(no,p){
     5:area("collectionRecords","劳务收集表（每行：姓名|银行账号|开户行（可选）|金额）","张老师|6222000000000000|工商银行广州分行|1000")
        +area("agreementRecords","劳务协议（同样格式逐行输入）","张老师|6222000000000000|工商银行广州分行|1000")
        +`<div class="hint">格式不必严格：开户行可省，金额写「1000」「¥1,000.00」都行，系统按内容比对。核对只要求人员对得上，字段两边都填了才比，一边没填不算错。银行账号仅用于核验，不进入核销正文或审计。</div>`,
-    6:input("meetingName","拟结算单会议名称",p.name)+input("meetingDate","拟结算单会议日期",p.date)
-       +input("draftAmount","拟请款总金额（元，须等于所有已签合同总额；专家费可免发票）")
+    6:`<div class="hint" style="margin-bottom:8px">已签合同总额：<b>¥${esc(String(opt.signedTotal==null?"":opt.signedTotal))}</b>（拟请款总额须与之一致，已自动填入，可修改）</div>`
+       +input("meetingName","拟结算单会议名称",p.name)+input("meetingDate","拟结算单会议日期",p.date)
+       +input("draftAmount","拟请款总金额（元）",opt.signedTotal==null?"":String(opt.signedTotal))
   };
   return head+(s[no]||"");
 }
