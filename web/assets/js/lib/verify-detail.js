@@ -1,5 +1,6 @@
 import { badge, esc, modal, money, table } from "./ui.js";
 import { fileLink } from "./file-preview.js";
+import { api } from "./api.js";
 
 /**
  * 核销 6 步 SOP 的「详情」面板。
@@ -100,6 +101,12 @@ export function stepBody(d,no){
   const evidence=step?.evidence;
   return `<div class="dsec"><h4>业务核验规则</h4><div class="dchk">${esc(note[no]||"请核对资料")}</div></div>
     <div class="dsec"><h4>已登记的关联材料（${esc(names.join(" / ")||"—")}）</h4>${matList(selected,"请在材料中心补充对应原件")}</div>
+    ${selected.length?`<div class="dsec"><h4>文件内容 OCR</h4>
+      <div class="dhint" style="margin-bottom:8px">把本步关联的原件识别成文字，方便逐项对照；结果仅供辅助，判定仍须以原件为准。</div>
+      <button class="btn btn-o btn-sm" type="button" data-step-ocr="${no}">识别本步 ${selected.length} 份原件</button>
+      <span class="hint" data-step-ocr-hint style="margin-left:8px"></span>
+      <div data-step-ocr-out></div>
+    </div>`:""}
     ${no===6?`<div class="dgrid">${cell("已签合同总额",fmt(contractTotal))}${cell("核销发票总金额",step?.invoiceAmount==null?"未核对":fmt(step.invoiceAmount))}</div>`:""}
     ${[2,5].includes(no)?`<div class="dsec"><h4>劳务 / 专家类合同（合同分类）${no===2?"· 可代替劳务协议":""}</h4>
       ${laborContracts.length?table([{t:"合同名称"},{t:"合同收款方"},{t:"金额"},{t:"原件"}],
@@ -135,6 +142,36 @@ export function openStepDetail(d, no, opt = {}) {
         ? `<button class="btn btn-p" data-x="1">${s.result === "待判定" ? "判定" : "重新判定"}</button>`
         : ""}`
   });
+  const ocrBtn = m.querySelector("[data-step-ocr]");
+  if (ocrBtn) {
+    const out = m.querySelector("[data-step-ocr-out]");
+    const hint = m.querySelector("[data-step-ocr-hint]");
+    const label = ocrBtn.textContent;
+    ocrBtn.onclick = async () => {
+      ocrBtn.disabled = true;
+      ocrBtn.textContent = "识别中，请稍候（首次可能要十几秒）…";
+      hint.textContent = "";
+      try {
+        const r = await api.post(`/api/projects/${d.project.id}/verify/steps/${no}/ocr`, {});
+        if (r.message) { hint.textContent = r.message; return; }
+        const ok = r.items.filter((x) => !x.error).length;
+        hint.textContent = `已识别 ${ok}/${r.items.length} 份`;
+        out.innerHTML = r.items.map((it) => it.error
+          ? `<div class="fp-note" style="margin-top:10px"><b>${esc(it.kind)} · ${esc(it.name)}</b><br>识别失败：${esc(it.error)}</div>`
+          : `<details style="margin-top:10px">
+               <summary><b>${esc(it.kind)}</b> · ${esc(it.name)}
+                 <span class="dtag">${esc(it.engine)}</span>${it.cached ? '<span class="dtag">已缓存</span>' : ""}</summary>
+               <pre style="white-space:pre-wrap;max-height:240px;overflow:auto;font-size:12px;background:#f6f8fb;padding:10px;border-radius:6px">${esc(it.text || "（未识别到文字）")}</pre>
+             </details>`).join("");
+      } catch (e) {
+        hint.textContent = e.message;
+      } finally {
+        ocrBtn.disabled = false;
+        ocrBtn.textContent = label.replace(/^识别/, "重新识别");
+      }
+    };
+  }
+
   m.querySelector('[data-x="0"]').onclick = () => m.classList.remove("open");
   if (canJudgeThis && typeof opt.onJudge === "function") {
     m.querySelector('[data-x="1"]').onclick = () => {

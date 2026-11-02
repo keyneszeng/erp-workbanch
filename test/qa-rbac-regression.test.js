@@ -120,6 +120,20 @@ test("association manager cannot change project association", async () => {
   assert.equal(detail.body.project.assoc, "华东医学会");
 });
 
+test("核销步骤 OCR：无权限角色 403，未启用 OCR 时明确 503", async () => {
+  const denied = await guest("POST", "/api/projects/MP-2026-001/verify/steps/1/ocr", {});
+  assert.equal(denied.status, 403, JSON.stringify(denied.body));
+
+  // 本用例环境没有开启 ERP_OCR_ENABLED，应给出可读的 503 而不是 500。
+  // 用 admin：演示库里的 finance 看不到该项目，会先被数据范围拦成 403。
+  const r = await admin("POST", "/api/projects/MP-2026-001/verify/steps/1/ocr", {});
+  assert.equal(r.status, 503, JSON.stringify(r.body));
+  assert.equal(r.body.error.code, "OCR_DISABLED");
+
+  const badStep = await admin("POST", "/api/projects/MP-2026-001/verify/steps/9/ocr", {});
+  assert.equal(badStep.status, 400);
+});
+
 test("payment approval must contain an explicit boolean decision", async () => {
   const list = await finance("GET", "/api/payments?status=待审批");
   assert.equal(list.status, 200);

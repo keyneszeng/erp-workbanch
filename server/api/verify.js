@@ -5,11 +5,12 @@ const { isDemoMode } = require("../lib/runtime");
 const { assertCan, assertModule, assertProjectVisible, isSuper } = require("../lib/rbac");
 const { logAudit } = require("../lib/audit");
 const { getProject, verification, materialsStatus, settlementOf, demandSummary } = require("../lib/workflow");
-const { MATERIAL_KINDS, MATERIAL_MODULE_KINDS } = require("../lib/constants");
+const { MATERIAL_KINDS, MATERIAL_MODULE_KINDS, VERIFY_STEPS } = require("../lib/constants");
 const { readPaging, countOf } = require("../lib/paginate");
 const { storage } = require("../lib/storage");
 const { assertUploadAttachable } = require("../lib/upload-ownership");
 const { validateSopEvidence } = require("../lib/meeting-sop");
+const ocr = require("../lib/ocr-engine");
 
 function register(router) {
   /**
@@ -44,6 +45,79 @@ function register(router) {
   });
 
   /** 单步判定 */
+  /**
+   * 核销某一步的「文件内容 OCR」。
+   *
+   * 判定人要在弹窗里对着原件核对，但 PDF 预览只能看、不能复制，
+   * 表格类原件（劳务收集表、参会数据）更是要一行行比。这里把这一步关联的
+   * 原件识别成文字，和预览并列给出，判定时可以直接对照。
+   *
+   * 按需触发（一次请求最多 4 份），结果按材料缓存：同一份原件只识别一次。
+   */
+  router.post("/api/projects/:id/verify/steps/:no/ocr", async (ctx) => {
+    assertModule(ctx.user, "verify", "verify:check");
+    const p = getProject(ctx.params.id);
+    assertProjectVisible(ctx.user, p);
+    const no = Number(ctx.params.no);
+    const def = VERIFY_STEPS.find((s) => s.no === no);
+    if (!def) throw bad("步骤编号应为 1~6");
+    if (!ocr.enabled()) {
+      throw Object.assign(new Error("OCR 尚未启用，请联系管理员在服务器开启 ERP_OCR_ENABLED=1"),
+        { status: 503, code: "OCR_DISABLED" });
+    }
+
+    const kinds = [...new Set([...(def.materials || []), ...(def.altMaterials || [])])];
+    const rows = db.prepare(
+      `SELECT * FROM materials WHERE pid=? AND deleted_at IS NULL AND file_key IS NOT NULL AND file_key<>''`
+    ).all(p.id).filter((m) => kinds.includes(m.kind)).slice(0, 4);
+
+    if (!rows.length) {
+      return { step: no, materials: [], items: [], message: "这一步还没有可识别的原件，请先在材料中心上传" };
+    }
+
+    const items = [];
+    for (const material of rows) {
+      const cached = db.prepare(
+        "SELECT * FROM material_ocr_results WHERE material_id=? AND file_key=?"
+      ).get(material.id, material.file_key);
+      if (cached) {
+        items.push({ materialId: material.id, kind: material.kind, name: material.name,
+          text: cached.recognized_text, engine: cached.engine, cached: true });
+        continue;
+      }
+      try {
+        const file = await storage().get(material.file_key);
+        if (!file) throw new Error("原件已不存在");
+        let buffer = file.buffer, ext = material.file_key.split(".").pop();
+        // Office 原件先转 PDF 再识别（复用预览的转换缓存）
+        if (["docx", "xlsx", "pptx"].includes(ext)) {
+          const { toPdf, hasLibreOffice } = require("../lib/office-preview");
+          if (!(await hasLibreOffice())) throw new Error("服务器未安装 LibreOffice，Office 原件无法识别");
+          buffer = await toPdf(buffer, ext, material.file_key.replace(/\.[^.]+$/, ""));
+          ext = "pdf";
+        }
+        const processed = await ocr.recognize(buffer, ext);
+        db.prepare(`INSERT INTO material_ocr_results
+          (material_id,pid,file_key,recognized_text,suggestions_json,engine,mode,pages,total_pages,truncated,updated_at,updated_by)
+          VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+          ON CONFLICT(material_id) DO UPDATE SET file_key=excluded.file_key,recognized_text=excluded.recognized_text,
+            engine=excluded.engine,mode=excluded.mode,pages=excluded.pages,total_pages=excluded.total_pages,
+            truncated=excluded.truncated,updated_at=excluded.updated_at,updated_by=excluded.updated_by`)
+          .run(material.id, p.id, material.file_key, processed.text, "[]", processed.engine,
+            processed.mode, processed.pages, processed.totalPages, processed.truncated ? 1 : 0, now(), ctx.user.name);
+        items.push({ materialId: material.id, kind: material.kind, name: material.name,
+          text: processed.text, engine: processed.engine, cached: false });
+      } catch (e) {
+        items.push({ materialId: material.id, kind: material.kind, name: material.name,
+          text: "", error: e.message || "识别失败", cached: false });
+      }
+    }
+    // 审计只记份数与引擎，不落原件正文（可能含人名与账号）
+    logAudit({ user: ctx.user, module: "核销看板", action: "识别本步原件",
+      target: p.id, detail: `第 ${no} 步；${items.filter((x) => !x.error).length}/${items.length} 份`, ip: ctx.ip });
+    return { step: no, items };
+  });
+
   router.post("/api/projects/:id/verify/steps/:no", async (ctx) => {
     const p = getProject(ctx.params.id);
     assertProjectVisible(ctx.user, p);
