@@ -11,14 +11,15 @@ const fs = require("node:fs/promises");
 const os = require("node:os");
 const path = require("node:path");
 
-const BANK_LABEL = "(?:开户行|开户银行|开户信息|收款银行|收款开户行|开户机构|乙方开户行)";
-const ACCT_LABEL = "(?:银行账号|银行帐号|收款账号|收款帐号|银行账户|账号|帐号)";
+// 合同里同一个词常有不同排法：「帐 号」「开 户 行」都出现过，标签里允许空格
+const BANK_LABEL = "(?:开\\s*户\\s*行|开户银行|开户信息|收款银行|收款开户行|开户机构|乙方开户行)";
+const ACCT_LABEL = "(?:银行\\s*账\\s*号|银行\\s*帐\\s*号|收款\\s*账\\s*号|收款\\s*帐\\s*号|银行\\s*账户|账\\s*号|帐\\s*号|账户)";
 
 /** 去掉「如下」「：」之类的残渣，只留机构名 */
 function cleanBank(s) {
   return String(s || "")
-    .replace(/^[\s:：]+/, "")
-    .replace(/[，,。；;、]$/, "")
+    .replace(/^[\s:：，,。；;、]+/, "")
+    .replace(/[\s:：，,。；;、]+$/, "")
     .replace(/\s{2,}/g, " ")
     .trim();
 }

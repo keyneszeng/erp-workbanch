@@ -30,3 +30,9 @@ test("账号长度不合规时丢弃", () => {
   assert.equal(r.bank, "中国银行广州分行");
   assert.equal(r.account, "");
 });
+
+test("「帐 号」带空格、开户行前带逗号都能处理", () => {
+  const r = extractBankInfo("开户行：， 上海浦东发展银行股份有限公司广州花城大道支行\n帐 号：712081067946");
+  assert.equal(r.bank, "上海浦东发展银行股份有限公司广州花城大道支行", "前导逗号要清掉");
+  assert.equal(r.account, "712081067946");
+});
