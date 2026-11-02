@@ -170,9 +170,21 @@ function bootstrapProduction() {
   assertConfigured();
   if (alreadySeeded()) {
     if (mode !== "production") throw new Error("数据库已有账号但缺少生产标记，请先完成受控迁移");
-    const root = db.prepare("SELECT * FROM users WHERE role = 'admin'").all();
-    if (root.length !== 1 || !root[0].phone || root[0].username !== root[0].phone)
-      throw new Error("旧生产管理员未配置手机号白名单，请执行受控数据迁移后再启用");
+    /**
+     * 这里原本写死「管理员必须正好 1 个」。
+     * 那是在给「只有一个 admin 的老库」做手机号白名单迁移时留下的假设，
+     * 但业务上完全可能配多个总管理员（老板 2026-11-02 就要了 3 个）。
+     * 校验的真实意图是「每个管理员都必须是手机号登录」，
+     * 所以改成：至少 1 个，且每个 admin 的 username 必须等于 phone。
+     * 否则加第二个总管理员会让整个服务起不来。
+     */
+    const roots = db.prepare("SELECT * FROM users WHERE role = 'admin'").all();
+    if (!roots.length) throw new Error("生产数据库缺少总管理员账号，请先初始化");
+    const bad = roots.filter((u) => !u.phone || u.username !== u.phone);
+    if (bad.length)
+      throw new Error(
+        `管理员账号未配置手机号白名单（${bad.map((u) => u.username || u.id).join("、")}），请执行受控数据迁移后再启用`
+      );
     db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_prod_whitelist_phone ON users(phone) WHERE phone IS NOT NULL AND phone <> ''");
     return { skipped: true, mode: "production" };
   }
