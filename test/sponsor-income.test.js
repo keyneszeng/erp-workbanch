@@ -42,10 +42,24 @@ test("赞助合同/到账凭证/开票逐笔登记、授权与预算差额",asyn
  assert.equal(another.status,200);
  const excess=await request("POST","/api/projects/"+pid+"/income/contracts/"+another.data.id+"/decide",{approve:true},admin);
  assert.equal(excess.status,409,"赞助累计已超过预算应拒绝");
- const rec=await request("POST","/api/projects/"+pid+"/income/receipts",{sponsorId:c.data.id,amount:10000,paymentRef:"BANK20270001",receivedDate:"2027-10-21",file_key:await upload(admin,pid)},admin);
+ const receiptKey=await upload(admin,pid);
+ for(const invalidDate of ["2027-13-01", "2027-02-30", "not-a-date"]) {
+   const rejected=await request("POST","/api/projects/"+pid+"/income/receipts",
+     {sponsorId:c.data.id,amount:10000,paymentRef:"BANK20270001",receivedDate:invalidDate,file_key:receiptKey},admin);
+   assert.equal(rejected.status,400,"无效到账日期须返回 400（而非 RangeError 500）: "+invalidDate+" "+JSON.stringify(rejected.data));
+ }
+ const rec=await request("POST","/api/projects/"+pid+"/income/receipts",
+   {sponsorId:c.data.id,amount:10000,paymentRef:"BANK20270001",receivedDate:"2027-10-21",file_key:receiptKey},admin);
  assert.equal(rec.status,200,JSON.stringify(rec.data));
  assert.equal(rec.data.summary.received,10000);
- const inv=await request("POST","/api/projects/"+pid+"/income/invoices",{sponsorId:c.data.id,amount:10000,invoiceNo:"INV20270001",issuedDate:"2027-10-21",file_key:await upload(admin,pid)},admin);
+ const invoiceKey=await upload(admin,pid);
+ for(const invalidDate of ["2027-00-12", "2027-02-30", "2027-13-01"]) {
+   const rejected=await request("POST","/api/projects/"+pid+"/income/invoices",
+     {sponsorId:c.data.id,amount:10000,invoiceNo:"INV20270001",issuedDate:invalidDate,file_key:invoiceKey},admin);
+   assert.equal(rejected.status,400,"无效开票日期须返回 400（而非 RangeError 500）: "+invalidDate+" "+JSON.stringify(rejected.data));
+ }
+ const inv=await request("POST","/api/projects/"+pid+"/income/invoices",
+   {sponsorId:c.data.id,amount:10000,invoiceNo:"INV20270001",issuedDate:"2027-10-21",file_key:invoiceKey},admin);
  assert.equal(inv.status,200,JSON.stringify(inv.data));assert.equal(inv.data.summary.invoiced,10000);
  const state=await request("GET","/api/projects/"+pid+"/income",undefined,admin);
  assert.equal(state.data.summary.contractGap,0);assert.equal(state.data.summary.receiptGap,0);
