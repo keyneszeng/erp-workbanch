@@ -173,12 +173,27 @@ function register(router) {
       const agenda = pick(["议程", "终版议程"]);
       const course = pick(["课件", "串场"]);
       const norm = (t) => String(t).replace(/[\s\p{P}]/gu, "").toLowerCase();
+      // 扫描件 OCR 常有错字（内痔→内畔）和截断，纯精确比对会把同一课题判成两条。
+      // 先试包含，再用二元组相似度兜底。
+      const dice = (x, y) => {
+        if (x === y) return 1;
+        const grams = (s) => {
+          const set = new Set();
+          for (let i = 0; i < s.length - 1; i++) set.add(s.slice(i, i + 2));
+          return set;
+        };
+        const A = grams(x), B = grams(y);
+        if (!A.size || !B.size) return 0;
+        let hit = 0;
+        for (const g of A) if (B.has(g)) hit++;
+        return (2 * hit) / (A.size + B.size);
+      };
       const same = (a, b) => {
         const x = norm(a), y = norm(b);
         if (!x || !y) return false;
         if (x === y) return true;
-        // OCR 常把课题截断，长度够时按包含关系认
-        return x.length >= 6 && y.length >= 6 && (x.includes(y) || y.includes(x));
+        if (x.length >= 6 && y.length >= 6 && (x.includes(y) || y.includes(x))) return true;
+        return dice(x, y) >= 0.6;
       };
       const matched = agenda.filter((a) => course.some((c) => same(a, c)))
         .map((a) => ({ agenda: a, course: course.find((c) => same(a, c)) }));

@@ -205,7 +205,8 @@ function renderTopics(box, t) {
           ? `<div class="fp-note" style="margin-top:10px"><b>需要人工核对：两侧课题不一致</b>
                ${t.onlyAgenda.length ? `议程独有 ${esc(t.onlyAgenda.join("、"))}` : ""}
                ${t.onlyAgenda.length && t.onlyCourse.length ? "；" : ""}
-               ${t.onlyCourse.length ? `课件独有 ${esc(t.onlyCourse.join("、"))}` : ""}</div>`
+               ${t.onlyCourse.length ? `课件独有 ${esc(t.onlyCourse.join("、"))}` : ""}
+               <div class="hint" style="margin-top:6px">扫描件的 OCR 可能有错字或截断，看起来相近的请人工确认是否同一课题。</div></div>`
           : `<div class="hint" style="margin-top:8px">✓ 课件课题与终版议程一致（${t.matched.length} 条）</div>`}
     </div>`;
   box.querySelectorAll("[data-copy-topics]").forEach((btn) => {
