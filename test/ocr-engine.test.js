@@ -6,7 +6,7 @@ const os=require("node:os");
 const path=require("node:path");
 const {execFileSync}=require("node:child_process");
 const {PDFDocument,StandardFonts,rgb}=require("pdf-lib");
-const {parseAgenda,recognize,MAX_PAGES}=require("../server/lib/ocr-engine");
+const {parseAgenda,parseAgendaRows,recognize,MAX_PAGES}=require("../server/lib/ocr-engine");
 
 test("OCR agenda parsing returns reviewable bilingual candidates without treating headings as a speaker",()=>{
   const raw=[
@@ -26,6 +26,23 @@ test("OCR agenda parsing returns reviewable bilingual candidates without treatin
   ]);
   assert.deepEqual(parseAgenda("会议时间：2026-01-01\n会场安排"),[]);
 });
+test("议程表格按时间行还原成 时间/课题/讲者/单位，环节词不当讲者",()=>{
+  const raw=[
+    "2026年学术会议 终版议程",
+    "19:35-20:05      内痔的规范化治疗: 从指南到临床      徐一劲   东莞市人民医院",
+    "20:05-20:25      讨论      周志球   东莞市松山湖中心医院",
+    "20:25-20:30      总结      周志球   东莞市松山湖中心医院",
+    "注: 最终日程以实际发生为准。"
+  ].join("\n");
+  const rows=parseAgendaRows(raw);
+  assert.equal(rows.length,3,"标题与脚注不应产生场次");
+  assert.deepEqual(rows[0],{time:"19:35-20:05",topic:"内痔的规范化治疗: 从指南到临床",speaker:"徐一劲",org:"东莞市人民医院"});
+  // 「讨论」是议程环节，不是讲者；讲者按「机构名前一个」认出来
+  assert.equal(rows[1].speaker,"周志球");
+  assert.equal(rows[1].topic,"");
+  assert.equal(rows[2].time,"20:25-20:30");
+});
+
 test("OCR requires an explicit server-side enable flag; image/PDF MIME mismatch blocked",async()=>{
   const prev=process.env.ERP_OCR_ENABLED;
   delete process.env.ERP_OCR_ENABLED;

@@ -41,10 +41,51 @@ export async function renderMaterialWorkbench(root,projects) {
       ${agendas.map(m=>`<option value="${m.id}">${esc(m.name)}（${esc(m.version||"")}）</option>`).join("")}</select></div>
       ${d.ocrAvailable?'<button class="btn btn-o btn-sm" type="button" data-ocr-run>OCR 自动识别并填入草稿</button>':'<div class="hint">当前演示环境或服务器未配置 OCR，可以手动整理后生成待办。</div>'}
       <div data-ocr-preview class="hint"></div>
-      <div class="fld"><label>人工核对后的讲者与课题（每行：讲者|课题）</label>
-        <textarea name="agendaRows" rows="8" placeholder="张老师|胃肠病诊疗新进展"></textarea></div>
+      <div class="fld"><label>识别结果（可直接修改；空白格请对照原件补全）</label>
+        <div class="tw" style="max-height:300px;overflow:auto">
+          <table><thead><tr>
+            <th style="width:104px">时间</th><th>课题</th><th style="width:92px">讲者</th><th style="width:150px">单位</th><th style="width:34px"></th>
+          </tr></thead><tbody data-agenda-rows></tbody></table>
+        </div>
+        <div style="margin-top:8px">
+          <button class="btn btn-o btn-sm" type="button" data-add-row>＋ 添加一行</button>
+          <span class="hint" data-row-stat style="margin-left:8px"></span>
+        </div>
+      </div>
       <label><input type="checkbox" name="confirmed"> 已对照终版议程原件确认讲者、课题和记录无误</label>`,
       footer:'<button class="btn btn-o" data-close>取消</button><button class="btn btn-p" data-save>确认并生成待办</button>'});
+    const tbody=modalEl.querySelector("[data-agenda-rows]");
+    const stat=modalEl.querySelector("[data-row-stat]");
+    const rowHtml=(r={})=>`<tr>
+      <td><input name="time" value="${esc(r.time||"")}" placeholder="19:00-19:30" style="width:100%"></td>
+      <td><input name="topic" value="${esc(r.topic||"")}" placeholder="课题" style="width:100%"></td>
+      <td><input name="speaker" value="${esc(r.speaker||"")}" placeholder="讲者" style="width:100%"></td>
+      <td><input name="org" value="${esc(r.org||"")}" placeholder="单位" style="width:100%"></td>
+      <td><button type="button" class="link" data-del-row title="删除此行">×</button></td></tr>`;
+    const refreshStat=()=>{
+      const rows=[...tbody.querySelectorAll("tr")].map(tr=>({
+        speaker:tr.querySelector('[name="speaker"]').value.trim(),
+        topic:tr.querySelector('[name="topic"]').value.trim()
+      }));
+      const ready=rows.filter(r=>r.speaker&&r.topic).length;
+      if(stat)stat.textContent=rows.length?`共 ${rows.length} 行，其中 ${ready} 行讲者与课题都已填，可生成待办`:"";
+    };
+    const fillRows=(list)=>{
+      tbody.innerHTML=list.map(rowHtml).join("");
+      refreshStat();
+    };
+    tbody.addEventListener("input",refreshStat);
+    tbody.addEventListener("click",(e)=>{
+      if(!e.target.closest("[data-del-row]"))return;
+      e.target.closest("tr").remove();
+      refreshStat();
+    });
+    modalEl.querySelector("[data-add-row]").onclick=()=>{
+      tbody.insertAdjacentHTML("beforeend",rowHtml());
+      refreshStat();
+    };
+    if(agendas.length)fillRows([{}]);
+
     modalEl.querySelector("[data-ocr-run]")?.addEventListener("click",async(e)=>{
       const btn=e.currentTarget;
       const materialId=Number(modalEl.querySelector('[name="agendaId"]').value);
@@ -53,21 +94,27 @@ export async function renderMaterialWorkbench(root,projects) {
       try{
         const {result}=await api.post("/api/projects/"+selected+"/material-workbench/ocr",{materialId});
         if(!result)throw new Error("OCR 没有返回识别结果");
-        const t=modalEl.querySelector('[name="agendaRows"]');
-        t.value=result.suggestions.map(x=>x.speaker+"|"+x.topic).join("\n");
+        // 优先用「按时间行还原」的结构化结果；没有就退回逐行候选
+        const rows=(result.rows&&result.rows.length?result.rows:result.suggestions)||[];
+        fillRows(rows.length?rows:[{}]);
+        const ready=rows.filter(r=>r.speaker&&r.topic).length;
         const preview=modalEl.querySelector("[data-ocr-preview]");
-        preview.innerHTML=`<p>已识别 ${result.pages}/${result.totalPages} 页 · ${esc(result.engine)} · 提取候选 ${result.suggestions.length} 条${result.truncated?"（仅处理前 3 页，请核对剩余页）":""}。</p>
+        preview.innerHTML=`<p>已识别 ${result.pages}/${result.totalPages} 页 · ${esc(result.engine)} · 还原 ${rows.length} 个场次，其中 ${ready} 行讲者与课题都齐全${result.truncated?"（仅处理前 3 页，请核对剩余页）":""}。</p>
           <details><summary>查看 OCR 原文（请与原件核对）</summary><pre style="white-space:pre-wrap;max-height:220px;overflow:auto">${esc(result.recognizedText)}</pre></details>`;
-        if(!result.suggestions.length)toast("识别出了文字但未能可靠提取讲者/课题，请查看原文后手动整理","warn");
-        else toast("已填入待确认草稿，请人工核对后生成待办","ok");
+        if(!rows.length)toast("识别出了文字但没有可还原的场次，请查看原文后手动添加","warn");
+        else if(!ready)toast("已按时间行排出场次，但讲者/课题多为空白，请对照原件补全","warn");
+        else toast("已填入草稿表格，请逐行核对后生成待办","ok");
       }catch(err){toast(err.message,"warn");}
       finally{btn.disabled=false;btn.textContent="OCR 自动识别并填入草稿";}
     });
     modalEl.querySelector("[data-close]").onclick=()=>modalEl.classList.remove("open");
     modalEl.querySelector("[data-save]").onclick=async()=>{
       const materialId=Number(modalEl.querySelector('[name="agendaId"]').value);
-      const entries=modalEl.querySelector('[name="agendaRows"]').value.split(/\n/).filter(Boolean).map(s=>{
-        const [speaker,topic]=s.split("|");return {speaker:(speaker||"").trim(),topic:(topic||"").trim()};});
+      const entries=[...tbody.querySelectorAll("tr")].map(tr=>({
+        speaker:tr.querySelector('[name="speaker"]').value.trim(),
+        topic:tr.querySelector('[name="topic"]').value.trim()
+      })).filter(x=>x.speaker&&x.topic);
+      if(!entries.length){toast("至少需要一行同时填好讲者与课题","warn");return;}
       if(!modalEl.querySelector('[name="confirmed"]').checked){toast("请先核对终版议程并勾选人工确认","warn");return;}
       try{const r=await api.post("/api/projects/"+selected+"/material-workbench/agenda",{materialId,entries});
         toast("已生成 "+r.generated+" 项结构化待办","ok");modalEl.classList.remove("open");await renderMaterialWorkbench(root,projects);}

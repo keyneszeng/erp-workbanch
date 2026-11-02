@@ -45,7 +45,9 @@ async function recognize(buffer,ext,opts={}){
       if(layer.length>=40){text=layer;mode="pdf-text";}
       else{
         const prefix=path.join(dir,"page");
-        await exec("pdftoppm",["-f","1","-l",String(pages),"-scale-to","1800","-png","-r","140",file,prefix],{timeout:30000});
+        // 议程多为表格，字号小、列多。1800px 时同一行的「时间/内容/讲者/单位」会被糊成一块，
+        // 实测 2400px + 200dpi 才能把一行的四个格子基本读开。
+        await exec("pdftoppm",["-f","1","-l",String(pages),"-scale-to","2400","-png","-r","200",file,prefix],{timeout:60000});
         const files=(await fs.readdir(dir)).filter(s=>/^page-\d+\.png$/.test(s)).sort((a,b)=>
           Number(a.match(/\d+/)[0])-Number(b.match(/\d+/)[0]));
         if(!files.length)throw fail("OCR_RENDER_FAILED","未能转换 PDF 扫描页",422);
@@ -58,7 +60,111 @@ async function recognize(buffer,ext,opts={}){
     return {text,mode,engine:mode==="pdf-text"?"Poppler pdftotext":"Tesseract chi_sim+eng",pages,totalPages,truncated};
   }finally{await fs.rm(dir,{recursive:true,force:true}).catch(()=>{});}
 }
+/**
+ * 把议程还原成「时间 / 课题 / 讲者 / 单位」四列。
+ *
+ * 为什么要按时间行切：议程表在 OCR 里是按列读出来的碎片，
+ * 直接按行找「讲者：X 课题：Y」几乎匹配不到。而时间（19:35-20:05）
+ * 是每行最稳定的锚点 —— 认准它，后面跟着的几行就属于同一场次。
+ */
+function parseAgendaRows(raw){
+  const lines=cleanText(raw).split("\n").map(x=>x.replace(/[\t　]+/g," ").replace(/\s{2,}/g,"  ").trim())
+    .filter(Boolean)
+    // 页脚、页码、纯英文噪声行（OCR 对表格线常吐出「ARE」「HATE」这类碎片）
+    .filter(x=>!/^(注\s*[:：]|备注|最终日程|第\s*\d+\s*页)/.test(x))
+    // 会议时间/地点/主办/联系人这类抬头信息不是场次内容
+    .filter(x=>!/^(会议时间|会议地点|会议形式|主办|承办|协办|联系人|联系电话|邮箱|地址)\s*[:：]?/.test(x))
+    .filter(x=>!/^[A-Za-z\s|·.,-]{1,12}$/.test(x));
+  const TIME=/^(\d{1,2}[:：]\d{2})\s*[-–—~至]?\s*(\d{1,2}[:：]\d{2})?/;
+  const rows=[];let cur=null,orphan="";
+  for(const line of lines){
+    const m=line.match(TIME);
+    if(m){
+      if(cur)rows.push(cur);
+      const time=(m[1]+(m[2]?"-"+m[2]:"")).replace(/：/g,":");
+      const rest=line.slice(m[0].length).trim();
+      // 表格单元格常跨行：课题的上半截会出现在时间行之前，先接过来
+      cur={time,cells:[orphan,rest].filter(Boolean)};
+      orphan="";
+    }else if(cur){
+      cur.cells.push(line);
+    }else{
+      // 还没有时间行时先留一行，等下一个时间行归给它；
+      // 但标题/日程说明不是内容，别当成课题
+      orphan=/(议程|日程|会议名称|标题|邀请函|安排)$/.test(line)||line.length>40?"":line;
+    }
+  }
+  if(cur)rows.push(cur);
+
+  const ORG=/(医院|大学|学院|学会|协会|中心|公司|研究所|卫生院|保健院|门诊部)/;
+  const TITLE=/(教授|主任|医师|医生|博士|老师|院长|护士长|Dr\.?)/i;
+  // 议程环节词：它们出现在「讲者」列的位置，但不是人
+  const STEP=/^(讨论|总结|主持|致辞|签到|茶歇|开幕|闭幕|合影|午餐|晚宴|会议|日程|备注|提问|交流|答疑|休息|签到入场)$/;
+
+  return rows.filter(r=>{
+    // 带显式标签的行交给 parseAgenda 的标签路径处理，这里跳过，
+    // 否则同一场次会被两种解析各出一遍，还可能配错对
+    const labeled=r.cells.some(c=>/(讲者|讲师|演讲人|授课人|Speaker|Presenter)\s*[:：]/i.test(c)
+      ||/(课题|主题|讲题|演讲题目|报告题目|Topic|Subject)\s*[:：]/i.test(c));
+    return !labeled;
+  }).map(r=>{
+    let cells=r.cells.join("  ").split(/\s{2,}|[|｜]/).map(x=>x.replace(/[，,。;；]$/,"").trim()).filter(x=>x.length>=1);
+    // 「讲者：张三教授 课题：胃肠病诊疗新进展」这类一行写完的，先按标签拆成两块
+    cells=cells.flatMap(cell=>{
+      const m=cell.match(/(?:讲者|讲师|演讲人|授课人|Speaker|Presenter)\s*[:：]\s*(.+?)\s+(?:课题|主题|讲题|演讲题目|报告题目|Topic|Subject)\s*[:：]\s*(.+)$/i);
+      return m?[m[1].trim(),m[2].trim()]:[cell];
+    });
+    // 单独的「讲者：X」「课题：Y」去掉标签，剩下的交给位置判断
+    cells=cells.map(cell=>cell
+      .replace(/^(?:讲者|讲师|演讲人|授课人|Speaker|Presenter)\s*[:：]\s*/i,"")
+      .replace(/^(?:课题|主题|讲题|演讲题目|报告题目|Topic|Subject)\s*[:：]\s*/i,""));
+    // 只把「院/学/心/司/所」这类单字后缀接回上一个单元格（机构名折行的典型形态），
+    // 不能见短就并：「讨论」后面的「院」并过去会变成「讨论院」这种假讲者。
+    const merged=[];
+    for(const cell of cells){
+      const prev=merged[merged.length-1];
+      const orgTail=cell.length===1&&/[院学心司所]/.test(cell)&&(prev||"").length>=4;
+      if(prev&&orgTail&&!/[。；，,]$/.test(prev))merged[merged.length-1]=prev+cell;
+      else merged.push(cell);
+    }
+    const usable=merged.filter(x=>x.length>=2);
+
+    /**
+     * 讲者按「机构名前面那一个」来认。
+     * 表格里人名几乎总是紧挨着单位列，而单看字面分不清「临床」和「徐一劲」——
+     * 用位置关系比用词表可靠得多。
+     */
+    const orgIdx=usable.findIndex(x=>ORG.test(x)&&x.length<=30);
+    let speaker="",org="";
+    if(orgIdx>=0){
+      org=usable[orgIdx];
+      for(let i=orgIdx-1;i>=0;i--){
+        const c=usable[i];
+        if(c.length>=2&&c.length<=6&&!STEP.test(c)&&!ORG.test(c)){speaker=c;break;}
+      }
+    }else{
+      speaker=usable.find(x=>TITLE.test(x)&&x.length<=20)||"";
+    }
+    // 课题：讲者/单位之外最长的一条，且像内容（≥4 字、含中文、不是环节词或机构名）
+    const topicPool=usable.filter(x=>x!==speaker&&x!==org&&x.length>=4
+      &&/[\u4e00-\u9fa5]/.test(x)&&!STEP.test(x)&&!ORG.test(x));
+    topicPool.sort((a,b)=>b.length-a.length);
+    let topic=topicPool[0]||"";
+    if(!speaker){
+      const hit=topic.match(/([\u4e00-\u9fa5]{2,4}(?:教授|主任|医师|医生|博士))/);
+      if(hit)speaker=hit[1];
+    }
+    return {time:r.time,topic,speaker,org};
+  }).filter(r=>r.time&&(r.topic||r.speaker||r.org));
+}
+
 function parseAgenda(raw){
+  /**
+   * 两条路并用：
+   *   1) 显式标签行（讲者：X 课题：Y / Speaker: X Topic: Y）—— 置信度最高；
+   *   2) 按时间行还原的表格行 —— 覆盖「时间 | 内容 | 讲者 | 单位」这类议程表。
+   * 先收 1 再补 2，同一组讲者+课题只留一条。
+   */
   const lines=cleanText(raw).split("\n").map(s=>s.replace(/[\t　]+/g," ").trim()).filter(Boolean);
   const out=[],seen=new Set();let pending="";
   function add(a,b){
@@ -86,6 +192,8 @@ function parseAgenda(raw){
     m=line.match(/^([^|｜]{2,35})\s*[|｜]\s*([^|｜]{3,160})$/);
     if(m&&!/^(讲者|姓名|课程|课题)$/.test(m[1].trim())){add(m[1],m[2]);pending="";}
   }
+  for(const r of parseAgendaRows(raw))
+    if(r.speaker&&r.topic)add(r.speaker,r.topic);
   return out;
 }
-module.exports={enabled,recognize,parseAgenda,cleanText,runOCRImage,MAX_PAGES};
+module.exports={enabled,recognize,parseAgenda,parseAgendaRows,cleanText,runOCRImage,MAX_PAGES};

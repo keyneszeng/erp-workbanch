@@ -21,9 +21,13 @@ function checkOcrMaterial(pid,id) {
 function resultFor(materialId,pid,fileKey) {
   const r=db.prepare("SELECT * FROM material_ocr_results WHERE material_id=? AND pid=? AND file_key=?")
     .get(materialId,pid,fileKey);
-  return r ? {materialId,recognizedText:r.recognized_text,suggestions:JSON.parse(r.suggestions_json),
+  if(!r)return null;
+  let rows=[];
+  // 结构化行按原文实时还原：算法改进后旧记录也能直接受益，不用重跑 OCR
+  try{rows=ocr.parseAgendaRows(r.recognized_text);}catch{rows=[];}
+  return {materialId,recognizedText:r.recognized_text,suggestions:JSON.parse(r.suggestions_json),rows,
     mode:r.mode,engine:r.engine,pages:r.pages,totalPages:r.total_pages,truncated:!!r.truncated,
-    updatedAt:r.updated_at,updatedBy:r.updated_by,reviewRequired:true} : null;
+    updatedAt:r.updated_at,updatedBy:r.updated_by,reviewRequired:true};
 }
 
 
