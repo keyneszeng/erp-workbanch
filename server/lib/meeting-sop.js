@@ -128,7 +128,7 @@ function validateSopEvidence(no, evidence, project, db, invoiceAmount) {
       if(!materialExists(db,pid,["劳务收集表","劳务表"],true))
         fail("第五步缺少劳务收集表原件（也可用劳务表）","SOP_MATERIAL_MISSING");
       const laborContracts=Number(db.prepare(
-        "SELECT COUNT(*) FROM contracts WHERE pid=? AND status='已签署' AND category='劳务专家'"
+        "SELECT COUNT(*) AS n FROM contracts WHERE pid=? AND status='已签署' AND category='劳务专家'"
       ).get(pid).n);
       if(!laborContracts)
         fail("第五步缺少已签署的劳务/专家类合同（合同分类须为「劳务专家」）","SOP_MATERIAL_MISSING");
