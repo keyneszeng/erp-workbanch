@@ -11,6 +11,28 @@ const names=v=>String(v||"").split(/[\n,，、;；]+/).map(x=>x.trim()).filter(B
  * 金额取最后一个像金额的段，账号取 10 位以上数字段，其余按开户行/角色兜底。
  */
 const labor=v=>String(v||"").split(/\n+/).map(s=>s.trim()).filter(Boolean).map(line=>{
+  /**
+   * 有竖线按竖线切；没有竖线（直接从 Excel/OCR 复制的整行）按两个以上空白切，
+   * 再按内容认字段：18 位身份证、11 位手机、16~19 位账号、带「银行/支行」的是开户行，
+   * 剩下的数字取第一个当金额，2~4 个汉字当姓名。
+   */
+  if(!/[|｜]/.test(line)){
+    const toks=line.split(/\s{2,}|\t/).map(x=>x.trim()).filter(Boolean);
+    const rec={name:"",bankAccount:"",bankName:"",amount:"",role:"",time:""};
+    let sawBank=false;
+    for(const t of toks){
+      if(/^\d{17}[\dXx]$/.test(t)) continue;              // 身份证
+      if(/^1[3-9]\d{9}$/.test(t)) continue;                // 手机
+      if(/^\d{16,19}$/.test(t)){ rec.bankAccount=rec.bankAccount||t; continue; }
+      if(/(银行|支行|分行|信用社|信用社)/.test(t)){ rec.bankName=t; sawBank=true; continue; }
+      if(/^[\d,]+(\.\d+)?$/.test(t)){
+        if(!rec.amount&&(sawBank||toks.indexOf(t)>0)) rec.amount=t;
+        continue;
+      }
+      if(/^[\u4e00-\u9fa5]{2,4}$/.test(t)&&!rec.name) rec.name=t;
+    }
+    return rec;
+  }
   const parts=line.split(/[|｜]/).map(x=>x.trim());
   const rec={name:parts[0]||"",bankAccount:"",bankName:"",amount:"",role:"",time:""};
   const rest=parts.slice(1).filter(Boolean);

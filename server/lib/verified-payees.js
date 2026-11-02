@@ -30,7 +30,10 @@ function saveLabor(pid,records){
  db.prepare("DELETE FROM verified_labor_payees WHERE pid=?").run(pid);
  for(const x of records){
   const account=String(x.bankAccount||"").replace(/\s/g,"");
-  insert.run(pid,String(x.name).trim(),String(x.bankName||"").trim(),seal(account),Number(x.amount),now());
+  const cipher=seal(account);
+  // 写完立刻回读一次：密钥写错/换过时能当场发现，而不是等到付款时才报「账号解不开」
+  if(!cipher||reveal(cipher)!==account) return {saved:false,reason:"账号加密后无法回读，请检查 ERP_FINANCIAL_DATA_KEY"};
+  insert.run(pid,String(x.name).trim(),String(x.bankName||"").trim(),cipher,Number(x.amount),now());
  }
  return {saved:true,count:records.length};
 }
@@ -45,8 +48,12 @@ function options(pid){
  const labor=db.prepare("SELECT id,name,bank,account_cipher,amount FROM verified_labor_payees WHERE pid=? ORDER BY id").all(pid);
  for(const x of labor){
   const account=reveal(x.account_cipher);
-  if(account)rows.push({id:"labor:"+x.id,label:x.name+"（核销劳务表）",payee:x.name,
-    amount:x.amount,source:"labor",bank:x.bank,maskedAccount:"尾号 "+account.slice(-4)});
+  // 解不开也要列出来：静默丢掉会让人以为「核销没录过这个人」，
+  // 实际是密钥变更过，需要重新核验第 5 步把账号重新加密入库。
+  rows.push({id:"labor:"+x.id,label:x.name+"（核销劳务表）",payee:x.name,
+    amount:x.amount,source:"labor",bank:x.bank||"",
+    maskedAccount:account?"尾号 "+account.slice(-4):"",
+    accountUnavailable:!account});
  }
  return rows;
 }
