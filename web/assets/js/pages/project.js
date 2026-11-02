@@ -74,7 +74,7 @@ export async function render(root, [pid]) {
   <div id="tabbody"></div>`;
 
   root.querySelectorAll("[data-tab]").forEach((b) => b.addEventListener("click", () => { tab = b.dataset.tab; render(root, [pid]); }));
-  root.querySelectorAll("[data-act]").forEach((b) => b.addEventListener("click", () => doTransition(root, pid, b.dataset.act, p)));
+  root.querySelectorAll("[data-act]").forEach((b) => b.addEventListener("click", () => doTransition(root, pid, b.dataset.act, p, d)));
   const pdfBtn = root.querySelector("#downloadArchivePdf");
   if (pdfBtn) pdfBtn.onclick = () => downloadArchivePdf(pid, pdfBtn);
   const eb = root.querySelector("#editBtn");
@@ -508,9 +508,9 @@ async function refresh(root, pid) {
   await render(root, [pid]);
 }
 
-async function doTransition(root, pid, action, project) {
-  // V1.2.18：结算单要登记收款方与收款账户，不能只弹一句「确认」
-  if (action === "settle") return openSettle(root, pid, project);
+async function doTransition(root, pid, action, project, detail) {
+  // 结算单要先把「预算 → 已付款明细 → 结余」摆出来，不能只弹一句「确认」
+  if (action === "settle") return openSettle(root, pid, project, detail);
   if (["archive", "verify_pass"].includes(action)) {
     const ok = await confirmBox(
       action === "archive" ? "归档后数字卷宗封存，材料不可再修改，确认继续？"
@@ -532,16 +532,46 @@ async function doTransition(root, pid, action, project) {
  * 生成结算单。
  *
  * 老板 2026-11-02：结算单只是业务资金结算结果的看板，不承担付款职能 ——
- * 钱在「付款」环节已经付完了。所以这里不再要「收款方 / 开户行 / 银行账号」，
- * 只确认一件事：付款都完成了，可以生成结算单。
+ * 钱在「付款」环节已经付完了，所以不要「收款方 / 开户行 / 银行账号」；
+ * 但确认之前必须先把「预算 → 已付款明细 → 结余」按同一套模板摆出来，
+ * 让人在点确认之前就知道这张单子会长什么样。
+ *
+ * 三个数来自服务端的 settlePreview（与真正落库用同一个 settlementLedger），
+ * 前端不另算 —— 两套算法迟早会给出两个数。
  */
-function openSettle(root, pid, p) {
+function openSettle(root, pid, p, d) {
+  const pv = d?.settlePreview || null;
+  const budget = Number(p?.budget || 0);
+  const paidList = (d?.payments || []).filter((y) => y.status === "已付款");
+  const paid = pv ? Number(pv.paid) : paidList.reduce((s, y) => s + Number(y.amount || 0), 0);
+  const tax = pv ? Number(pv.tax || 0) : 0;
+  const expense = paid + tax;
+  const profit = budget - expense;
+  const warn = pv && pv.over > 0
+    ? `<div class="gate" style="margin-top:10px"><b>已付款超出合同总额 ¥${money(pv.over)}</b>可能有重复付款或没有合同的付款，先核对再生成。</div>`
+    : pv && pv.shortfall > 0
+      ? `<div class="gate" style="margin-top:10px"><b>还差 ¥${money(pv.shortfall)} 没付</b>差额已超过劳务代扣税上限 ¥${money(pv.taxCap)}，可能仍有款未付。</div>`
+      : "";
+
   const m = modal({
     title: "生成结算单",
-    body: `<div class="gate" style="margin-bottom:12px"><b>付款全部完成后才可生成结算单</b>
-      结算单记录本次会议的资金结算结果（收入 / 支出 / 结余），用于对账与归档，<b>不产生任何付款动作</b>，因此不需要填写收款账户。
-      生成后核销结论冻结，账目封账。</div>
-      <div class="hint">预算 ¥${money(p?.budget || 0)}</div>`,
+    width: "760px",
+    body: `<div class="grid g3" style="margin-bottom:12px">
+        <div class="kpi"><div class="t">预算</div><div class="v" style="font-size:18px">¥${money(budget)}</div></div>
+        <div class="kpi k2"><div class="t">已付款</div><div class="v" style="font-size:18px">¥${money(paid)}</div></div>
+        <div class="kpi k4"><div class="t">结余</div><div class="v" style="font-size:18px">¥${money(profit)}</div></div>
+      </div>
+      <h4 style="margin:0 0 6px">已付款明细（${paidList.length} 笔）</h4>
+      ${table([{ t: "付款单号", w: "112px" }, { t: "收款方" }, { t: "类型", w: "86px" }, { t: "金额", w: "100px", cls: "num" }],
+        paidList.map((y) => ({ c: [`<span class="mono">${esc(y.id)}</span>`, esc(y.payee), esc(y.type), `¥${money(y.amount)}`] })),
+        { empty: "还没有已付款记录" })}
+      <div class="hint" style="margin-top:6px">
+        已付款合计 ¥${money(paid)}${tax > 0 ? `；另有劳务代扣税 ¥${money(tax)}（协会代扣代缴，同样计入支出）` : ""}
+        ；支出合计 ¥${money(expense)}；预算 ¥${money(budget)} − 支出 ¥${money(expense)} = 结余 ¥${money(profit)}
+      </div>
+      ${warn}
+      <div class="gate ok" style="margin-top:10px"><b>结算单只记录资金结算结果</b>用于对账与归档，不产生任何付款动作。
+        生成后核销结论冻结、账目封账。</div>`,
     footer: `<button class="btn btn-o" data-x="0">取消</button><button class="btn btn-p" data-x="1">确认生成</button>`
   });
   m.querySelector('[data-x="0"]').onclick = () => m.classList.remove("open");

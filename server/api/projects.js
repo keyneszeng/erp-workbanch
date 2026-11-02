@@ -3,7 +3,7 @@ const { db } = require("../lib/db");
 const { now, nextId, bad, notFound, conflict, forbidden, cents, yuan } = require("../lib/util");
 const { assertCan, assertProjectVisible, can, isSuper, scopeFilter, ROLES } = require("../lib/rbac");
 const { logAudit } = require("../lib/audit");
-const { getProject, verification, materialsStatus, settlementOf, demandSummary, assertNotFrozen, committed, availableActions, transition } = require("../lib/workflow");
+const { getProject, verification, materialsStatus, settlementOf, demandSummary, assertNotFrozen, committed, settlementLedger, availableActions, transition } = require("../lib/workflow");
 const { ASSOCS, FORMS, DEPTS } = require("../lib/constants");
 const { readPaging, countOf } = require("../lib/paginate");
 const { isDemoMode } = require("../lib/runtime");
@@ -180,6 +180,12 @@ function detail(project, user) {
     verification: verification(pid),
     materialsStatus: materialsStatus(pid),
     settlement: settlementOf(pid),
+    /**
+     * 结算预览：生成结算单前先让人看清楚「预算 → 已付款 → 结余」。
+     * 口径必须和服务端真正落库时完全一致，所以直接复用 settlementLedger，
+     * 不在前端另算一遍 —— 两套算法迟早会给出两个数。
+     */
+    settlePreview: settlementLedger(pid),
     // 核销第 3 步的费用对照基准。项目详情页的核销页签读的是这个接口，
     // 之前只在 /verify 里返回，导致同一个第 3 步在两个页面给出不同答案。
     demand: demandSummary(pid),

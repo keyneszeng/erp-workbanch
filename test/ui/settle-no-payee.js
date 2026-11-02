@@ -77,6 +77,12 @@ async function seedVerifiedProject() {
     const r = await api("POST", `/api/projects/${pid}/materials`, { kind, name: `${kind}-原件` });
     if (r.status !== 200) throw new Error("材料 " + kind + " 失败 " + JSON.stringify(r.data));
   }
+  // 一份已签合同，付款才有着落（否则结算预览会提示「已付款超出合同总额」）
+  const ct = await api("POST", "/api/contracts", {
+    pid, name: "场地租赁合同", vendor: "广州会展中心", amount: 3175, category: "场地餐饮",
+    status: "已签署", sign_date: "2026-10-01"
+  });
+  if (ct.status !== 200) throw new Error("建合同失败 " + JSON.stringify(ct.data));
   const rv = await api("POST", `/api/projects/${pid}/transition`, { action: "request_verify" });
   if (rv.status !== 200) throw new Error("提交核销失败 " + JSON.stringify(rv.data));
   for (let no = 1; no <= 6; no++) {
@@ -142,6 +148,14 @@ async function seedVerifiedProject() {
   const modalText = (await page.textContent("#modal")) || "";
   check("弹窗标题是「生成结算单」", /生成结算单/.test(modalText), modalText.slice(0, 60));
   check("文案说明不产生付款动作", /不产生任何付款动作/.test(modalText), modalText.slice(0, 200));
+  // 老板 2026-11-02：弹窗也要按「预算 → 已付款明细 → 结余」这套模板预览
+  check("弹窗里有「预算」", /预算/.test(modalText), modalText.slice(0, 200));
+  check("弹窗里有「已付款明细」", /已付款明细/.test(modalText), modalText.slice(0, 200));
+  check("弹窗里有「结余」", /结余/.test(modalText), modalText.slice(0, 200));
+  check("弹窗预览数字对得上：预算 40,000 / 已付款 3,175 / 结余 36,825",
+    /40,000/.test(modalText) && /3,175/.test(modalText) && /36,825/.test(modalText), modalText.slice(0, 400));
+  check("弹窗明细里能看到收款方", /广州会展中心/.test(modalText), modalText.slice(0, 400));
+  check("没有误报「已付款超出合同总额」", !/超出合同总额/.test(modalText), modalText.slice(0, 400));
 
   const fieldCount = await page.$$eval("#modal .mb input, #modal .mb select, #modal .mb textarea", (els) => els.length);
   check("弹窗里一个输入框都没有", fieldCount === 0, `实际 ${fieldCount} 个`);
