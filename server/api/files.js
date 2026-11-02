@@ -233,6 +233,19 @@ function register(router) {
       const wanted = Number(ctx.query.page) || 1;
       const page = Math.min(Math.max(1, Math.trunc(wanted)), Math.min(pages, PREVIEW_MAX_PAGES));
 
+      // 渲染结果按「文件 + 页」缓存：一份 10 页的 PPT 首页要渲染 4 秒，
+      // 核销时来回翻页会很卡。key 一次上传永不改写，所以缓存不会过期。
+      const { CACHE_DIR } = require("../lib/office-preview");
+      const cachedPng = path.join(CACHE_DIR, `${key.replace(/\.[^.]+$/, "")}-p${page}.png`);
+      const hit = await fs.readFile(cachedPng).catch(() => null);
+      if (hit && hit.length > 8) {
+        return { __file: {
+          buffer: hit, mime: "image/png",
+          name: `${name.replace(/\.[^.]+$/, "")}-第${page}页.png`, download: false,
+          headers: { "X-Preview-Pages": String(pages), "X-Preview-Page": String(page) }
+        } };
+      }
+
       const prefix = path.join(dir, "page");
       await runTool("pdftoppm", [
         "-f", String(page), "-l", String(page),
@@ -242,6 +255,9 @@ function register(router) {
       const produced = (await fs.readdir(dir)).filter((s) => /^page-?\d*\.png$/.test(s));
       if (!produced.length) throw new HttpError(422, "PREVIEW_FAILED", "原件未能渲染成图片，请下载后查看");
       const buffer = await fs.readFile(path.join(dir, produced[0]));
+      await fs.mkdir(CACHE_DIR, { recursive: true })
+        .then(() => fs.writeFile(cachedPng, buffer))
+        .catch(() => {});
 
       return { __file: {
         buffer,
