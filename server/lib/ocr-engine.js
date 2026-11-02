@@ -100,6 +100,8 @@ function parseAgendaRows(raw){
   const TITLE=/(教授|主任|医师|医生|博士|老师|院长|护士长|Dr\.?)/i;
   // 议程环节词：它们出现在「讲者」列的位置，但不是人
   const STEP=/^(讨论|总结|主持|致辞|签到|茶歇|开幕|闭幕|合影|午餐|晚宴|会议|日程|备注|提问|交流|答疑|休息|签到入场)$/;
+  // 表头单元格：OCR 把表头也读进来时，不能当成讲者或课题
+  const HEADER=/^(姓名|职务|职称|单位|医院|时间|内容|讲者|讲师|主持|备注|序号|日程|环节|课程)$/;
 
   return rows.filter(r=>{
     // 带显式标签的行交给 parseAgenda 的标签路径处理，这里跳过，
@@ -127,7 +129,7 @@ function parseAgendaRows(raw){
       if(prev&&orgTail&&!/[。；，,]$/.test(prev))merged[merged.length-1]=prev+cell;
       else merged.push(cell);
     }
-    const usable=merged.filter(x=>x.length>=2);
+    const usable=merged.filter(x=>x.length>=2&&!HEADER.test(x));
 
     /**
      * 讲者按「机构名前面那一个」来认。
@@ -147,7 +149,7 @@ function parseAgendaRows(raw){
     }
     // 课题：讲者/单位之外最长的一条，且像内容（≥4 字、含中文、不是环节词或机构名）
     const topicPool=usable.filter(x=>x!==speaker&&x!==org&&x.length>=4
-      &&/[\u4e00-\u9fa5]/.test(x)&&!STEP.test(x)&&!ORG.test(x));
+      &&/[\u4e00-\u9fa5]{2,}/.test(x)&&!STEP.test(x)&&!ORG.test(x)&&!HEADER.test(x));
     topicPool.sort((a,b)=>b.length-a.length);
     let topic=topicPool[0]||"";
     if(!speaker){
