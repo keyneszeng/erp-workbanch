@@ -154,7 +154,10 @@ function evidenceLines(no, e) {
       break;
     case 5:
       push("劳务记录", e.matchedLaborRecords ? e.matchedLaborRecords + " 条" : "");
-      push("比对字段", e.matchedFields ? e.matchedFields + " 项（姓名 / 时间 / 角色 / 金额 / 银行账号）" : "");
+      push("比对字段", e.matchedFields != null
+        ? (e.lenient ? e.matchedFields + " 项（宽松比对：两边都填的字段才比）"
+                     : e.matchedFields + " 项（姓名 / 时间 / 角色 / 金额 / 银行账号）")
+        : "");
       push("劳务/专家类合同", e.laborContracts != null ? e.laborContracts + " 份（已签署）" : "");
       push("账号是否入库", e.accountDataStored ? "是" : "否（仅内存比对）");
       break;

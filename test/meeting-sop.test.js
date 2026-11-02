@@ -99,6 +99,22 @@ test("劳务五字段即时比对，不保留任何姓名或银行账号",()=>{
  assert.doesNotMatch(JSON.stringify(result),/IN_MEMORY_ONLY|甲/);
  expectBlock(5,{...e,agreementRecords:[{...a,role:"主持"}]});
 });
+test("第五步宽松比对：人员对上即可，字段缺一侧或金额写法不同不拦",()=>{
+  const dbOk=()=>dbWith({kinds:["劳务收集表"],laborContracts:1});
+  // 收集表有开户行、协议没填 → 不比开户行，放行
+  const a1={name:"甲",bankAccount:"6222000000000001",bankName:"工商银行广州分行",amount:"1000"};
+  const b1={name:"甲",bankAccount:"6222000000000001",amount:"¥1,000.00"};
+  assert.equal(validateSopEvidence(5,{collectionRecords:[a1],agreementRecords:[b1]},project,dbOk()).lenient,true);
+  // 账号写法带空格/短横 → 归一化后相同，放行
+  const a2={name:"乙",bankAccount:"6222 0000-0000 0001",amount:"500"};
+  const b2={name:"乙",bankAccount:"6222000000000001",amount:"500.00"};
+  assert.equal(validateSopEvidence(5,{collectionRecords:[a2],agreementRecords:[b2]},project,dbOk()).matchedLaborRecords,1);
+  // 金额真的不一致 → 拦
+  assert.throws(()=>validateSopEvidence(5,{collectionRecords:[a1],agreementRecords:[{...b1,amount:"1200"}]},project,dbOk()),/金额不一致/);
+  // 人员对不上 → 拦
+  assert.throws(()=>validateSopEvidence(5,{collectionRecords:[a1],agreementRecords:[{...b1,name:"丙"}]},project,dbOk()),/姓名对不上/);
+});
+
 test("正式结算单不能提前生成；核销只校验拟结算金额与会议基线",()=>{
  const e={draftAmount:1000,meetingName:project.name,meetingDate:project.date};
  assert.equal(validateSopEvidence(6,e,project,db,1000).meetingMatched,true);

@@ -4,8 +4,28 @@ const input=(name,label,value="")=>`<div class="fld" style="margin-top:8px"><lab
 const area=(name,label,placeholder)=>`<div class="fld" style="margin-top:8px"><label>${label}</label><textarea name="${name}" rows="3" placeholder="${esc(placeholder)}"></textarea></div>`;
 const ck=(name,label)=>`<label style="display:block;margin-top:9px"><input type="checkbox" name="${name}"> ${label}</label>`;
 const names=v=>String(v||"").split(/[\n,，、;；]+/).map(x=>x.trim()).filter(Boolean);
-const labor=v=>String(v||"").split(/\n+/).map(line=>line.split("|").map(x=>x.trim()))
-  .filter(x=>x.some(Boolean)).map(([name,time,role,amount,bankAccount,bankName])=>({name,time,role,amount,bankAccount,bankName}));
+/**
+ * 劳务记录解析：格式不必严格。
+ * 约定写法是「姓名|银行账号|开户行（可选）|金额」，但实际粘贴来的可能是
+ * 老的六列、也可能少了开户行、金额带 ¥ 和千分位。这里按内容识别：
+ * 金额取最后一个像金额的段，账号取 10 位以上数字段，其余按开户行/角色兜底。
+ */
+const labor=v=>String(v||"").split(/\n+/).map(s=>s.trim()).filter(Boolean).map(line=>{
+  const parts=line.split(/[|｜]/).map(x=>x.trim());
+  const rec={name:parts[0]||"",bankAccount:"",bankName:"",amount:"",role:"",time:""};
+  const rest=parts.slice(1).filter(Boolean);
+  for(let i=rest.length-1;i>=0;i--){
+    if(/^[¥￥]?\s*[\d,]+(\.\d+)?\s*元?$/.test(rest[i])){rec.amount=rest[i];rest.splice(i,1);break;}
+  }
+  for(const x of rest){
+    if(!rec.bankAccount&&/^[\d\s-]{10,}$/.test(x)){rec.bankAccount=x;continue;}
+    if(/^\d{4}-\d{2}-\d{2}$/.test(x)&&!rec.time){rec.time=x;continue;}
+    if(/讲者|主持|讨论|专家|嘉宾|授课/.test(x)&&!rec.role){rec.role=x;continue;}
+    if(!rec.bankName){rec.bankName=x;continue;}
+    if(!rec.role){rec.role=x;continue;}
+  }
+  return rec;
+});
 export function sopEvidenceForm(no,p){
   const head=`<div class="gate" style="margin-bottom:9px">以下信息来自人工核验/结构化录入，系统只做字段比较；不具备自动 OCR。原件请先在材料中心上传。</div>`;
   const s={
@@ -24,9 +44,9 @@ export function sopEvidenceForm(no,p){
        +ck("hostTitleMatches","串场题目与议程一致")+ck("hostNameLogoMatches","主办方名称及 logo 一致")
        +`<div class="fld"><label>药企 logo 出现页面（多选，仅允许三类）</label>`
        +["首页","尾页","鸣谢页"].map(x=>ck("logo"+x,x)).join("")+`</div>`,
-    5:area("collectionRecords","劳务收集表（每行：姓名|时间|角色|金额|银行账号|开户行（可选））","张老师|2026-11-01|讲者|1000|6222...")
-       +area("agreementRecords","劳务协议（同样格式逐行输入）","张老师|2026-11-01|讲者|1000|6222...")
-       +`<div class="hint">银行账号在第五步核验时对照，不进入核销正文或审计。生产环境配置专用加密密钥后，仅将核验后的劳务收款信息加密用于后续付款人选择。</div>`,
+    5:area("collectionRecords","劳务收集表（每行：姓名|银行账号|开户行（可选）|金额）","张老师|6222000000000000|工商银行广州分行|1000")
+       +area("agreementRecords","劳务协议（同样格式逐行输入）","张老师|6222000000000000|工商银行广州分行|1000")
+       +`<div class="hint">格式不必严格：开户行可省，金额写「1000」「¥1,000.00」都行，系统按内容比对。核对只要求人员对得上，字段两边都填了才比，一边没填不算错。银行账号仅用于核验，不进入核销正文或审计。</div>`,
     6:input("meetingName","拟结算单会议名称",p.name)+input("meetingDate","拟结算单会议日期",p.date)
        +input("draftAmount","拟请款总金额（元，须等于所有已签合同总额；专家费可免发票）")
   };

@@ -85,26 +85,56 @@ function validateSopEvidence(no, evidence, project, db, invoiceAmount) {
         sponsorLogoPages:[...new Set(e.sponsorLogoPages)]};
     }
     case 5: {
+      /**
+       * 劳务核对：宽松比对。
+       *
+       * 老板明确要求「泛内容就行，不是一定要按这个格式比对」——
+       * 现实里收集表和协议各有各的模板，字段顺序、有没有开户行、金额写不写「¥」
+       * 都不统一。所以这里只坚持一件事：**人要对得上**；其余字段两边都填了才比，
+       * 一边没填就跳过，不因为格式差异把人挡在门外。
+       */
       const a=e.collectionRecords,b=e.agreementRecords;
-      if(!Array.isArray(a)||!Array.isArray(b)||!a.length||a.length!==b.length) fail("劳务收集表与协议条数不一致");
-      const keys=["name","time","role","amount","bankAccount"];
-      const norm = x=> keys.map(k=>String(x?.[k]??"").trim()).join("\u001f");
-      if(a.some(x=>keys.some(k=>!String(x?.[k]??"").trim())) ||
-         b.some(x=>keys.some(k=>!String(x?.[k]??"").trim())))
-        fail("劳务五字段（姓名/时间/角色/金额/银行账号）不得缺漏");
-      if(new Set(a.map(norm)).size!==a.length || new Set(b.map(norm)).size!==b.length ||
-         a.map(norm).sort().some((x,i)=>x!==b.map(norm).sort()[i]))
-        fail("劳务收集表与劳务协议五字段不一致");
+      if(!Array.isArray(a)||!a.length||!Array.isArray(b)||!b.length)
+        fail("劳务收集表与劳务协议都要录入记录");
+      const nameOf=r=>String(r?.name??r?.姓名??"").trim();
+      const namesA=a.map(nameOf).filter(Boolean), namesB=b.map(nameOf).filter(Boolean);
+      if(!namesA.length||!namesB.length) fail("劳务记录必须写明姓名");
+      if(!sameNames(namesA,namesB))
+        fail("劳务收集表与劳务协议的姓名对不上（数量或人员不一致）");
+
+      // 归一化：去掉空白、货币符号、千分位；账号里的空格与短横也去掉
+      // 账号里的空格/短横、金额的货币符号与千分位、日期的 / 都是写法差异，归一化后再比
+      const norm=v=>String(v??"").replace(/[\s¥￥元,，\-\/]/g,"").toLowerCase();
+      const cents=v=>{const t=norm(v).replace(/[^\d.-]/g,"");const n=Number(t);return Number.isFinite(n)&&t!==""?Math.round(n*100):null;};
+      const fields=[["amount","金额"],["bankAccount","银行账号"],["bankName","开户行"],["role","角色"],["time","时间"]];
+      const mapA=new Map(a.map(r=>[nameOf(r),r])), mapB=new Map(b.map(r=>[nameOf(r),r]));
+      const diffs=[];let compared=0;
+      for(const [name,ra] of mapA){
+        const rb=mapB.get(name);if(!rb)continue;
+        for(const [k,label] of fields){
+          const va=norm(ra?.[k]), vb=norm(rb?.[k]);
+          if(!va||!vb)continue;            // 一边没填就不比，不当作错误
+          compared++;
+          if(k==="amount"){
+            const ca=cents(ra?.[k]), cb=cents(rb?.[k]);
+            if(ca!==null&&cb!==null){ if(ca!==cb) diffs.push(`${name}的${label}不一致（${ra[k]} / ${rb[k]}）`); continue; }
+          }
+          if(va!==vb) diffs.push(`${name}的${label}不一致（${ra[k]} / ${rb[k]}）`);
+        }
+      }
+      if(diffs.length) fail("劳务记录存在字段不一致：" + diffs.slice(0,3).join("；"));
+
       // 关联文件：劳务收集表原件 + 劳务/专家类合同（按合同分类认，不按合同名称猜）
       if(!materialExists(db,pid,["劳务收集表","劳务表"],true))
         fail("第五步缺少劳务收集表原件（也可用劳务表）","SOP_MATERIAL_MISSING");
       const laborContracts=Number(db.prepare(
-        "SELECT COUNT(*) AS n FROM contracts WHERE pid=? AND status='已签署' AND category='劳务专家'"
+        "SELECT COUNT(*) FROM contracts WHERE pid=? AND status='已签署' AND category='劳务专家'"
       ).get(pid).n);
       if(!laborContracts)
         fail("第五步缺少已签署的劳务/专家类合同（合同分类须为「劳务专家」）","SOP_MATERIAL_MISSING");
       // 不返回、存储姓名、账号或记录原文。
-      return {matchedLaborRecords:a.length,matchedFields:keys.length,laborContracts,accountDataStored:false};
+      return {matchedLaborRecords:namesA.length,matchedFields:compared,laborContracts,
+        accountDataStored:false,lenient:true};
     }
     case 6: {
       if(!Number.isFinite(invoiceAmount)||invoiceAmount<0) throw bad("请输入核对后的发票金额");
