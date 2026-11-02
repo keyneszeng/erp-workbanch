@@ -6,7 +6,7 @@ const os=require("node:os");
 const path=require("node:path");
 const {execFileSync}=require("node:child_process");
 const {PDFDocument,StandardFonts,rgb}=require("pdf-lib");
-const {parseAgenda,parseAgendaRows,recognize,MAX_PAGES}=require("../server/lib/ocr-engine");
+const {parseAgenda,parseAgendaRows,extractNames,recognize,MAX_PAGES}=require("../server/lib/ocr-engine");
 
 test("OCR agenda parsing returns reviewable bilingual candidates without treating headings as a speaker",()=>{
   const raw=[
@@ -41,6 +41,22 @@ test("议程表格按时间行还原成 时间/课题/讲者/单位，环节词�
   assert.equal(rows[1].speaker,"周志球");
   assert.equal(rows[1].topic,"");
   assert.equal(rows[2].time,"20:25-20:30");
+});
+
+test("姓名提取：表格行/职称/机构相邻/编号名单都能抓到，且不含表头词",()=>{
+  const text=[
+    "序号 姓名 身份证号码 手机号码 银行卡号",
+    "1    刘志华    14040219830715041X   13826188969   6222023602078445731",
+    "2    卢效荣    441900198501011234   13900000000   6222023602078445732",
+    "19:35-20:05  内痔治疗  徐一劲   东莞市人民医院",
+    "张伟教授 主讲",
+    "1.蔡浩武",
+    "姓名：韦明锋"
+  ].join("\n");
+  const names=extractNames(text);
+  for(const n of ["刘志华","卢效荣","徐一劲","张伟","蔡浩武","韦明锋"])
+    assert.ok(names.includes(n),"应提取到 "+n+"，实际："+names.join("、"));
+  for(const bad of ["姓名","序号","身份证","银行卡"]) assert.ok(!names.includes(bad),bad+" 不应被当成人名");
 });
 
 test("OCR requires an explicit server-side enable flag; image/PDF MIME mismatch blocked",async()=>{

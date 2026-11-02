@@ -106,6 +106,7 @@ export function stepBody(d,no){
       <button class="btn btn-o btn-sm" type="button" data-step-ocr="${no}">识别本步 ${selected.length} 份原件</button>
       <span class="hint" data-step-ocr-hint style="margin-left:8px"></span>
       <div data-step-ocr-out></div>
+      <div data-step-names-out></div>
     </div>`:""}
     ${no===6?`<div class="dgrid">${cell("已签合同总额",fmt(contractTotal))}${cell("核销发票总金额",step?.invoiceAmount==null?"未核对":fmt(step.invoiceAmount))}</div>`:""}
     ${[2,5].includes(no)?`<div class="dsec"><h4>劳务 / 专家类合同（合同分类）${no===2?"· 可代替劳务协议":""}</h4>
@@ -124,6 +125,58 @@ export function stepBody(d,no){
  * @param {number} no   步骤号 1~6
  * @param {object} opt  { canJudge:boolean, onJudge:Function } —— 看完数据可直接判定
  */
+/** 复制到剪贴板：优先用 Clipboard API，非 HTTPS 环境退回复制文本域 */
+async function copyText(text) {
+  try {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch {}
+  const ta = document.createElement("textarea");
+  ta.value = text;
+  ta.style.cssText = "position:fixed;left:-9999px;top:0";
+  document.body.appendChild(ta);
+  ta.select();
+  let ok = false;
+  try { ok = document.execCommand("copy"); } catch {}
+  document.body.removeChild(ta);
+  return ok;
+}
+
+/**
+ * 第 2 步的姓名面板：合并名单可直接复制，差异项单独提示。
+ * 判定人要的是「三处名单一致」，所以一致的部分不用细看，差异才是重点。
+ */
+function renderNames(box, names) {
+  if (!box) return;
+  if (!names || !names.union.length) { box.innerHTML = ""; return; }
+  const diff = (names.onlyIn || []).filter((x) => x.names.length);
+  box.innerHTML = `
+    <div style="margin-top:14px;padding:12px 14px;border:1px solid var(--line);border-radius:8px;background:#fbfcfe">
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <b>姓名提取</b>
+        <span class="hint">共 ${names.union.length} 人 · 来自 ${names.bySource.length} 份材料</span>
+        <span style="flex:1"></span>
+        <button class="btn btn-o btn-sm" type="button" data-copy-names>复制全部姓名</button>
+      </div>
+      <div class="dchk" style="margin-top:8px">合并名单（去重）：<b>${esc(names.union.join("、"))}</b></div>
+      <div style="margin-top:8px">
+        ${names.bySource.map((s) => `<div class="hint">· ${esc(s.kind)}（${s.names.length} 人）：${esc(s.names.join("、") || "未提取到")}</div>`).join("")}
+      </div>
+      ${diff.length
+        ? `<div class="fp-note" style="margin-top:10px"><b>需要人工核对：以下姓名没有出现在全部材料里</b>
+             ${diff.map((x) => `${esc(x.kind)} 独有 ${esc(x.names.join("、"))}`).join("；")}</div>`
+        : `<div class="hint" style="margin-top:8px">✓ 各来源姓名完全一致（共 ${names.common.length} 人）</div>`}
+    </div>`;
+  const btn = box.querySelector("[data-copy-names]");
+  if (btn) btn.onclick = async () => {
+    const ok = await copyText(names.union.join("\n"));
+    btn.textContent = ok ? "已复制" : "复制失败";
+    setTimeout(() => { btn.textContent = "复制全部姓名"; }, 1600);
+  };
+}
+
 export function openStepDetail(d, no, opt = {}) {
   const s = d.verification.steps.find((x) => x.no === no);
   const prevUnjudged = d.verification.steps.some((x) => x.no < no && !["通过","已解例外"].includes(x.result));
@@ -163,6 +216,7 @@ export function openStepDetail(d, no, opt = {}) {
                  <span class="dtag">${esc(it.engine)}</span>${it.cached ? '<span class="dtag">已缓存</span>' : ""}</summary>
                <pre style="white-space:pre-wrap;max-height:240px;overflow:auto;font-size:12px;background:#f6f8fb;padding:10px;border-radius:6px">${esc(it.text || "（未识别到文字）")}</pre>
              </details>`).join("");
+        renderNames(m.querySelector("[data-step-names-out]"), r.names);
       } catch (e) {
         hint.textContent = e.message;
       } finally {

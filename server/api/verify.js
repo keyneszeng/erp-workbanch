@@ -12,6 +12,16 @@ const { assertUploadAttachable } = require("../lib/upload-ownership");
 const { validateSopEvidence } = require("../lib/meeting-sop");
 const ocr = require("../lib/ocr-engine");
 
+/** 一份原件的姓名候选：通用规则 + 议程行里的讲者（议程表的姓名常被 OCR 拆行） */
+function namesOf(text, kind) {
+  if (!text) return [];
+  const set = new Set(ocr.extractNames(text));
+  if (["议程", "终版议程"].includes(kind)) {
+    try { for (const r of ocr.parseAgendaRows(text)) if (r.speaker) set.add(r.speaker); } catch {}
+  }
+  return [...set];
+}
+
 function register(router) {
   /**
    * 核销看板：6 步 + 例外 + 结算 + 材料。
@@ -85,7 +95,8 @@ function register(router) {
       ).get(material.id, material.file_key);
       if (cached) {
         items.push({ materialId: material.id, kind: material.kind, name: material.name,
-          text: cached.recognized_text, engine: cached.engine, cached: true });
+          text: cached.recognized_text, engine: cached.engine, cached: true,
+          names: namesOf(cached.recognized_text, material.kind) });
         continue;
       }
       try {
@@ -109,7 +120,8 @@ function register(router) {
           .run(material.id, p.id, material.file_key, processed.text, "[]", processed.engine,
             processed.mode, processed.pages, processed.totalPages, processed.truncated ? 1 : 0, now(), ctx.user.name);
         items.push({ materialId: material.id, kind: material.kind, name: material.name,
-          text: processed.text, engine: processed.engine, cached: false });
+          text: processed.text, engine: processed.engine, cached: false,
+          names: namesOf(processed.text, material.kind) });
       } catch (e) {
         items.push({ materialId: material.id, kind: material.kind, name: material.name,
           text: "", error: e.message || "识别失败", cached: false });
@@ -118,7 +130,26 @@ function register(router) {
     // 审计只记份数与引擎，不落原件正文（可能含人名与账号）
     logAudit({ user: ctx.user, module: "核销看板", action: "识别本步原件",
       target: p.id, detail: `第 ${no} 步；${items.filter((x) => !x.error).length}/${items.length} 份`, ip: ctx.ip });
-    return { step: no, items };
+
+    /**
+     * 第 2 步的核心动作是「三处名单一致」。
+     * 这里把各来源的姓名并起来给出合并名单，并标出只出现在部分材料里的名字 ——
+     * 一致的那些不用再看，需要人盯的就是差异项。
+     */
+    const sources = items.filter((x) => !x.error && x.names && x.names.length)
+      .map((x) => ({ kind: x.kind, name: x.name, names: x.names }));
+    const union = [...new Set(sources.flatMap((s) => s.names))];
+    const hit = new Map(union.map((n) => [n, sources.filter((s) => s.names.includes(n)).length]));
+    const names = sources.length ? {
+      union,
+      common: union.filter((n) => hit.get(n) === sources.length),
+      onlyIn: sources.map((s) => ({ kind: s.kind, name: s.name,
+        names: s.names.filter((n) => hit.get(n) < sources.length) })),
+      bySource: sources,
+      consistent: union.length > 0 && union.every((n) => hit.get(n) === sources.length)
+    } : null;
+
+    return { step: no, items, names };
   });
 
   router.post("/api/projects/:id/verify/steps/:no", async (ctx) => {

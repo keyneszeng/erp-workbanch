@@ -164,6 +164,39 @@ function parseAgendaRows(raw){
   }).filter(r=>r.time&&(r.topic||r.speaker||r.org));
 }
 
+/**
+ * 从识别文本里抽人名。
+ *
+ * 第 2 步要核「三处名单一致」，靠人眼在三份材料里逐个对名字最容易漏。
+ * 这里按几种在真实材料里稳定出现的形态抓：
+ *   表格行（序号 姓名 身份证）、姓名后跟身份证/手机/银行卡、姓名带职称、
+ *   姓名后跟机构名、显式「姓名：X」、以及「1.张三」这种编号名单。
+ * 只做候选，不做判定 —— 抓出来的名字仍要人工确认。
+ */
+const NAME_STOP = /^(姓名|讲者|专家|主持|讨论|总结|单位|医院|科室|金额|合计|备注|日期|时间|序号|开户行|银行卡|身份证|手机|实发数|应税|个税|签章|盖章)$/;
+function extractNames(raw) {
+  const text = cleanText(raw);
+  const found = new Map();
+  const add = (n) => {
+    const s = String(n || "").trim();
+    if (s.length >= 2 && s.length <= 4 && /^[\u4e00-\u9fa5]+$/.test(s) && !NAME_STOP.test(s))
+      found.set(s, (found.get(s) || 0) + 1);
+  };
+  // 表格行：序号 姓名 18 位身份证
+  for (const m of text.matchAll(/(?:^|\n)\s*\d{1,3}\s+([\u4e00-\u9fa5]{2,4})\s+\d{17}[\dXx]/g)) add(m[1]);
+  // 姓名 + 身份证 / 手机号 / 银行卡
+  for (const m of text.matchAll(/([\u4e00-\u9fa5]{2,4})\s{2,}(?:\d{17}[\dXx]|1[3-9]\d{9}|\d{16,19})/g)) add(m[1]);
+  // 姓名 + 职称
+  for (const m of text.matchAll(/([\u4e00-\u9fa5]{2,4})(?=教授|主任|医师|医生|博士|老师|院长)/g)) add(m[1]);
+  // 姓名 + 机构（表格里姓名列与单位列相邻）
+  for (const m of text.matchAll(/([\u4e00-\u9fa5]{2,4})\s{2,}[\u4e00-\u9fa5]{2,12}(?:医院|大学|学院|学会|中心|卫生院)/g)) add(m[1]);
+  // 显式标签
+  for (const m of text.matchAll(/(?:姓名|讲者|专家|签字|签名)\s*[:：]\s*([\u4e00-\u9fa5]{2,4})/g)) add(m[1]);
+  // 编号名单：1.刘志华 / 1、刘志华
+  for (const m of text.matchAll(/(?:^|\n)\s*\d{1,3}\s*[.、]\s*([\u4e00-\u9fa5]{2,4})(?=\s|$)/g)) add(m[1]);
+  return [...found.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([n]) => n);
+}
+
 function parseAgenda(raw){
   /**
    * 两条路并用：
@@ -202,4 +235,4 @@ function parseAgenda(raw){
     if(r.speaker&&r.topic)add(r.speaker,r.topic);
   return out;
 }
-module.exports={enabled,recognize,parseAgenda,parseAgendaRows,cleanText,runOCRImage,MAX_PAGES};
+module.exports={enabled,recognize,parseAgenda,parseAgendaRows,extractNames,cleanText,runOCRImage,MAX_PAGES};
