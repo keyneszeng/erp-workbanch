@@ -88,6 +88,8 @@ function register(router) {
       return { step: no, materials: [], items: [], message: "这一步还没有可识别的原件，请先在材料中心上传" };
     }
 
+    // 姓名提取只服务第 2 步「讲者名单三处一致」；其他步骤不返回，避免误导成通用能力
+    const wantNames = no === 2;
     const items = [];
     for (const material of rows) {
       const cached = db.prepare(
@@ -96,7 +98,7 @@ function register(router) {
       if (cached) {
         items.push({ materialId: material.id, kind: material.kind, name: material.name,
           text: cached.recognized_text, engine: cached.engine, cached: true,
-          names: namesOf(cached.recognized_text, material.kind) });
+          ...(wantNames ? { names: namesOf(cached.recognized_text, material.kind) } : {}) });
         continue;
       }
       try {
@@ -121,7 +123,7 @@ function register(router) {
             processed.mode, processed.pages, processed.totalPages, processed.truncated ? 1 : 0, now(), ctx.user.name);
         items.push({ materialId: material.id, kind: material.kind, name: material.name,
           text: processed.text, engine: processed.engine, cached: false,
-          names: namesOf(processed.text, material.kind) });
+          ...(wantNames ? { names: namesOf(processed.text, material.kind) } : {}) });
       } catch (e) {
         items.push({ materialId: material.id, kind: material.kind, name: material.name,
           text: "", error: e.message || "识别失败", cached: false });
@@ -136,8 +138,8 @@ function register(router) {
      * 这里把各来源的姓名并起来给出合并名单，并标出只出现在部分材料里的名字 ——
      * 一致的那些不用再看，需要人盯的就是差异项。
      */
-    const sources = items.filter((x) => !x.error && x.names && x.names.length)
-      .map((x) => ({ kind: x.kind, name: x.name, names: x.names }));
+    const sources = wantNames ? items.filter((x) => !x.error && x.names && x.names.length)
+      .map((x) => ({ kind: x.kind, name: x.name, names: x.names })) : [];
     const union = [...new Set(sources.flatMap((s) => s.names))];
     const hit = new Map(union.map((n) => [n, sources.filter((s) => s.names.includes(n)).length]));
     const names = sources.length ? {

@@ -218,7 +218,8 @@ export function openStepDetail(d, no, opt = {}) {
                  <span class="dtag">${esc(it.engine)}</span>${it.cached ? '<span class="dtag">已缓存</span>' : ""}</summary>
                <pre style="white-space:pre-wrap;max-height:240px;overflow:auto;font-size:12px;background:#f6f8fb;padding:10px;border-radius:6px">${esc(it.text || "（未识别到文字）")}</pre>
              </details>`).join("");
-        renderNames(m.querySelector("[data-step-names-out]"), r.names);
+        // 姓名提取只属于第 2 步；其他步骤即使接口带了也不渲染
+        if (no === 2) renderNames(m.querySelector("[data-step-names-out]"), r.names);
       } catch (e) {
         hint.textContent = e.message;
       } finally {
