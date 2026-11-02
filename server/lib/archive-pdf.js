@@ -12,6 +12,7 @@
  */
 const { PDFDocument } = require("pdf-lib");
 const { HttpError } = require("./util");
+const { VERIFY_STEPS } = require("./constants");
 
 const MAX_FILE_COUNT = 60;
 const MAX_FILE_BYTES = 8 * 1024 * 1024;
@@ -68,7 +69,7 @@ function createReportPdf(lines, title, { footer = "内部归档 · 核销资料�
   const pages = [];
   let current = [], y = 779;
   for (const line of flat) {
-    const h = line.kind === "title" ? 24 : line.kind === "section" ? 22 : 16;
+    const h = line.kind === "title" ? 24 : line.kind === "section" ? 22 : line.kind === "sub" ? 20 : 16;
     if (y - h < 67 && current.length) {
       pages.push(current); current = []; y = 779;
     }
@@ -91,8 +92,9 @@ function createReportPdf(lines, title, { footer = "内部归档 · 核销资料�
     content += pdfText("第 " + (i + 1) + " / " + pages.length + " 页", 476, 40, 9, "0.42 0.47 0.55");
     for (const line of pages[i]) {
       const section = line.kind === "section";
-      const color = section ? "0.04 0.27 0.48" : line.kind === "title" ? "0.13 0.22 0.32" : "0.17 0.20 0.26";
-      const size = line.kind === "title" ? 14 : section ? 12 : 10;
+      const color = section ? "0.04 0.27 0.48" : line.kind === "title" ? "0.13 0.22 0.32"
+      : line.kind === "sub" ? "0.10 0.26 0.42" : "0.17 0.20 0.26";
+      const size = line.kind === "title" ? 14 : section ? 12 : line.kind === "sub" ? 11 : 10;
       content += pdfText(line.text, 38, line.y, size, color);
     }
     const sid = addObj(stream(content));
@@ -123,6 +125,49 @@ function createReportPdf(lines, title, { footer = "内部归档 · 核销资料�
   return Buffer.concat(chunks);
 }
 
+/** 把每步的结构化核验结果翻译成可读条目（evidence_json 里的字段名对人不友好） */
+function evidenceLines(no, e) {
+  if (!e || typeof e !== "object") return [];
+  const out = [];
+  const push = (k, v) => { if (v !== undefined && v !== null && v !== "") out.push("    · " + k + "：" + v); };
+  switch (no) {
+    case 1:
+      push("关联原件", (e.materials || []).join("、") || "立项文件、终版议程");
+      push("盖章确认", e.stamped ? "已盖章" : "未确认");
+      push("终版确认", e.final ? "终版" : "未确认");
+      push("比对字段", e.fieldsMatched ? e.fieldsMatched + " 项一致（会议名 / 日期 / 主办方 / 招商主体）" : "");
+      break;
+    case 2:
+      push("名单一致人数", e.matchedPeople ? e.matchedPeople + " 人（终版议程 ∩ 劳务收集表 ∩ 劳务协议）" : "");
+      push("无冒领漏发", e.noOmissions ? "已确认" : "未确认");
+      break;
+    case 3:
+      push("会议形式", e.format);
+      push("有效在线时长", e.onlineMinutes != null ? e.onlineMinutes + " 分钟" : "不适用");
+      push("线下签到", e.signedAttendance ? "已核验" : "不适用");
+      break;
+    case 4:
+      push("课题匹配数", e.matchedTopics ? e.matchedTopics + " 个（课件 ∩ 终版议程）" : "");
+      push("串场题目一致", e.hostTitleMatches ? "是" : "否");
+      push("主办方名称/logo 一致", e.hostNameLogoMatches ? "是" : "否");
+      push("药企 logo 出现页", (e.sponsorLogoPages || []).join("、") || "无");
+      break;
+    case 5:
+      push("劳务记录", e.matchedLaborRecords ? e.matchedLaborRecords + " 条" : "");
+      push("比对字段", e.matchedFields ? e.matchedFields + " 项（姓名 / 时间 / 角色 / 金额 / 银行账号）" : "");
+      push("劳务/专家类合同", e.laborContracts != null ? e.laborContracts + " 份（已签署）" : "");
+      push("账号是否入库", e.accountDataStored ? "是" : "否（仅内存比对）");
+      break;
+    case 6:
+      push("拟请款总额", e.draftAmount != null ? amt(e.draftAmount) : "");
+      push("发票总额", e.invoiceAmount != null ? amt(e.invoiceAmount) : "");
+      push("免票劳务金额", e.nonInvoiceLaborAmount != null ? amt(e.nonInvoiceLaborAmount) : "");
+      push("会议信息一致", e.meetingMatched ? "是" : "否");
+      break;
+  }
+  return out;
+}
+
 function makeLines(d, sources) {
   const p = d.project, records = d;
   const lines = [];
@@ -149,10 +194,37 @@ function makeLines(d, sources) {
   item("项目预算", amt(p.budget));
   item("会议议程", p.agenda);
   item("归档日期", p.status_at);
-  section("二、会后核销六步");
-  simpleRecords(records.verifySteps, s => "第" + s.step_no + "步 " + s.name +
-    "｜" + s.result + "｜判定人 " + display(s.checked_by) +
-    "｜时间 " + display(s.checked_at) + "｜备注 " + display(s.remark), "  无核销判定记录");
+  /**
+   * 核销六步是这份卷宗的主体：不只列「通过/不通过」，
+   * 而是把每步的核对要点、结构化核验结果、判定人时间、关联原件都摊开，
+   * 让只看 PDF 的人也能复现判定依据。
+   */
+  section("二、会后核销六步（全部核验内容）");
+  const matsOf = (def) => {
+    const kinds = [...(def.materials || []), ...(def.altMaterials || [])];
+    return (records.materials || []).filter(m => kinds.includes(m.kind) && !m.deleted_at);
+  };
+  for (const def of VERIFY_STEPS) {
+    const row = (records.verifySteps || []).find(x => Number(x.step_no) === def.no);
+    add("第 " + def.no + " 步 · " + def.name + "　【" + (row ? row.result : "待判定") + "】", "sub");
+    add("  核对要点：" + def.desc);
+    if (row) {
+      add("  判定人：" + display(row.checked_by) + "　判定时间：" + display(row.checked_at));
+      if (row.remark) add("  问题描述：" + row.remark);
+      let ev = null;
+      try { ev = row.evidence_json ? JSON.parse(row.evidence_json) : null; } catch { ev = null; }
+      const lines = evidenceLines(def.no, ev);
+      if (lines.length) { add("  结构化核验结果："); lines.forEach(l => add(l)); }
+      else add("  结构化核验结果：无（历史记录或仅标记通过，未见结构化依据）");
+    } else {
+      add("  判定记录：无");
+    }
+    const mats = matsOf(def);
+    add("  关联原件：" + (mats.length
+      ? mats.map(m => "[" + m.kind + "] " + (m.file_name || m.name || "仅登记")).join("；")
+      : "未登记"));
+    add("");
+  }
   section("三、核销例外审批");
   simpleRecords(records.exceptions, e => e.id + " / 第" + e.step_no + "步 / " + e.status +
     " / 原因：" + e.reason + " / 审批人：" + display(e.approved_by) +

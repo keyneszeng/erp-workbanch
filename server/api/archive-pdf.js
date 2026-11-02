@@ -40,6 +40,8 @@ function register(router) {
       auditLogs: db.prepare("SELECT * FROM audit_logs WHERE target=? ORDER BY at, id").all(pid)
     };
     const pdf = await buildArchivePdf(snapshot, storage());
+    // ?preview=1 用于页面内先看再下载：inline 让浏览器直接渲染，不触发下载
+    const preview = ctx.query.preview === "1";
     logAudit({
       user: ctx.user, module: "档案中心", action: "下载核销资料PDF",
       target: pid, detail: "已归档核销资料打包下载（只读）", ip: ctx.ip
@@ -49,7 +51,7 @@ function register(router) {
         buffer: pdf,
         mime: "application/pdf",
         name: "核销全部资料_" + pid + ".pdf",
-        download: true,
+        download: !preview,
         cache: "no-store"
       }
     };
