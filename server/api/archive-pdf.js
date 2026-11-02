@@ -50,7 +50,7 @@ function register(router) {
       __file: {
         buffer: pdf,
         mime: "application/pdf",
-        name: "核销全部资料_" + pid + ".pdf",
+        name: "核销六步记录_" + pid + ".pdf",
         download: !preview,
         cache: "no-store"
       }

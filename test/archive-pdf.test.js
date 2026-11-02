@@ -67,7 +67,7 @@ test("archived own-association project generates downloadable multipage Chinese 
   assert.ok(bytes.length > 1500);
   const doc = await PDFDocument.load(bytes);
   assert.ok(doc.getPageCount() >= 2);
-  const title = "核销资料封存卷宗";
+  const title = "核销六步核验记录";
   const expected = Buffer.from(title, "utf16le");
   const be = Buffer.from(expected);
   for (let i = 0; i < be.length; i += 2) [be[i], be[i + 1]] = [be[i + 1], be[i]];
@@ -111,8 +111,8 @@ test("missing project and unauthenticated requests are rejected", async () => {
   assert.equal((await get(null, "MP-2026-015")).status, 401);
 });
 
-test("PDF original pages are appended, with source preserved as embedded file", async () => {
-  const { createReportPdf, buildArchivePdf } = require("../server/lib/archive-pdf");
+test("PDF 只含核销六步记录：不合并原件页、不挂原始附件", async () => {
+  const { buildArchivePdf } = require("../server/lib/archive-pdf");
   const original = await PDFDocument.create();
   original.addPage([300, 300]);
   const sourceBytes = Buffer.from(await original.save());
@@ -125,13 +125,12 @@ test("PDF original pages are appended, with source preserved as embedded file", 
   };
   const out = await buildArchivePdf(snapshot, { name: "stub", get: async key =>
     key === "sample.pdf" ? { buffer: sourceBytes } : null });
-  const result = await PDFDocument.load(out);
-  const report = await PDFDocument.load(createReportPdf([{ text: "中文核销测试", kind: "title" }], "资料下载"));
-  assert.ok(result.getPageCount() > report.getPageCount());
-  assert.ok(out.toString("latin1").includes("/EmbeddedFiles"), "original PDF should be embedded");
+  const doc = await PDFDocument.load(out);
+  assert.ok(doc.getPageCount() <= 4, "只应包含核销六步的报告页，不再追加原件页");
+  assert.ok(!out.toString("latin1").includes("/EmbeddedFiles"), "不应再挂原始附件");
 });
 
-test("missing file storage does not pretend originals were included", async () => {
+test("原件存储不可用也能生成六步记录（不再依赖原件）", async () => {
   const { buildArchivePdf } = require("../server/lib/archive-pdf");
   const snapshot = {
     project: { id: "MP-TEST-2", name: "缺失附件标识", status: "已归档" },
@@ -142,9 +141,6 @@ test("missing file storage does not pretend originals were included", async () =
     name: "unavailable",
     get: async () => { const e = Error("R2 not configured"); e.code = "STORAGE_UNAVAILABLE"; throw e; }
   });
-  const text = file.toString("latin1");
-  const str = "文件存储未配置";
-  const le = Buffer.from(str, "utf16le"); const be = Buffer.from(le);
-  for (let i = 0; i < be.length; i += 2) [be[i], be[i + 1]] = [be[i + 1], be[i]];
-  assert.ok(text.includes(be.toString("hex").toUpperCase()), "missing original must be disclosed in PDF");
+  assert.ok(file.length > 800, "报告仍应正常生成");
+  assert.ok(!file.toString("latin1").includes("/EmbeddedFiles"), "不应因为原件不可用而挂空附件");
 });

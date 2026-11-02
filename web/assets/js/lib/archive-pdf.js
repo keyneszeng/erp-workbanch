@@ -33,7 +33,7 @@ export async function openArchivePdfPreview(pid, button) {
     }
     const blob = await res.blob();
     url = URL.createObjectURL(blob);
-    const name = `核销全部资料_${pid}.pdf`;
+    const name = `核销六步记录_${pid}.pdf`;
 
     const m = modal({
       title: `核销资料预览 · ${esc(pid)}`,
