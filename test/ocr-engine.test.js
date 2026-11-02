@@ -6,7 +6,7 @@ const os=require("node:os");
 const path=require("node:path");
 const {execFileSync}=require("node:child_process");
 const {PDFDocument,StandardFonts,rgb}=require("pdf-lib");
-const {parseAgenda,parseAgendaRows,extractNames,recognize,MAX_PAGES}=require("../server/lib/ocr-engine");
+const {parseAgenda,parseAgendaRows,extractNames,extractTopics,recognize,MAX_PAGES}=require("../server/lib/ocr-engine");
 
 test("OCR agenda parsing returns reviewable bilingual candidates without treating headings as a speaker",()=>{
   const raw=[
@@ -57,6 +57,25 @@ test("姓名提取：表格行/职称/机构相邻/编号名单都能抓到，�
   for(const n of ["刘志华","卢效荣","徐一劲","张伟","蔡浩武","韦明锋"])
     assert.ok(names.includes(n),"应提取到 "+n+"，实际："+names.join("、"));
   for(const bad of ["姓名","序号","身份证","银行卡"]) assert.ok(!names.includes(bad),bad+" 不应被当成人名");
+});
+
+test("课题提取：课件议程页与显式讲题都能抓，简历条目与会议信息被排除",()=>{
+  const text=[
+    "时间           讲题             姓名       医院",
+    "19:05-",
+    "         内痔规范化诊疗策略与临床实践     卢效荣   东莞市松山湖中心医院",
+    "19:35",
+    "              讨论主持           周志球   东莞市松山湖中心医院",
+    "# 腾讯会议： 233-794-401",
+    "亚太结直肠联合会亚洲结直肠盆底疾病联盟第二届理事会常务理事",
+    "讲题：另一场专题报告"
+  ].join("\n");
+  const topics=extractTopics(text);
+  assert.ok(topics.includes("内痔规范化诊疗策略与临床实践"),"应提取到课件课题，实际："+topics.join("、"));
+  assert.ok(topics.includes("另一场专题报告"),"应提取到显式讲题，实际："+topics.join("、"));
+  assert.ok(!topics.includes("讨论主持"),"环节词不应算课题");
+  assert.ok(!topics.some(t=>t.includes("腾讯会议")),"会议信息不应算课题");
+  assert.ok(!topics.some(t=>t.includes("常务理事")),"简历条目不应算课题");
 });
 
 test("OCR requires an explicit server-side enable flag; image/PDF MIME mismatch blocked",async()=>{

@@ -22,6 +22,12 @@ function namesOf(text, kind) {
   return [...set];
 }
 
+/** 一份原件的课题候选（课件 PPT 的议程页、显式「讲题：X」都能覆盖） */
+function topicsOf(text) {
+  if (!text) return [];
+  try { return ocr.extractTopics(text); } catch { return []; }
+}
+
 function register(router) {
   /**
    * 核销看板：6 步 + 例外 + 结算 + 材料。
@@ -88,8 +94,9 @@ function register(router) {
       return { step: no, materials: [], items: [], message: "这一步还没有可识别的原件，请先在材料中心上传" };
     }
 
-    // 姓名提取只服务第 2 步「讲者名单三处一致」；其他步骤不返回，避免误导成通用能力
+    // 姓名提取只服务第 2 步「讲者名单三处一致」；课题提取只服务第 4 步「课件与串场内容核验」
     const wantNames = no === 2;
+    const wantTopics = no === 4;
     const items = [];
     for (const material of rows) {
       const cached = db.prepare(
@@ -98,7 +105,8 @@ function register(router) {
       if (cached) {
         items.push({ materialId: material.id, kind: material.kind, name: material.name,
           text: cached.recognized_text, engine: cached.engine, cached: true,
-          ...(wantNames ? { names: namesOf(cached.recognized_text, material.kind) } : {}) });
+          ...(wantNames ? { names: namesOf(cached.recognized_text, material.kind) } : {}),
+          ...(wantTopics ? { topics: topicsOf(cached.recognized_text) } : {}) });
         continue;
       }
       try {
@@ -123,7 +131,8 @@ function register(router) {
             processed.mode, processed.pages, processed.totalPages, processed.truncated ? 1 : 0, now(), ctx.user.name);
         items.push({ materialId: material.id, kind: material.kind, name: material.name,
           text: processed.text, engine: processed.engine, cached: false,
-          ...(wantNames ? { names: namesOf(processed.text, material.kind) } : {}) });
+          ...(wantNames ? { names: namesOf(processed.text, material.kind) } : {}),
+          ...(wantTopics ? { topics: topicsOf(processed.text) } : {}) });
       } catch (e) {
         items.push({ materialId: material.id, kind: material.kind, name: material.name,
           text: "", error: e.message || "识别失败", cached: false });
@@ -151,7 +160,38 @@ function register(router) {
       consistent: union.length > 0 && union.every((n) => hit.get(n) === sources.length)
     } : null;
 
-    return { step: no, items, names };
+    /**
+     * 第 4 步核的是「课件课题 = 终版议程课题」。
+     * 议程侧和课件/串场侧各出一份题目清单，再标出对不上的，
+     * 判定人只要盯差异项即可。
+     */
+    let topics = null;
+    if (wantTopics) {
+      const pick = (kinds) => [...new Set(items
+        .filter((x) => !x.error && kinds.includes(x.kind))
+        .flatMap((x) => x.topics || []))];
+      const agenda = pick(["议程", "终版议程"]);
+      const course = pick(["课件", "串场"]);
+      const norm = (t) => String(t).replace(/[\s\p{P}]/gu, "").toLowerCase();
+      const same = (a, b) => {
+        const x = norm(a), y = norm(b);
+        if (!x || !y) return false;
+        if (x === y) return true;
+        // OCR 常把课题截断，长度够时按包含关系认
+        return x.length >= 6 && y.length >= 6 && (x.includes(y) || y.includes(x));
+      };
+      const matched = agenda.filter((a) => course.some((c) => same(a, c)))
+        .map((a) => ({ agenda: a, course: course.find((c) => same(a, c)) }));
+      topics = {
+        agenda, course, matched,
+        onlyAgenda: agenda.filter((a) => !course.some((c) => same(a, c))),
+        onlyCourse: course.filter((c) => !agenda.some((a) => same(a, c))),
+        consistent: agenda.length > 0 && course.length > 0 &&
+          agenda.every((a) => course.some((c) => same(a, c)))
+      };
+    }
+
+    return { step: no, items, names, topics };
   });
 
   router.post("/api/projects/:id/verify/steps/:no", async (ctx) => {

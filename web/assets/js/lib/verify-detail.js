@@ -107,6 +107,7 @@ export function stepBody(d,no){
       <span class="hint" data-step-ocr-hint style="margin-left:8px"></span>
       <div data-step-ocr-out></div>
       <div data-step-names-out></div>
+      <div data-step-topics-out></div>
     </div>`:""}
     ${no===6?`<div class="dgrid">${cell("已签合同总额",fmt(contractTotal))}${cell("核销发票总金额",step?.invoiceAmount==null?"未核对":fmt(step.invoiceAmount))}</div>`:""}
     ${[2,5].includes(no)?`<div class="dsec"><h4>劳务 / 专家类合同（合同分类）${no===2?"· 可代替劳务协议":""}</h4>
@@ -179,6 +180,44 @@ function renderNames(box, names) {
   };
 }
 
+/**
+ * 第 4 步的课题面板：议程侧与课件侧的题目各列一份，对不上的单独提示。
+ * 判定人核的是「课件课题 = 终版议程课题」，一致的部分不用逐条看。
+ */
+function renderTopics(box, t) {
+  if (!box) return;
+  if (!t || (!t.agenda.length && !t.course.length)) { box.innerHTML = ""; return; }
+  const diff = t.onlyAgenda.length || t.onlyCourse.length;
+  box.innerHTML = `
+    <div style="margin-top:14px;padding:12px 14px;border:1px solid var(--line);border-radius:8px;background:#fbfcfe">
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <b>课题提取</b>
+        <span class="hint">议程 ${t.agenda.length} 条 · 课件/串场 ${t.course.length} 条</span>
+        <span style="flex:1"></span>
+        <button class="btn btn-o btn-sm" type="button" data-copy-topics="course">复制课件题目</button>
+        <button class="btn btn-o btn-sm" type="button" data-copy-topics="agenda">复制议程课题</button>
+      </div>
+      <div class="dchk" style="margin-top:8px">终版议程课题：${esc(t.agenda.join("、") || "未提取到")}</div>
+      <div class="dchk" style="margin-top:4px">课件 / 串场题目：${esc(t.course.join("、") || "未提取到")}</div>
+      ${!t.agenda.length || !t.course.length
+        ? `<div class="hint" style="margin-top:8px">只有一侧提取到课题，无法做课题比对；请确认终版议程与课件是否都已上传。</div>`
+        : diff
+          ? `<div class="fp-note" style="margin-top:10px"><b>需要人工核对：两侧课题不一致</b>
+               ${t.onlyAgenda.length ? `议程独有 ${esc(t.onlyAgenda.join("、"))}` : ""}
+               ${t.onlyAgenda.length && t.onlyCourse.length ? "；" : ""}
+               ${t.onlyCourse.length ? `课件独有 ${esc(t.onlyCourse.join("、"))}` : ""}</div>`
+          : `<div class="hint" style="margin-top:8px">✓ 课件课题与终版议程一致（${t.matched.length} 条）</div>`}
+    </div>`;
+  box.querySelectorAll("[data-copy-topics]").forEach((btn) => {
+    btn.onclick = async () => {
+      const list = btn.dataset.copyTopics === "course" ? t.course : t.agenda;
+      const ok = await copyText(list.join("\n"));
+      btn.textContent = ok ? "已复制" : "复制失败";
+      setTimeout(() => { btn.textContent = btn.dataset.copyTopics === "course" ? "复制课件题目" : "复制议程课题"; }, 1600);
+    };
+  });
+}
+
 export function openStepDetail(d, no, opt = {}) {
   const s = d.verification.steps.find((x) => x.no === no);
   const prevUnjudged = d.verification.steps.some((x) => x.no < no && !["通过","已解例外"].includes(x.result));
@@ -220,6 +259,7 @@ export function openStepDetail(d, no, opt = {}) {
              </details>`).join("");
         // 姓名提取只属于第 2 步；其他步骤即使接口带了也不渲染
         if (no === 2) renderNames(m.querySelector("[data-step-names-out]"), r.names);
+        if (no === 4) renderTopics(m.querySelector("[data-step-topics-out]"), r.topics);
       } catch (e) {
         hint.textContent = e.message;
       } finally {

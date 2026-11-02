@@ -199,6 +199,45 @@ function extractNames(raw) {
   return [...found.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([n]) => n);
 }
 
+/**
+ * 从识别文本里抽「课题 / 讲题 / 主题」。
+ *
+ * 第 4 步核的是「课件课题 = 终版议程课题」。课件 PPT 里通常有一页议程表
+ * （表头 时间 | 讲题 | 姓名 | 医院），或者每页第一行就是讲题；
+ * 也常见「讲题：X」「主题：X」这种显式写法。
+ * 只做候选，判定仍由人确认。
+ */
+const TOPIC_STOP = /^(主持|讨论|讨论主持|会议主持|总结|致辞|签到|茶歇|开幕|闭幕|合影|午餐|晚宴|答疑|提问|交流|时间|姓名|医院|单位|讲题|课题|主题|序号|备注)$/;
+function extractTopics(raw) {
+  const text = cleanText(raw);
+  const out = [];
+  const seen = new Set();
+  const add = (t) => {
+    let v = String(t || "").replace(/\s+/g, " ").trim()
+      .replace(/^[#·\-*\s]+/, "").replace(/[，,。;；]$/, "").trim();
+    if (v.length < 4 || v.length > 80) return;
+    if (!/[\u4e00-\u9fa5]/.test(v)) return;
+    if (TOPIC_STOP.test(v)) return;
+    // 会议信息、简历条目、机构碎片都不是课题
+    if (/腾讯会议|会议号|会议时间|主办方|承办方|会议地点/.test(v)) return;
+    if (/(委员|理事|常委|学会|协会|博士生导师|主任医师|主治医师|护士长)/.test(v)) return;
+    if (/(医院|大学|学院|中心|卫生院|人民医)$/.test(v)) return;
+    const digits = (v.match(/\d/g) || []).length;
+    if (digits / v.length > 0.3) return;
+    const key = v.replace(/\s+/g, "").toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push(v);
+  };
+  // 1) 显式标签：「讲题：X」「主题：X」「课题：X」
+  for (const m of text.matchAll(/(?:讲题|课题|主题|题目|Topic|Subject)\s*[:：]\s*([^\n]{4,80})/gi)) add(m[1]);
+  // 2) 表格行：以时间为锚点，取「讲题」那一列（议程表/课件里的议程页）
+  try {
+    for (const r of parseAgendaRows(text)) if (r.topic) add(r.topic);
+  } catch {}
+  return out;
+}
+
 function parseAgenda(raw){
   /**
    * 两条路并用：
@@ -237,4 +276,4 @@ function parseAgenda(raw){
     if(r.speaker&&r.topic)add(r.speaker,r.topic);
   return out;
 }
-module.exports={enabled,recognize,parseAgenda,parseAgendaRows,extractNames,cleanText,runOCRImage,MAX_PAGES};
+module.exports={enabled,recognize,parseAgenda,parseAgendaRows,extractNames,extractTopics,cleanText,runOCRImage,MAX_PAGES};
