@@ -99,8 +99,7 @@ export async function render(root, params = []) {
       <div class="panel-h"><h2>结算单</h2><div><span class="hint">${st.total ?? st.rows.length} 张 · 生成即冻结核销结论</span></div></div>
       ${table(
         [{ t: "结算单号", w: "112px" }, { t: "项目" }, { t: "收入", w: "96px", cls: "num" },
-         { t: "支出", w: "96px", cls: "num" }, { t: "结余", w: "96px", cls: "num" },
-         { t: "收款方 / 收款账户", w: "230px" },
+         { t: "支出", w: "110px", cls: "num" }, { t: "结余", w: "96px", cls: "num" },
          { t: "生成人", w: "70px" }, { t: "时间", w: "120px" }],
         st.rows.map((x) => ({
           c: [`<span class="mono">${x.id}</span>`, `<a class="link" data-go="projects/${x.pid}">${esc(x.name)}</a>`,
@@ -109,12 +108,6 @@ export async function render(root, params = []) {
             `¥${money(x.expense)}${Number(x.tax_withheld) > 0
               ? `<div style="font-size:11px;color:var(--mute)">含代扣税 ¥${money(x.tax_withheld)}</div>` : ""}`,
             `<span class="${x.profit >= 0 ? "pos" : "neg"}">¥${money(x.profit)}</span>`,
-            // V1.2.18：结余打给谁、打到哪个账户 —— 原来这一栏整个是空的
-            `${esc(x.payee || "—")}<div style="font-size:11px;color:var(--mute)">
-              ${x.payee_account
-                ? `${esc(x.payee_bank || "")} · <span class="mono">${esc(x.payee_account)}</span>`
-                : "未登记收款账户"}
-            </div>`,
             esc(x.created_by || ""), `<span class="mono">${esc(x.created_at)}</span>`]
         })), { empty: "暂无结算单" })}
     </div>

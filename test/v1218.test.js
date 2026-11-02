@@ -191,41 +191,37 @@ test("补录账户的权限：会务执行不行，财务可以", async () => {
 
 /* ---------------- 结算单 ---------------- */
 
-test("结算单：收款方默认取负责人，开户行与账号必填", async () => {
-  const pid = await verifiedProject("结算账户必填");
+test("结算单：不再要求收款方与银行账户（只是结算结果看板）", async () => {
+  const pid = await verifiedProject("结算不需要收款账户");
 
-  const noAcct = await finance("POST", `/api/projects/${pid}/transition`, { action: "settle" });
-  assert.equal(noAcct.status, 400, `缺账号应 400，实际 ${noAcct.status}`);
-  // 校验顺序是先开户行后账号，这里两个都认
-  assert.match(noAcct.data.error.message, /收款开户行|收款账号/);
-
-  const ok = await finance("POST", `/api/projects/${pid}/transition`, {
-    action: "settle", payee_bank: BANK, payee_account: ACCT
-  });
+  // 老板 2026-11-02：结算单只是数据看板，不承担付款职能 —— 不填任何收款信息也能生成
+  const ok = await finance("POST", `/api/projects/${pid}/transition`, { action: "settle" });
   assert.equal(ok.status, 200, JSON.stringify(ok.data));
 
   const list = await finance("GET", "/api/settlements");
   const st = list.data.rows.find((x) => x.pid === pid);
   assert.ok(st, "应生成结算单");
-  assert.equal(st.payee, "王敏", "收款方默认取项目负责人");
-  assert.equal(st.payee_bank, BANK);
-  assert.equal(st.payee_account, "3210123456789012");
+  assert.equal(st.payee, null, "不再默认取项目负责人");
+  assert.equal(st.payee_bank, null);
+  assert.equal(st.payee_account, null);
+  assert.ok(Number(st.expense) >= 0 && Number(st.profit) === Number(st.income) - Number(st.expense),
+    "收入 / 支出 / 结余三个数仍要自洽");
 });
 
-test("结算单：显式传收款方时以传入为准", async () => {
-  const pid = await verifiedProject("结算指定收款方");
+test("结算单：即使传了收款方也不再落库（字段已废弃）", async () => {
+  const pid = await verifiedProject("结算传收款方也不记");
   const ok = await finance("POST", `/api/projects/${pid}/transition`, {
     action: "settle", payee: "华东医学会秘书处", payee_bank: BANK, payee_account: ACCT
   });
   assert.equal(ok.status, 200, JSON.stringify(ok.data));
   const list = await finance("GET", "/api/settlements");
   const st = list.data.rows.find((x) => x.pid === pid);
-  assert.equal(st.payee, "华东医学会秘书处");
+  assert.equal(st.payee, null, "结算单不再记录收款方");
 });
 
 /* ---------------- 导出与种子 ---------------- */
 
-test("导出：付款明细与结算汇总都带上收款账户列", async () => {
+test("导出：付款明细带收款账户，结算汇总不带（结算单不承担付款）", async () => {
   const payCsv = await finance("GET", "/api/export/payments");
   assert.equal(payCsv.status, 200);
   const payHead = String(payCsv.data).split("\r\n")[0];
@@ -235,19 +231,14 @@ test("导出：付款明细与结算汇总都带上收款账户列", async () =>
   const stCsv = await finance("GET", "/api/export/settlements");
   assert.equal(stCsv.status, 200);
   const stHead = String(stCsv.data).split("\r\n")[0];
-  assert.match(stHead, /收款方/);
-  assert.match(stHead, /开户行/);
-  assert.match(stHead, /银行账号/);
+  assert.doesNotMatch(stHead, /收款方|开户行|银行账号/, "结算单是看板，不该再有收款账户列：" + stHead);
+  assert.match(stHead, /代扣税/, "代扣税要单列，否则支出对不上");
 });
 
-test("种子数据：演示用的付款单与结算单都有收款账户", async () => {
+test("种子数据：演示用的付款单都有收款账户（结算单不再要求）", async () => {
   const pays = await admin("GET", "/api/payments?size=100");
   const seededPay = pays.data.rows.filter((x) => /^PY-2026-0[3-4]/.test(x.id));
   assert.ok(seededPay.length > 0, "应有种子付款单");
   const emptyPay = seededPay.filter((x) => !x.payee_account || !x.payee_bank);
   assert.deepEqual(emptyPay.map((x) => x.id), [], `这些种子付款单没有账户：${emptyPay.map((x) => x.id).join(",")}`);
-
-  const sts = await admin("GET", "/api/settlements");
-  const emptySt = sts.data.rows.filter((x) => !x.payee_account || !x.payee_bank || !x.payee);
-  assert.deepEqual(emptySt.map((x) => x.id), [], `这些种子结算单没有收款信息：${emptySt.map((x) => x.id).join(",")}`);
 });

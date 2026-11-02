@@ -185,9 +185,7 @@ function tabOverview(d, p) {
              ${Number(settle.tax_withheld) > 0
                ? `<div style="margin-top:4px">其中劳务代扣税 ¥${money(settle.tax_withheld)}：劳务表是含税金额，实付给专家的是税后，税由协会代扣代缴，同样计入支出</div>`
                : ""}
-             <div style="margin-top:4px">收款方 ${esc(settle.payee || "—")}${
-               settle.payee_account ? ` · ${esc(settle.payee_bank || "")} <span class="mono">${esc(settle.payee_account)}</span>` : " · 未登记收款账户"
-             }</div></div>`
+             <div style="margin-top:4px;color:var(--mute)">结算单只记录资金结算结果，用于对账与归档，不产生付款动作</div></div>`
         : `<div class="gate"><b>结算单未生成</b>核销 6 步全部通过后，由财务生成结算单；生成后核销结论冻结。</div>`}</div>
       <div style="margin-top:10px">${PAYABLE.includes(p.status)
         ? `<div class="gate ok"><b>付款门禁已放行</b>项目已完成核销，可提交付款申请。</div>`
@@ -499,29 +497,25 @@ async function doTransition(root, pid, action, project) {
 }
 
 /**
- * 生成结算单（V1.2.18）。
+ * 生成结算单。
  *
- * 原来这里只有一句「确认继续？」。结算单是给财务的付款依据，
- * 上面必须写清楚结余打给谁、打到哪个账户 —— 否则财务拿到单子还得回头问人。
- * 收款方默认带出项目负责人（结余通常归负责人所属协会），开户行与账号必须手填。
+ * 老板 2026-11-02：结算单只是业务资金结算结果的看板，不承担付款职能 ——
+ * 钱在「付款」环节已经付完了。所以这里不再要「收款方 / 开户行 / 银行账号」，
+ * 只确认一件事：付款都完成了，可以生成结算单。
  */
 function openSettle(root, pid, p) {
-  const fields = [
-    { k: "payee", l: "收款方", req: 1, v: p?.owner || "", ph: "默认取项目负责人" },
-    { k: "payee_bank", l: "开户行", req: 1, ph: "如：中国银行北京朝阳支行" },
-    { k: "payee_account", l: "银行账号", req: 1, ph: "10~25 位数字，可含空格分隔" }
-  ];
   const m = modal({
     title: "生成结算单",
-    body: `<div class="gate" style="margin-bottom:12px"><b>付款全部完成后才可生成结算单</b>结算单记录业务资金结算结果，收款方与账户请按实际信息填写。</div>${formHtml(fields)}`,
+    body: `<div class="gate" style="margin-bottom:12px"><b>付款全部完成后才可生成结算单</b>
+      结算单记录本次会议的资金结算结果（收入 / 支出 / 结余），用于对账与归档，<b>不产生任何付款动作</b>，因此不需要填写收款账户。
+      生成后核销结论冻结，账目封账。</div>
+      <div class="hint">预算 ¥${money(p?.budget || 0)}</div>`,
     footer: `<button class="btn btn-o" data-x="0">取消</button><button class="btn btn-p" data-x="1">确认生成</button>`
   });
   m.querySelector('[data-x="0"]').onclick = () => m.classList.remove("open");
   m.querySelector('[data-x="1"]').onclick = async () => {
-    if (!validate(m, fields)) return;
-    const v = readForm(m);
     try {
-      const r = await api.post(`/api/projects/${pid}/transition`, { action: "settle", ...v });
+      const r = await api.post(`/api/projects/${pid}/transition`, { action: "settle" });
       toast(r.message, "ok");
       m.classList.remove("open");
       await refresh(root, pid);

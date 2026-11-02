@@ -299,7 +299,8 @@ const EXPORTS = {
   },
   settlements: {
     module: "财务结算", file: "结算汇总",
-    headers: ["结算单号", "项目编号", "项目", "收入", "支出", "结余", "收款方", "开户行", "银行账号", "状态", "生成时间"],
+    // 结算单是资金结算结果的看板，不承担付款职能，所以不再导出收款方与银行账户
+    headers: ["结算单号", "项目编号", "项目", "收入", "支出", "其中代扣税", "结余", "状态", "生成时间"],
     sql: (u) => {
       const { sql, params } = scopeFilter(u);
       return {
@@ -307,8 +308,7 @@ const EXPORTS = {
         params
       };
     },
-    map: (r) => [r.id, r.pid, r.pname, r.income, r.expense, r.profit,
-      r.payee || "", r.payee_bank || "", r.payee_account || "", r.status, r.created_at]
+    map: (r) => [r.id, r.pid, r.pname, r.income, r.expense, r.tax_withheld || 0, r.profit, r.status, r.created_at]
   },
   audit: {
     module: "审计日志", file: "审计日志",
