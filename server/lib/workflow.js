@@ -59,8 +59,9 @@ function materialsStatus(pid) {
    * 等价类别：同一份材料在不同环节叫法不同，不该逼人传两遍。
    *   议程   ← 终版议程（核销第 1/2/4 步要的是终版议程，归档清单写的是「议程」）
    *   签到表 ← 参会数据（线上会议没有签到表，参会数据就是它的等价物）
+   *   劳务表 ← 劳务收集表（《劳务费发放汇总表》在核销里叫收集表，归档清单里叫劳务表）
    */
-  const EQUIV={ "议程":["终版议程"], "签到表":["参会数据"] };
+  const EQUIV={ "议程":["终版议程"], "签到表":["参会数据"], "劳务表":["劳务收集表"] };
   const missing = required.filter(k=>!have.includes(k) && !(EQUIV[k]||[]).some(x=>have.includes(x)));
   return { have, missing, ok: missing.length === 0, required, disabled:[...disabled] };
 }

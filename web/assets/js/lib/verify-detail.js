@@ -81,12 +81,13 @@ export function stepBody(d,no){
    * 核销人一直撞墙。现在只保留一份，前端不再自己维护。
    */
   const step=d.verification.steps.find(x=>x.no===no);
-  const names=(step?.materials&&step.materials.length?step.materials:[]).slice();
-  // 线下会议的签到表本身就是参会数据，页面同步提示，避免只传了签到表的人以为缺件
-  if(no===3&&["线下","混合"].includes(d.project?.form)&&!names.includes("签到表"))names.push("签到表");
+  const names=(step?.materials||[]).slice();
+  // 同一份材料在不同环节叫法不同（劳务表/劳务收集表、签到表/参会数据），
+  // 服务端两种都认，页面也要列出来，否则只传了其中一种的人会以为缺件。
+  for(const alt of step?.altMaterials||[]) if(!names.includes(alt)) names.push(alt);
   const note={
     1:"盖章函件与立项信息逐项核对：会议名称/日期/主办方/招商主体。",
-    2:"终版议程、劳务收集表、劳务协议名单三处互相覆盖，无冒领/漏发。",
+    2:"终版议程、劳务收集表、劳务协议名单三处互相覆盖，无冒领/漏发；劳务协议以已签署的劳务/专家类合同为准。",
     3:"线上有效讲者在线时长 >30 分钟；线下有签到；混合两项都需要。",
     4:"课件课题匹配终版议程，串场题目及主办方 logo 匹配；药企 logo 只允许首页、尾页、鸣谢页。",
     5:"劳务收集表与劳务/专家类合同逐人比对姓名/时间/角色/金额/银行账号；银行账号不保存在核销证据中。",
@@ -100,7 +101,7 @@ export function stepBody(d,no){
   return `<div class="dsec"><h4>业务核验规则</h4><div class="dchk">${esc(note[no]||"请核对资料")}</div></div>
     <div class="dsec"><h4>已登记的关联材料（${esc(names.join(" / ")||"—")}）</h4>${matList(selected,"请在材料中心补充对应原件")}</div>
     ${no===6?`<div class="dgrid">${cell("已签合同总额",fmt(contractTotal))}${cell("核销发票总金额",step?.invoiceAmount==null?"未核对":fmt(step.invoiceAmount))}</div>`:""}
-    ${no===5?`<div class="dsec"><h4>劳务 / 专家类合同（合同分类）</h4>
+    ${[2,5].includes(no)?`<div class="dsec"><h4>劳务 / 专家类合同（合同分类）${no===2?"· 可代替劳务协议":""}</h4>
       ${laborContracts.length?table([{t:"合同名称"},{t:"合同收款方"},{t:"金额"},{t:"原件"}],
       laborContracts.map(x=>({c:[esc(x.name),esc(x.vendor),fmt(x.amount),x.file_key?fileLink(x.file_key,x.file_name||`${x.name}原件`,"在线查看合同原件"):"未上传"]}))):'<div class="dhint">暂无劳务专家类合同，请先到合同台账核验分类</div>'}
       <h4>专家费 / 个人报销（付款类别，需核销后申请）</h4>

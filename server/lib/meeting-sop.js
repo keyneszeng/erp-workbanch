@@ -46,7 +46,17 @@ function validateSopEvidence(no, evidence, project, db, invoiceAmount) {
     case 2: {
       if (!sameNames(e.agendaSpeakers,e.collectionSpeakers) || !sameNames(e.agendaSpeakers,e.agreementSpeakers))
         fail("终版议程、劳务收集表、劳务协议讲者名单不一致，或存在重名/漏名");
-      requireMaterials(db,pid,STEP_MATERIALS[2],"第二步缺少关联原件");
+      requireMaterials(db,pid,["终版议程"],"第二步缺少关联原件");
+      // 劳务收集表在归档清单里叫「劳务表」，是同一份《劳务费发放汇总表》
+      if(!materialExists(db,pid,["劳务收集表","劳务表"],true))
+        fail("第二步缺少劳务收集表原件（也可用劳务表）","SOP_MATERIAL_MISSING");
+      // 劳务协议本身就是合同：材料里没传时，以已签署的「劳务专家」类合同为准
+      const agreementMaterial=materialExists(db,pid,["劳务协议"],true);
+      const agreementContract=Number(db.prepare(
+        "SELECT COUNT(*) AS n FROM contracts WHERE pid=? AND status='已签署' AND category='劳务专家'"
+      ).get(pid).n)>0;
+      if(!agreementMaterial&&!agreementContract)
+        fail("第二步缺少劳务协议原件（材料中心未传时，可用已签署的劳务/专家类合同代替）","SOP_MATERIAL_MISSING");
       if(e.noOmissions!==true) fail("须人工确认无冒领、漏发或重复劳务记录");
       return {matchedPeople:list(e.agendaSpeakers).length,noOmissions:true};
     }
@@ -58,10 +68,8 @@ function validateSopEvidence(no, evidence, project, db, invoiceAmount) {
         fail("线下/混合会议须确认已核对签到");
       if(!["线上","线下","混合"].includes(form)) fail("项目会议形式不明确，无法核对参会数据");
       // 关联材料：参会数据文件。线下会议的签到表本身就是参会数据，允许代替。
-      let hasData=materialExists(db,pid,STEP_MATERIALS[3],true);
-      if(!hasData && ["线下","混合"].includes(form))
-        hasData=materialExists(db,pid,["签到表"],true);
-      if(!hasData) fail("第三步缺少参会数据原件（线下会议可用签到表）","SOP_MATERIAL_MISSING");
+      const hasData=materialExists(db,pid,[...STEP_MATERIALS[3],"签到表"],true);
+      if(!hasData) fail("第三步缺少参会数据原件（签到表同样算参会数据）","SOP_MATERIAL_MISSING");
       return {format:form,onlineMinutes:["线上","混合"].includes(form)?Number(e.onlineMinutes):null,
         signedAttendance:["线下","混合"].includes(form)?true:null};
     }
@@ -88,7 +96,8 @@ function validateSopEvidence(no, evidence, project, db, invoiceAmount) {
          a.map(norm).sort().some((x,i)=>x!==b.map(norm).sort()[i]))
         fail("劳务收集表与劳务协议五字段不一致");
       // 关联文件：劳务收集表原件 + 劳务/专家类合同（按合同分类认，不按合同名称猜）
-      requireMaterials(db,pid,STEP_MATERIALS[5],"第五步缺少劳务收集表原件");
+      if(!materialExists(db,pid,["劳务收集表","劳务表"],true))
+        fail("第五步缺少劳务收集表原件（也可用劳务表）","SOP_MATERIAL_MISSING");
       const laborContracts=Number(db.prepare(
         "SELECT COUNT(*) AS n FROM contracts WHERE pid=? AND status='已签署' AND category='劳务专家'"
       ).get(pid).n);

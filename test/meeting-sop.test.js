@@ -46,12 +46,13 @@ test("第二步：必须用终版议程，普通议程不算",()=>{
  assert.throws(()=>validateSopEvidence(2,e,project,dbWith({kinds:["议程","劳务收集表","劳务协议"]})),/终版议程/);
  assert.throws(()=>validateSopEvidence(2,e,project,dbWith({kinds:["终版议程","劳务收集表"]})),/劳务协议/);
 });
-test("第三步：关联材料为参会数据；线下会议可用签到表代替",()=>{
+test("第三步：关联材料为参会数据，签到表同样算参会数据",()=>{
  const offline={...project,form:"线下"};
  const online={...project,form:"线上"};
  assert.equal(validateSopEvidence(3,{signedAttendance:true},offline,dbWith({kinds:["签到表"]})).format,"线下");
  assert.equal(validateSopEvidence(3,{onlineMinutes:45},online,dbWith({kinds:["参会数据"]})).format,"线上");
- assert.throws(()=>validateSopEvidence(3,{onlineMinutes:45},online,dbWith({kinds:["签到表"]})),/参会数据/);
+ // 腾讯会议的参会数据导出常被登记成「签到表」，线上会议同样认
+ assert.equal(validateSopEvidence(3,{onlineMinutes:45},online,dbWith({kinds:["签到表"]})).format,"线上");
  assert.throws(()=>validateSopEvidence(3,{signedAttendance:true},offline,dbWith({kinds:[]})),/参会数据/);
 });
 test("第四步：关联材料为终版议程 + 课件 + 串场",()=>{
