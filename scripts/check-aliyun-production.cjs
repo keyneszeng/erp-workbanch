@@ -94,6 +94,17 @@ function check(env = process.env) {
     }
   }
 
+  // 超大附件自动压缩依赖（PDF 用 gs，图片用 convert）。缺失不阻断启动：
+  // >20MB 的文件会被拒绝并提示用户本地压缩，不会静默丢数据。
+  {
+    const { spawnSync } = require("node:child_process");
+    for (const [cmd, label] of [["gs", "Ghostscript"], ["convert", "ImageMagick"]]) {
+      const res = spawnSync(cmd, ["-version"], { encoding: "utf8", timeout: 8000, maxBuffer: 65536 });
+      if (res.error || res.status !== 0)
+        console.warn(`[warn] 未检测到 ${label}（${cmd}）：超过 20 MB 的原件将无法自动压缩`);
+    }
+  }
+
   return { target: "aliyun-ecs", domain };
 }
 if (require.main === module) {

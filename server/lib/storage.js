@@ -35,7 +35,14 @@ const ALLOWED_MIME = {
   [OFFICE_MIME.xlsx]: "xlsx"
 };
 
-const MAX_BYTES = 20 * 1024 * 1024; // 单文件最大 20 MB；后端始终强制验证
+/** 落库的单份文件上限：20 MB。超过的会在上传时先压缩到这个值以内。 */
+const MAX_BYTES = 20 * 1024 * 1024;
+/**
+ * 允许上传的原始大小上限（压缩前）。给扫描件留出空间：
+ * 300dpi 的合同扫描件动辄 40~80 MB，先收进来再压，比让用户自己找工具更现实。
+ * 超过这个值的直接拒，避免拿服务器当网盘。
+ */
+const MAX_UPLOAD_BYTES = Math.max(MAX_BYTES, Number(process.env.ERP_MAX_UPLOAD_MB || 200) * 1024 * 1024);
 const MAX_FILES_PER_MATERIAL = 1;
 
 /* ---------------------------------------------------------------- 本地磁盘 */
@@ -198,5 +205,5 @@ module.exports = {
   storage, useBackend, attachR2, attachStorage, unavailableStorage,
   nodeStorage, r2Storage,
   newKey, checkMime, sniffMime, safeName,
-  ALLOWED_MIME, MAX_BYTES, MAX_FILES_PER_MATERIAL, DEFAULT_DIR
+  ALLOWED_MIME, MAX_BYTES, MAX_UPLOAD_BYTES, MAX_FILES_PER_MATERIAL, DEFAULT_DIR
 };

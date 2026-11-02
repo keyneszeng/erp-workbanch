@@ -7,7 +7,10 @@
  *   浏览器 canvas 做同样的事几乎零成本，还能把上传时间从 12 秒降到 3 秒。
  */
 
-export const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
+/** 落库上限：超过这个值服务端会自动压缩（PDF 降采样 / 图片限长边） */
+export const MAX_STORED_BYTES = 20 * 1024 * 1024;
+/** 允许上传的原始大小：再大就不收了，避免把服务器当网盘 */
+export const MAX_UPLOAD_BYTES = 200 * 1024 * 1024;
 
 export function formatBytes(n) {
   const v = Number(n) || 0;
@@ -80,6 +83,11 @@ export function checkFile(file) {
     return `文件不能超过 ${formatBytes(MAX_UPLOAD_BYTES)}，当前 ${formatBytes(file.size)}`;
   }
   return null;
+}
+
+/** 是否需要服务端压缩（>20 MB 的扫描件/大图） */
+export function needsCompression(file) {
+  return !!file && file.size > MAX_STORED_BYTES;
 }
 
 /** 缩略图地址（走同一个下载接口，浏览器会按 Cache-Control 缓存） */

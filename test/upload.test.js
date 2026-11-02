@@ -72,7 +72,9 @@ before(async () => {
   clean();
   proc = spawn(process.execPath, ["--experimental-sqlite", "server/index.js"], {
     cwd: path.join(__dirname, ".."),
-    env: { ...process.env, ERP_PORT: String(PORT), ERP_DB: DB, ERP_UPLOAD_DIR: UP },
+    // 压缩前上限压到 30 MB，方便用 31 MB 的样本验证「超上限直接拒」，
+    // 否则要造 200 MB 的请求体才能测到这条分支。
+    env: { ...process.env, ERP_PORT: String(PORT), ERP_DB: DB, ERP_UPLOAD_DIR: UP, ERP_MAX_UPLOAD_MB: "30" },
     stdio: ["ignore", "pipe", "pipe"]
   });
   proc.stderr.on("data", (d) => {
@@ -267,4 +269,33 @@ test("LibreOffice 缺失时，Office 转换给出明确错误码而不是静默�
   const out = String(probe.stdout || "");
   assert.match(out, /available=false/, "空 PATH 下不应探测到 LibreOffice：" + out + String(probe.stderr || ""));
   assert.match(out, /code=SOFFICE_MISSING/, "缺少 LibreOffice 时必须报 SOFFICE_MISSING：" + out);
+});
+
+/* ---------------- 超大附件自动压缩 ---------------- */
+
+test("超过压缩前上限（30 MB）直接拒绝，并说明上限是压缩前", async () => {
+  const big = Buffer.concat([JPEG, Buffer.alloc(31 * 1024 * 1024)]);
+  const r = await upload(exec, big);
+  assert.equal(r.status, 413, JSON.stringify(r.data));
+  assert.match(r.data.error.message, /压缩前/);
+});
+
+test("压缩模块：小文件不需要压、Office 压不了、损坏文件不抛 500", async () => {
+  const { shrinkToLimit } = require("../server/lib/shrink");
+  const limit = 20 * 1024 * 1024;
+
+  // 未超限：不动它
+  const small = await shrinkToLimit(JPEG, "image/jpeg", limit);
+  assert.equal(small.ok, false);
+  assert.equal(small.reason, "not-needed");
+
+  // Office 是 ZIP 包，重新打包压不动多少，明确返回 unsupported 而不是硬压
+  const office = await shrinkToLimit(Buffer.alloc(limit + 1), "application/vnd.openxmlformats-officedocument.presentationml.presentation", limit);
+  assert.equal(office.ok, false);
+  assert.equal(office.reason, "unsupported");
+
+  // 损坏的 PDF：要么工具没装，要么压失败，但绝不能抛异常（否则上传会变成 500）
+  const broken = await shrinkToLimit(Buffer.alloc(limit + 1, 0x41), "application/pdf", limit);
+  assert.equal(broken.ok, false);
+  assert.ok(["tool-missing", "failed", "still-large"].includes(broken.reason), broken.reason);
 });

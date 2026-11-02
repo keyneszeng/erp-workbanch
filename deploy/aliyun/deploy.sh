@@ -206,6 +206,19 @@ if [ "$DRY_RUN" = "0" ]; then
     || warn "未检测到中文字体，Office 转 PDF 后中文可能显示为方框"
 fi
 
+# 超大附件自动瘦身：PDF 用 Ghostscript 降采样，图片用 ImageMagick 限长边。
+# 缺这两个工具时，>20MB 的扫描件会直接被拒（提示用户本地压缩），不会静默丢数据。
+log "安装附件压缩依赖（Ghostscript + ImageMagick）"
+if [ "$DRY_RUN" = "0" ] && command -v gs >/dev/null 2>&1 && command -v convert >/dev/null 2>&1; then
+  log "  压缩工具已安装，跳过"
+else
+  run apt-get install -y -qq --no-install-recommends ghostscript imagemagick
+fi
+if [ "$DRY_RUN" = "0" ]; then
+  command -v gs >/dev/null 2>&1 || warn "Ghostscript 未就绪，超大 PDF 无法自动压缩"
+  command -v convert >/dev/null 2>&1 || warn "ImageMagick 未就绪，超大图片无法自动压缩"
+fi
+
 # ---------- 服务账户与目录 ----------
 if ! id -u "$SERVICE_USER" >/dev/null 2>&1; then
   log "创建服务账户 $SERVICE_USER"
@@ -282,6 +295,7 @@ else
       printf 'ERP_DB=%s/erp.db\n' "$DATA_ROOT"
       printf 'ERP_UPLOAD_DIR=%s/uploads\n' "$DATA_ROOT"
       printf 'ERP_PREVIEW_CACHE_DIR=%s/preview-cache\n' "$DATA_ROOT"
+      printf 'ERP_MAX_UPLOAD_MB=%s\n' "${ERP_MAX_UPLOAD_MB:-200}"
       printf 'ERP_HOST=127.0.0.1\n'
       printf 'ERP_PORT=%s\n' "$APP_PORT"
       printf 'ERP_TRUST_PROXY=1\n'
@@ -376,7 +390,7 @@ server {
     listen 80;
     listen [::]:80;
     server_name ${DOMAIN};
-    client_max_body_size 25m;
+    client_max_body_size 210m;
 
     location / {
         proxy_pass http://127.0.0.1:${APP_PORT};
@@ -386,7 +400,7 @@ server {
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto \$scheme;
         proxy_connect_timeout 10s;
-        proxy_read_timeout 90s;
+        proxy_read_timeout 300s;
     }
 }
 NGINX

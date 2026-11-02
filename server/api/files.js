@@ -18,7 +18,8 @@ const { assertProjectVisible, can } = require("../lib/rbac");
 const { logAudit } = require("../lib/audit");
 const { getProject } = require("../lib/workflow");
 const { HttpError } = require("../lib/util");
-const { storage, newKey, checkMime, sniffMime, safeName, MAX_BYTES, ALLOWED_MIME } = require("../lib/storage");
+const { storage, newKey, checkMime, sniffMime, safeName, MAX_BYTES, MAX_UPLOAD_BYTES, ALLOWED_MIME } = require("../lib/storage");
+const { shrinkToLimit, OFFICE_HINT } = require("../lib/shrink");
 
 const EXT_MIME = {
   jpg: "image/jpeg",
@@ -104,8 +105,10 @@ function register(router) {
 
     const buf = ctx.body;
     if (!Buffer.isBuffer(buf) || buf.length === 0) throw bad("未收到文件内容");
-    if (buf.length > MAX_BYTES) {
-      throw new HttpError(413, "PAYLOAD_TOO_LARGE", `单个文件不能超过 ${Math.round(MAX_BYTES / 1024 / 1024)} MB`);
+    const mb = (n) => (n / 1024 / 1024).toFixed(1);
+    if (buf.length > MAX_UPLOAD_BYTES) {
+      throw new HttpError(413, "PAYLOAD_TOO_LARGE",
+        `单个文件最大 ${Math.round(MAX_UPLOAD_BYTES / 1024 / 1024)} MB（压缩前），当前 ${mb(buf.length)} MB`);
     }
 
     // 以文件头为准，不信客户端声明的 Content-Type
@@ -133,8 +136,31 @@ function register(router) {
       if (!p) throw notFound("会议项目不存在");
       assertProjectVisible(ctx.user, p);
     }
+    /**
+     * 超过 20 MB 的原件先压缩再落库。
+     * 扫描件体积几乎全在图片上，PDF 降采样、图片限长边都能压到十分之一左右；
+     * Office 是压缩包，压不动，明确拒绝而不是收下一个 50 MB 的 pptx。
+     */
+    let stored = buf, compressed = null;
+    if (buf.length > MAX_BYTES) {
+      const r = await shrinkToLimit(buf, mime, MAX_BYTES);
+      if (!r.ok) {
+        const reason = r.reason === "unsupported" || ["ppt","docx","pptx","xlsx"].includes(officeExt)
+          ? OFFICE_HINT
+          : r.reason === "tool-missing"
+            ? "服务器未安装压缩工具，请先在本地压缩后再上传"
+            : r.reason === "failed"
+              ? "文件可能已加密或损坏，无法自动压缩，请先在本地处理后重试"
+              : "自动压缩后仍超过 20 MB，请降低扫描分辨率或拆分文件后重试";
+        throw new HttpError(413, "PAYLOAD_TOO_LARGE",
+          `单个文件不能超过 20 MB，当前 ${mb(buf.length)} MB。${reason}`);
+      }
+      stored = r.buffer;
+      compressed = { originalSize: r.originalSize, engine: r.engine };
+    }
+
     const key = newKey(mime);
-    await storage().put(key, buf, { mime });
+    await storage().put(key, stored, { mime });
     try {
       db.prepare("INSERT INTO uploaded_files (file_key,user_id,pid,created_at) VALUES (?,?,?,?)")
         .run(key, ctx.user.id, pid, now());
@@ -143,17 +169,22 @@ function register(router) {
       throw e;
     }
     logAudit({
-      user: ctx.user, module: "材料中心", action: "上传文件",
-      target: pid || key, detail: `${name}（${(buf.length / 1024).toFixed(0)} KB）`, ip: ctx.ip
+      user: ctx.user, module: "材料中心", action: compressed ? "上传文件（已自动压缩）" : "上传文件",
+      target: pid || key,
+      detail: compressed
+        ? `${name}（${mb(compressed.originalSize)} MB → ${mb(stored.length)} MB，${compressed.engine}）`
+        : `${name}（${(stored.length / 1024).toFixed(0)} KB）`,
+      ip: ctx.ip
     });
 
-    return { key, name, size: buf.length, mime, url: `/api/uploads/${key}` };
+    return { key, name, size: stored.length, mime, url: `/api/uploads/${key}`,
+      ...(compressed ? { compressed: true, originalSize: compressed.originalSize, engine: compressed.engine } : {}) };
   });
 
   /** 上传能力探测：前端据此决定是否显示上传按钮（R2 未绑定时 Worker 上会返回 false） */
   router.get("/api/uploads/capability", async () => {
     const st = storage();
-    return { enabled: st.name === "fs" || st.name === "r2", backend: st.name, maxBytes: MAX_BYTES, allowedMime: Object.keys(ALLOWED_MIME) };
+    return { enabled: st.name === "fs" || st.name === "r2", backend: st.name, maxBytes: MAX_BYTES, maxUploadBytes: MAX_UPLOAD_BYTES, allowedMime: Object.keys(ALLOWED_MIME) };
   });
 
   router.get("/api/uploads/:key", async (ctx) => {
