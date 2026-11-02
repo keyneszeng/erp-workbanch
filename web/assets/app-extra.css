@@ -179,6 +179,9 @@ td .mono, td.mono{white-space:nowrap}
 /* 合同类别：贴在合同名称后面，不单独占一列 —— 台账列已经够多，再加一列要横向滚动 */
 .cat{font-size:11px;color:var(--sub);background:#eef2f7;border-radius:20px;
   padding:1px 7px;margin-left:7px;white-space:nowrap;display:inline-block;vertical-align:1px}
+/* 可点的类别标签：类别直接决定这份合同算不算进核销，必须能改 */
+button.cat-edit{border:1px dashed #c3cddb;cursor:pointer;font-family:inherit;line-height:1.5}
+button.cat-edit:hover{background:#e3ebf6;border-color:#8ea8c8;color:var(--pri)}
 
 /* ---------- 合同详情弹窗（原件预览 + 基本信息 + 下一步动作） ---------- */
 /* 原件列的小标签：告诉人这一行有没有原件、是图还是 PDF，不用点进去才知道 */

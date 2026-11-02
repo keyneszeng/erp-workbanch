@@ -3,7 +3,7 @@ const { db } = require("./db");
 const { now, nextId, conflict, forbidden, notFound, bad, cents, yuan, parseBankAccount, parseBankName } = require("./util");
 const { can, isSuper, ROLES } = require("./rbac");
 const { logAudit } = require("./audit");
-const { FLOW, VERIFY_STEPS, MATERIAL_KINDS } = require("./constants");
+const { FLOW, VERIFY_STEPS, MATERIAL_KINDS, EXPENSE_CONTRACT_SQL } = require("./constants");
 const { isDemoMode } = require("./runtime");
 
 function getProject(id) {
@@ -107,14 +107,47 @@ function demandSummary(pid) {
  * 用「有没有结算单」而不是只看 status —— 状态可能被人为改过，
  * 但结算单存在与否是硬事实。材料删除、需求单、项目成员等
  * 「结算后不该再动」的写操作统一走这里，避免每个接口各写一套判断。
+ *
+ * 总管理员例外放行（老板 2026-11-02：处于历史冻结状态的内容总管理员也要能改）。
+ * 冻结是为了防误改，不是为了把纠错的路堵死 —— 归档后发现材料传错、
+ * 结算后金额录错，只有总管理员能兜底。放行必须留痕：
+ * 事后查「谁在封账之后动过这笔账」，得查得到。
  */
-function assertNotFrozen(p, what = "业务数据") {
-  if (p.status === "已归档") {
+function assertNotFrozen(p, what = "业务数据", user = null, ip = "") {
+  const archived = p.status === "已归档";
+  const settled = archived ? false : !!settlementOf(p.id);
+  if (!archived && !settled) return;
+  if (isSuper(user)) {
+    logAudit({
+      user, module: "系统配置", action: "冻结放行", target: p.id,
+      detail: `${what}：${archived ? "已归档（卷宗封存）" : "已结算（账目封账）"}状态下由总管理员例外修改`,
+      ip
+    });
+    return;
+  }
+  if (archived) {
     throw conflict(`项目已归档，${what}已封存，不可修改`, "ARCHIVED", { status: p.status });
   }
-  if (settlementOf(p.id)) {
-    throw conflict(`结算单已生成，${what}已冻结，不可修改`, "FROZEN", { status: p.status });
+  throw conflict(`结算单已生成，${what}已冻结，不可修改`, "FROZEN", { status: p.status });
+}
+
+/**
+ * 冻结门禁的统一出口：命中冻结时，总管理员放行并留痕，其他人照旧报错。
+ *
+ * 有些接口的冻结条件比「已归档 / 有结算单」更细（合同台账封账、收入凭证冻结、
+ * 核销后金额锁定），没法全塞进 assertNotFrozen。但它们必须遵循同一条规则：
+ * **总管理员是纠错兜底，冻结挡的是误改，不是挡他。** 放行一律写审计。
+ */
+function frozenGate(ctx, p, blocked, message, code, what) {
+  if (!blocked) return;
+  if (isSuper(ctx.user)) {
+    logAudit({
+      user: ctx.user, module: "系统配置", action: "冻结放行", target: p.id,
+      detail: `${what}：${message}（总管理员例外操作）`, ip: ctx.ip
+    });
+    return;
   }
+  throw conflict(message, code, { status: p.status });
 }
 
 /**
@@ -178,7 +211,11 @@ const GUARDS = {
       const matched = db.prepare("SELECT result, evidence_json FROM verify_steps WHERE pid=? AND step_no=6 AND result='通过'").get(p.id);
       if (!matched || !matched.evidence_json)
         return "会务三单核验（第 6 步）尚未完成，不允许结算";
-      const signedTotal=db.prepare("SELECT COALESCE(SUM(amount),0) AS total FROM contracts WHERE pid=? AND status='已签署'").get(p.id).total;
+      // 收入类（赞助）合同不计入：结算比对的是「已核销合同请款总额」，
+      // 赞助是收款，算进来会让已付款永远追不上这个数。
+      const signedTotal=db.prepare(
+        "SELECT COALESCE(SUM(amount),0) AS total FROM contracts WHERE pid=? AND status='已签署' AND " + EXPENSE_CONTRACT_SQL
+      ).get(p.id).total;
       if(cents(paid.total)!==cents(signedTotal))
         return `已付款总额 ¥${yuan(paid.total)} 与已核销合同请款总额 ¥${yuan(signedTotal)} 不一致，不能结算；含免票专家劳务费`;
     }
@@ -382,4 +419,4 @@ function grantFinanceMember(p, user, ip) {
   });
 }
 
-module.exports = { getProject, verification, materialsStatus, settlementOf, demandSummary, assertNotFrozen, committed, availableActions, transition, GUARDS };
+module.exports = { getProject, verification, materialsStatus, settlementOf, demandSummary, assertNotFrozen, frozenGate, committed, availableActions, transition, GUARDS };

@@ -4,8 +4,8 @@ const { now, nextId, bad, notFound, conflict, forbidden, yuan, cents } = require
 const { isDemoMode } = require("../lib/runtime");
 const { assertCan, assertModule, assertProjectVisible, isSuper } = require("../lib/rbac");
 const { logAudit } = require("../lib/audit");
-const { getProject, verification, materialsStatus, settlementOf, demandSummary } = require("../lib/workflow");
-const { MATERIAL_KINDS, MATERIAL_MODULE_KINDS, VERIFY_STEPS } = require("../lib/constants");
+const { getProject, verification, materialsStatus, settlementOf, demandSummary, frozenGate } = require("../lib/workflow");
+const { MATERIAL_KINDS, MATERIAL_MODULE_KINDS, VERIFY_STEPS, EXPENSE_CONTRACT_SQL } = require("../lib/constants");
 const { readPaging, countOf } = require("../lib/paginate");
 const { storage } = require("../lib/storage");
 const { assertUploadAttachable } = require("../lib/upload-ownership");
@@ -254,9 +254,14 @@ function register(router) {
      */
     let invoiceAmount = null;
     if (!isDemoMode() && no === 6 && result === "通过") {
-      const signed = db.prepare("SELECT COUNT(*) AS n, COALESCE(SUM(amount),0) AS total FROM contracts WHERE pid=? AND status='已签署'").get(p.id);
+      // 只认支出类合同：收入类（赞助）合同是钱进来，不参与核销
+      const signed = db.prepare(
+        "SELECT COUNT(*) AS n, COALESCE(SUM(amount),0) AS total FROM contracts WHERE pid=? AND status='已签署' AND " + EXPENSE_CONTRACT_SQL
+      ).get(p.id);
       if (!signed.n) throw conflict("核票前必须有经协会管理员审批的已签署合同", "CONTRACT_NOT_SIGNED");
-      const billable=db.prepare("SELECT COALESCE(SUM(amount),0) AS total FROM contracts WHERE pid=? AND status='已签署' AND COALESCE(category,'')<>'劳务专家'").get(p.id).total;
+      const billable=db.prepare(
+        "SELECT COALESCE(SUM(amount),0) AS total FROM contracts WHERE pid=? AND status='已签署' AND COALESCE(category,'')<>'劳务专家' AND " + EXPENSE_CONTRACT_SQL
+      ).get(p.id).total;
       const invoiceMaterial=db.prepare("SELECT COUNT(*) AS n FROM materials WHERE pid=? AND kind='发票' AND file_key IS NOT NULL AND deleted_at IS NULL").get(p.id);
       if(cents(billable)>0 && !invoiceMaterial.n)throw conflict("非劳务合同请先上传发票原件","INVOICE_EVIDENCE_REQUIRED");
     }
@@ -387,9 +392,8 @@ function register(router) {
 
     // 例外单是核销环节的产物。核销还没开始（草稿 / 待审批 / 已立项 / 筹备中 / 执行中）
     // 就提例外，只会生成一张永远没机会处理的审批单，把审批中心搅浑。
-    if (["已结算", "已归档"].includes(p.status)) {
-      throw conflict(`项目已「${p.status}」，核销结论已冻结，不可再提交例外单`, "FROZEN", { status: p.status });
-    }
+    frozenGate(ctx, p, ["已结算", "已归档"].includes(p.status),
+      `项目已「${p.status}」，核销结论已冻结，不可再提交例外单`, "FROZEN", "核销例外单");
     if (!["待核销", "已核销"].includes(p.status)) {
       throw conflict(
         `「${p.status}」阶段还不能提交核销例外单，只有「待核销」「已核销」项目可提交`,
@@ -473,7 +477,7 @@ function register(router) {
     const p=getProject(ex.pid);
     assertProjectVisible(ctx.user,p);
     assertCan(ctx.user,"verify:exception_approve","仅核销审核人可确认整体性例外闭环");
-    if(settlementOf(p.id))throw conflict("项目已结算，核销例外已冻结","FROZEN");
+    frozenGate(ctx, p, !!settlementOf(p.id), "项目已结算，核销例外已冻结", "FROZEN", "核销例外闭环");
     if(Number(ex.step_no)!==0)throw conflict("六步内例外必须返回原步骤复核，不得直接关闭","RECHECK_REQUIRED");
     if(ex.status!=="待复核"||!ex.resolved_at||!ex.evidence_material_id)
       throw conflict("例外处理人未提交证据与处理结果","EXCEPTION_REMEDIATION_REQUIRED");
@@ -493,7 +497,16 @@ function register(router) {
     const { sql, params } = require("../lib/rbac").scopeFilter(ctx.user);
     const paging = readPaging(ctx.query);
 
-    const base = `FROM materials m JOIN projects p ON p.id = m.pid WHERE ${sql} AND m.deleted_at IS NULL`;
+    /**
+     * 历史冻结材料视图（deleted_at 非空）。
+     * 软删是为了「不销毁证据」，不是为了让人看不见 —— 冻结的记录默认不出现在
+     * 材料清单里，误删之后连恢复的入口都没有。总管理员可以单独调出这一批，
+     * 逐条确认后恢复（POST /api/materials/:id/restore）。
+     */
+    const frozenOnly = String(ctx.query.frozen || "") === "1";
+    if (frozenOnly && !isSuper(ctx.user)) throw forbidden("历史冻结材料仅总管理员可查看与恢复");
+    const liveSql = frozenOnly ? "m.deleted_at IS NOT NULL" : "m.deleted_at IS NULL";
+    const base = `FROM materials m JOIN projects p ON p.id = m.pid WHERE ${sql} AND ${liveSql}`;
     let rows;
     let total;
     if (paging) {
@@ -539,8 +552,10 @@ function register(router) {
     const p = getProject(ctx.params.id);
     assertProjectVisible(ctx.user, p);
     assertCan(ctx.user, "material:write", "当前角色无材料登记权限");
-    if (p.status === "已归档") throw conflict("项目已归档，材料清单已封存，不可再登记", "ARCHIVED", { status: p.status });
-    if (settlementOf(p.id)) throw conflict("结算单已生成，材料证据已冻结，不可追加或修改", "FROZEN");
+    frozenGate(ctx, p, p.status === "已归档",
+      "项目已归档，材料清单已封存，不可再登记", "ARCHIVED", "材料登记");
+    frozenGate(ctx, p, !!settlementOf(p.id),
+      "结算单已生成，材料证据已冻结，不可追加或修改", "FROZEN", "材料登记");
     const { kind: rawKind, name, version, file_key, file_name, file_size, file_mime } = ctx.body || {};
     // 8 类是归档必备，必须用标准名，齐备校验只认这 8 个；
     // 但实际卷宗里还有会议纪要、专家简历、批文这类东西，以前一律被白名单挡在门外，
@@ -592,21 +607,46 @@ function register(router) {
     const p = getProject(m.pid);
     assertProjectVisible(ctx.user, p);
     assertCan(ctx.user, "material:write", "当前角色无材料删除权限");
-    if (p.status === "已归档") throw conflict("已归档项目材料不可删除");
+    frozenGate(ctx, p, p.status === "已归档", "已归档项目材料不可删除", "ARCHIVED", "材料删除");
     // 结算单一旦生成，材料就是结算与核销的原始凭证，删了等于销毁证据链。
     // 这里用「有没有结算单」判断而不是只看 status：状态可能被人为改过，
     // 但结算单存在与否是硬事实。
-    if (settlementOf(p.id)) {
-      throw conflict("结算单已生成，材料作为核销凭证已冻结，不可删除", "FROZEN", { status: p.status });
-    }
+    frozenGate(ctx, p, !!settlementOf(p.id),
+      "结算单已生成，材料作为核销凭证已冻结，不可删除", "FROZEN", "材料删除");
 
     // 只做软删；原件、版本与审计记录保留，避免销毁历史证据。
-    if (m.deleted_at) throw conflict("材料已处于历史冻结状态，不能重复删除", "ALREADY_DELETED");
+    // 已经软删过的（历史冻结）重复删除没有意义，谁都不放行 —— 要改就走恢复接口。
+    if (m.deleted_at) throw conflict("材料已处于历史冻结状态，不能重复删除；如需修改请先恢复", "ALREADY_DELETED");
     db.prepare("UPDATE materials SET deleted_at=?, deleted_by=? WHERE id=?")
       .run(now(),ctx.user.name,m.id);
 
     logAudit({ user: ctx.user, module: "材料中心", action: "软删冻结", target: p.id, detail: `历史保留 ${m.kind}：${m.name}`, ip: ctx.ip });
     return { materialsStatus: materialsStatus(p.id), message: "已软删并保留历史记录" };
+  });
+
+  /**
+   * 恢复处于历史冻结状态（已软删）的材料。
+   *
+   * 老板 2026-11-02：「处于历史冻结状态的内容，总管理员也有权限修改，必须放行」。
+   * 软删的本意是保留证据不销毁，不是把人锁死 —— 误删一份发票原件，
+   * 归档齐备度和第 6 步就再也补不回来。恢复不新增记录、不改原件，
+   * 只是把 deleted_at 清空，动作本身也要留痕。
+   */
+  router.post("/api/materials/:id/restore", async (ctx) => {
+    const m = db.prepare("SELECT * FROM materials WHERE id = ?").get(Number(ctx.params.id));
+    if (!m) throw notFound("材料不存在");
+    const p = getProject(m.pid);
+    assertProjectVisible(ctx.user, p);
+    assertCan(ctx.user, "material:write", "当前角色无材料恢复权限");
+    if (!m.deleted_at) throw conflict("该材料未处于冻结状态，无需恢复", "NOT_DELETED");
+    frozenGate(ctx, p, p.status === "已归档" || !!settlementOf(p.id),
+      "项目已封存或已封账，材料冻结记录不可恢复", "FROZEN", "材料恢复");
+    db.prepare("UPDATE materials SET deleted_at=NULL, deleted_by=NULL WHERE id=?").run(m.id);
+    logAudit({
+      user: ctx.user, module: "材料中心", action: "恢复冻结材料", target: p.id,
+      detail: `解除历史冻结 ${m.kind}：${m.name}（原删除人 ${m.deleted_by || "—"}）`, ip: ctx.ip
+    });
+    return { materialsStatus: materialsStatus(p.id), message: `${m.kind} 已恢复` };
   });
 
   router.get("/api/settlements", async (ctx) => {

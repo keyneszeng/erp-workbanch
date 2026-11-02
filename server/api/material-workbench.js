@@ -43,7 +43,7 @@ function taskRows(pid) {
 function assertWritable(ctx,p){
   assertProjectVisible(ctx.user,p);
   assertCan(ctx.user,"material:write","无材料管理权限");
-  assertNotFrozen(p,"材料模块与待办");
+  assertNotFrozen(p,"材料模块与待办",ctx.user,ctx.ip);
 }
 function register(router) {
   router.get("/api/projects/:id/material-workbench",async ctx=>{

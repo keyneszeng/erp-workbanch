@@ -24,7 +24,7 @@ const BASE = `http://127.0.0.1:${PORT}`;
 const DB = path.join(__dirname, "..", "data", "test33.db");
 const UP = path.join(__dirname, "..", "data", "test33-uploads");
 let proc;
-let admin, finance, exec;
+let admin, finance, exec, assoc;
 
 const BANK = "中国银行北京朝阳支行";
 const ACCT = "3210 1234 5678 9012";
@@ -109,6 +109,7 @@ before(async () => {
   admin = client(await login("admin"));
   finance = client(await login("finance"));
   exec = client(await login("exec"));
+  assoc = client(await login("assoc"));
 });
 
 after(() => { if (proc) proc.kill("SIGTERM"); });
@@ -133,7 +134,8 @@ test("NEW-01 已结算项目付款：先给 SETTLED，而不是「开户行必�
   });
   assert.equal(settle.status, 200, JSON.stringify(settle.data));
 
-  const r = await admin("POST", "/api/payments", {
+  // 总管理员 2026-11-02 起可放行冻结，所以「SETTLED 拦截」要用协会管理员验
+  const r = await assoc("POST", "/api/payments", {
     pid, type: "学会公付", payee: "北京国际会议中心", amount: 1000
   });
   assert.equal(r.status, 409, `应 409，实际 ${r.status}：${JSON.stringify(r.data)}`);
@@ -241,3 +243,4 @@ test("SEC-03 API 响应仍带全部安全头（未被本次改动破坏）", asy
   assert.ok(r.headers.get("strict-transport-security"));
   assert.ok(r.headers.get("content-security-policy-report-only"));
 });
+

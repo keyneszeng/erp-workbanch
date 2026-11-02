@@ -5,7 +5,7 @@
  * 银行账户和参会人员明细只在内存里进行等值比较，绝不写入 verify_steps 或审计日志。
  */
 const { bad, conflict, cents, yuan } = require("./util");
-const { VERIFY_STEPS } = require("./constants");
+const { VERIFY_STEPS, EXPENSE_CONTRACT_SQL } = require("./constants");
 /** 每步必须核的原件类别，与前端「关联材料」列表同源 */
 const STEP_MATERIALS = Object.fromEntries(VERIFY_STEPS.map((s) => [s.no, s.materials || []]));
 const eq = (a,b) => String(a ?? "").trim().replace(/\s+/g,"") === String(b ?? "").trim().replace(/\s+/g,"");
@@ -141,14 +141,22 @@ function validateSopEvidence(no, evidence, project, db, invoiceAmount) {
        * 老板 2026-11-02：「应开票合同金额 = 发票总额」这条去掉。
        * 现在只核两件事：拟请款总额与已签合同总额一致；单据抬头与立项信息一致。
        * 发票原件仍要求上传（属于材料完整性，不是金额比对）。
+       *
+       * 同日第二条：收入类（赞助）合同不参与核销。
+       * 赞助合同是钱进来，不是钱出去 —— 把它算进「合同总额」，
+       * 拟请款总额就得跟着虚增，第 6 步永远对不上。所以按类别排除。
        */
-      const total=db.prepare("SELECT COALESCE(SUM(amount),0) AS total FROM contracts WHERE pid=? AND status='已签署'").get(pid).total;
+      const total=db.prepare(
+        "SELECT COALESCE(SUM(amount),0) AS total FROM contracts WHERE pid=? AND status='已签署' AND " + EXPENSE_CONTRACT_SQL
+      ).get(pid).total;
       // 报错要带出应有的金额，否则判定人只能反复试
       if(cents(e.draftAmount)!==cents(total))
         fail(`拟请款总额必须与已签署合同总额一致（应为 ¥${yuan(total)}，当前 ¥${yuan(e.draftAmount)}）`);
       if(!eq(e.meetingName,project.name)||!eq(e.meetingDate,project.date))
         fail("拟结算单/发票的会议名称或会议时间与立项信息不一致");
-      const taxable=db.prepare("SELECT COALESCE(SUM(amount),0) AS total FROM contracts WHERE pid=? AND status='已签署' AND COALESCE(category,'')<>'劳务专家'").get(pid).total;
+      const taxable=db.prepare(
+        "SELECT COALESCE(SUM(amount),0) AS total FROM contracts WHERE pid=? AND status='已签署' AND COALESCE(category,'')<>'劳务专家' AND " + EXPENSE_CONTRACT_SQL
+      ).get(pid).total;
       if(cents(taxable)>0 && !materialExists(db,pid,["发票"],true)) fail("尚无发票原件","SOP_MATERIAL_MISSING");
       // 此处核对的是拟结算明细，不是提前生成正式可付款结算单。
       return {draftAmount:Number(e.draftAmount),meetingMatched:true};

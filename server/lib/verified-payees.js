@@ -4,6 +4,7 @@ const {db}=require("./db");
 const {now,bad}=require("./util");
 const {cents}=require("./util");
 const {isDemoMode}=require("./runtime");
+const {EXPENSE_CONTRACT_SQL}=require("./constants");
 // Encryption key is deliberately not stored in SQLite or returned to a browser.
 function key(){
  const v=String(process?.env?.ERP_FINANCIAL_DATA_KEY||"");
@@ -38,7 +39,12 @@ function saveLabor(pid,records){
  return {saved:true,count:records.length};
 }
 function options(pid){
- const contracts=db.prepare("SELECT id,vendor,amount,category,payee_bank,payee_account_cipher FROM contracts WHERE pid=? AND status='已签署' ORDER BY id").all(pid);
+ // 收入类（赞助）合同不进收款方候选：赞助是我们收钱，不是付给企业。
+ // 混进来会让人误以为要付一笔 15000 给赞助商，也会虚增可请款额度。
+ const contracts=db.prepare(
+  "SELECT id,vendor,amount,category,payee_bank,payee_account_cipher FROM contracts WHERE pid=? AND status='已签署' AND " +
+  EXPENSE_CONTRACT_SQL + " ORDER BY id"
+ ).all(pid);
  const rows=contracts.map(x=>{
   const account=reveal(x.payee_account_cipher);
   return {id:"contract:"+x.id,label:x.vendor+"（"+x.category+"合同）",payee:x.vendor,
@@ -60,8 +66,11 @@ function options(pid){
 function resolve(pid,id){
  const value=String(id||"");
  if(value.startsWith("contract:")){
-  const x=db.prepare("SELECT vendor,amount,payee_bank,payee_account_cipher FROM contracts WHERE id=? AND pid=? AND status='已签署'").get(value.slice(9),pid);
-  if(!x)throw bad("选择的合同收款方不存在或未签署");
+  const x=db.prepare(
+   "SELECT vendor,amount,payee_bank,payee_account_cipher FROM contracts WHERE id=? AND pid=? AND status='已签署' AND " +
+   EXPENSE_CONTRACT_SQL
+  ).get(value.slice(9),pid);
+  if(!x)throw bad("选择的合同收款方不存在、未签署，或属于收入类（赞助）合同（赞助是收款，不产生付款）");
   return {name:x.vendor,amount:x.amount,bank:x.payee_bank||"",
     account:reveal(x.payee_account_cipher)||"",source:"contract"};
  }

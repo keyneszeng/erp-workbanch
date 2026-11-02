@@ -197,9 +197,27 @@ test("撤销归档后核销侧标记为未归档（判定人知道这份单子�
 });
 
 test("冻结优先：已结算的项目连归档都不许（先被 assertNotFrozen 拦住）", async () => {
-  // MP-2026-006 已结算，结算单一生成即封账
-  const r = await admin("POST", `/api/demand/MP-2026-006/confirm`);
-  assert.equal(r.status, 409);
+  // MP-2026-006 已结算，结算单一生成即封账。
+  // 先把协会对齐，否则会先被数据范围挡成 403，验不到冻结逻辑本身。
+  await admin("PATCH", "/api/projects/MP-2026-006", { assoc: "华东医学会" });
+  const r = await assoc("POST", `/api/demand/MP-2026-006/confirm`);
+  assert.equal(r.status, 409, JSON.stringify(r.data));
   assert.notEqual(r.data.error.code, "DEMAND_ARCHIVED", "应是冻结拦截，不是归档拦截");
   assert.match(r.data.error.message, /结算|冻结|封/);
+});
+
+/**
+ * 老板 2026-11-02：「处于历史冻结状态的内容，总管理员也有权限修改，必须放行」。
+ * 冻结挡的是误改，不是挡总管理员纠错；放行一律留审计。
+ */
+test("冻结放行：同一个已结算项目，总管理员可以继续操作，且审计留痕", async () => {
+  const r = await admin("POST", `/api/demand/MP-2026-006/confirm`);
+  assert.notEqual(r.status, 409, "总管理员不应再被冻结拦住：" + JSON.stringify(r.data));
+  assert.notEqual(r.status, 403, "总管理员不应被权限拦住");
+
+  const audit = (await admin("GET", `/api/audit?page=1&size=200`)).data;
+  const rows = Array.isArray(audit) ? audit : audit.rows || [];
+  const hit = rows.find((x) => x.action === "冻结放行" && String(x.target) === "MP-2026-006");
+  assert.ok(hit, "冻结放行必须写审计，否则事后查不到谁在封账后动过账");
+  assert.match(String(hit.detail || ""), /总管理员/);
 });

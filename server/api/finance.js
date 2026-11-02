@@ -3,8 +3,8 @@ const { db } = require("../lib/db");
 const { now, today, nextId, bad, notFound, conflict, forbidden, cents, yuan, parseBankAccount, parseBankName } = require("../lib/util");
 const { assertCan, assertModule, assertProjectVisible, scopeFilter, can, isSuper } = require("../lib/rbac");
 const { logAudit } = require("../lib/audit");
-const { getProject, verification, committed } = require("../lib/workflow");
-const { PAYMENT_TYPES, CONTRACT_CATEGORIES, guessContractCategory } = require("../lib/constants");
+const { getProject, verification, committed, frozenGate } = require("../lib/workflow");
+const { PAYMENT_TYPES, CONTRACT_CATEGORIES, guessContractCategory, isIncomeCategory, EXPENSE_CONTRACT_SQL } = require("../lib/constants");
 const { readPaging, countOf } = require("../lib/paginate");
 const { transition } = require("../lib/workflow");
 const { assertUploadAttachable } = require("../lib/upload-ownership");
@@ -86,8 +86,13 @@ function register(router) {
     const p = getProject(b.pid);
     assertProjectVisible(ctx.user, p);
     assertCan(ctx.user, "contract:write", "当前角色无合同录入权限");
-    if (p.status === "已归档") throw conflict("项目已归档，合同台账已封存，不可再录入合同", "ARCHIVED", { status: p.status });
-    if (p.status === "已结算") throw conflict("项目已结算，合同台账已封账，不可再录入合同", "FROZEN", { status: p.status });
+    // 冻结门禁：归档封存 / 结算封账 —— 属于「历史冻结」，总管理员可例外录入并留痕。
+    // 但「核销后金额锁定」不算历史冻结：它是核销口径本身，放行就等于让
+    // 「合同总额 = 拟请款总额」这条规则失效，所以谁都不放行，要改先走核销更正。
+    frozenGate(ctx, p, p.status === "已归档",
+      "项目已归档，合同台账已封存，不可再录入合同", "ARCHIVED", "合同录入");
+    frozenGate(ctx, p, p.status === "已结算",
+      "项目已结算，合同台账已封账，不可再录入合同", "FROZEN", "合同录入");
     if (!isDemoMode()) {
       if (p.status === "已核销") throw conflict("核销已通过，合同金额已锁定，不得新增合同", "CONTRACT_VERIFIED");
       const verifiedInvoice = db.prepare("SELECT 1 FROM verify_steps WHERE pid=? AND step_no=6 AND result='通过'").get(p.id);
@@ -157,7 +162,14 @@ function register(router) {
     const id = nextId(db, "contracts", "id", "HT");
     db.prepare("INSERT INTO contracts (id,pid,name,vendor,amount,sign_date,status,category,remark,created_by,created_at,file_key,file_name,file_size,file_mime,payee_bank,payee_account_cipher) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
       .run(id, p.id, b.name, b.vendor, amount, isDemoMode() ? signDate : "", st, category, remark, ctx.user.id, now(), fk, fname, fsize, fmime, payeeBank || null, accountCipher);
-    if(fk) {
+    /**
+     * 收入类（赞助）合同不往材料中心同步。
+     * 「合同」是归档必备的 8 类之一，它指的是**支出**合同原件；
+     * 赞助协议塞进这一类，归档齐备度会凭空变成「已齐」，
+     * 核销第 6 步的关联材料里也会冒出一份不该参与核销的协议。
+     * 赞助合同的原件在会议收入模块里单独归档，那里才是它的去处。
+     */
+    if(fk && !isIncomeCategory(category)) {
       // 将合同台账原件同步登记到本项目的归档“合同”类，不需要上传第二遍。
       // 关联同一上传 key 只是内部同步，不开放客户端重复挂载别的单据。
       db.prepare(`INSERT INTO materials(pid,kind,name,version,uploader,created_at,file_key,file_name,file_size,file_mime)
@@ -176,7 +188,10 @@ function register(router) {
 
     // 合同总额超预算是要预警的业务事实（不是错误，可能确需超支）。
     // 硬拦会让人没法录真实合同，所以只回一个 warning 让前端提示，不阻断。
-    const contractSum = Number(db.prepare("SELECT COALESCE(SUM(amount),0) AS s FROM contracts WHERE pid = ?").get(p.id).s) || 0;
+    // 收入类（赞助）合同不占支出预算，算进去会凭空把「超预算」预警打出来。
+    const contractSum = Number(db.prepare(
+      "SELECT COALESCE(SUM(amount),0) AS s FROM contracts WHERE pid = ? AND " + EXPENSE_CONTRACT_SQL
+    ).get(p.id).s) || 0;
     const budget = Number(p.budget) || 0;
     let warning = "";
     if (budget > 0 && contractSum > budget) {
@@ -213,11 +228,11 @@ function register(router) {
     if (!c) throw notFound("合同不存在");
     const p = getProject(c.pid);
     assertProjectVisible(ctx.user, p);
-    if (["已结算", "已归档"].includes(p.status)) {
-      throw conflict(`项目已「${p.status}」，合同台账已封存，不可再流转状态`, "FROZEN", { status: p.status });
-    }
+    frozenGate(ctx, p, ["已结算", "已归档"].includes(p.status),
+      `项目已「${p.status}」，合同台账已封存，不可再流转状态`, "FROZEN", "合同状态流转");
     if (!isDemoMode() && (p.status === "已核销" ||
         db.prepare("SELECT 1 FROM verify_steps WHERE pid=? AND step_no=6 AND result='通过'").get(p.id))) {
+      // 核销后锁定是核销口径，不是历史冻结：总管理员也不放行
       throw conflict("合同已完成核票或核销，签署状态已锁定", "CONTRACT_VERIFIED");
     }
 
@@ -279,6 +294,127 @@ function register(router) {
     return {
       contract: db.prepare("SELECT * FROM contracts WHERE id = ?").get(c.id),
       message: `合同 ${c.id} ${flow.label}成功，状态 → ${flow.to}`
+    };
+  });
+
+  /**
+   * 合同台账编辑。
+   *
+   * 之前台账只能新增、不能改 —— 类别录错（把赞助协议选成「其他」）、
+   * 金额敲错、签约方写错，都没有任何补救入口，只能删库或者放着不管。
+   * 老板 2026-11-02 要求「收入类合同不关联到材料和核销」，
+   * 这条规则要能落地，就必须允许把存量合同改成「赞助收入」。
+   *
+   * 改动类别时同步处理归档材料：
+   *   改为收入类 → 撤掉当初自动同步的「合同」材料（它是支出合同原件，不该被赞助顶替）
+   *   改回支出类 → 有原件就把「合同」材料补回来
+   */
+  router.patch("/api/contracts/:id", async (ctx) => {
+    const c = db.prepare("SELECT * FROM contracts WHERE id = ?").get(ctx.params.id);
+    if (!c) throw notFound("合同不存在");
+    const p = getProject(c.pid);
+    assertProjectVisible(ctx.user, p);
+    assertCan(ctx.user, "contract:write", "当前角色无合同编辑权限");
+    frozenGate(ctx, p, ["已结算", "已归档"].includes(p.status),
+      `项目已「${p.status}」，合同台账已封存，不可修改`, "FROZEN", "合同编辑");
+
+    const b = ctx.body || {};
+    /**
+     * 核销后的锁定分两层：
+     *   · 金额 / 名称 / 签约方 / 签署日期 —— 动一个就会让「合同总额 = 拟请款总额」失真，谁都不放行
+     *   · 类别 —— 只是「这份合同算不算支出」的分类标签。存量里把赞助协议记成「其他」的
+     *     必须能改回来，否则新规则对老数据永远无效。改类别会重算合同总额，
+     *     所以放行但要留痕，让判定人知道口径变了。
+     */
+    const locked = !isDemoMode() && (p.status === "已核销" ||
+      !!db.prepare("SELECT 1 FROM verify_steps WHERE pid=? AND step_no=6 AND result='通过'").get(p.id));
+    const moneyTouched = ["name", "vendor", "amount", "sign_date"].filter((k) => k in b &&
+      String(b[k] ?? "") !== String(c[k] ?? ""));
+    if (locked && moneyTouched.length) {
+      throw conflict(
+        `合同已完成核票或核销，${moneyTouched.join("、")} 已锁定；如确需更正请先办理核销更正（类别可以单独调整）`,
+        "CONTRACT_VERIFIED", { fields: moneyTouched }
+      );
+    }
+
+    const next = { ...c };
+    if ("name" in b) {
+      const v = String(b.name || "").trim();
+      if (!v) throw bad("合同名称为必填项");
+      if (v.length > CONTRACT_MAX.name) throw bad(`合同名称不能超过 ${CONTRACT_MAX.name} 字`);
+      next.name = v;
+    }
+    if ("vendor" in b) {
+      const v = String(b.vendor || "").trim();
+      if (!v) throw bad("签约方为必填项");
+      if (v.length > CONTRACT_MAX.vendor) throw bad(`签约方不能超过 ${CONTRACT_MAX.vendor} 字`);
+      next.vendor = v;
+    }
+    if ("amount" in b) {
+      const v = Number(b.amount);
+      if (!Number.isFinite(v) || !(v > 0)) throw bad("合同金额必须大于 0");
+      if (v > 1e9) throw bad("合同金额不能超过 10 亿元");
+      if (Number(v.toFixed(2)) !== v) throw bad("合同金额最多保留两位小数");
+      next.amount = v;
+    }
+    if ("category" in b) {
+      const v = String(b.category || "").trim();
+      if (v && !CONTRACT_CATEGORIES.includes(v)) throw bad(`合同类别必须是：${CONTRACT_CATEGORIES.join(" / ")}`);
+      next.category = v || guessContractCategory(next.name);
+    }
+    if ("sign_date" in b) {
+      const v = String(b.sign_date || "").trim();
+      if (v) checkDate(v, "签署日期");
+      next.sign_date = v;
+    }
+    if ("remark" in b) {
+      const v = String(b.remark || "");
+      if (v.length > CONTRACT_MAX.remark) throw bad(`备注不能超过 ${CONTRACT_MAX.remark} 字`);
+      next.remark = v;
+    }
+
+    db.prepare("UPDATE contracts SET name=?, vendor=?, amount=?, category=?, sign_date=?, remark=? WHERE id=?")
+      .run(next.name, next.vendor, next.amount, next.category, next.sign_date, next.remark, c.id);
+
+    const wasIncome = isIncomeCategory(c.category);
+    const nowIncome = isIncomeCategory(next.category);
+    let materialNote = "";
+    if (!wasIncome && nowIncome) {
+      // 撤掉自动同步的那条材料，只认「合同号 · 名称」这个固定格式，不误删人工登记的同名材料
+      const removed = db.prepare(
+        "DELETE FROM materials WHERE pid=? AND kind='合同' AND name=? AND deleted_at IS NULL"
+      ).run(p.id, c.id + " · " + c.name);
+      if (removed.changes) materialNote = `；已撤下归档「合同」类里的同名材料 ${removed.changes} 条`;
+    } else if (wasIncome && !nowIncome && c.file_key) {
+      const exists = db.prepare(
+        "SELECT 1 FROM materials WHERE pid=? AND kind='合同' AND file_key=? AND deleted_at IS NULL"
+      ).get(p.id, c.file_key);
+      if (!exists) {
+        db.prepare(`INSERT INTO materials(pid,kind,name,version,uploader,created_at,file_key,file_name,file_size,file_mime)
+          VALUES (?,?,?,?,?,?,?,?,?,?)`)
+          .run(p.id, "合同", c.id + " · " + next.name, c.status, ctx.user.name, now(),
+            c.file_key, c.file_name, c.file_size, c.file_mime);
+        materialNote = "；已把原件重新登记到归档「合同」类";
+      }
+    }
+
+    const categoryChanged = String(c.category || "") !== String(next.category || "");
+    if (locked && categoryChanged) {
+      // 核销后改类别会重算合同总额，必须单独留一条，别混在普通编辑里
+      logAudit({
+        user: ctx.user, module: "系统配置", action: "核销后合同类别更正", target: p.id,
+        detail: `${c.id}：${c.category || "—"} → ${next.category || "—"}；该项目的核销第 6 步合同总额口径随之变化，需判定人复核`,
+        ip: ctx.ip
+      });
+    }
+    logAudit({
+      user: ctx.user, module: "筹备管理", action: "合同编辑", target: p.id,
+      detail: `${c.id}：类别 ${c.category || "—"} → ${next.category || "—"}；金额 ${c.amount} → ${next.amount}${materialNote}`,
+      ip: ctx.ip
+    });
+    return {
+      contract: db.prepare("SELECT * FROM contracts WHERE id = ?").get(c.id),
+      message: `合同 ${c.id} 已更新${materialNote}`
     };
   });
 
@@ -359,7 +495,7 @@ function register(router) {
 
     const rows = db.prepare(
       `SELECT * FROM contracts WHERE pid=? AND status='已签署' AND file_key IS NOT NULL
-        AND (payee_account_cipher IS NULL OR payee_account_cipher='') ORDER BY id`
+        AND (payee_account_cipher IS NULL OR payee_account_cipher='') AND ` + EXPENSE_CONTRACT_SQL + ` ORDER BY id`
     ).all(p.id).slice(0, 12);
 
     const results = [];
@@ -431,12 +567,10 @@ function register(router) {
      * 先告诉用户「这个项目现在不能付款」，再谈表单缺什么。
      * 权限（上面）与数据范围（上面）仍在最前，不存在绕过。
      */
-    if (p.status === "已归档") {
-      throw conflict("项目已归档，数字卷宗已封存，不可再新增付款", "ARCHIVED", { status: p.status });
-    }
-    if (p.status === "已结算") {
-      throw conflict("项目已生成结算单，账目已封账，不可再新增付款（如需补付请走线下流程并说明）", "SETTLED", { status: p.status });
-    }
+    frozenGate(ctx, p, p.status === "已归档",
+      "项目已归档，数字卷宗已封存，不可再新增付款", "ARCHIVED", "付款申请");
+    frozenGate(ctx, p, p.status === "已结算",
+      "项目已生成结算单，账目已封账，不可再新增付款（如需补付请走线下流程并说明）", "SETTLED", "付款申请");
     if (!PAYABLE_STATUS.includes(p.status)) {
       throw conflict(
         `付款被拦截：项目「${p.name}」当前状态为「${p.status}」，按制度必须先完成 6 步核销并通过（已核销）才可付款`,
@@ -462,7 +596,10 @@ function register(router) {
       const checked=db.prepare("SELECT result, evidence_json FROM verify_steps WHERE pid=? AND step_no=6 AND result='通过'").get(p.id);
       if(!checked || !checked.evidence_json)
         throw conflict("必须先完成会务三单核验（第 6 步）再请款","INVOICE_CHECK_REQUIRED");
-      const signed=db.prepare("SELECT COALESCE(SUM(amount),0) AS total FROM contracts WHERE pid=? AND status='已签署'").get(p.id);
+      // 可请款上限 = 支出类已签合同总额；收入类（赞助）合同不算可请款额度
+      const signed=db.prepare(
+        "SELECT COALESCE(SUM(amount),0) AS total FROM contracts WHERE pid=? AND status='已签署' AND " + EXPENSE_CONTRACT_SQL
+      ).get(p.id);
       const allocated=db.prepare("SELECT COALESCE(SUM(amount),0) AS total FROM payments WHERE pid=? AND status IN ('待审批','已审批','已付款')").get(p.id);
       const requested=Number(b.amount);
       if(Number.isFinite(requested) && cents(allocated.total)+cents(requested)>cents(signed.total))
@@ -843,10 +980,9 @@ function register(router) {
       );
     }
 
-    // 已结算 / 已归档 = 账目已封，改预算会与结算单对不上
-    if (["已结算", "已归档"].includes(p.status)) {
-      throw conflict(`项目已「${p.status}」，账目已封，变更不可再落账`, "FROZEN", { status: p.status });
-    }
+    // 已结算 / 已归档 = 账目已封，改预算会与结算单对不上；总管理员可例外落账并留痕
+    frozenGate(ctx, p, ["已结算", "已归档"].includes(p.status),
+      `项目已「${p.status}」，账目已封，变更不可再落账`, "FROZEN", "变更落账");
 
     let detail = `${a.id}：${a.title}`;
     let budgetInfo = null;

@@ -5,7 +5,9 @@ const {validateSopEvidence}=require("../server/lib/meeting-sop");
 const p={id:"MP-SOP-MIX",name:"专家学术交流",date:"2027-11-01",assoc:"华东医学会",form:"线下"};
 function proof(total,billable,hasInvoice=true){
  return {prepare(sql){return {get(){
-   if(sql.includes("FROM contracts"))return {total:sql.includes("COALESCE(category")?billable:total};
+   // 第 6 步有两条合同查询：合同总额（全部支出合同）与「可开票」金额（排除劳务专家）。
+   // 用「排除劳务专家」这个条件区分，别用 COALESCE(category —— 收入类排除条件里也有它。
+   if(sql.includes("FROM contracts"))return {total:sql.includes("<>'劳务专家'")?billable:total};
    if(sql.includes("FROM materials"))return {n:hasInvoice?1:0};
    return {n:1};
   }};}};

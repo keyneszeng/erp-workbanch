@@ -248,7 +248,7 @@ function register(router) {
     // 资料修改：总管理员恒可；其余需协会管理员及以上，且已结算 / 已归档项目不可改
     if (!isSuper(ctx.user)) {
       if (!["assoc"].includes(ctx.user.role)) throw forbidden("资料修改需要协会管理员或总管理员权限");
-      if (p.status === "已归档") throw conflict("已归档项目资料已封存，不可修改");
+      if (p.status === "已归档") throw conflict("已归档项目资料已封存，不可修改", "ARCHIVED", { status: p.status });
       // 已结算 = 账目封账，结算单已按当时的预算与合同算完。
       // 此处若不拦，改完预算就和结算单永久对不上了（原来只拦了「已归档」）。
       if (p.status === "已结算") {
@@ -272,17 +272,26 @@ function register(router) {
     let forced = false;
 
     // 金额类字段是结算单的计算基准，已结算 / 已归档后改动会让账实不符。
-    // 保留总管理员的纠错能力，但必须显式带 force，和付款超预算的特批口径一致。
+    // 总管理员放行（老板 2026-11-02：冻结内容总管理员也要能改），
+    // 不再额外要求带 force —— 前端表单根本不发这个字段，要求它等于把路堵死。
+    // 但只要真的改动了冻结项目的账目基准，就标成 forced 进审计，纠错必须可追溯。
     if (["已结算", "已归档"].includes(p.status)) {
       const touched = MONEY_FIELDS.filter((k) => k in b && Number(b[k]) !== Number(p[k]));
       if (touched.length) {
-        if (!(b.force && isSuper(ctx.user))) {
+        if (!isSuper(ctx.user)) {
           throw conflict(
             `项目已「${p.status}」，${touched.map((k) => MONEY_LABEL[k] || k).join("、")} 属于账目基准数据，` +
-            `改动会与已生成的结算单不一致；如确需纠错，请由总管理员携带 force 标记提交`,
+            `改动会与已生成的结算单不一致；如确需纠错，请由总管理员操作`,
             "FROZEN", { status: p.status, fields: touched }
           );
         }
+        // 放行必须单独留一条「冻结放行」：账目基准被改过这件事，
+        // 在项目自己的修改日志里是看不出来的，事后对账要先能查到人。
+        logAudit({
+          user: ctx.user, module: "系统配置", action: "冻结放行", target: p.id,
+          detail: `项目资料：${touched.map((k) => MONEY_LABEL[k] || k).join("、")} 在「${p.status}」状态下由总管理员例外修改`,
+          ip: ctx.ip
+        });
         forced = true;
       }
     }
@@ -348,7 +357,7 @@ function register(router) {
     assertCan(ctx.user, "project:member", "只有协会管理员或总管理员可以调整项目成员");
     // 成员关系直接决定数据范围：结算 / 归档后再加人，
     // 等于让新人凭一次操作就能看到已经封账的项目与封存的卷宗。
-    assertNotFrozen(p, "项目成员");
+    assertNotFrozen(p, "项目成员", ctx.user, ctx.ip);
     const { user_id, remove } = ctx.body || {};
     const u = db.prepare("SELECT * FROM users WHERE id = ?").get(Number(user_id));
     if (!u) throw notFound("用户不存在");

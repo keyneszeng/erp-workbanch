@@ -121,3 +121,28 @@ test("正式结算单不能提前生成；核销只校验拟结算金额与会�
  expectBlock(6,{...e,draftAmount:999},project,1000);
  expectBlock(6,{...e,meetingName:"其他会议"},project,1000);
 });
+
+/**
+ * 老板 2026-11-02：「收入类（赞助类）合同不关联到材料和核销」。
+ * 第 6 步的「合同总额」只能是支出合同之和 —— 赞助是钱进来，
+ * 算进去会让拟请款总额永远对不上，而且看着像是要付一笔钱给赞助商。
+ */
+test("第六步：收入类（赞助）合同不计入合同总额",()=>{
+  const e={draftAmount:8000,meetingName:project.name,meetingDate:project.date};
+  const seen=[];
+  const db={
+    prepare(sql){
+      seen.push(sql);
+      return {get(){
+        if(/FROM materials/i.test(sql))return {n:1};
+        // 只有带排除条件的查询才拿得到支出合同总额；不排除时是 8000+15000
+        return {n:1,total:/赞助收入/.test(sql)?8000:23000};
+      }};
+    }
+  };
+  assert.equal(validateSopEvidence(6,e,project,db).draftAmount,8000);
+  assert.ok(seen.some(s=>/FROM contracts/i.test(s)&&/赞助收入/.test(s)),
+    "第 6 步的合同总额查询必须排除收入类合同："+JSON.stringify(seen));
+  // 判定人按支出合同总额 8000 填：如果口径没排除赞助（23000），这里会被拒
+  assert.throws(()=>validateSopEvidence(6,{...e,draftAmount:23000},project,db),/8000/);
+});

@@ -194,7 +194,7 @@ function register(router) {
     if (!p) throw notFound("会议项目不存在");
     assertProjectVisible(ctx.user, p);
     // 结算后需求单是执行依据的原始记录，归档后更属封存卷宗，都不该再改
-    assertNotFrozen(p, "会务需求");
+    assertNotFrozen(p, "会务需求", ctx.user, ctx.ip);
     assertNotArchived(db.prepare("SELECT * FROM demand_sheets WHERE pid = ?").get(p.id));
     const b = ctx.body || {};
     if (!Array.isArray(b.items)) throw bad("缺少 items 数组");
@@ -259,7 +259,7 @@ function register(router) {
     const p = getProject(ctx.params.id);
     if (!p) throw notFound("会议项目不存在");
     assertProjectVisible(ctx.user, p);
-    assertNotFrozen(p, "会务需求");
+    assertNotFrozen(p, "会务需求", ctx.user, ctx.ip);
     const sheetRow = db.prepare("SELECT * FROM demand_sheets WHERE pid = ?").get(p.id);
     if (sheetRow && sheetRow.confirmed) throw conflict("会务需求已归档，无需重复确认", "DEMAND_ARCHIVED");
     const at = now();
@@ -297,7 +297,7 @@ function register(router) {
     const p = getProject(ctx.params.id);
     if (!p) throw notFound("会议项目不存在");
     assertProjectVisible(ctx.user, p);
-    assertNotFrozen(p, "会务需求");
+    assertNotFrozen(p, "会务需求", ctx.user, ctx.ip);
     const sheetRow = db.prepare("SELECT * FROM demand_sheets WHERE pid = ?").get(p.id);
     if (!sheetRow || !sheetRow.confirmed) throw conflict("会务需求尚未归档，无需撤销", "NOT_ARCHIVED");
     const at = now();
@@ -320,7 +320,7 @@ function register(router) {
     if (!p) throw notFound("会议项目不存在");
     assertProjectVisible(ctx.user, p);
     // 重置会 DELETE 全部条目，冻结后执行等于销毁历史，比「修改」更该拦
-    assertNotFrozen(p, "会务需求");
+    assertNotFrozen(p, "会务需求", ctx.user, ctx.ip);
     assertNotArchived(db.prepare("SELECT * FROM demand_sheets WHERE pid = ?").get(p.id));
     db.prepare("DELETE FROM demand_items WHERE pid = ?").run(p.id);
     db.prepare("DELETE FROM demand_sheets WHERE pid = ?").run(p.id);

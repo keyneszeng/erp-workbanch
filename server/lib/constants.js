@@ -56,7 +56,25 @@ const MATERIAL_KINDS = [
  * 那份「会场租赁及餐饮」被摆到了劳务核对里，看着就像专家费走了场地合同。
  * 类别是给「这一步该核哪几份合同」用的，不是装饰。
  */
-const CONTRACT_CATEGORIES = ["场地餐饮", "物料搭建", "劳务专家", "设备技术", "其他"];
+const CONTRACT_CATEGORIES = ["场地餐饮", "物料搭建", "劳务专家", "设备技术", "其他", "赞助收入"];
+
+/**
+ * 收入类（赞助）合同 —— 钱进来，不是钱出去。
+ *
+ * 赞助合同的正规台账是「会议收入」模块（meeting_sponsor_contracts）。
+ * 但现实里财务也会把同一份协议录进合同台账，好让原件、编号有个统一去处。
+ * 只要在台账里选了「赞助收入」，它就必须被当成收入看：
+ *   · 不占用支出预算，不计入「合同总额」
+ *   · 不进核销第 6 步的「合同总额 = 拟请款总额」
+ *   · 不会被同步成归档必备的「合同」类材料
+ *   · 不出现在付款申请的收款方候选里（赞助是收款，不是付款）
+ * 以前没有这个类别，赞助合同只能选「其他」，于是被当成支出算进了核销，
+ * 一份 15000 的赞助让「合同总额」凭空多了 15000，第 6 步永远对不上。
+ */
+const INCOME_CONTRACT_CATEGORY = "赞助收入";
+const isIncomeCategory = (c) => String(c || "").trim() === INCOME_CONTRACT_CATEGORY;
+/** SQL 片段：只要支出类合同（排除收入/赞助类），直接拼进 WHERE */
+const EXPENSE_CONTRACT_SQL = "COALESCE(category,'')<>'" + INCOME_CONTRACT_CATEGORY + "'";
 
 /**
  * 按合同名称猜类别 —— 只用于两处：老库升级时给历史数据补一个初始值，
@@ -148,4 +166,4 @@ const DEMAND_NEED_OPTIONS = ["需要", "不需要"];
  */
 const DEMAND_STATUSES = ["筹备中", "执行中"];
 
-module.exports = { ASSOCS, FORMS, DEPTS, PAYMENT_TYPES, VERIFY_STEPS, MATERIAL_KINDS, MATERIAL_MODULE_KINDS, CONTRACT_CATEGORIES, guessContractCategory, FLOW, STATUS_DESC, DEMAND_GROUPS, DEMAND_TEMPLATE, DEMAND_NEED_OPTIONS, DEMAND_STATUSES };
+module.exports = { ASSOCS, FORMS, DEPTS, PAYMENT_TYPES, VERIFY_STEPS, MATERIAL_KINDS, MATERIAL_MODULE_KINDS, CONTRACT_CATEGORIES, INCOME_CONTRACT_CATEGORY, isIncomeCategory, EXPENSE_CONTRACT_SQL, guessContractCategory, FLOW, STATUS_DESC, DEMAND_GROUPS, DEMAND_TEMPLATE, DEMAND_NEED_OPTIONS, DEMAND_STATUSES };

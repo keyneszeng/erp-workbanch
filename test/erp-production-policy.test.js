@@ -203,6 +203,22 @@ test("production: association member IDs, approved contract signing and pay-afte
   const freeze=await request("POST","/api/contracts",{pid,name:"Late Contract",vendor:"X",amount:1,status:"草稿"},cookie);
   assert.equal(freeze.status,409,"contracts must freeze after invoice verification");
 
+  /**
+   * 2026-11-02：核销后的锁定分两层。
+   * 金额动了会让「合同总额 = 拟请款总额」失真 → 谁都不放行；
+   * 类别只是「这份合同算不算支出」的标签，存量里把赞助协议记成「其他」的必须能改回来，
+   * 否则「收入类合同不参与核销」这条规则对老数据永远无效。
+   */
+  const contractId=contract.body.contract.id;
+  const moneyFix=await request("PATCH","/api/contracts/"+contractId,{amount:7000},cookie);
+  assert.equal(moneyFix.status,409,"核销后金额必须锁定");
+  assert.equal(moneyFix.body.error.code,"CONTRACT_VERIFIED");
+  const catFix=await request("PATCH","/api/contracts/"+contractId,{category:"赞助收入"},cookie);
+  assert.equal(catFix.status,200,"核销后类别应允许更正："+JSON.stringify(catFix.body));
+  assert.equal(catFix.body.contract.category,"赞助收入");
+  const catBack=await request("PATCH","/api/contracts/"+contractId,{category:"其他"},cookie);
+  assert.equal(catBack.status,200,JSON.stringify(catBack.body));
+
   // 模拟升级前的历史核销结果：字段标记「通过」但缺结构化证据，不能解锁财务结算。
   const { DatabaseSync }=require("node:sqlite");
   const migrationDb=new DatabaseSync(path.join(dir,"test.db"));

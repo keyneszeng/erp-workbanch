@@ -35,9 +35,15 @@ function fileCell(c) {
 export async function render(root) {
   const [c, proj] = await Promise.all([api.get("/api/contracts"), api.get("/api/projects")]);
   const rows = c.rows.filter((r) => !q || (r.name + r.vendor + r.pname + r.id).includes(q));
-  const total = rows.reduce((s, r) => s + r.amount, 0);
-  const signed = rows.filter((r) => r.status === "已签署").reduce((s, r) => s + r.amount, 0);
-  const withFile = rows.filter((r) => r.file_key).length;
+  // 收入类（赞助）合同是钱进来，不能混进「合同总额 / 已签署金额」——
+  // 那两个数是核销第 6 步和付款额度的比对基准，掺进赞助款就全对不上了。
+  const isIncome = (r) => String(r.category || "").trim() === "赞助收入";
+  const spendRows = rows.filter((r) => !isIncome(r));
+  const incomeRows = rows.filter(isIncome);
+  const total = spendRows.reduce((s, r) => s + r.amount, 0);
+  const signed = spendRows.filter((r) => r.status === "已签署").reduce((s, r) => s + r.amount, 0);
+  const incomeTotal = incomeRows.reduce((s, r) => s + r.amount, 0);
+  const withFile = spendRows.filter((r) => r.file_key).length;
 
   root.innerHTML = `<div class="phead">
       <div><h2>合同台账</h2><p>合同金额是核销第 6 步与付款金额的比对基准</p></div>
@@ -47,13 +53,13 @@ export async function render(root) {
       </div>
     </div>
     <div class="grid g4">
-      <div class="kpi"><div class="t">合同数</div><div class="v">${rows.length}<span class="u">份</span></div></div>
-      <div class="kpi k2"><div class="t">合同总额</div><div class="v">¥${money(total)}</div></div>
+      <div class="kpi"><div class="t">支出合同数</div><div class="v">${spendRows.length}<span class="u">份</span></div></div>
+      <div class="kpi k2"><div class="t">合同总额（支出）</div><div class="v">¥${money(total)}</div></div>
       <div class="kpi k4"><div class="t">已签署金额</div><div class="v">¥${money(signed)}</div></div>
-      <div class="kpi k3"><div class="t">已传原件</div><div class="v">${withFile}<span class="u">/${rows.length}</span></div></div>
+      <div class="kpi k3"><div class="t">收入类赞助</div><div class="v">¥${money(incomeTotal)}<span class="u">${incomeRows.length} 份</span></div></div>
     </div>
     <div class="panel mt">
-      <div class="panel-h"><h2>合同清单</h2><span class="hint">${rows.length} 份</span></div>
+      <div class="panel-h"><h2>合同清单</h2><span class="hint">${rows.length} 份 · 支出 ${spendRows.length}（原件 ${withFile}）· 收入 ${incomeRows.length} · 收入类不计入合同总额与核销</span></div>
       <div class="filters"><input type="search" id="q" placeholder="搜索合同 / 签约方 / 项目" value="${esc(q)}"></div>
       ${table(
         [{ t: "合同编号", w: "112px" }, { t: "项目", w: "170px" }, { t: "合同名称" }, { t: "签约方", w: "150px" },
@@ -61,7 +67,9 @@ export async function render(root) {
          { t: "原件", w: "104px" }, { t: "操作", w: "96px" }],
         rows.map((r) => ({
           c: [`<span class="mono">${r.id}</span>`, `<a class="link" data-go="projects/${r.pid}">${esc(r.pname)}</a>`,
-            `${esc(r.name)}<span class="cat">${esc(r.category || "未分类")}</span>`,
+            `${esc(r.name)}${can("contract:write")
+              ? `<button class="cat cat-edit" data-cedit="${r.id}" title="点击修改合同类别（收入类赞助合同不计入核销）">${esc(r.category || "未分类")}</button>`
+              : `<span class="cat">${esc(r.category || "未分类")}</span>`}`,
             esc(r.vendor), `¥${money(r.amount)}`, `<span class="mono">${esc(r.sign_date || "—")}</span>`,
             badge(r.status), fileCell(r), flowBtn(r)+(r.status==="待签署"&&can("contract:approve")?` <button class="link danger" data-cflow="${r.id}" data-caction="reject">驳回</button>`:"")]
         })), { empty: "暂无合同" })}
@@ -76,6 +84,12 @@ export async function render(root) {
   const nb = root.querySelector("#newC");
   if (nb) nb.onclick = () => openCreate(root, proj.rows);
   root.querySelectorAll("[data-cflow]").forEach((b) => b.onclick = () => contractFlow(root, b.dataset.cflow, b.dataset.caction));
+  root.querySelectorAll("[data-cedit]").forEach((b) => {
+    b.onclick = () => {
+      const row = rows.find((r) => r.id === b.dataset.cedit);
+      if (row) openCategoryEdit(root, row);
+    };
+  });
   // 详情弹窗：从当前过滤后的 rows 里取，避免为了看一眼原件再打一次接口
   root.querySelectorAll("[data-cdet]").forEach((b) => {
     b.onclick = () => {
@@ -83,6 +97,39 @@ export async function render(root) {
       if (row) openContractDetail(row, { onDone: () => render(root) });
     };
   });
+}
+
+/**
+ * 改合同类别。
+ *
+ * 台账原来只能新增不能改，类别选错了没有任何补救入口。
+ * 现在类别直接决定这份合同算不算进核销，所以必须能改 —— 尤其是
+ * 把误记成「其他」的赞助协议改成「赞助收入」，它才会退出核销与付款。
+ */
+function openCategoryEdit(root, row) {
+  const fields = [
+    { k: "category", l: "合同类别", t: "select", req: 1, v: row.category || "",
+      opts: state.meta.contractCategories || [],
+      tip: "「赞助收入」= 收入类合同：不占支出预算、不计入核销第 6 步的合同总额、不生成归档合同材料、不出现在付款收款方里" },
+    { k: "remark", l: "备注", t: "textarea", full: 1, rows: 2, v: row.remark || "" }
+  ];
+  const m = modal({
+    title: `修改合同类别 · ${row.id}`,
+    body: `<div class="hint" style="margin-bottom:10px">${esc(row.name)}<br>签约方 ${esc(row.vendor)} · ¥${money(row.amount)} · ${esc(row.status)}</div>${formHtml(fields)}`,
+    footer: `<button class="btn btn-o" data-x="0">取消</button><button class="btn btn-p" data-x="1">保存</button>`
+  });
+  m.querySelector('[data-x="0"]').onclick = () => m.classList.remove("open");
+  m.querySelector('[data-x="1"]').onclick = async (e) => {
+    if (!validate(m, fields)) return;
+    const btn = e.currentTarget;
+    btn.disabled = true;
+    try {
+      const r = await api.patch(`/api/contracts/${row.id}`, readForm(m));
+      toast(r.message || "合同类别已更新", "ok");
+      m.classList.remove("open");
+      await render(root);
+    } catch (err) { toast(err.message, "warn"); btn.disabled = false; }
+  };
 }
 
 /** 合同两步流转：提交签署 → 确认签署（确认时签署日期记为今天，可在台账核对） */
@@ -115,7 +162,7 @@ function openCreate(root, projects) {
     { k: "payee_account", l: "收款账号（选填）", ph: "10~25 位数字" },
     { k: "amount", l: "合同金额（元）", t: "number", req: 1 },
     { k: "category", l: "合同类别", t: "select", opts: state.meta.contractCategories || [],
-      tip: "核销第 5 步「劳务与专家费核对」只列「劳务专家」类，其余类别在第 6 步全量对照里核" },
+      tip: "核销第 5 步「劳务与专家费核对」只列「劳务专家」类，其余类别在第 6 步全量对照里核。收入类（企业赞助）请选「赞助收入」——它不占支出预算、不计入核销合同总额、不生成归档合同材料，也不出现在付款收款方里" },
     { k: "sign_date", l: "签署日期", t: "date" },
     // 录入只能选草稿 / 待签署：已签署必须走「确认签署」，
     // 否则两步流转等于没做，台账上的「已签署金额」也没有可信来源

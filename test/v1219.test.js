@@ -26,7 +26,7 @@ const BASE = `http://127.0.0.1:${PORT}`;
 const DB = path.join(__dirname, "..", "data", "test28.db");
 const UP = path.join(__dirname, "..", "data", "test28-uploads");
 let proc;
-let admin;
+let admin, assoc;
 
 function clean() {
   for (const f of [DB, DB + "-wal", DB + "-shm"]) if (fs.existsSync(f)) fs.renameSync(f, f + ".old");
@@ -88,6 +88,7 @@ before(async () => {
   });
   await waitHealth();
   admin = client(await login("admin"));
+  assoc = client(await login("assoc"));
 });
 
 after(() => { if (proc) proc.kill("SIGTERM"); });
@@ -193,7 +194,8 @@ test("归档门禁没被削弱：结算前删掉一类材料，归档仍被拦",
   assert.equal(ar.status, 409, `材料缺一类不该能归档，实际 ${ar.status}`);
   assert.match(ar.data.error.message, /归档材料缺/);
 
-  const late=await admin("POST", `/api/projects/${pid}/materials`, {kind:"签到表",name:"结算后补录"});
+  // 总管理员 2026-11-02 起可放行冻结，所以「结算后不能补材料」要用协会管理员验
+  const late=await assoc("POST", `/api/projects/${pid}/materials`, {kind:"签到表",name:"结算后补录"});
   assert.equal(late.status,409,"结算后不能绕过核销补入材料");
   const ar2=await admin("POST", `/api/projects/${pid}/transition`,{action:"archive"});
   assert.equal(ar2.status,409,"材料缺失须继续锁定归档，走受控更正流程");

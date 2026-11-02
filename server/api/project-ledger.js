@@ -7,6 +7,7 @@
 const { db }=require("../lib/db");
 const { assertCan }=require("../lib/rbac");
 const { getProject }=require("../lib/workflow");
+const { isIncomeCategory }=require("../lib/constants");
 const { bad, yuan, cents }=require("../lib/util");
 
 function requireAdmin(ctx) {
@@ -36,8 +37,13 @@ const raw=(pid)=>{
 
 function summarize(x){
   const {project:p,contracts, payments,settlement,materials}=x;
-  const signed=total(contracts,r=>r.status==="已签署");
-  const signedTotal=total(contracts);
+  // 台账口径与核销一致：合同总额只算支出类，收入类（赞助）合同单列，
+  // 否则「合同总额」会把赞助款也当成要付出去的钱。
+  const expenseContracts=contracts.filter(r=>!isIncomeCategory(r.category));
+  const incomeContracts=contracts.filter(r=>isIncomeCategory(r.category));
+  const signed=total(expenseContracts,r=>r.status==="已签署");
+  const signedTotal=total(expenseContracts);
+  const incomeTotal=total(incomeContracts);
   const paid=total(payments,r=>r.status==="已付款");
   const active=total(payments,r=>r.status!=="已驳回");
   const pending=total(payments,r=>r.status==="待审批"||r.status==="已审批");
@@ -49,16 +55,17 @@ function summarize(x){
   const invoiceNumberCount=payments.filter(r=>String(r.invoice_no||"").trim()).length;
   const invoiceFileCount=materials.filter(r=>/发票/.test(r.kind)&&!!r.file_key).length;
   const paymentVoucherFiles=materials.filter(r=>/付款凭证|厂家付款凭证/.test(r.kind)&&!!r.file_key).length;
-  const contractFileCount=contracts.filter(r=>!!r.file_key).length;
+  const contractFileCount=expenseContracts.filter(r=>!!r.file_key).length;
   const warnings=[];
   if(payments.some(r=>r.status==="待审批"||r.status==="已审批")) warnings.push("仍有待审批/待支付的付款单，未完成对账");
   if(invoiceNumberCount>0 && invoiceFileCount===0) warnings.push("存在发票号码登记，但没有关联的发票原件；仅有发票号不代表发票已归档");
   if(payments.some(r=>r.type==="厂家款")) warnings.push("现有「厂家款」属于付款类型，并不能据此判定厂家款已到账；厂家付款凭证需要独立关联");
   if(settlement && cents(settlement.expense)!==cents(paid)) warnings.push("结算单支出与已付款合计不一致，请人工核对口径与时点");
-  if(contracts.some(r=>r.status==="已签署"&&!r.file_key)) warnings.push("存在已签署合同但未关联电子合同原件");
+  if(expenseContracts.some(r=>r.status==="已签署"&&!r.file_key)) warnings.push("存在已签署合同但未关联电子合同原件");
   const sums={
     budget:val(p.budget),
     contract_total:signedTotal,signed_contracts:signed,
+    income_contract_total:incomeTotal,income_contracts:incomeContracts.length,
     payment_effective:active,payment_paid:paid,payment_pending:pending,
     budget_remaining:yuan((cents(p.budget)-cents(active))/100),
     settlement_income:settlement?val(settlement.income):null,
@@ -70,7 +77,8 @@ function summarize(x){
     meeting_no:p.id,project_name:p.name,association:p.assoc,meeting_date:p.date,
     project_status:p.status,canonical_key:"projects.id",
     financial_summary:sums,payment_types:payTypes,
-    document_coverage:{contracts:contracts.length,contract_original_files:contractFileCount,
+    document_coverage:{contracts:expenseContracts.length,contract_original_files:contractFileCount,
+      income_contracts:incomeContracts.length,
       invoice_numbers:invoiceNumberCount,invoice_original_files:invoiceFileCount,
       payment_voucher_files:paymentVoucherFiles,financial_material_records:materials.length},
     warnings

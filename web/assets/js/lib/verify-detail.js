@@ -93,11 +93,14 @@ export function stepBody(d,no){
     3:"线上有效讲者在线时长 >30 分钟；线下有签到；混合两项都需要。",
     4:"课件课题匹配终版议程，串场题目及主办方 logo 匹配；药企 logo 只允许首页、尾页、鸣谢页。",
     5:"劳务收集表与劳务/专家类合同逐人比对姓名/时间/角色/金额/银行账号；银行账号不保存在核销证据中。",
-    6:"已签合同总额须等于拟请款总额；专家劳务按第五步核验的协议与劳务表免票请款。"
+    6:"已签支出合同总额须等于拟请款总额（收入类赞助合同不计入）；专家劳务按第五步核验的协议与劳务表免票请款。"
   };
   const selected=(d.materials||[]).filter(m=>names.includes(m.kind));
-  const contractTotal=(d.contracts||[]).filter(x=>x.status==="已签署").reduce((sum,x)=>sum+Number(x.amount||0),0);
-  const laborContracts=(d.contracts||[]).filter(x=>x.category==="劳务专家");
+  // 收入类（赞助）合同不参与核销：它不产生支出，算进合同总额会让拟请款永远对不上
+  const isIncome=(x)=>String(x?.category||"").trim()==="赞助收入";
+  const spendContracts=(d.contracts||[]).filter(x=>!isIncome(x));
+  const contractTotal=spendContracts.filter(x=>x.status==="已签署").reduce((sum,x)=>sum+Number(x.amount||0),0);
+  const laborContracts=spendContracts.filter(x=>x.category==="劳务专家");
   const expertPayments=(d.payments||[]).filter(x=>["专家费","个人报销"].includes(x.type));
   const evidence=step?.evidence;
   return `<div class="dsec"><h4>业务核验规则</h4><div class="dchk">${esc(note[no]||"请核对资料")}</div></div>
@@ -230,8 +233,10 @@ function renderTopics(box, t) {
 export function openJudgeModal(d, no, opt = {}) {
   const step = d.verification.steps.find((x) => x.no === no);
   if (!step) return null;
-  // 第 6 步要填「拟请款总额」= 所有已签合同之和，直接算好带进表单，免得判定人靠猜
-  const signedTotal = (d.contracts || []).filter((x) => x.status === "已签署")
+  // 第 6 步要填「拟请款总额」= 所有已签**支出**合同之和（收入类赞助合同不算），
+  // 直接算好带进表单，免得判定人靠猜
+  const signedTotal = (d.contracts || [])
+    .filter((x) => x.status === "已签署" && String(x.category || "").trim() !== "赞助收入")
     .reduce((a, x) => a + Number(x.amount || 0), 0);
 
   const m = modal({

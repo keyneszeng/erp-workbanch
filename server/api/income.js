@@ -48,7 +48,9 @@ function incomeSummary(pid,budget) {
 function writable(ctx,p,perm){
   assertProjectVisible(ctx.user,p);
   assertCan(ctx.user,perm);
-  assertNotFrozen(p,"会议赞助收入");
+  // 已归档 / 已结算 = 历史冻结，总管理员可例外维护并留痕
+  assertNotFrozen(p,"会议赞助收入",ctx.user,ctx.ip);
+  // 已核销后的收入凭证冻结属于核销口径，不是历史冻结，总管理员也不放行
   if(p.status==="已核销")throw conflict("项目已核销，收入凭证冻结，须先办理核销更正","INCOME_FROZEN");
 }
 /** 协会简称：去掉「医学会 / 协会 / 学会 / 分会」后缀，最多 4 字（华东医学会 → 华东） */

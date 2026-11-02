@@ -58,7 +58,7 @@ function requireManager(ctx, id, allowView = false) {
   assertCan(ctx.user, "invite:manage", "嘉宾/企业邀请仅总管理员、协会管理员和授权会务执行人员可操作");
   if (!allowView) {
     if (!liveConfig().enabled) throw conflict("邀请函功能尚未启用，请联系总管理员在系统配置中开启","INVITATION_DISABLED");
-    assertNotFrozen(p, "邀请函");
+    assertNotFrozen(p, "邀请函", ctx.user, ctx.ip);
     if (!prepareStatuses.has(p.status)) {
       throw conflict("邀请函应在项目立项完成后的筹备阶段生成", "PREPARATION_REQUIRED", { status: p.status });
     }

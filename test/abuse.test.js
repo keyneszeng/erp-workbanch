@@ -338,9 +338,14 @@ test("并发 20 次只读请求全部成功", async () => {
 });
 
 /* ---------------- 封账 / 封存 ---------------- */
+/**
+ * 2026-11-02 起：冻结只拦非总管理员。
+ * 总管理员是纠错兜底（老板明确要求「冻结内容总管理员也要能改」），
+ * 所以这一组必须用协会管理员来验「冻结还拦得住」，用 admin 验会假通过。
+ */
 
 test("已结算项目不得再新增付款（账目已封账）", async () => {
-  const r = await admin("POST", "/api/payments", {
+  const r = await assoc("POST", "/api/payments", {
     pid: "MP-2026-016", type: "学会公付", payee: "封账测试", amount: 100, force: true
   , payee_bank: "中国银行北京分行", payee_account: "3210987654321098"});
   assert.equal(r.status, 409, "已结算项目新增付款应 409");
@@ -348,20 +353,41 @@ test("已结算项目不得再新增付款（账目已封账）", async () => {
 });
 
 test("已归档项目不得录合同 / 登记材料", async () => {
-  const c = await admin("POST", "/api/contracts", {
+  // MP-2026-007 属于肿瘤分会，先把协会对齐，否则会先被数据范围挡成 403
+  await admin("PATCH", "/api/projects/MP-2026-007", { assoc: "华东医学会" });
+  const c = await assoc("POST", "/api/contracts", {
     pid: "MP-2026-007", name: "归档后合同", vendor: "测试方", amount: 1000
   });
   assert.equal(c.status, 409, "已归档项目录合同应 409");
   assert.equal(c.data.error.code, "ARCHIVED");
-  const m = await admin("POST", "/api/projects/MP-2026-007/materials", { kind: "合同协议", name: "归档后材料" });
+  const m = await assoc("POST", "/api/projects/MP-2026-007/materials", { kind: "合同协议", name: "归档后材料" });
   assert.equal(m.status, 409, "已归档项目登记材料应 409");
 });
 
 test("已结算 / 已归档项目不得再提交例外单", async () => {
   for (const pid of ["MP-2026-016", "MP-2026-007"]) {
-    const r = await admin("POST", `/api/projects/${pid}/exceptions`, { step_no: 1, reason: "封存后补录" });
+    const r = await assoc("POST", `/api/projects/${pid}/exceptions`, { step_no: 1, reason: "封存后补录" });
     assert.equal(r.status, 409, `${pid} 提交例外单应 409，实际 ${r.status}`);
   }
+});
+
+test("冻结放行：同一批封账/封存项目，总管理员可以操作且留痕", async () => {
+  const pay = await admin("POST", "/api/payments", {
+    pid: "MP-2026-016", type: "学会公付", payee: "封账后补付", amount: 100, force: true,
+    payee_bank: "中国银行北京分行", payee_account: "3210987654321098"
+  });
+  assert.notEqual(pay.data?.error?.code, "SETTLED", "总管理员不应再被封账拦住：" + JSON.stringify(pay.data));
+
+  const con = await admin("POST", "/api/contracts", {
+    pid: "MP-2026-007", name: "归档后补录合同", vendor: "测试方", amount: 1000
+  });
+  assert.notEqual(con.data?.error?.code, "ARCHIVED", "总管理员不应再被归档拦住：" + JSON.stringify(con.data));
+
+  const audit = (await admin("GET", "/api/audit?page=1&size=300")).data;
+  const rows = Array.isArray(audit) ? audit : audit.rows || [];
+  const hits = rows.filter((x) => x.action === "冻结放行");
+  assert.ok(hits.length > 0, "总管理员放行必须写「冻结放行」审计");
+  assert.ok(hits.every((x) => /总管理员/.test(String(x.detail || ""))), "审计里要写明是总管理员例外操作");
 });
 
 test("健康检查不泄露数据库路径等内部信息", async () => {

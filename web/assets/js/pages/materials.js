@@ -1,4 +1,4 @@
-import { api, can } from "../lib/api.js";
+import { api, can, state } from "../lib/api.js";
 import { bindPager, esc, formHtml, modal, pager, panel, readForm, table, toast, validate } from "../lib/ui.js";
 import { checkFile, compressImage, fileUrl } from "../lib/upload.js";
 import { fileLink } from "../lib/file-preview.js";
@@ -10,6 +10,8 @@ let curPage = 1;
 export async function render(root) {
   const d = await api.get(`/api/materials?page=${curPage}&size=${PAGE_SIZE}`);
   const complete = d.projects.filter((p) => p.missing.length === 0).length;
+  // 历史冻结材料只有总管理员能看：软删不是销毁，误删之后得有个恢复的入口
+  const frozen = state.super ? await api.get("/api/materials?frozen=1").catch(() => ({ rows: [] })) : { rows: [] };
 
   root.innerHTML = `<div class="phead">
       <div><h2>材料中心</h2><p>模块化采集 · 按会议管理版本、原件与归档齐备度</p></div>
@@ -52,10 +54,37 @@ export async function render(root) {
         { empty: "暂无材料" })}
       ${pager(d, { unit: "条" })}
     </div>
+
+    ${frozen.rows.length ? `<div class="panel">
+      <div class="panel-h"><h2>历史冻结材料</h2><span class="hint">已软删 · 原件与审计保留 · 总管理员可恢复</span></div>
+      <div class="gate ok" style="margin-bottom:10px"><b>为什么会有这一栏</b>材料删除只做软删，记录仍在库里，但默认不出现在清单里。
+        误删一份发票或终版议程，归档齐备度和核销第 6 步就再也补不回来 —— 这里可以把它解冻。</div>
+      ${table([{ t: "项目", w: "170px" }, { t: "类别", w: "92px" }, { t: "名称" }, { t: "附件", w: "86px" },
+        { t: "删除人", w: "76px" }, { t: "冻结时间", w: "140px" }, { t: "操作", w: "90px" }],
+        frozen.rows.map((m) => ({
+          c: [`<a class="link" data-go="projects/${m.pid}">${esc(m.pname || m.pid)}</a>`, esc(m.kind),
+            esc(m.name),
+            m.file_key ? fileLink(m.file_key, m.file_name || m.name, "在线查看附件") : '<span style="color:var(--mute)">—</span>',
+            esc(m.deleted_by || "—"), `<span class="mono">${esc(m.deleted_at || "")}</span>`,
+            `<button class="link" data-restore="${m.id}">恢复</button>`]
+        })),
+        { empty: "暂无冻结材料" })}
+    </div>` : ""}
 `;
 
   bindPager(root, (n) => { curPage = n; render(root); });
   renderMaterialWorkbench(root.querySelector("#materialWorkbench"),d.projects).catch(e=>toast(e.message,"warn"));
+
+  root.querySelectorAll("[data-restore]").forEach((btn) => {
+    btn.onclick = async () => {
+      btn.disabled = true;
+      try {
+        const r = await api.post(`/api/materials/${btn.dataset.restore}/restore`, {});
+        toast(r.message || "材料已恢复", "ok");
+        await render(root);
+      } catch (e) { toast(e.message, "warn"); btn.disabled = false; }
+    };
+  });
 
   const add = root.querySelector("#add");
   if (add) add.onclick = () => openMaterialRegistration(root, d.projects, d.kinds);
