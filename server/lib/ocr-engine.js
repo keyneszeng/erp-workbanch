@@ -188,8 +188,10 @@ function extractNames(raw) {
   for (const m of text.matchAll(/([\u4e00-\u9fa5]{2,4})\s{2,}(?:\d{17}[\dXx]|1[3-9]\d{9}|\d{16,19})/g)) add(m[1]);
   // 姓名 + 职称
   for (const m of text.matchAll(/([\u4e00-\u9fa5]{2,4})(?=教授|主任|医师|医生|博士|老师|院长)/g)) add(m[1]);
-  // 姓名 + 机构（表格里姓名列与单位列相邻）
-  for (const m of text.matchAll(/([\u4e00-\u9fa5]{2,4})\s{2,}[\u4e00-\u9fa5]{2,12}(?:医院|大学|学院|学会|中心|卫生院)/g)) add(m[1]);
+  // 姓名 + 机构（表格里姓名列与单位列相邻）。
+  // 必须要求姓名前面是行首或两个以上空白：否则「…诊疗策略与临  东莞市…」这种
+  // 课题尾部的四个字会被当成人名。
+  for (const m of text.matchAll(/(?:^|\n|\s{2,})([\u4e00-\u9fa5]{2,4})\s{2,}[\u4e00-\u9fa5]{2,12}(?:医院|大学|学院|学会|中心|卫生院)/g)) add(m[1]);
   // 显式标签
   for (const m of text.matchAll(/(?:姓名|讲者|专家|签字|签名)\s*[:：]\s*([\u4e00-\u9fa5]{2,4})/g)) add(m[1]);
   // 编号名单：1.刘志华 / 1、刘志华
