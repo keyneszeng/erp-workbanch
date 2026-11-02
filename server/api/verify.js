@@ -69,7 +69,10 @@ function register(router) {
     const kinds = [...new Set([...(def.materials || []), ...(def.altMaterials || [])])];
     const rows = db.prepare(
       `SELECT * FROM materials WHERE pid=? AND deleted_at IS NULL AND file_key IS NOT NULL AND file_key<>''`
-    ).all(p.id).filter((m) => kinds.includes(m.kind)).slice(0, 4);
+    ).all(p.id).filter((m) => kinds.includes(m.kind))
+      // 同一份原件可能被登记成多条（历史重复上传），按 file_key 去重，别重复识别
+      .filter((m, i, arr) => arr.findIndex((x) => x.file_key === m.file_key) === i)
+      .slice(0, 4);
 
     if (!rows.length) {
       return { step: no, materials: [], items: [], message: "这一步还没有可识别的原件，请先在材料中心上传" };
