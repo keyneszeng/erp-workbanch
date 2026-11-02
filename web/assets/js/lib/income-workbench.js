@@ -33,15 +33,17 @@ export async function renderIncomeWorkbench(root,projects,requested=""){
      <td>${yuan(x.amount)}</td><td>${esc(x.status)}</td><td>${link(x.file_key)}</td>
      <td>${x.status==="待确认"&&approve?`<button class="link" data-sponsor-approve="${esc(x.id)}">确认合同</button>
         <button class="link danger" data-sponsor-reject="${esc(x.id)}">驳回</button>`:""}
-       ${x.status==="已签署"&&finance?`<button class="link" data-sponsor-receipt="${esc(x.id)}">登记回款</button>
-        <button class="link" data-sponsor-invoice="${esc(x.id)}">登记开票</button>`:""}</td></tr>`).join(""):'<tr><td colspan="5">暂无企业赞助合同</td></tr>'}</tbody></table></div>
+       ${x.status==="已签署"&&finance?`<button class="link" data-sponsor-receipt="${esc(x.id)}"
+          data-contract-no="${esc(x.contract_no)}" data-enterprise="${esc(x.enterprise)}">登记回款</button>
+        <button class="link" data-sponsor-invoice="${esc(x.id)}"
+          data-contract-no="${esc(x.contract_no)}" data-enterprise="${esc(x.enterprise)}">登记开票</button>`:""}</td></tr>`).join(""):'<tr><td colspan="5">暂无企业赞助合同</td></tr>'}</tbody></table></div>
    <div class="panel-h"><h3>到账凭证</h3></div>
    <div class="tw"><table><thead><tr><th>到账日期</th><th>关联合同</th><th>流水编号</th><th>到账金额</th><th>银行凭证</th></tr></thead><tbody>
-   ${d.receipts.length?d.receipts.map(x=>`<tr><td>${esc(x.received_date)}</td><td>${esc(x.sponsor_id)}</td><td>${esc(x.payment_ref)}</td>
+   ${d.receipts.length?d.receipts.map(x=>`<tr><td>${esc(x.received_date)}</td><td>${esc(x.contract_no||x.sponsor_id)}<div class="hint">${esc(x.enterprise||"")}</div></td><td>${esc(x.payment_ref)}</td>
      <td>${yuan(x.amount)}</td><td>${link(x.file_key)}</td></tr>`).join(""):'<tr><td colspan="5">暂无到账记录</td></tr>'}</tbody></table></div>
    <div class="panel-h"><h3>已开具发票</h3></div>
    <div class="tw"><table><thead><tr><th>开票日期</th><th>关联合同</th><th>发票号码</th><th>开票金额</th><th>发票原件</th></tr></thead><tbody>
-   ${d.invoices.length?d.invoices.map(x=>`<tr><td>${esc(x.issued_date)}</td><td>${esc(x.sponsor_id)}</td><td>${esc(x.invoice_no)}</td>
+   ${d.invoices.length?d.invoices.map(x=>`<tr><td>${esc(x.issued_date)}</td><td>${esc(x.contract_no||x.sponsor_id)}<div class="hint">${esc(x.enterprise||"")}</div></td><td>${esc(x.invoice_no)}</td>
      <td>${yuan(x.amount)}</td><td>${link(x.file_key)}</td></tr>`).join(""):'<tr><td colspan="5">暂无开票记录</td></tr>'}</tbody></table></div>
  </section>`;
  root.querySelector("#income-project").onchange=e=>{chosen=e.target.value;renderIncomeWorkbench(root,projects).catch(err=>toast(err.message,"warn"));};
@@ -58,13 +60,15 @@ export async function renderIncomeWorkbench(root,projects,requested=""){
    try{await api.post("/api/projects/"+chosen+"/income/contracts/"+id+"/decide",{approve:false,reason});
      toast("合同已驳回","ok");await renderIncomeWorkbench(root,projects);}catch(e){toast(e.message,"warn");}
  });
- root.querySelectorAll("[data-sponsor-receipt]").forEach(b=>b.onclick=()=>formIncome(root,projects,"receipt",b.dataset.sponsorReceipt));
- root.querySelectorAll("[data-sponsor-invoice]").forEach(b=>b.onclick=()=>formIncome(root,projects,"invoice",b.dataset.sponsorInvoice));
+ root.querySelectorAll("[data-sponsor-receipt]").forEach(b=>b.onclick=()=>formIncome(root,projects,"receipt",
+   b.dataset.sponsorReceipt,b.dataset.contractNo,b.dataset.enterprise));
+ root.querySelectorAll("[data-sponsor-invoice]").forEach(b=>b.onclick=()=>formIncome(root,projects,"invoice",
+   b.dataset.sponsorInvoice,b.dataset.contractNo,b.dataset.enterprise));
 }
-function formIncome(root,projects,type,sponsorId=""){
+function formIncome(root,projects,type,sponsorId="",contractNo="",enterprise=""){
  const defs={
   contract:{title:"企业赞助合同录入",url:"contracts",fields:[
-    {k:"enterprise",l:"赞助企业名称",req:1},{k:"contractNo",l:"合同编号",req:1},
+    {k:"enterprise",l:"赞助企业名称",req:1},
     {k:"amount",l:"赞助合同金额（元）",t:"number",req:1}]},
   receipt:{title:"登记到账凭证",url:"receipts",fields:[
     {k:"amount",l:"实际到账金额（元）",t:"number",req:1},{k:"paymentRef",l:"银行回款流水号",req:1},
@@ -76,7 +80,11 @@ function formIncome(root,projects,type,sponsorId=""){
  const cfg=defs[type];
  const fields=[...cfg.fields,{k:"file",l:"佐证原件（必需）",t:"file",full:1,
    accept:".jpg,.png,.pdf,.ppt,.pptx,.xlsx,.docx",tip:"必须上传合同原件、银行回款凭证或开票原件（单份≤50MB）"}];
- const modalEl=modal({title:cfg.title,width:"640px",body:formHtml(fields),
+ // 合同号由系统编排；回款/开票要明确显示关联的是哪份合同，避免录错
+ const hint=type==="contract"
+   ? `<div class="hint" style="margin-bottom:10px">合同编号由系统自动编排（SC-年份-序号），提交后生成；回款与发票都会自动带上同一个编号。</div>`
+   : `<div class="hint" style="margin-bottom:10px">关联合同：<b>${esc(contractNo||sponsorId)}</b>${enterprise?` · ${esc(enterprise)}`:""}</div>`;
+ const modalEl=modal({title:cfg.title,width:"640px",body:hint+formHtml(fields),
     footer:'<button class="btn btn-o" data-cancel>取消</button><button class="btn btn-p" data-save>提交</button>'});
  let picked=null;
  bindFilePicker(modalEl,"file",(f,err)=>{picked=err?null:f;if(err)toast(err,"warn");});
@@ -89,8 +97,9 @@ function formIncome(root,projects,type,sponsorId=""){
      const values=readForm(modalEl);
      const saved=await api.upload(picked,{pid:chosen});
      const body={...values,file_key:saved.key,file_name:saved.name,...(sponsorId?{sponsorId}:{})};
-     await api.post("/api/projects/"+chosen+"/income/"+cfg.url,body);
-     toast("收入资料已登记","ok");modalEl.classList.remove("open");
+     const r=await api.post("/api/projects/"+chosen+"/income/"+cfg.url,body);
+     toast(type==="contract"?`赞助合同已登记，合同编号 ${r.contractNo}`:"收入资料已登记","ok");
+     modalEl.classList.remove("open");
      await renderIncomeWorkbench(root,projects);
    }catch(e){toast(e.message,"warn");btn.disabled=false;}
  };

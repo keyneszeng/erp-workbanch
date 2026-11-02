@@ -67,3 +67,31 @@ test("赞助合同/到账凭证/开票逐笔登记、授权与预算差额",asyn
  const dup=await request("POST","/api/projects/"+pid+"/income/invoices",{sponsorId:c.data.id,amount:1,invoiceNo:"INV20270001",issuedDate:"2027-10-21",file_key:await upload(admin,pid)},admin);
  assert.equal(dup.status,409);
 });
+
+test("合同编号由系统自动编排；重号被拒；回款与发票显示同一编号",async()=>{
+ const p=await request("POST","/api/projects",{name:"合同编号测试项目",assoc:"华东医学会",form:"线下",date:"2027-12-01",budget:20000,people:30,owner:"陈静",agenda:"编号测试"},exec);
+ assert.equal(p.status,200,JSON.stringify(p.data));
+ const pid=p.data.project.id;
+
+ // 不填合同号 → 系统编排，编号与生成的记录号一致
+ const c1=await request("POST","/api/projects/"+pid+"/income/contracts",
+   {enterprise:"甲公司",amount:5000,file_key:await upload(exec,pid)},exec);
+ assert.equal(c1.status,200,JSON.stringify(c1.data));
+ assert.ok(c1.data.contractNo,"必须返回编排好的合同编号");
+ assert.equal(c1.data.contractNo,c1.data.id,"留空时用生成的编号作为合同号");
+
+ // 手工填重号 → 409
+ const dup=await request("POST","/api/projects/"+pid+"/income/contracts",
+   {enterprise:"乙公司",contractNo:c1.data.contractNo,amount:1000,file_key:await upload(exec,pid)},exec);
+ assert.equal(dup.status,409,JSON.stringify(dup.data));
+ assert.equal(dup.data.error.code,"CONTRACT_NO_DUPLICATE");
+
+ // 签署后登记回款，列表里回款带的是同一个合同编号
+ const ok=await request("POST","/api/projects/"+pid+"/income/contracts/"+c1.data.id+"/decide",{approve:true},admin);
+ assert.equal(ok.status,200,JSON.stringify(ok.data));
+ const rec=await request("POST","/api/projects/"+pid+"/income/receipts",
+   {sponsorId:c1.data.id,amount:1000,paymentRef:"BANK-NO-1",receivedDate:"2027-11-20",file_key:await upload(admin,pid)},admin);
+ assert.equal(rec.status,200,JSON.stringify(rec.data));
+ const list=await request("GET","/api/projects/"+pid+"/income",undefined,admin);
+ assert.equal(list.data.receipts[0].contract_no,c1.data.contractNo,"回款的关联合同号必须与合同一致");
+});

@@ -60,23 +60,36 @@ function register(router){
       throw require("../lib/util").forbidden("无权查看赞助合同与财务回款");
     return {pid:p.id,summary:incomeSummary(p.id,p.budget),
       contracts:db.prepare("SELECT * FROM meeting_sponsor_contracts WHERE pid=? ORDER BY created_at DESC").all(p.id),
-      receipts:db.prepare("SELECT * FROM meeting_sponsor_receipts WHERE pid=? ORDER BY created_at DESC").all(p.id),
-      invoices:db.prepare("SELECT * FROM meeting_sponsor_invoices WHERE pid=? ORDER BY created_at DESC").all(p.id)};
+      receipts:db.prepare(`SELECT r.*, c.contract_no, c.enterprise FROM meeting_sponsor_receipts r
+        LEFT JOIN meeting_sponsor_contracts c ON c.id=r.sponsor_id
+        WHERE r.pid=? ORDER BY r.created_at DESC`).all(p.id),
+      invoices:db.prepare(`SELECT i.*, c.contract_no, c.enterprise FROM meeting_sponsor_invoices i
+        LEFT JOIN meeting_sponsor_contracts c ON c.id=i.sponsor_id
+        WHERE i.pid=? ORDER BY i.created_at DESC`).all(p.id)};
   });
   router.post("/api/projects/:id/income/contracts",async ctx=>{
     const p=getProject(ctx.params.id);writable(ctx,p,"contract:write");
     const b=ctx.body||{};
-    const enterprise=String(b.enterprise||"").trim(),contractNo=String(b.contractNo||"").trim();
-    if(enterprise.length<2||enterprise.length>100||contractNo.length<2||contractNo.length>80)
-      throw bad("请填写企业名称与赞助合同编号（2～100 字）");
+    const enterprise=String(b.enterprise||"").trim();
+    if(enterprise.length<2||enterprise.length>100)
+      throw bad("请填写企业名称（2～100 字）");
     const total=amount(b.amount);
     const key=evidence(ctx,p,b.file_key);
     const id=nextId(db,"meeting_sponsor_contracts","id","SC");
+    /**
+     * 合同编号由系统编排：留空就用生成的主键（SC-年份-序号）。
+     * 手工填写的也接受，但同一项目内必须唯一 —— 回款和发票都靠它对应到合同，
+     * 重号会让「关联合同号一致」这件事失去意义。
+     */
+    const contractNo=String(b.contractNo||"").trim()||id;
+    if(contractNo.length<2||contractNo.length>80) throw bad("合同编号长度应为 2～80 字");
+    if(db.prepare("SELECT 1 FROM meeting_sponsor_contracts WHERE pid=? AND contract_no=?").get(p.id,contractNo))
+      throw conflict("该合同编号已存在，请换一个或留空由系统编排","CONTRACT_NO_DUPLICATE");
     db.prepare("INSERT INTO meeting_sponsor_contracts(id,pid,enterprise,contract_no,amount,status,file_key,file_name,created_by,created_at) VALUES (?,?,?,?,?,'待确认',?,?,?,?)")
       .run(id,p.id,enterprise,contractNo,total,key,String(b.file_name||"").slice(0,120),ctx.user.id,now());
     logAudit({user:ctx.user,module:"会议收入",action:"登记赞助合同",target:p.id,
       detail:id+"；企业："+enterprise+"；合同金额："+total,ip:ctx.ip});
-    return {id,status:"待确认",summary:incomeSummary(p.id,p.budget)};
+    return {id,contractNo,status:"待确认",summary:incomeSummary(p.id,p.budget)};
   });
   router.post("/api/projects/:id/income/contracts/:cid/decide",async ctx=>{
     const p=getProject(ctx.params.id);writable(ctx,p,"contract:approve");
