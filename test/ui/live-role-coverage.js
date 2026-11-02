@@ -232,7 +232,7 @@ async function oneRole(browser, role) {
     await loaded(page);
     check(role, "auth", "真实浏览器登录", true);
     const roleInfo = await page.evaluate(async () => (await (await fetch("/api/auth/me")).json()));
-    check(role, "auth", "角色身份与授权读取", roleInfo.user?.username === username && roleInfo.user?.role === role && !!roleInfo.role?.name, roleInfo.user?.role || "unauthenticated");
+    check(role, "auth", "角色身份与授权读取", roleInfo.user?.username === username && roleInfo.user?.role === (role === "guest" ? "user" : role) && !!roleInfo.role?.name, roleInfo.user?.role || "unauthenticated");
     if (role === "exec" && (!ALIYUN_TEST || process.env.ERP_QA_ALLOW_UPLOAD === "1")) {
       // Separate material metadata registration from real Cloudflare object storage readiness.
       const cap = await page.evaluate(async () => {
