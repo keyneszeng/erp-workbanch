@@ -163,8 +163,6 @@ function evidenceLines(no, e) {
       break;
     case 6:
       push("拟请款总额", e.draftAmount != null ? amt(e.draftAmount) : "");
-      push("发票总额", e.invoiceAmount != null ? amt(e.invoiceAmount) : "");
-      push("免票劳务金额", e.nonInvoiceLaborAmount != null ? amt(e.nonInvoiceLaborAmount) : "");
       push("会议信息一致", e.meetingMatched ? "是" : "否");
       break;
   }

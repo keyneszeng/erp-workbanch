@@ -376,9 +376,10 @@ function register(router) {
     const invoiceNo=String(b.invoice_no||"").trim(); // Legacy API remains readable/deduplicated; new UI omits this field.
     if(invoiceNo.length>40)throw bad("发票号不能超过 40 字");
     if (!isDemoMode()) {
-      const checked=db.prepare("SELECT invoice_amount FROM verify_steps WHERE pid=? AND step_no=6 AND result='通过'").get(p.id);
-      if(!checked || !Number.isFinite(checked.invoice_amount))
-        throw conflict("必须先完成合同与开票金额核验再请款","INVOICE_CHECK_REQUIRED");
+      // 第 6 步不再记录发票金额（该规则已去掉），改为要求「会务三单核验已通过且留有依据」
+      const checked=db.prepare("SELECT result, evidence_json FROM verify_steps WHERE pid=? AND step_no=6 AND result='通过'").get(p.id);
+      if(!checked || !checked.evidence_json)
+        throw conflict("必须先完成会务三单核验（第 6 步）再请款","INVOICE_CHECK_REQUIRED");
       const signed=db.prepare("SELECT COALESCE(SUM(amount),0) AS total FROM contracts WHERE pid=? AND status='已签署'").get(p.id);
       const allocated=db.prepare("SELECT COALESCE(SUM(amount),0) AS total FROM payments WHERE pid=? AND status IN ('待审批','已审批','已付款')").get(p.id);
       const requested=Number(b.amount);

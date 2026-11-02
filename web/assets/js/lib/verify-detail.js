@@ -92,7 +92,7 @@ export function stepBody(d,no){
     3:"线上有效讲者在线时长 >30 分钟；线下有签到；混合两项都需要。",
     4:"课件课题匹配终版议程，串场题目及主办方 logo 匹配；药企 logo 只允许首页、尾页、鸣谢页。",
     5:"劳务收集表与劳务/专家类合同逐人比对姓名/时间/角色/金额/银行账号；银行账号不保存在核销证据中。",
-    6:"已签合同总额须等于拟请款总额，发票金额须等于需开票合同总额；专家劳务按第五步核验的协议与劳务表免票请款。"
+    6:"已签合同总额须等于拟请款总额；专家劳务按第五步核验的协议与劳务表免票请款。"
   };
   const selected=(d.materials||[]).filter(m=>names.includes(m.kind));
   const contractTotal=(d.contracts||[]).filter(x=>x.status==="已签署").reduce((sum,x)=>sum+Number(x.amount||0),0);
@@ -109,7 +109,7 @@ export function stepBody(d,no){
       <div data-step-names-out></div>
       <div data-step-topics-out></div>
     </div>`:""}
-    ${no===6?`<div class="dgrid">${cell("已签合同总额",fmt(contractTotal))}${cell("核销发票总金额",step?.invoiceAmount==null?"未核对":fmt(step.invoiceAmount))}</div>`:""}
+    ${no===6?`<div class="dgrid">${cell("已签合同总额",fmt(contractTotal))}</div>`:""}
     ${[2,5].includes(no)?`<div class="dsec"><h4>劳务 / 专家类合同（合同分类）${no===2?"· 可代替劳务协议":""}</h4>
       ${laborContracts.length?table([{t:"合同名称"},{t:"合同收款方"},{t:"金额"},{t:"原件"}],
       laborContracts.map(x=>({c:[esc(x.name),esc(x.vendor),fmt(x.amount),x.file_key?fileLink(x.file_key,x.file_name||`${x.name}原件`,"在线查看合同原件"):"未上传"]}))):'<div class="dhint">暂无劳务专家类合同，请先到合同台账核验分类</div>'}

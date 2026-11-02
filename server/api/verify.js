@@ -248,21 +248,17 @@ function register(router) {
     if (unjudged.length) throw conflict(`核销必须按顺序完成并通过，第 ${unjudged[0].no} 步尚未通过或仍待复核`, "OUT_OF_ORDER", { step: unjudged[0].no });
 
     const def = v.steps.find((s) => s.no === no);
+    /**
+     * 第 6 步不再比对「应开票合同金额 = 发票总额」（老板 2026-11-02 决定去掉）。
+     * 仍然要求：有已签署合同、非劳务合同要有发票原件 —— 这是材料完整性，不是金额比对。
+     */
     let invoiceAmount = null;
     if (!isDemoMode() && no === 6 && result === "通过") {
       const signed = db.prepare("SELECT COUNT(*) AS n, COALESCE(SUM(amount),0) AS total FROM contracts WHERE pid=? AND status='已签署'").get(p.id);
       if (!signed.n) throw conflict("核票前必须有经协会管理员审批的已签署合同", "CONTRACT_NOT_SIGNED");
-      // 专家劳务费用可以按协议和核验后的劳务表请款，不要求虚构发票号。
-      // 非劳务合同仍要求：发票总额 = 应开票合同总额；总拟请款 = 全部合同总额。
       const billable=db.prepare("SELECT COALESCE(SUM(amount),0) AS total FROM contracts WHERE pid=? AND status='已签署' AND COALESCE(category,'')<>'劳务专家'").get(p.id).total;
       const invoiceMaterial=db.prepare("SELECT COUNT(*) AS n FROM materials WHERE pid=? AND kind='发票' AND file_key IS NOT NULL AND deleted_at IS NULL").get(p.id);
       if(cents(billable)>0 && !invoiceMaterial.n)throw conflict("非劳务合同请先上传发票原件","INVOICE_EVIDENCE_REQUIRED");
-      invoiceAmount=Number(ctx.body?.invoiceAmount);
-      if(ctx.body?.invoiceAmount===""||ctx.body?.invoiceAmount==null||!Number.isFinite(invoiceAmount)||
-         invoiceAmount<0||Number(invoiceAmount.toFixed(2))!==invoiceAmount)
-        throw bad("请输入发票总金额（无开票合同可为 0）");
-      if(cents(invoiceAmount)!==cents(billable))
-        throw conflict(`发票金额 ¥${yuan(invoiceAmount)} 与需开票合同总额 ¥${yuan(billable)} 不符；专家劳务合同按核验劳务表另行请款`,"INVOICE_CONTRACT_MISMATCH");
     }
     if (!isDemoMode() && result==="通过") {
       const outstanding = db.prepare("SELECT id,resolved_at,evidence_material_id FROM exceptions WHERE pid=? AND step_no=? AND status='待复核'").all(p.id,no);

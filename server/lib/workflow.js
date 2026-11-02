@@ -174,9 +174,10 @@ const GUARDS = {
     if (!isDemoMode()) {
       const paid = db.prepare("SELECT COUNT(*) AS n, COALESCE(SUM(amount),0) AS total FROM payments WHERE pid=? AND status='已付款'").get(p.id);
       if (!paid.n) return "结算前必须先申请付款并由财务完成实际付款，不能跳过付款直接结算";
-      const matched = db.prepare("SELECT invoice_amount FROM verify_steps WHERE pid=? AND step_no=6 AND result='通过'").get(p.id);
-      if (!matched || !Number.isFinite(matched.invoice_amount))
-        return "发票与已签署合同金额尚未完成核对，不允许结算";
+      // 发票金额比对规则已去掉（老板 2026-11-02）：改为要求第 6 步已通过并留有依据
+      const matched = db.prepare("SELECT result, evidence_json FROM verify_steps WHERE pid=? AND step_no=6 AND result='通过'").get(p.id);
+      if (!matched || !matched.evidence_json)
+        return "会务三单核验（第 6 步）尚未完成，不允许结算";
       const signedTotal=db.prepare("SELECT COALESCE(SUM(amount),0) AS total FROM contracts WHERE pid=? AND status='已签署'").get(p.id).total;
       if(cents(paid.total)!==cents(signedTotal))
         return `已付款总额 ¥${yuan(paid.total)} 与已核销合同请款总额 ¥${yuan(signedTotal)} 不一致，不能结算；含免票专家劳务费`;
