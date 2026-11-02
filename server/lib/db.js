@@ -263,6 +263,7 @@ CREATE TABLE IF NOT EXISTS settlements (
   income      REAL NOT NULL DEFAULT 0,
   expense     REAL NOT NULL DEFAULT 0,
   profit      REAL NOT NULL DEFAULT 0,
+  tax_withheld REAL NOT NULL DEFAULT 0,
   payee       TEXT,
   payee_bank  TEXT,
   payee_account TEXT,
@@ -612,6 +613,9 @@ function migrate() {
   addColumn("verify_steps", "evidence_json", "evidence_json TEXT");
   addColumn("materials", "deleted_at", "deleted_at TEXT");
   addColumn("materials", "deleted_by", "deleted_by TEXT");
+  // 劳务代扣税：劳务表是含税金额，实付给专家的是税后，差额必须单独记账，
+  // 否则「已付款 = 合同总额」永远对不上，结算单的支出也会少算一笔税。
+  addColumn("settlements", "tax_withheld", "tax_withheld REAL NOT NULL DEFAULT 0");
   addColumn("demand_items", "owner_id", "owner_id INTEGER");
   addColumn("demand_items", "budget_owner", "budget_owner TEXT");
   // 生产白名单：所有新用户初次登录必须通过短信验证并修改默认密码。

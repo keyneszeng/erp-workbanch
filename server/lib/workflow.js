@@ -163,9 +163,40 @@ function committed(pid) {
   ).get(pid).s);
 }
 
+/**
+ * 结算账目：已付款、已签支出合同总额、代扣税差额。
+ *
+ * 劳务表记的是**含税**金额，实付给专家的是税后：刘志华 ¥2,300 含税，
+ * 劳务报酬个税 (2300−800)×20% = ¥300 代扣，实付 ¥2,000。
+ * 所以「已付款 = 合同总额」在有代扣税时天然不成立 —— 硬要求相等，财务就永远结不了账。
+ *
+ * 这里把差额定性为代扣税，并给它一个上限：劳务报酬个税预扣最高档 40%
+ * （20% / 30% / 40% 三档，加上 20% 费用扣除后最高约为合同额的 32%）。
+ * 超过这个比例就不再是税，而是真的有款没付，必须拦住。
+ */
+const TAX_CAP_RATE = 0.4;
+function settlementLedger(pid, database = db) {
+  const paid = yuan(database.prepare(
+    "SELECT COALESCE(ROUND(SUM(amount),2),0) AS total FROM payments WHERE pid=? AND status='已付款'"
+  ).get(pid).total);
+  const signedTotal = yuan(database.prepare(
+    "SELECT COALESCE(ROUND(SUM(amount),2),0) AS total FROM contracts WHERE pid=? AND status='已签署' AND " + EXPENSE_CONTRACT_SQL
+  ).get(pid).total);
+  const laborTotal = yuan(database.prepare(
+    "SELECT COALESCE(ROUND(SUM(amount),2),0) AS total FROM contracts WHERE pid=? AND status='已签署' AND category='劳务专家' AND " + EXPENSE_CONTRACT_SQL
+  ).get(pid).total);
+  const gap = yuan((cents(signedTotal) - cents(paid)) / 100); // 正数 = 合同总额比实付多
+  const taxCap = yuan((cents(laborTotal) * TAX_CAP_RATE) / 100);
+  return {
+    paid, signedTotal, laborTotal, taxCap,
+    over: gap < 0 ? yuan(-gap) : 0,          // 付多了（重复付款 / 无合同付款）
+    tax: gap > 0 && gap <= taxCap ? gap : 0, // 认定为劳务代扣税
+    shortfall: gap > taxCap ? gap : 0        // 超出税上限，视为仍有款未付
+  };
+}
+
 /** 门禁：所有前置条件 */
-const GUARDS = {
-  submit(p) {
+const GUARDS = {  submit(p) {
     if (!p.agenda || String(p.agenda).trim().length < 4) return "立项必须填写初版议程要点";
     if (!(p.budget > 0)) return "预算必须大于 0";
     return null;
@@ -205,19 +236,25 @@ const GUARDS = {
       .get(p.id).c;
     if (pending) return `还有 ${pending} 笔付款未完成（待审批 / 已审批），需先处理完才能结算`;
     if (!isDemoMode()) {
-      const paid = db.prepare("SELECT COUNT(*) AS n, COALESCE(SUM(amount),0) AS total FROM payments WHERE pid=? AND status='已付款'").get(p.id);
+      const paid = db.prepare("SELECT COUNT(*) AS n FROM payments WHERE pid=? AND status='已付款'").get(p.id);
       if (!paid.n) return "结算前必须先申请付款并由财务完成实际付款，不能跳过付款直接结算";
       // 发票金额比对规则已去掉（老板 2026-11-02）：改为要求第 6 步已通过并留有依据
       const matched = db.prepare("SELECT result, evidence_json FROM verify_steps WHERE pid=? AND step_no=6 AND result='通过'").get(p.id);
       if (!matched || !matched.evidence_json)
         return "会务三单核验（第 6 步）尚未完成，不允许结算";
-      // 收入类（赞助）合同不计入：结算比对的是「已核销合同请款总额」，
-      // 赞助是收款，算进来会让已付款永远追不上这个数。
-      const signedTotal=db.prepare(
-        "SELECT COALESCE(SUM(amount),0) AS total FROM contracts WHERE pid=? AND status='已签署' AND " + EXPENSE_CONTRACT_SQL
-      ).get(p.id).total;
-      if(cents(paid.total)!==cents(signedTotal))
-        return `已付款总额 ¥${yuan(paid.total)} 与已核销合同请款总额 ¥${yuan(signedTotal)} 不一致，不能结算；含免票专家劳务费`;
+      /**
+       * 老板 2026-11-02：劳务表是含税金额，实付是税后，两者本来就不相等。
+       * 所以不再要求「已付款 = 合同总额」，而是拆成三种情况：
+       *   付多了       → 重复付款或没有合同的付款，拦住
+       *   差额 ≤ 税上限 → 认定为劳务代扣税，放行，并记进结算单
+       *   差额 > 税上限 → 还有款没付，拦住
+       */
+      const L = settlementLedger(p.id);
+      if (L.over > 0)
+        return `已付款总额 ¥${L.paid} 超出已核销合同总额 ¥${L.signedTotal} ¥${L.over}，不能结算；请先核对是否有重复付款或无合同付款`;
+      if (L.shortfall > 0)
+        return `已付款总额 ¥${L.paid} 比合同总额 ¥${L.signedTotal} 少 ¥${L.shortfall}，` +
+          `已超出劳务代扣税上限 ¥${L.taxCap}（劳务合同合计 ¥${L.laborTotal} × 40%），可能仍有款未付`;
     }
     return null;
   },
@@ -356,17 +393,28 @@ function transition(projectId, action, user, payload = {}, ip = "") {
       // 三个数都必须落在「分」上：140000 - 135580.6 = 4419.399999999994，
       // 不收敛的话结算单 profit 会带着 12 位小数入库，导出 CSV 也是这个数。
       const income = yuan(p.budget);
-      const expense = yuan(
+      /**
+       * 支出取「已签支出合同总额」，而不是「已付款合计」。
+       *
+       * 劳务表是含税金额，实付给专家的是税后，中间那笔代扣税同样是协会的支出
+       * （要交给税务局）。只按已付款算支出，结算单会少记一笔税，结余虚高。
+       * 差额（代扣税）单独存进 tax_withheld，账上分得清「付给谁」和「代扣多少」。
+       */
+      const L = isDemoMode() ? null : settlementLedger(p.id);
+      const paid = yuan(
         db.prepare("SELECT COALESCE(ROUND(SUM(amount),2),0) AS s FROM payments WHERE pid = ? AND status = '已付款'")
           .get(p.id).s
       );
+      const taxWithheld = L ? yuan(L.tax) : 0;
+      const expense = yuan(paid + taxWithheld);
       const profit = yuan(income - expense);
       const id = nextId(db, "settlements", "id", "ST");
       db.prepare(
-        "INSERT INTO settlements (id,pid,income,expense,profit,payee,payee_bank,payee_account,status,created_by,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)"
-      ).run(id, p.id, income, expense, profit, payee, payeeBank, payeeAccount, "已生成", user.name, at);
+        "INSERT INTO settlements (id,pid,income,expense,profit,tax_withheld,payee,payee_bank,payee_account,status,created_by,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)"
+      ).run(id, p.id, income, expense, profit, taxWithheld, payee, payeeBank, payeeAccount, "已生成", user.name, at);
       setStatus(p, "已结算", user, ip,
-        `生成结算单 ${id}：收入 ¥${income.toLocaleString("zh-CN")} / 支出 ¥${expense.toLocaleString("zh-CN")} / ` +
+        `生成结算单 ${id}：收入 ¥${income.toLocaleString("zh-CN")} / 支出 ¥${expense.toLocaleString("zh-CN")}` +
+        `${taxWithheld > 0 ? `（实付 ¥${paid.toLocaleString("zh-CN")} + 代扣税 ¥${taxWithheld.toLocaleString("zh-CN")}）` : ""} / ` +
         `结余 ¥${profit.toLocaleString("zh-CN")}；收款方 ${payee}（${payeeBank} 尾号 ${payeeAccount.slice(-4)}）`);
       return { project: getProject(p.id), message: `结算单 ${id} 已生成，结论冻结` };
     }
@@ -419,4 +467,4 @@ function grantFinanceMember(p, user, ip) {
   });
 }
 
-module.exports = { getProject, verification, materialsStatus, settlementOf, demandSummary, assertNotFrozen, frozenGate, committed, availableActions, transition, GUARDS };
+module.exports = { getProject, verification, materialsStatus, settlementOf, demandSummary, assertNotFrozen, frozenGate, committed, settlementLedger, availableActions, transition, GUARDS };

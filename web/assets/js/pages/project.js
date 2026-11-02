@@ -182,6 +182,9 @@ function tabOverview(d, p) {
       <div style="margin-top:12px">${settle
         ? `<div class="gate ok"><b>结算单 ${settle.id} 已生成</b>
              收入 ¥${money(settle.income)} · 支出 ¥${money(settle.expense)} · 结余 ¥${money(settle.profit)}（${settle.created_at}）
+             ${Number(settle.tax_withheld) > 0
+               ? `<div style="margin-top:4px">其中劳务代扣税 ¥${money(settle.tax_withheld)}：劳务表是含税金额，实付给专家的是税后，税由协会代扣代缴，同样计入支出</div>`
+               : ""}
              <div style="margin-top:4px">收款方 ${esc(settle.payee || "—")}${
                settle.payee_account ? ` · ${esc(settle.payee_bank || "")} <span class="mono">${esc(settle.payee_account)}</span>` : " · 未登记收款账户"
              }</div></div>`

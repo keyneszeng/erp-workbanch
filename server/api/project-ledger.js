@@ -60,7 +60,10 @@ function summarize(x){
   if(payments.some(r=>r.status==="待审批"||r.status==="已审批")) warnings.push("仍有待审批/待支付的付款单，未完成对账");
   if(invoiceNumberCount>0 && invoiceFileCount===0) warnings.push("存在发票号码登记，但没有关联的发票原件；仅有发票号不代表发票已归档");
   if(payments.some(r=>r.type==="厂家款")) warnings.push("现有「厂家款」属于付款类型，并不能据此判定厂家款已到账；厂家付款凭证需要独立关联");
-  if(settlement && cents(settlement.expense)!==cents(paid)) warnings.push("结算单支出与已付款合计不一致，请人工核对口径与时点");
+  // 结算单支出 = 实付 + 劳务代扣税（税也要交给税务局，是真实支出）
+  const settlementTax=settlement?val(settlement.tax_withheld||0):0;
+  if(settlement && cents(settlement.expense)!==cents(paid)+cents(settlementTax))
+    warnings.push("结算单支出与「已付款 + 代扣税」不一致，请人工核对口径与时点");
   if(expenseContracts.some(r=>r.status==="已签署"&&!r.file_key)) warnings.push("存在已签署合同但未关联电子合同原件");
   const sums={
     budget:val(p.budget),

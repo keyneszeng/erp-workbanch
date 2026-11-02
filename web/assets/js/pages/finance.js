@@ -104,7 +104,10 @@ export async function render(root, params = []) {
          { t: "生成人", w: "70px" }, { t: "时间", w: "120px" }],
         st.rows.map((x) => ({
           c: [`<span class="mono">${x.id}</span>`, `<a class="link" data-go="projects/${x.pid}">${esc(x.name)}</a>`,
-            `¥${money(x.income)}`, `¥${money(x.expense)}`,
+            `¥${money(x.income)}`,
+            // 支出 = 实付 + 劳务代扣税；税单独标出来，否则财务会以为支出算多了
+            `¥${money(x.expense)}${Number(x.tax_withheld) > 0
+              ? `<div style="font-size:11px;color:var(--mute)">含代扣税 ¥${money(x.tax_withheld)}</div>` : ""}`,
             `<span class="${x.profit >= 0 ? "pos" : "neg"}">¥${money(x.profit)}</span>`,
             // V1.2.18：结余打给谁、打到哪个账户 —— 原来这一栏整个是空的
             `${esc(x.payee || "—")}<div style="font-size:11px;color:var(--mute)">
