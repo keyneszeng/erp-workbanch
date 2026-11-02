@@ -38,7 +38,16 @@ const ROLES = {
 const PERMS = {
   "project:create": ["assoc", "exec"],
   "project:approve": ["assoc"],
-  "project:transition": ["assoc", "exec", "finance"],
+  /**
+   * 项目状态推进：只包含「进入筹备 / 进入执行 / 提交核销」三个动作。
+   *
+   * 财务不在其中。财务的职责是核销判定、付款、结算 —— 分别走
+   * verify:conclude / payment:pay / settle:create，与本权限无关。
+   * 原来把 finance 放在这里，等于允许财务替会务执行把会议推进到「执行中」
+   * 甚至替执行人「提交核销」，审批链上的责任人就不再是实际做事的人。
+   * 协会管理员保留该权限，用于执行人缺席时兜底。
+   */
+  "project:transition": ["assoc", "exec"],
   "project:change": ["assoc", "exec"],
   /**
    * 变更落账：把已审批的变更真正写进项目（含预算）。
