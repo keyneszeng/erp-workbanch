@@ -25,7 +25,8 @@ before(async () => {
       ERP_SMS_PROVIDER:"test",ERP_SMS_TEST_MODE:"1",ERP_SESSION_FALLBACK:"0"}
   });
   let err="";proc.stderr.on("data",b=>err+=String(b));
-  for(let i=0;i<180;i++){
+  // 18 秒在整包并发跑时偶发不够（建库 + 生产引导 + 短信通道预检），给到 45 秒
+  for(let i=0;i<450;i++){
     if(proc.exitCode!==null)throw Error("Server failed "+err);
     try{if((await request("GET","/api/health")).status===200)return;}catch{}
     await new Promise(r=>setTimeout(r,100));

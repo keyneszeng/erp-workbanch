@@ -9,7 +9,10 @@ const PORT=8947, BASE="http://127.0.0.1:"+PORT;
 const DB=path.join(__dirname,"..","data","prep-invitations-test.db");
 let server, admin, assoc, exec, user, finance;
 async function waitHealthy() {
-  for(let i=0;i<100;i++) {
+  // 10 秒在整包并发跑（--test-concurrency=2 + 机器同时干别的）时会不够：
+  // 服务还在建库/灌种子就被判「没起来」，一挂就是整个文件 8 条用例全红。
+  // 给到 45 秒，跟其它生产模式用例一致。
+  for(let i=0;i<450;i++) {
     try { const r=await fetch(BASE+"/api/health");if(r.ok)return; }catch {}
     await new Promise(resolve=>setTimeout(resolve,100));
   }

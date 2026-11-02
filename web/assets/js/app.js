@@ -291,9 +291,14 @@ async function boot() {
 
   document.getElementById("login").style.display = "none";
   document.getElementById("app").hidden = false;
+  // 多协会管理员：显示「主协会 等 N 个协会」，否则左侧看着像只管一个协会
+  const assocList = state.user.associations || [];
+  const assocText = assocList.length > 1
+    ? ` · ${assocList[0]} 等 ${assocList.length} 个协会`
+    : (state.user.assoc ? ` · ${state.user.assoc}` : "");
   document.getElementById("sideFoot").innerHTML = `<div class="side-user">
     <div class="av">${esc(state.user.name.slice(0, 1))}</div>
-    <div><b>${esc(state.user.name)}</b><span>${esc(state.role.name)}${state.user.assoc ? " · " + esc(state.user.assoc) : ""}</span></div>
+    <div><b>${esc(state.user.name)}</b><span>${esc(state.role.name)}${esc(assocText)}</span></div>
   </div>`;
 
   if (!location.hash) location.hash = "#/dashboard";

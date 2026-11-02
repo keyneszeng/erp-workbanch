@@ -162,7 +162,9 @@ function register(router) {
     if (!ctx.user) return { user: null, demo: isDemoMode() };
     const role = ROLES[ctx.user.role];
     return {
-      user: publicUser(ctx.user),
+      // associations：多协会管理员实际能管的所有协会（scopeFilter 用的就是这张表）。
+      // 只给 assoc 一个主协会，左侧身份区会显示成「只管一个协会」，跟实际权限对不上。
+      user: { ...publicUser(ctx.user), associations: require("../lib/user-associations").listForUser(ctx.user.id, ctx.user.assoc) },
       demo: isDemoMode(),
       role: { ...role, key: ctx.user.role },
       perms: Object.keys(PERMS).filter((p) => can(ctx.user, p)),
