@@ -98,18 +98,22 @@ export async function render(root, params = []) {
     <div class="panel" id="fin-settlements">
       <div class="panel-h"><h2>结算单</h2><div><span class="hint">${st.total ?? st.rows.length} 张 · 生成即冻结核销结论</span></div></div>
       ${table(
-        [{ t: "结算单号", w: "112px" }, { t: "项目" }, { t: "收入", w: "96px", cls: "num" },
-         { t: "支出", w: "110px", cls: "num" }, { t: "结余", w: "96px", cls: "num" },
+        [{ t: "结算单号", w: "112px" }, { t: "项目" }, { t: "预算", w: "96px", cls: "num" },
+         { t: "已付款", w: "110px", cls: "num" }, { t: "结余", w: "96px", cls: "num" },
          { t: "生成人", w: "70px" }, { t: "时间", w: "120px" }],
-        st.rows.map((x) => ({
-          c: [`<span class="mono">${x.id}</span>`, `<a class="link" data-go="projects/${x.pid}">${esc(x.name)}</a>`,
-            `¥${money(x.income)}`,
-            // 支出 = 实付 + 劳务代扣税；税单独标出来，否则财务会以为支出算多了
-            `¥${money(x.expense)}${Number(x.tax_withheld) > 0
-              ? `<div style="font-size:11px;color:var(--mute)">含代扣税 ¥${money(x.tax_withheld)}</div>` : ""}`,
-            `<span class="${x.profit >= 0 ? "pos" : "neg"}">¥${money(x.profit)}</span>`,
-            esc(x.created_by || ""), `<span class="mono">${esc(x.created_at)}</span>`]
-        })), { empty: "暂无结算单" })}
+        st.rows.map((x) => {
+          // 结算单的 expense 含劳务代扣税，已付款 = expense − 税；明细在项目详情的「财务结算」页签
+          const tax = Number(x.tax_withheld || 0);
+          const paid = Number(x.expense) - tax;
+          return {
+            c: [`<span class="mono">${x.id}</span>`, `<a class="link" data-go="projects/${x.pid}">${esc(x.name)}</a>`,
+              `¥${money(x.income)}`,
+              `¥${money(paid)}${tax > 0
+                ? `<div style="font-size:11px;color:var(--mute)">另代扣税 ¥${money(tax)}</div>` : ""}`,
+              `<span class="${x.profit >= 0 ? "pos" : "neg"}">¥${money(x.profit)}</span>`,
+              esc(x.created_by || ""), `<span class="mono">${esc(x.created_at)}</span>`]
+          };
+        }), { empty: "暂无结算单" })}
     </div>
 
     <div class="foot-note">门禁说明：未通过 6 步核销的项目，付款接口会返回 <code>VERIFY_GATE</code> 并记录审计；

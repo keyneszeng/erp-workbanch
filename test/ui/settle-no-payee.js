@@ -85,6 +85,17 @@ async function seedVerifiedProject() {
   }
   const vp = await api("POST", `/api/projects/${pid}/transition`, { action: "verify_pass" });
   if (vp.status !== 200) throw new Error("核销通过失败 " + JSON.stringify(vp.data));
+  // 真付一笔，结算页的「已付款明细」才有内容可看
+  const pay = await api("POST", "/api/payments", {
+    pid, type: "学会公付", payee: "广州会展中心", amount: 3175,
+    payee_bank: "中国银行广州分行", payee_account: "6222023602078445731"
+  });
+  if (pay.status !== 200) throw new Error("付款申请失败 " + JSON.stringify(pay.data));
+  const payId = pay.data.payment.id;
+  if ((await api("POST", `/api/payments/${payId}/approve`, { approve: true })).status !== 200)
+    throw new Error("付款审批失败");
+  if ((await api("POST", `/api/payments/${payId}/pay`, {})).status !== 200)
+    throw new Error("付款执行失败");
   return pid;
 }
 
@@ -154,12 +165,27 @@ async function seedVerifiedProject() {
       JSON.stringify(settle));
   }
 
-  console.log("\n[4] 财务结算页的结算单列表");
+  console.log("\n[4] 财务结算页签：按「预算 → 已付款明细 → 结余」呈现");
+  await page.goto(`${BASE}/#/projects/${pid}`, { waitUntil: "domcontentloaded" });
+  await page.waitForSelector('[data-tab="payments"]', { timeout: 30000 });
+  await page.click('[data-tab="payments"]');
+  await page.waitForTimeout(900);
+  const payTab = (await page.textContent("#tabbody")) || "";
+  check("有「预算」", /预算/.test(payTab), payTab.slice(0, 160));
+  check("有「已付款明细」", /已付款明细/.test(payTab), payTab.slice(0, 200));
+  check("有「结余」", /结余/.test(payTab), payTab.slice(0, 200));
+  check("不再用「收入 / 支出」当主口径", !/收入 ¥/.test(payTab), payTab.slice(0, 200));
+  check("已付款明细里能看到那笔付款的收款方", /广州会展中心/.test(payTab), payTab.slice(0, 300));
+  check("预算 40,000 / 已付款 3,175 / 结余 36,825 都对得上",
+    /40,000/.test(payTab) && /3,175/.test(payTab) && /36,825/.test(payTab), payTab.slice(0, 300));
+
+  console.log("\n[5] 财务结算页的结算单列表");
   await page.goto(`${BASE}/#/finance`, { waitUntil: "domcontentloaded" });
   await page.waitForSelector("#fin-settlements", { timeout: 30000 });
   await page.waitForTimeout(900);
   const listText = (await page.textContent("#fin-settlements")) || "";
   check("列表里没有「收款方 / 收款账户」列", !/收款方|收款账户/.test(listText), listText.slice(0, 160));
+  check("列表列头是 预算 / 已付款 / 结余", /预算/.test(listText) && /已付款/.test(listText) && /结余/.test(listText), listText.slice(0, 160));
   check("列表里能看到刚生成的结算单", listText.includes(settle.id), settle.id);
 
   check("页面无 JS 报错", errs.length === 0, errs.join(" | "));

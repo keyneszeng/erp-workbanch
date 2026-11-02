@@ -181,11 +181,11 @@ function tabOverview(d, p) {
       </div>
       <div style="margin-top:12px">${settle
         ? `<div class="gate ok"><b>结算单 ${settle.id} 已生成</b>
-             收入 ¥${money(settle.income)} · 支出 ¥${money(settle.expense)} · 结余 ¥${money(settle.profit)}（${settle.created_at}）
+             预算 ¥${money(p.budget)} · 已付款 ¥${money(settle.expense - Number(settle.tax_withheld || 0))} · 结余 ¥${money(settle.profit)}（${settle.created_at}）
              ${Number(settle.tax_withheld) > 0
                ? `<div style="margin-top:4px">其中劳务代扣税 ¥${money(settle.tax_withheld)}：劳务表是含税金额，实付给专家的是税后，税由协会代扣代缴，同样计入支出</div>`
                : ""}
-             <div style="margin-top:4px;color:var(--mute)">结算单只记录资金结算结果，用于对账与归档，不产生付款动作</div></div>`
+             <div style="margin-top:4px;color:var(--mute)">明细见「财务结算」页签；结算单只记录资金结算结果，不产生付款动作</div></div>`
         : `<div class="gate"><b>结算单未生成</b>核销 6 步全部通过后，由财务生成结算单；生成后核销结论冻结。</div>`}</div>
       <div style="margin-top:10px">${PAYABLE.includes(p.status)
         ? `<div class="gate ok"><b>付款门禁已放行</b>项目已完成核销，可提交付款申请。</div>`
@@ -302,7 +302,39 @@ function tabPayments(d, p) {
       : payable ? ""
       : `<div class="gate" style="margin-bottom:12px"><b>付款门禁锁定</b>
       项目状态「${p.status}」，按制度必须先完成 6 步核销并通过（已核销）才可付款。当前核销进度 ${d.verification.passed}/6。</div>`;
+  /**
+   * 结算看板（老板 2026-11-02）：呈现顺序是「预算 → 已付款明细 → 结余」。
+   *
+   * 原来写的是「收入 / 支出 / 结余」—— 那是会计口径，现场对不上账：
+   * 预算才是这次会议能花的钱，已付款明细才是真的花到哪儿去了。
+   * 代扣税单独列一行：它是协会代扣代缴、要交给税务局的支出，不是付给谁的。
+   */
+  const paidList = d.payments.filter((y) => y.status === "已付款");
+  const paidSum = paidList.reduce((s, y) => s + Number(y.amount || 0), 0);
+  const tax = Number(d.settlement?.tax_withheld || 0);
+  const settlePanel = panel("结算单", d.settlement ? d.settlement.id : "未生成",
+    d.settlement ? `
+      <div class="grid g3">
+        <div class="kpi"><div class="t">预算</div><div class="v" style="font-size:18px">¥${money(p.budget)}</div></div>
+        <div class="kpi k2"><div class="t">已付款</div><div class="v" style="font-size:18px">¥${money(paidSum)}</div></div>
+        <div class="kpi k4"><div class="t">结余</div><div class="v" style="font-size:18px">¥${money(d.settlement.profit)}</div></div>
+      </div>
+      <div style="margin-top:12px">
+        <h4 style="margin:0 0 6px">已付款明细（${paidList.length} 笔）</h4>
+        ${table([{ t: "付款单号", w: "112px" }, { t: "收款方" }, { t: "类型", w: "86px" }, { t: "金额", w: "100px", cls: "num" }],
+          paidList.map((y) => ({ c: [`<span class="mono">${esc(y.id)}</span>`, esc(y.payee), esc(y.type), `¥${money(y.amount)}`] })),
+          { empty: "本次会议没有已付款记录" })}
+        <div class="hint" style="margin-top:6px">
+          已付款合计 ¥${money(paidSum)}${tax > 0 ? `；另有劳务代扣税 ¥${money(tax)}（协会代扣代缴，同样计入支出）` : ""}
+          ；支出合计 ¥${money(d.settlement.expense)}；预算 ¥${money(p.budget)} − 支出 ¥${money(d.settlement.expense)} = 结余 ¥${money(d.settlement.profit)}
+        </div>
+      </div>
+      <div class="gate ok" style="margin-top:12px"><b>结算单已生成</b>${esc(d.settlement.created_at)} · ${esc(d.settlement.created_by || "")}。
+        结算单只记录资金结算结果，用于对账与归档，不产生付款动作。</div>`
+    : `<div class="gate"><b>结算单未生成</b>核销 6 步全部通过、付款完成后，由财务生成结算单。
+        生成后这里会显示：预算 ¥${money(p.budget)} → 已付款明细 → 结余。</div>`);
   return `${gate}
+  ${settlePanel}
   ${panel("付款记录", `已付款 ¥${money(d.paidTotal)}`, table(
     [{ t: "付款单号", w: "112px" }, { t: "类型", w: "86px" }, { t: "收款方" }, { t: "金额", w: "100px", cls: "num" },
      { t: "发票号", w: "96px" }, { t: "申请人", w: "72px" }, { t: "状态", w: "80px" }, { t: "操作", w: "120px" }],
