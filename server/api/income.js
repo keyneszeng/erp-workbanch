@@ -51,6 +51,32 @@ function writable(ctx,p,perm){
   assertNotFrozen(p,"会议赞助收入");
   if(p.status==="已核销")throw conflict("项目已核销，收入凭证冻结，须先办理核销更正","INCOME_FROZEN");
 }
+/** 协会简称：去掉「医学会 / 协会 / 学会 / 分会」后缀，最多 4 字（华东医学会 → 华东） */
+function assocCode(name) {
+  const s = String(name || "").trim();
+  const base = s.replace(/(医学会|协会|学会|分会|联合会)$/g, "").trim() || s;
+  return (base.slice(0, 4) || "协会");
+}
+
+/**
+ * 赞助合同编号：SC-协会简称-年份-序号。
+ * 序号按协会各自递增（不同协会各自从 001 起），生成后仍查一次重号，
+ * 避免历史手工编号占位导致撞号。
+ */
+function nextSponsorNo(db, project) {
+  const year = new Date().getFullYear();
+  const prefix = `SC-${assocCode(project.assoc)}-${year}-`;
+  const used = db.prepare(
+    "SELECT COUNT(*) AS n FROM meeting_sponsor_contracts WHERE contract_no LIKE ?"
+  ).get(prefix + "%").n;
+  let seq = used + 1, no;
+  do {
+    no = prefix + String(seq).padStart(3, "0");
+    seq++;
+  } while (db.prepare("SELECT 1 FROM meeting_sponsor_contracts WHERE contract_no=?").get(no));
+  return no;
+}
+
 function register(router){
   router.get("/api/projects/:id/income",async ctx=>{
     const p=getProject(ctx.params.id);
@@ -77,11 +103,11 @@ function register(router){
     const key=evidence(ctx,p,b.file_key);
     const id=nextId(db,"meeting_sponsor_contracts","id","SC");
     /**
-     * 合同编号由系统编排：留空就用生成的主键（SC-年份-序号）。
+     * 合同编号由系统编排：留空就生成 SC-协会简称-年份-序号（如 SC-内分泌-2026-001）。
      * 手工填写的也接受，但同一项目内必须唯一 —— 回款和发票都靠它对应到合同，
      * 重号会让「关联合同号一致」这件事失去意义。
      */
-    const contractNo=String(b.contractNo||"").trim()||id;
+    const contractNo=String(b.contractNo||"").trim()||nextSponsorNo(db,p);
     if(contractNo.length<2||contractNo.length>80) throw bad("合同编号长度应为 2～80 字");
     if(db.prepare("SELECT 1 FROM meeting_sponsor_contracts WHERE pid=? AND contract_no=?").get(p.id,contractNo))
       throw conflict("该合同编号已存在，请换一个或留空由系统编排","CONTRACT_NO_DUPLICATE");

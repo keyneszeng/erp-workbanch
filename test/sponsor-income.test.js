@@ -78,7 +78,7 @@ test("合同编号由系统自动编排；重号被拒；回款与发票显示�
    {enterprise:"甲公司",amount:5000,file_key:await upload(exec,pid)},exec);
  assert.equal(c1.status,200,JSON.stringify(c1.data));
  assert.ok(c1.data.contractNo,"必须返回编排好的合同编号");
- assert.equal(c1.data.contractNo,c1.data.id,"留空时用生成的编号作为合同号");
+ assert.match(c1.data.contractNo,/^SC-华东-\d{4}-\d{3}$/,"编号应为 SC-协会简称-年份-序号");
 
  // 手工填重号 → 409
  const dup=await request("POST","/api/projects/"+pid+"/income/contracts",

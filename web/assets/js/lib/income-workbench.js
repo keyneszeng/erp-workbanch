@@ -82,7 +82,7 @@ function formIncome(root,projects,type,sponsorId="",contractNo="",enterprise="")
    accept:".jpg,.png,.pdf,.ppt,.pptx,.xlsx,.docx",tip:"必须上传合同原件、银行回款凭证或开票原件（单份≤50MB）"}];
  // 合同号由系统编排；回款/开票要明确显示关联的是哪份合同，避免录错
  const hint=type==="contract"
-   ? `<div class="hint" style="margin-bottom:10px">合同编号由系统自动编排（SC-年份-序号），提交后生成；回款与发票都会自动带上同一个编号。</div>`
+   ? `<div class="hint" style="margin-bottom:10px">合同编号由系统自动编排（SC-协会简称-年份-序号，如 SC-内分泌-2026-001），提交后生成；回款与发票都会自动带上同一个编号。</div>`
    : `<div class="hint" style="margin-bottom:10px">关联合同：<b>${esc(contractNo||sponsorId)}</b>${enterprise?` · ${esc(enterprise)}`:""}</div>`;
  const modalEl=modal({title:cfg.title,width:"640px",body:hint+formHtml(fields),
     footer:'<button class="btn btn-o" data-cancel>取消</button><button class="btn btn-p" data-save>提交</button>'});
