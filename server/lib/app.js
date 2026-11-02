@@ -163,7 +163,8 @@ async function handle(req, res) {
     if (out && out.__file !== undefined) {
       const f = out.__file;
       sendBinary(res, 200, f.buffer, { mime: f.mime, name: f.name,
-        cache: f.cache || "private, max-age=86400", disposition: f.download ? "attachment" : "inline" });
+        cache: f.cache || "private, max-age=86400", disposition: f.download ? "attachment" : "inline",
+        headers: f.headers });
       return;
     }
     if (out && out.__csv !== undefined) {

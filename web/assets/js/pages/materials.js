@@ -1,6 +1,7 @@
 import { api, can } from "../lib/api.js";
 import { bindPager, esc, formHtml, modal, pager, panel, readForm, table, toast, validate } from "../lib/ui.js";
 import { checkFile, compressImage, fileUrl } from "../lib/upload.js";
+import { fileLink } from "../lib/file-preview.js";
 import { renderMaterialWorkbench } from "../lib/material-workbench.js";
 
 const PAGE_SIZE = 50;
@@ -43,8 +44,8 @@ export async function render(root) {
             esc(m.name),
             m.file_key
               ? (m.file_mime === "application/pdf" || /\.(docx|ppt|pptx|xlsx)$/i.test(m.file_key)
-                  ? `<a class="link" href="${fileUrl(m.file_key)}" target="_blank" rel="noopener">${esc(m.file_name || "下载附件")}</a>`
-                  : `<a href="${fileUrl(m.file_key)}" target="_blank" rel="noopener"><img class="thumb" src="${fileUrl(m.file_key)}" alt=""></a>`)
+                  ? fileLink(m.file_key, m.file_name || m.name, m.file_name || "在线查看附件")
+                  : `<a href="${fileUrl(m.file_key)}" target="_blank" rel="noopener" data-file-preview="${esc(m.file_key)}" data-file-name="${esc(m.file_name || m.name)}"><img class="thumb" src="${fileUrl(m.file_key)}" alt=""></a>`)
               : '<span style="color:var(--mute)">—</span>',
             esc(m.version || ""), esc(m.uploader || ""), `<span class="mono">${esc(m.created_at)}</span>`]
         })),

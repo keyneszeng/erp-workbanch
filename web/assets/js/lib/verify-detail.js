@@ -1,4 +1,5 @@
 import { badge, esc, modal, money, table } from "./ui.js";
+import { fileLink } from "./file-preview.js";
 
 /**
  * 核销 6 步 SOP 的「详情」面板。
@@ -48,7 +49,7 @@ function matList(list, emptyText) {
       ${m.file_name ? `<span class="dtag">${esc(m.file_name)}</span>` : ""}
       <span class="dm">${esc(m.uploader || "—")} · ${esc(dt(m.created_at))}</span>
       ${m.file_key
-        ? `<a class="link" href="/api/uploads/${encodeURIComponent(m.file_key)}" target="_blank" rel="noopener" title="点击打开原件">${esc(m.file_name || m.name)} · 点击原件查看</a>`
+        ? fileLink(m.file_key, m.file_name || m.name, `${m.file_name || m.name} · 在线查看原件`)
         : `<span class="dm" style="margin-left:0">无附件</span>`}
     </li>`).join("")}</ul>`;
 }
@@ -102,7 +103,7 @@ export function stepBody(d,no){
     ${no===6?`<div class="dgrid">${cell("已签合同总额",fmt(contractTotal))}${cell("核销发票总金额",step?.invoiceAmount==null?"未核对":fmt(step.invoiceAmount))}</div>`:""}
     ${no===5?`<div class="dsec"><h4>劳务 / 专家类合同（合同分类）</h4>
       ${laborContracts.length?table([{t:"合同名称"},{t:"合同收款方"},{t:"金额"},{t:"原件"}],
-      laborContracts.map(x=>({c:[esc(x.name),esc(x.vendor),fmt(x.amount),x.file_key?`<a class="link" href="/api/uploads/${encodeURIComponent(x.file_key)}" target="_blank" rel="noopener">点击合同原件查看</a>`:"未上传"]}))):'<div class="dhint">暂无劳务专家类合同，请先到合同台账核验分类</div>'}
+      laborContracts.map(x=>({c:[esc(x.name),esc(x.vendor),fmt(x.amount),x.file_key?fileLink(x.file_key,x.file_name||`${x.name}原件`,"在线查看合同原件"):"未上传"]}))):'<div class="dhint">暂无劳务专家类合同，请先到合同台账核验分类</div>'}
       <h4>专家费 / 个人报销（付款类别，需核销后申请）</h4>
       ${payRows(expertPayments)}</div>`:""}
     <div class="dsec"><h4>结构化核验结果</h4>

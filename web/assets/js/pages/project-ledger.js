@@ -1,5 +1,6 @@
 import {api,state} from "../lib/api.js";
 import {esc,money,table,pager,bindPager,toast,badge} from "../lib/ui.js";
+import {fileLink} from "../lib/file-preview.js";
 
 /**
  * 仅总管理员：依会议编号聚合原始合同、付款、发票资料、结算记录。
@@ -10,8 +11,7 @@ let search="",page=1,selected="";
 const num=v=>"¥"+money(v==null?0:v);
 const td=s=>esc(s==null?"—":s);
 const anchor=(pid)=>'<button class="link" data-open-ledger="'+esc(pid)+'">'+esc(pid)+'</button>';
-const file=(row)=>row.file_key ?
-  '<a class="link" href="/api/uploads/'+encodeURIComponent(row.file_key)+'" target="_blank" rel="noopener noreferrer">'+esc(row.file_name||"查看原件")+'</a>':"未关联文件";
+const file=(row)=>row.file_key ? fileLink(row.file_key,row.file_name||"","在线查看原件") : "未关联文件";
 
 export async function render(root,params=[]){
   if(!state.super){

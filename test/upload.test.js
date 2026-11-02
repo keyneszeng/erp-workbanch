@@ -195,3 +195,53 @@ test("非法 file_key 被拒绝", async () => {
   assert.equal(r.status, 400);
   assert.match(r.data.error.message, /附件标识不合法/);
 });
+
+/* ---------------- 在线预览（核销「查看原件」走这里） ---------------- */
+
+test("图片原件预览直接返回图片本身，不触发下载", async () => {
+  const up = await upload(exec, JPEG, { name: "preview-photo.jpg" });
+  assert.equal(up.status, 200, JSON.stringify(up.data));
+  const r = await fetch(`${BASE}/api/uploads/${up.data.key}/preview`, { headers: { cookie: exec } });
+  assert.equal(r.status, 200);
+  assert.equal(r.headers.get("content-type"), "image/jpeg");
+  assert.match(r.headers.get("content-disposition") || "", /^inline/, "预览必须是 inline，不能变成附件下载");
+  const buf = Buffer.from(await r.arrayBuffer());
+  assert.ok(buf.equals(JPEG), "预览返回的必须就是原图字节");
+});
+
+test("PDF 原件预览渲染成 PNG；缺少 poppler 时明确报错而不是悄悄下载", async () => {
+  const { PDFDocument, StandardFonts, rgb } = require("pdf-lib");
+  const doc = await PDFDocument.create();
+  const page = doc.addPage([420, 300]);
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  page.drawText("Final Agenda 2027", { x: 40, y: 220, font, size: 18, color: rgb(0, 0, 0) });
+  const pdf = Buffer.from(await doc.save());
+
+  const up = await upload(exec, pdf, { mime: "application/pdf", name: "agenda.pdf" });
+  assert.equal(up.status, 200, JSON.stringify(up.data));
+
+  const r = await fetch(`${BASE}/api/uploads/${up.data.key}/preview?page=1`, { headers: { cookie: exec } });
+  if (r.status === 503) {
+    // 本机没装 poppler 时走这条：必须给出可读错误码，前端据此提供下载入口
+    const body = await r.json();
+    assert.equal(body.error.code, "PREVIEW_UNAVAILABLE");
+    return;
+  }
+  assert.equal(r.status, 200, `实际 ${r.status}`);
+  assert.equal(r.headers.get("content-type"), "image/png");
+  assert.equal(r.headers.get("x-preview-pages"), "1");
+  const png = Buffer.from(await r.arrayBuffer());
+  assert.equal(png.subarray(1, 4).toString("ascii"), "PNG", "返回的应是 PNG 图片");
+});
+
+test("预览与下载共用同一套权限：无关角色不能看", async () => {
+  const up = await upload(exec, JPEG, { name: "preview-perm.jpg" });
+  assert.equal(up.status, 200, JSON.stringify(up.data));
+  const r = await fetch(`${BASE}/api/uploads/${up.data.key}/preview`, { headers: { cookie: guest } });
+  assert.equal(r.status, 403, "未关联单据的附件只允许上传者本人或总管理员预览");
+});
+
+test("预览接口同样校验 key 合法性", async () => {
+  const r = await fetch(`${BASE}/api/uploads/not-a-key/preview`, { headers: { cookie: admin } });
+  assert.equal(r.status, 400);
+});

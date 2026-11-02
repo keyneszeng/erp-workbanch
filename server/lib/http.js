@@ -71,8 +71,11 @@ function readBody(req, limit = 2 * 1024 * 1024, { raw = false } = {}) {
 }
 
 /** 二进制响应（文件下载） */
-function sendBinary(res, status, buffer, { mime = "application/octet-stream", name = "", cache = "private, max-age=86400", disposition = "inline" } = {}) {
+function sendBinary(res, status, buffer, { mime = "application/octet-stream", name = "", cache = "private, max-age=86400", disposition = "inline", headers: extra } = {}) {
   const headers = {
+    // 附加头（如 PDF 预览的页数）先铺底，下面几个安全头必须由这里说了算，
+    // 免得调用方无意中把 Content-Type 或 nosniff 覆盖掉。
+    ...(extra || {}),
     "Content-Type": mime,
     "Content-Length": buffer.length,
     "Cache-Control": cache,

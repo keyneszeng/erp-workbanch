@@ -1,9 +1,10 @@
 import {api,can} from "./api.js";
 import {esc,formHtml,readForm,validate,modal,toast,confirmBox,promptBox,money} from "./ui.js";
 import {bindFilePicker} from "./upload.js";
+import {fileLink} from "./file-preview.js";
 let chosen="";
 const yuan=n=>"¥"+money(n||0);
-const link=k=>k?`<a class="link" href="/api/uploads/${encodeURIComponent(k)}" target="_blank" rel="noopener">点击原件查看</a>`:"未上传";
+const link=k=>fileLink(k,"","在线查看原件");
 export async function renderIncomeWorkbench(root,projects,requested=""){
  if(!root)return;
  if(!projects.length){root.innerHTML='<div class="panel mt">暂无可管理会议收入的项目</div>';return;}

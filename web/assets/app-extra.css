@@ -206,6 +206,20 @@ td .mono, td.mono{white-space:nowrap}
   box-shadow:0 2px 10px rgba(16,36,63,.1);background:#fff}
 .cdpdf{width:100%;height:520px;border:0;display:block;background:#f2f4f7}
 
+/* 原件在线预览弹窗（核销详情 / 合同 / 收入 / 台账共用） */
+.fp-bar{display:flex;align-items:center;gap:8px;padding:0 0 10px}
+.fp-ind{font-size:12.5px;color:var(--sub);min-width:92px;text-align:center}
+.fp-hint{font-size:12px;color:var(--sub)}
+.fp-wrap{background:#f2f4f7;border:1px solid var(--line);border-radius:8px;
+  padding:10px;max-height:66vh;overflow:auto;display:flex;justify-content:center}
+.fp-page{max-width:100%;height:auto;display:block;background:#fff;border-radius:4px;
+  box-shadow:0 2px 10px rgba(16,36,63,.12);cursor:zoom-in}
+.fp-page.fp-zoom{max-width:none;width:auto;cursor:zoom-out}
+.fp-loading{padding:48px 20px;color:var(--sub);font-size:13px}
+.fp-note{font-size:13px;line-height:1.85;color:var(--txt);background:#f6f8fb;
+  border-left:3px solid var(--blue);border-radius:0 6px 6px 0;padding:12px 14px}
+.fp-note b{display:block;margin-bottom:6px;color:var(--txt)}
+
 .cdgate{margin-top:12px;font-size:12.5px;color:var(--sub);background:#f6f8fb;
   border-left:3px solid var(--blue);border-radius:0 6px 6px 0;padding:9px 12px}
 /* 确认签署的行内二次确认：说明文字靠左，按钮靠右 */
