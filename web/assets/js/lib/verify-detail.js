@@ -164,10 +164,12 @@ function renderNames(box, names) {
       <div style="margin-top:8px">
         ${names.bySource.map((s) => `<div class="hint">· ${esc(s.kind)}（${s.names.length} 人）：${esc(s.names.join("、") || "未提取到")}</div>`).join("")}
       </div>
-      ${diff.length
-        ? `<div class="fp-note" style="margin-top:10px"><b>需要人工核对：以下姓名没有出现在全部材料里</b>
-             ${diff.map((x) => `${esc(x.kind)} 独有 ${esc(x.names.join("、"))}`).join("；")}</div>`
-        : `<div class="hint" style="margin-top:8px">✓ 各来源姓名完全一致（共 ${names.common.length} 人）</div>`}
+      ${names.bySource.length < 2
+        ? `<div class="hint" style="margin-top:8px">只有 1 份材料提取到姓名，无法做三处比对；请确认其余原件是否已上传。</div>`
+        : diff.length
+          ? `<div class="fp-note" style="margin-top:10px"><b>需要人工核对：以下姓名没有出现在全部材料里</b>
+               ${diff.map((x) => `${esc(x.kind)} 独有 ${esc(x.names.join("、"))}`).join("；")}</div>`
+          : `<div class="hint" style="margin-top:8px">✓ 各来源姓名完全一致（共 ${names.common.length} 人）</div>`}
     </div>`;
   const btn = box.querySelector("[data-copy-names]");
   if (btn) btn.onclick = async () => {
