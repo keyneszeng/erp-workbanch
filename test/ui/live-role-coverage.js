@@ -305,6 +305,16 @@ async function oneRole(browser, role) {
   }
 }
 (async () => {
+  if (ALIYUN_TEST) {
+    if (!process.env.ERP_BASE) {
+      throw new Error("阿里云测试必须明确设置 ERP_BASE，避免真实账号误发到演示站");
+    }
+    const target = new URL(BASE);
+    const loopback = ["localhost", "127.0.0.1", "::1", "[::1]"].includes(target.hostname);
+    if (target.protocol !== "https:" && !loopback) {
+      throw new Error("禁止通过公网明文 HTTP 发送真实账号；请在 ECS 本机或 SSH 端口转发运行");
+    }
+  }
   const b = await chromium.launch({ headless: true });
   try {
     for (const role of ROLES) await oneRole(b, role);
