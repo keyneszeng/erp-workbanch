@@ -226,7 +226,10 @@ async function openPay(root, projects) {
     btn.disabled = true; btn.textContent = "识别中，请稍候…"; msg.textContent = "";
     try {
       const r = await api.post(`/api/projects/${encodeURIComponent(pid)}/contracts/bank-extract`, {});
-      msg.textContent = `扫描 ${r.scanned} 份合同，识别成功 ${r.updated} 份`;
+      // 失败的要逐份点名：只说「成功 N 份」时，财务不知道剩下的是缺原件还是原件认不出来
+      const bad = (r.results || []).filter(x => x.error).map(x => `${x.id}（${x.error}）`);
+      msg.textContent = `扫描 ${r.scanned} 份合同，识别成功 ${r.updated} 份` +
+        (bad.length ? `；未识别：${bad.join("、")}` : "");
       if (r.updated) await bindPayeePicker(m, pid, false);
     } catch (e) { msg.textContent = e.message; }
     finally { btn.disabled = false; btn.textContent = "从合同原件识别收款账户"; }
