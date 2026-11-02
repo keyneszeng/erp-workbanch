@@ -9,7 +9,7 @@ const labor=v=>String(v||"").split(/\n+/).map(line=>line.split("|").map(x=>x.tri
 export function sopEvidenceForm(no,p){
   const head=`<div class="gate" style="margin-bottom:9px">以下信息来自人工核验/结构化录入，系统只做字段比较；不具备自动 OCR。原件请先在材料中心上传。</div>`;
   const s={
-    1:`<div class="fld"><label>基线原件</label><select name="documentKind"><option value="会议通知">盖章会议通知</option><option value="招商函">盖章招商函</option></select></div>`
+    1:`<div class="hint" style="margin-bottom:8px">关联原件：<b>立项文件</b> + <b>终版议程</b>（须已在材料中心上传）。</div>`
        +input("meetingName","会议名称",p.name)+input("meetingDate","会议日期",p.date)+input("organizer","主办方",p.assoc)
        +input("sponsor","招商主体（如无招商请填不适用）")
        +ck("stamped","确认原件已盖章")+ck("final","确认原件为终版"),
@@ -36,7 +36,7 @@ export function collectSopEvidence(no,m){
   const get=k=>m.querySelector('[name="'+k+'"]')?.value?.trim()||"";
   const checked=k=>!!m.querySelector('[name="'+k+'"]')?.checked;
   switch(no){
-    case 1:return {documentKind:get("documentKind"),meetingName:get("meetingName"),
+    case 1:return {meetingName:get("meetingName"),
       meetingDate:get("meetingDate"),organizer:get("organizer"),sponsor:get("sponsor"),stamped:checked("stamped"),final:checked("final")};
     case 2:return {agendaSpeakers:names(get("agendaSpeakers")),collectionSpeakers:names(get("collectionSpeakers")),
       agreementSpeakers:names(get("agreementSpeakers")),noOmissions:checked("noOmissions")};

@@ -5,6 +5,9 @@
  * 银行账户和参会人员明细只在内存里进行等值比较，绝不写入 verify_steps 或审计日志。
  */
 const { bad, conflict, cents } = require("./util");
+const { VERIFY_STEPS } = require("./constants");
+/** 每步必须核的原件类别，与前端「关联材料」列表同源 */
+const STEP_MATERIALS = Object.fromEntries(VERIFY_STEPS.map((s) => [s.no, s.materials || []]));
 const eq = (a,b) => String(a ?? "").trim().replace(/\s+/g,"") === String(b ?? "").trim().replace(/\s+/g,"");
 const list = (a) => Array.isArray(a) ? a.map(x=>String(x ?? "").trim()).filter(Boolean) : [];
 function sameNames(a,b) {
@@ -20,25 +23,30 @@ function materialExists(db,pid,kinds,requireFile=false){
     (requireFile ? " AND file_key IS NOT NULL AND file_key<>''" : "")
   ).get(pid,kind).n)>0);
 }
+/** 逐类检查原件，缺哪一类就把类别写进错误里，操作者不用猜 */
+function requireMaterials(db,pid,kinds,msg){
+  for(const kind of kinds)
+    if(!materialExists(db,pid,[kind],true))
+      fail(`${msg}（缺少「${kind}」原件）`,"SOP_MATERIAL_MISSING");
+}
 function validateSopEvidence(no, evidence, project, db, invoiceAmount) {
   if (!evidence || typeof evidence!=="object" || Array.isArray(evidence))
     throw bad("正式核销必须提交结构化核验依据 evidence，不能只点「通过」","SOP_EVIDENCE_REQUIRED");
   const e=evidence, pid=project.id;
   switch(no) {
     case 1: {
-      if (!["会议通知","招商函"].includes(e.documentKind)) throw bad("第一步请选择盖章的会议通知或招商函");
-      if (e.stamped!==true || e.final!==true) fail("第一步须确认文件已盖章且为终版");
+      // 关联材料：立项文件 + 终版议程（第 15 条需求）
+      if (e.stamped!==true || e.final!==true) fail("第一步须确认盖章函件已盖章且为终版");
       if (!eq(e.meetingName,project.name)||!eq(e.meetingDate,project.date)||!eq(e.organizer,project.assoc))
-        fail("通知/招商函的会议名称、时间、主办方与立项信息不一致");
+        fail("盖章函件上的会议名称、时间、主办方与立项信息不一致");
       if (!String(e.sponsor||"").trim()) throw bad("请填写招商主体（无招商须明确填写「不适用」）");
-      if (!materialExists(db,pid,[e.documentKind],true)) fail("请先登记并上传已盖章的会议通知/招商函原件","SOP_MATERIAL_MISSING");
-      return {documentKind:e.documentKind, stamped:true, final:true, fieldsMatched:4};
+      requireMaterials(db,pid,STEP_MATERIALS[1],"第一步须先登记并上传立项文件与终版议程原件");
+      return {materials:STEP_MATERIALS[1], stamped:true, final:true, fieldsMatched:4};
     }
     case 2: {
       if (!sameNames(e.agendaSpeakers,e.collectionSpeakers) || !sameNames(e.agendaSpeakers,e.agreementSpeakers))
-        fail("议程、劳务收集表、劳务协议讲者名单不一致，或存在重名/漏名");
-      for(const kind of ["议程","劳务收集表","劳务协议"])
-        if(!materialExists(db,pid,[kind],true)) fail("第二步缺少已上传的 "+kind+" 原件","SOP_MATERIAL_MISSING");
+        fail("终版议程、劳务收集表、劳务协议讲者名单不一致，或存在重名/漏名");
+      requireMaterials(db,pid,STEP_MATERIALS[2],"第二步缺少关联原件");
       if(e.noOmissions!==true) fail("须人工确认无冒领、漏发或重复劳务记录");
       return {matchedPeople:list(e.agendaSpeakers).length,noOmissions:true};
     }
@@ -46,10 +54,14 @@ function validateSopEvidence(no, evidence, project, db, invoiceAmount) {
       const form=project.form;
       if(["线上","混合"].includes(form) && !(Number(e.onlineMinutes)>30))
         fail("线上/混合会议的有效讲者在线时长必须大于 30 分钟");
-      if(["线下","混合"].includes(form) && (e.signedAttendance!==true ||
-         !materialExists(db,pid,["签到表"],true)))
-        fail("线下/混合会议须提供签到表原件并确认签到");
+      if(["线下","混合"].includes(form) && e.signedAttendance!==true)
+        fail("线下/混合会议须确认已核对签到");
       if(!["线上","线下","混合"].includes(form)) fail("项目会议形式不明确，无法核对参会数据");
+      // 关联材料：参会数据文件。线下会议的签到表本身就是参会数据，允许代替。
+      let hasData=materialExists(db,pid,STEP_MATERIALS[3],true);
+      if(!hasData && ["线下","混合"].includes(form))
+        hasData=materialExists(db,pid,["签到表"],true);
+      if(!hasData) fail("第三步缺少参会数据原件（线下会议可用签到表）","SOP_MATERIAL_MISSING");
       return {format:form,onlineMinutes:["线上","混合"].includes(form)?Number(e.onlineMinutes):null,
         signedAttendance:["线下","混合"].includes(form)?true:null};
     }
@@ -60,8 +72,7 @@ function validateSopEvidence(no, evidence, project, db, invoiceAmount) {
       if (!Array.isArray(e.sponsorLogoPages) ||
           e.sponsorLogoPages.some(p=>!["首页","尾页","鸣谢页"].includes(p)))
         fail("药企 logo 只能出现在首页、尾页或鸣谢页");
-      if(!materialExists(db,pid,["课件"],true)||!materialExists(db,pid,["串场"],true))
-        fail("课件或串场材料缺少原件","SOP_MATERIAL_MISSING");
+      requireMaterials(db,pid,STEP_MATERIALS[4],"第四步缺少关联原件");
       return {matchedTopics:list(e.agendaTopics).length,hostTitleMatches:true,hostNameLogoMatches:true,
         sponsorLogoPages:[...new Set(e.sponsorLogoPages)]};
     }
@@ -76,8 +87,15 @@ function validateSopEvidence(no, evidence, project, db, invoiceAmount) {
       if(new Set(a.map(norm)).size!==a.length || new Set(b.map(norm)).size!==b.length ||
          a.map(norm).sort().some((x,i)=>x!==b.map(norm).sort()[i]))
         fail("劳务收集表与劳务协议五字段不一致");
+      // 关联文件：劳务收集表原件 + 劳务/专家类合同（按合同分类认，不按合同名称猜）
+      requireMaterials(db,pid,STEP_MATERIALS[5],"第五步缺少劳务收集表原件");
+      const laborContracts=Number(db.prepare(
+        "SELECT COUNT(*) AS n FROM contracts WHERE pid=? AND status='已签署' AND category='劳务专家'"
+      ).get(pid).n);
+      if(!laborContracts)
+        fail("第五步缺少已签署的劳务/专家类合同（合同分类须为「劳务专家」）","SOP_MATERIAL_MISSING");
       // 不返回、存储姓名、账号或记录原文。
-      return {matchedLaborRecords:a.length,matchedFields:keys.length,accountDataStored:false};
+      return {matchedLaborRecords:a.length,matchedFields:keys.length,laborContracts,accountDataStored:false};
     }
     case 6: {
       if(!Number.isFinite(invoiceAmount)||invoiceAmount<0) throw bad("请输入核对后的发票金额");

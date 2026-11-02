@@ -58,7 +58,7 @@ test("production: association member IDs, approved contract signing and pay-afte
   assert.equal(created.status,200,JSON.stringify(created.body));
   assert.equal(created.body.project.owner_id,a.body.user.id);
   const pid=created.body.project.id;
-  const contract=await request("POST","/api/contracts",{pid,name:"会议服务合同",vendor:"服务供应商",amount:8000,status:"已签署"},cookie);
+  const contract=await request("POST","/api/contracts",{pid,name:"会议服务合同",vendor:"服务供应商",amount:6000,status:"已签署"},cookie);
   assert.equal(contract.status,200,JSON.stringify(contract.body));
   assert.equal(contract.body.contract.status,"待签署","creation must not bypass signing approval");
   const pending=await request("GET","/api/approvals?type="+encodeURIComponent("合同审批"),undefined,cookie);
@@ -69,6 +69,16 @@ test("production: association member IDs, approved contract signing and pay-afte
   assert.equal(decided.status,200,JSON.stringify(decided.body));
   const signed=await request("GET","/api/contracts?pid="+pid,undefined,cookie);
   assert.equal(signed.body.rows.find(x=>x.id===contract.body.contract.id).status,"已签署");
+
+  // 第五步核的是「劳务/专家类合同」，按合同分类认。
+  // 这里补一份已签署的专家劳务协议，否则第五步会因为找不到该类合同而被拦。
+  const labor=await request("POST","/api/contracts",{pid,name:"专家劳务协议",vendor:"测试专家",amount:2000,category:"劳务专家",status:"已签署"},cookie);
+  assert.equal(labor.status,200,JSON.stringify(labor.body));
+  const laborPending=await request("GET","/api/approvals?type="+encodeURIComponent("合同审批"),undefined,cookie);
+  const laborAp=laborPending.body.rows.find(x=>x.ref_id===labor.body.contract.id&&x.status==="待审批");
+  assert.ok(laborAp,"labor contract approval was created");
+  const laborDecided=await request("POST","/api/approvals/"+laborAp.id+"/decide",{approve:true,comment:"同意签署"},cookie);
+  assert.equal(laborDecided.status,200,JSON.stringify(laborDecided.body));
   const premature=await request("POST","/api/payments",{pid,type:"学会公付",payee:"供应商",payee_bank:"中国银行",payee_account:"1234567890123456",amount:100,invoice_no:"INV-1"},cookie);
   assert.equal(premature.status,409,"payment cannot precede verification");
 
@@ -106,7 +116,7 @@ test("production: association member IDs, approved contract signing and pay-afte
   const reset=await request("POST","/api/demand/"+pid+"/reset",{},cookie);
   assert.equal(reset.status,200);
 
-  for (const kind of [...new Set([...MATERIAL_KINDS,"会议通知","劳务收集表","劳务协议","串场"])]) {
+  for (const kind of [...new Set([...MATERIAL_KINDS,"会议通知","终版议程","参会数据","劳务收集表","劳务协议","串场"])]) {
     const attachment = kind === "发票" ? uploadBody : await (async () => {
       const response = await fetch(root + "/api/uploads?pid=" + pid, {
         method:"POST",
@@ -156,7 +166,7 @@ test("production: association member IDs, approved contract signing and pay-afte
   assert.equal(step.status,200,JSON.stringify(step.body));
   const record={name:"测试讲者",time:"2027-08-10",role:"讲者",amount:"1000",bankAccount:"TEST_ACCOUNT_REFERENCE"};
   const sop={
-    1:{documentKind:"会议通知",meetingName:base.name,meetingDate:base.date,organizer:base.assoc,sponsor:"不适用",stamped:true,final:true},
+    1:{meetingName:base.name,meetingDate:base.date,organizer:base.assoc,sponsor:"不适用",stamped:true,final:true},
     2:{agendaSpeakers:["测试讲者"],collectionSpeakers:["测试讲者"],agreementSpeakers:["测试讲者"],noOmissions:true},
     3:{signedAttendance:true},
     4:{agendaTopics:["课题甲"],courseTopics:["课题甲"],hostTitleMatches:true,hostNameLogoMatches:true,sponsorLogoPages:[]},
@@ -185,9 +195,9 @@ test("production: association member IDs, approved contract signing and pay-afte
     step=await request("POST","/api/projects/"+pid+"/verify/steps/"+no,{result:"通过",evidence:sop[no]},cookie);
     assert.equal(step.status,200,"verification "+no+": "+JSON.stringify(step.body));
   }
-  step=await request("POST","/api/projects/"+pid+"/verify/steps/6",{result:"通过",invoiceAmount:7999,evidence:sop[6]},cookie);
+  step=await request("POST","/api/projects/"+pid+"/verify/steps/6",{result:"通过",invoiceAmount:5999,evidence:sop[6]},cookie);
   assert.equal(step.status,409,"invoice total cannot differ from signed contracts");
-  step=await request("POST","/api/projects/"+pid+"/verify/steps/6",{result:"通过",invoiceAmount:8000,evidence:sop[6]},cookie);
+  step=await request("POST","/api/projects/"+pid+"/verify/steps/6",{result:"通过",invoiceAmount:6000,evidence:sop[6]},cookie);
   assert.equal(step.status,200,JSON.stringify(step.body));
   assert.equal(step.body.verification.exceptions.find(x=>x.id===exceptionId).status,"已闭环",
     "整改必须在原步骤核销通过后才闭环");
@@ -214,7 +224,7 @@ test("production: association member IDs, approved contract signing and pay-afte
     assert.equal(step.status,200,"repeat verification "+no+": "+JSON.stringify(step.body));
   }
   step=await request("POST","/api/projects/"+pid+"/verify/steps/6",
-    {result:"通过",invoiceAmount:8000,evidence:sop[6]},cookie);
+    {result:"通过",invoiceAmount:6000,evidence:sop[6]},cookie);
   assert.equal(step.status,200,JSON.stringify(step.body));
   step=await request("POST","/api/projects/"+pid+"/transition",{action:"verify_pass"},cookie);
   assert.equal(step.status,200,JSON.stringify(step.body));

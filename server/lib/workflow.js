@@ -55,7 +55,13 @@ function materialsStatus(pid) {
   const disabled=new Set(toggles.filter(m=>m.enabled===0).map(m=>m.kind));
   // 固定模块可以停用待办入口，但不能豁免归档必备 8 类（尤其课件）。
   const required=MATERIAL_KINDS;
-  const missing = required.filter(k=>!have.includes(k));
+  /**
+   * 等价类别：同一份材料在不同环节叫法不同，不该逼人传两遍。
+   *   议程   ← 终版议程（核销第 1/2/4 步要的是终版议程，归档清单写的是「议程」）
+   *   签到表 ← 参会数据（线上会议没有签到表，参会数据就是它的等价物）
+   */
+  const EQUIV={ "议程":["终版议程"], "签到表":["参会数据"] };
+  const missing = required.filter(k=>!have.includes(k) && !(EQUIV[k]||[]).some(x=>have.includes(x)));
   return { have, missing, ok: missing.length === 0, required, disabled:[...disabled] };
 }
 

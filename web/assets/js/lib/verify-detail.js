@@ -73,33 +73,32 @@ function payRows(list) {
 /** 按步骤组装「这一步到底要核什么」的原始数据 */
 export function stepBody(d,no){
   /**
-   * 这里必须用**材料类别（kind）的真实取值**，且要与 server/lib/meeting-sop.js
-   * 的校验保持一致——页面上写「要核 A」，服务端却要求 B，核销人就会一直撞墙。
+   * 关联材料直接读接口返回的 step.materials —— 与服务端 meeting-sop.js 校验用的是
+   * 同一份定义（server/lib/constants.js 的 VERIFY_STEPS）。
    *
-   * 第 1 步服务端校验的是 documentKind（会议通知 / 招商函）原件；
-   * 第 4 步服务端要求课件 + 串场原件（串场待办已下线，但核销仍要这份材料）。
+   * 以前这里硬编码了一份显示名（终版议程 / 参会数据 / 拟结算单），
+   * 和服务端真正校验的材料类别对不上，页面说「要核 A」、系统却要求 B，
+   * 核销人一直撞墙。现在只保留一份，前端不再自己维护。
    */
-  const names={
-    1:["会议通知","招商函"],2:["议程","劳务收集表","劳务协议"],
-    3:["签到表"],4:["议程","课件","串场"],
-    5:["劳务收集表","劳务协议"],6:["合同","发票"]
-  };
+  const step=d.verification.steps.find(x=>x.no===no);
+  const names=(step?.materials&&step.materials.length?step.materials:[]).slice();
+  // 线下会议的签到表本身就是参会数据，页面同步提示，避免只传了签到表的人以为缺件
+  if(no===3&&["线下","混合"].includes(d.project?.form)&&!names.includes("签到表"))names.push("签到表");
   const note={
-    1:"已盖章+终版：会议名称/日期/主办方/招商主体逐项核对。",
-    2:"议程、劳务收集表、劳务协议名单三处互相覆盖，无冒领/漏发。",
-    3:"线上有效讲者在线时长 >30 分钟；线下有签到原件；混合两项都需要。",
+    1:"盖章函件与立项信息逐项核对：会议名称/日期/主办方/招商主体。",
+    2:"终版议程、劳务收集表、劳务协议名单三处互相覆盖，无冒领/漏发。",
+    3:"线上有效讲者在线时长 >30 分钟；线下有签到；混合两项都需要。",
     4:"课件课题匹配终版议程，串场题目及主办方 logo 匹配；药企 logo 只允许首页、尾页、鸣谢页。",
-    5:"劳务收集表与劳务协议须逐人比对姓名/时间/角色/金额/银行账号；银行账号不保存在核销证据中。",
+    5:"劳务收集表与劳务/专家类合同逐人比对姓名/时间/角色/金额/银行账号；银行账号不保存在核销证据中。",
     6:"已签合同总额须等于拟请款总额，发票金额须等于需开票合同总额；专家劳务按第五步核验的协议与劳务表免票请款。"
   };
-  const selected=(d.materials||[]).filter(m=>(names[no]||[]).includes(m.kind));
-  const step=d.verification.steps.find(x=>x.no===no);
+  const selected=(d.materials||[]).filter(m=>names.includes(m.kind));
   const contractTotal=(d.contracts||[]).filter(x=>x.status==="已签署").reduce((sum,x)=>sum+Number(x.amount||0),0);
   const laborContracts=(d.contracts||[]).filter(x=>x.category==="劳务专家");
   const expertPayments=(d.payments||[]).filter(x=>["专家费","个人报销"].includes(x.type));
   const evidence=step?.evidence;
   return `<div class="dsec"><h4>业务核验规则</h4><div class="dchk">${esc(note[no]||"请核对资料")}</div></div>
-    <div class="dsec"><h4>已登记的关联材料</h4>${matList(selected,"请在材料中心补充对应原件")}</div>
+    <div class="dsec"><h4>已登记的关联材料（${esc(names.join(" / ")||"—")}）</h4>${matList(selected,"请在材料中心补充对应原件")}</div>
     ${no===6?`<div class="dgrid">${cell("已签合同总额",fmt(contractTotal))}${cell("核销发票总金额",step?.invoiceAmount==null?"未核对":fmt(step.invoiceAmount))}</div>`:""}
     ${no===5?`<div class="dsec"><h4>劳务 / 专家类合同（合同分类）</h4>
       ${laborContracts.length?table([{t:"合同名称"},{t:"合同收款方"},{t:"金额"},{t:"原件"}],
