@@ -320,19 +320,21 @@ function register(router) {
 
     const b = ctx.body || {};
     /**
-     * 核销后的锁定分两层：
-     *   · 金额 / 名称 / 签约方 / 签署日期 —— 动一个就会让「合同总额 = 拟请款总额」失真，谁都不放行
-     *   · 类别 —— 只是「这份合同算不算支出」的分类标签。存量里把赞助协议记成「其他」的
-     *     必须能改回来，否则新规则对老数据永远无效。改类别会重算合同总额，
-     *     所以放行但要留痕，让判定人知道口径变了。
+     * 核销后的锁定分三层：
+     *   · 类别 —— 「这份合同算不算支出」的分类标签。存量里把赞助协议记成「其他」的必须能改回来，
+     *     否则「收入类合同不参与核销」这条规则对老数据永远无效。改完留痕即可。
+     *   · 金额 / 名称 / 签约方 / 签署日期 —— 动了会让「合同总额 = 拟请款总额」失真。
+     *     非总管理员一律拦；总管理员可以改（纠错兜底），但改完必须把第 6 步退回重判，
+     *     项目也跟着退回「待核销」—— 否则会留下「已核销但口径已经变了」的静默错误。
+     *   · 已结算 / 已归档 —— 走上面的 frozenGate，总管理员放行但留痕。
      */
     const locked = !isDemoMode() && (p.status === "已核销" ||
       !!db.prepare("SELECT 1 FROM verify_steps WHERE pid=? AND step_no=6 AND result='通过'").get(p.id));
     const moneyTouched = ["name", "vendor", "amount", "sign_date"].filter((k) => k in b &&
       String(b[k] ?? "") !== String(c[k] ?? ""));
-    if (locked && moneyTouched.length) {
+    if (locked && moneyTouched.length && !isSuper(ctx.user)) {
       throw conflict(
-        `合同已完成核票或核销，${moneyTouched.join("、")} 已锁定；如确需更正请先办理核销更正（类别可以单独调整）`,
+        `合同已完成核票或核销，${moneyTouched.join("、")} 已锁定；如确需更正请由总管理员操作（类别可以单独调整）`,
         "CONTRACT_VERIFIED", { fields: moneyTouched }
       );
     }
@@ -399,6 +401,39 @@ function register(router) {
     }
 
     const categoryChanged = String(c.category || "") !== String(next.category || "");
+
+    /**
+     * 总管理员在核销后动了「会改变合同总额」的字段 → 第 6 步的口径已经变了，旧结论必须作废。
+     * 会改变总额的只有两种：金额本身，以及类别在「支出 / 收入」之间翻转。
+     * 这里不弹确认、不留旧值，直接把第 6 步退回「待判定」，并把项目从「已核销」
+     * 退回「待核销」—— 已核销但核销口径已经变了，比退回去更危险。
+     */
+    const affectsTotal = moneyTouched.includes("amount") || wasIncome !== nowIncome;
+    let reopenNote = "";
+    if (locked && affectsTotal && isSuper(ctx.user)) {
+      const why = moneyTouched.includes("amount")
+        ? `合同 ${c.id} 的金额由总管理员更正为 ¥${next.amount}`
+        : `合同 ${c.id} 的类别由「${c.category || "未分类"}」改为「${next.category || "未分类"}」`;
+      const hit = db.prepare(
+        "UPDATE verify_steps SET result='待判定', remark=?, checked_by=NULL, checked_at=NULL, " +
+        "evidence_json=NULL, invoice_amount=NULL WHERE pid=? AND step_no=6 AND result<>'待判定'"
+      ).run(`${why}，合同总额已变，须重新判定`, p.id);
+      if (hit.changes) {
+        if (p.status === "已核销") {
+          const at = now();
+          db.prepare("UPDATE projects SET status='待核销', status_at=?, updated_at=? WHERE id=?").run(at, at, p.id);
+          reopenNote = "；核销第 6 步已退回待判定，项目状态回到「待核销」";
+        } else {
+          reopenNote = "；核销第 6 步已退回待判定";
+        }
+        logAudit({
+          user: ctx.user, module: "会后核销", action: "核销结论作废重判", target: p.id,
+          detail: `${why}，第 6 步退回待判定${p.status === "已核销" ? "，项目状态 已核销 → 待核销" : ""}`,
+          ip: ctx.ip
+        });
+      }
+    }
+
     if (locked && categoryChanged) {
       // 核销后改类别会重算合同总额，必须单独留一条，别混在普通编辑里
       logAudit({
@@ -414,7 +449,7 @@ function register(router) {
     });
     return {
       contract: db.prepare("SELECT * FROM contracts WHERE id = ?").get(c.id),
-      message: `合同 ${c.id} 已更新${materialNote}`
+      message: `合同 ${c.id} 已更新${materialNote}${reopenNote}`
     };
   });
 

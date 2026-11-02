@@ -204,15 +204,23 @@ test("production: association member IDs, approved contract signing and pay-afte
   assert.equal(freeze.status,409,"contracts must freeze after invoice verification");
 
   /**
-   * 2026-11-02：核销后的锁定分两层。
-   * 金额动了会让「合同总额 = 拟请款总额」失真 → 谁都不放行；
-   * 类别只是「这份合同算不算支出」的标签，存量里把赞助协议记成「其他」的必须能改回来，
-   * 否则「收入类合同不参与核销」这条规则对老数据永远无效。
+   * 2026-11-02：核销后的锁定分三层。
+   *   · 类别：只是「算不算支出」的标签，存量把赞助协议记成「其他」的必须能改回来
+   *   · 金额：总管理员可改（纠错兜底），但改完第 6 步必须退回重判，不能留旧结论
+   *   · 其他角色改金额：直接拦
    */
   const contractId=contract.body.contract.id;
+  // 先验金额（此时第 6 步还是「通过」，才验得到「退回重判」这件事）
   const moneyFix=await request("PATCH","/api/contracts/"+contractId,{amount:7000},cookie);
-  assert.equal(moneyFix.status,409,"核销后金额必须锁定");
-  assert.equal(moneyFix.body.error.code,"CONTRACT_VERIFIED");
+  assert.equal(moneyFix.status,200,"总管理员应能更正核销后的合同金额："+JSON.stringify(moneyFix.body));
+  assert.match(String(moneyFix.body.message||""),/待判定/,"改金额必须把第 6 步退回重判");
+  const afterFix=await request("GET","/api/projects/"+pid+"/verify",undefined,cookie);
+  assert.equal(afterFix.body.verification.steps.find(s=>s.no===6).result,"待判定",
+    "合同总额变了，第 6 步的旧结论必须作废");
+  // 改回原值，不影响后面的结算用例（后面会重新判定第 6 步）
+  const moneyBack=await request("PATCH","/api/contracts/"+contractId,{amount:6000},cookie);
+  assert.equal(moneyBack.status,200,JSON.stringify(moneyBack.body));
+
   const catFix=await request("PATCH","/api/contracts/"+contractId,{category:"赞助收入"},cookie);
   assert.equal(catFix.status,200,"核销后类别应允许更正："+JSON.stringify(catFix.body));
   assert.equal(catFix.body.contract.category,"赞助收入");

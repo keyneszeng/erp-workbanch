@@ -68,7 +68,7 @@ export async function render(root) {
         rows.map((r) => ({
           c: [`<span class="mono">${r.id}</span>`, `<a class="link" data-go="projects/${r.pid}">${esc(r.pname)}</a>`,
             `${esc(r.name)}${can("contract:write")
-              ? `<button class="cat cat-edit" data-cedit="${r.id}" title="点击修改合同类别（收入类赞助合同不计入核销）">${esc(r.category || "未分类")}</button>`
+              ? `<button class="cat cat-edit" data-cedit="${r.id}" title="点击编辑这份合同（类别 / 金额 / 名称）；收入类赞助合同不计入核销">${esc(r.category || "未分类")}</button>`
               : `<span class="cat">${esc(r.category || "未分类")}</span>`}`,
             esc(r.vendor), `¥${money(r.amount)}`, `<span class="mono">${esc(r.sign_date || "—")}</span>`,
             badge(r.status), fileCell(r), flowBtn(r)+(r.status==="待签署"&&can("contract:approve")?` <button class="link danger" data-cflow="${r.id}" data-caction="reject">驳回</button>`:"")]
@@ -111,11 +111,18 @@ function openCategoryEdit(root, row) {
     { k: "category", l: "合同类别", t: "select", req: 1, v: row.category || "",
       opts: state.meta.contractCategories || [],
       tip: "「赞助收入」= 收入类合同：不占支出预算、不计入核销第 6 步的合同总额、不生成归档合同材料、不出现在付款收款方里" },
+    { k: "name", l: "合同名称", req: 1, v: row.name || "" },
+    { k: "vendor", l: "签约方", req: 1, v: row.vendor || "" },
+    { k: "amount", l: "合同金额（元）", t: "number", req: 1, v: row.amount },
+    { k: "sign_date", l: "签署日期", t: "date", v: row.sign_date || "" },
     { k: "remark", l: "备注", t: "textarea", full: 1, rows: 2, v: row.remark || "" }
   ];
   const m = modal({
-    title: `修改合同类别 · ${row.id}`,
-    body: `<div class="hint" style="margin-bottom:10px">${esc(row.name)}<br>签约方 ${esc(row.vendor)} · ¥${money(row.amount)} · ${esc(row.status)}</div>${formHtml(fields)}`,
+    title: `编辑合同 · ${row.id}`,
+    body: `<div class="gate" style="margin-bottom:12px"><b>改金额或类别会重算核销口径</b>
+      合同总额是核销第 6 步「拟请款总额」的比对基准。已核销后再改金额或收入/支出属性，
+      系统会把第 6 步退回「待判定」，由判定人重新确认一次 —— 不会留下口径已经变了的旧结论。</div>
+      ${formHtml(fields)}`,
     footer: `<button class="btn btn-o" data-x="0">取消</button><button class="btn btn-p" data-x="1">保存</button>`
   });
   m.querySelector('[data-x="0"]').onclick = () => m.classList.remove("open");
@@ -125,7 +132,7 @@ function openCategoryEdit(root, row) {
     btn.disabled = true;
     try {
       const r = await api.patch(`/api/contracts/${row.id}`, readForm(m));
-      toast(r.message || "合同类别已更新", "ok");
+      toast(r.message || "合同已更新", "ok");
       m.classList.remove("open");
       await render(root);
     } catch (err) { toast(err.message, "warn"); btn.disabled = false; }
