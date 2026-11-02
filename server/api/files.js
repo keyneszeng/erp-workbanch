@@ -145,8 +145,10 @@ function register(router) {
     if (buf.length > MAX_BYTES) {
       const r = await shrinkToLimit(buf, mime, MAX_BYTES);
       if (!r.ok) {
-        const reason = r.reason === "unsupported" || ["ppt","docx","pptx","xlsx"].includes(officeExt)
-          ? OFFICE_HINT
+        const reason = r.reason === "unsupported"
+          ? (officeExt === "ppt"
+              ? "旧版 .ppt 是二进制格式，无法安全改写；请另存为 .pptx 或导出 PDF 后再上传"
+              : OFFICE_HINT)
           : r.reason === "tool-missing"
             ? "服务器未安装压缩工具，请先在本地压缩后再上传"
             : r.reason === "failed"

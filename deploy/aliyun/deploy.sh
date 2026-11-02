@@ -208,15 +208,17 @@ fi
 
 # 超大附件自动瘦身：PDF 用 Ghostscript 降采样，图片用 ImageMagick 限长边。
 # 缺这两个工具时，>20MB 的扫描件会直接被拒（提示用户本地压缩），不会静默丢数据。
-log "安装附件压缩依赖（Ghostscript + ImageMagick）"
-if [ "$DRY_RUN" = "0" ] && command -v gs >/dev/null 2>&1 && command -v convert >/dev/null 2>&1; then
+log "安装附件压缩依赖（Ghostscript + ImageMagick + zip/unzip）"
+if [ "$DRY_RUN" = "0" ] && command -v gs >/dev/null 2>&1 && command -v convert >/dev/null 2>&1 \
+   && command -v zip >/dev/null 2>&1 && command -v unzip >/dev/null 2>&1; then
   log "  压缩工具已安装，跳过"
 else
-  run apt-get install -y -qq --no-install-recommends ghostscript imagemagick
+  run apt-get install -y -qq --no-install-recommends ghostscript imagemagick zip unzip
 fi
 if [ "$DRY_RUN" = "0" ]; then
   command -v gs >/dev/null 2>&1 || warn "Ghostscript 未就绪，超大 PDF 无法自动压缩"
   command -v convert >/dev/null 2>&1 || warn "ImageMagick 未就绪，超大图片无法自动压缩"
+  command -v zip >/dev/null 2>&1 || warn "zip 未就绪，超大 PPTX/DOCX/XLSX 无法自动压缩"
 fi
 
 # ---------- 服务账户与目录 ----------

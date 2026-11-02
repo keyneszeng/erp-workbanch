@@ -98,7 +98,7 @@ function check(env = process.env) {
   // >20MB 的文件会被拒绝并提示用户本地压缩，不会静默丢数据。
   {
     const { spawnSync } = require("node:child_process");
-    for (const [cmd, label] of [["gs", "Ghostscript"], ["convert", "ImageMagick"]]) {
+    for (const [cmd, label] of [["gs", "Ghostscript"], ["convert", "ImageMagick"], ["zip", "zip"], ["unzip", "unzip"]]) {
       const res = spawnSync(cmd, ["-version"], { encoding: "utf8", timeout: 8000, maxBuffer: 65536 });
       if (res.error || res.status !== 0)
         console.warn(`[warn] 未检测到 ${label}（${cmd}）：超过 20 MB 的原件将无法自动压缩`);

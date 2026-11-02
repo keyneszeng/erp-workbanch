@@ -289,10 +289,15 @@ test("压缩模块：小文件不需要压、Office 压不了、损坏文件不�
   assert.equal(small.ok, false);
   assert.equal(small.reason, "not-needed");
 
-  // Office 是 ZIP 包，重新打包压不动多少，明确返回 unsupported 而不是硬压
-  const office = await shrinkToLimit(Buffer.alloc(limit + 1), "application/vnd.openxmlformats-officedocument.presentationml.presentation", limit);
-  assert.equal(office.ok, false);
-  assert.equal(office.reason, "unsupported");
+  // 旧版 .ppt 是 CFB 二进制，没有安全的改写手段，明确返回 unsupported
+  const legacy = await shrinkToLimit(Buffer.alloc(limit + 1), "application/vnd.ms-powerpoint", limit);
+  assert.equal(legacy.ok, false);
+  assert.equal(legacy.reason, "unsupported");
+
+  // pptx 会走「解包重压图片」，但这里喂的是垃圾字节：只能失败，不能抛异常
+  const pptx = await shrinkToLimit(Buffer.alloc(limit + 1), "application/vnd.openxmlformats-officedocument.presentationml.presentation", limit);
+  assert.equal(pptx.ok, false);
+  assert.ok(["tool-missing", "failed", "still-large", "unsupported"].includes(pptx.reason), pptx.reason);
 
   // 损坏的 PDF：要么工具没装，要么压失败，但绝不能抛异常（否则上传会变成 500）
   const broken = await shrinkToLimit(Buffer.alloc(limit + 1, 0x41), "application/pdf", limit);
