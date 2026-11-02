@@ -212,9 +212,25 @@ async function openPay(root, projects) {
     { k: "remark", l: "备注", t: "textarea", full: 1, rows: 2 }
   ];
   const m = modal({ title: "付款申请", body: `<div class="gate ok" style="margin-bottom:12px"><b>核销门禁</b>仅列出「已核销」项目：未核销项目不可付款，已结算项目账目已封账，已归档项目卷宗已封存。<br><b>预算门禁</b>已占用（待审批 + 已审批 + 已付款）加本笔金额超过预算时，接口返回 <code>OVER_BUDGET</code>，需总管理员特批。</div>${formHtml(fields)}
+    <div style="margin-top:10px">
+      <button type="button" class="btn btn-o btn-sm" id="bankExtract">从合同原件识别收款账户</button>
+      <span class="hint" id="bankExtractMsg" style="margin-left:8px"></span>
+    </div>
     <div class="hint" data-payee-tip style="color:#a23b2b"></div>`,
     footer: `<button class="btn btn-o" data-x="0">取消</button><button class="btn btn-p" data-x="1">提交申请</button>` });
   await bindPayeePicker(m,projects[0].id,true);
+  // 合同台账里没录开户行/账号时，直接从合同原件里识别一遍再重新载入选项
+  m.querySelector("#bankExtract").onclick = async () => {
+    const pid = m.querySelector('[name="pid"]').value;
+    const btn = m.querySelector("#bankExtract"), msg = m.querySelector("#bankExtractMsg");
+    btn.disabled = true; btn.textContent = "识别中，请稍候…"; msg.textContent = "";
+    try {
+      const r = await api.post(`/api/projects/${encodeURIComponent(pid)}/contracts/bank-extract`, {});
+      msg.textContent = `扫描 ${r.scanned} 份合同，识别成功 ${r.updated} 份`;
+      if (r.updated) await bindPayeePicker(m, pid, false);
+    } catch (e) { msg.textContent = e.message; }
+    finally { btn.disabled = false; btn.textContent = "从合同原件识别收款账户"; }
+  };
   m.querySelector('[data-x="0"]').onclick = () => m.classList.remove("open");
   m.querySelector('[data-x="1"]').onclick = async () => {
     const selected=m.querySelector('[name="payee_option_id"]')?.value;
@@ -222,8 +238,10 @@ async function openPay(root, projects) {
     const bank=m.querySelector('[name="payee_bank"]')?.value.trim();
     const rows=m.querySelector('[name="payee_option_id"]')?.__rows||[];
     const source=rows.find(x=>x.id===selected);
+    // 选中的收款方若带着已核验账号，服务端会直接解密使用，不需要再手填
+    const hasVerifiedAccount = !!(source && source.maskedAccount && !source.accountUnavailable);
     if((!source||!source.bank)&&!bank){toast("请填写收款方开户行","warn");return;}
-    if((!source||source.source!=="labor")&&!acct){toast("请填写银行账号；合同仅提供收款方名称","warn");return;}
+    if(!hasVerifiedAccount&&!acct){toast("请填写银行账号（或选择带账号的核销收款方）","warn");return;}
     if (!validate(m, fields)) return;
     try {
       const r = await api.post("/api/payments", readForm(m));

@@ -9,6 +9,8 @@ const { readPaging, countOf } = require("../lib/paginate");
 const { transition } = require("../lib/workflow");
 const { assertUploadAttachable } = require("../lib/upload-ownership");
 const { isDemoMode } = require("../lib/runtime");
+const { storage } = require("../lib/storage");
+const { extractBankInfo, pdfTextLayer } = require("../lib/bank-extract");
 
 // 只有「已核销」可新增付款：结算后账目已封账，归档后卷宗已封存，均不得再挂账
 const PAYABLE_STATUS = ["已核销"];
@@ -339,6 +341,70 @@ function register(router) {
         paidAmount: Number(agg.a_paid) || 0
       }
     };
+  });
+
+  /**
+   * 从合同原件里识别收款账户。
+   *
+   * 合同正文本来就写着开户行和账号，但录入的人不会顺手再抄进台账，
+   * 于是付款时财务只能翻 PDF。这里按项目批量识别：先读 PDF 文本层（快），
+   * 扫描件再退回 OCR；识别到就加密写进 contracts.payee_bank / payee_account_cipher。
+   * 只处理还没有账号的已签署合同，重复调用不会覆盖人工填过的值。
+   */
+  router.post("/api/projects/:id/contracts/bank-extract", async (ctx) => {
+    const p = getProject(ctx.params.id);
+    assertProjectVisible(ctx.user, p);
+    if (!can(ctx.user, "contract:write") && !can(ctx.user, "payment:pay") && !isSuper(ctx.user))
+      throw forbidden("需要合同录入或财务付款权限");
+
+    const rows = db.prepare(
+      `SELECT * FROM contracts WHERE pid=? AND status='已签署' AND file_key IS NOT NULL
+        AND (payee_account_cipher IS NULL OR payee_account_cipher='') ORDER BY id`
+    ).all(p.id).slice(0, 12);
+
+    const results = [];
+    for (const c of rows) {
+      try {
+        const f = await storage().get(c.file_key);
+        if (!f) { results.push({ id: c.id, error: "原件已不存在" }); continue; }
+        const ext = c.file_key.split(".").pop();
+        let text = ext === "pdf" ? await pdfTextLayer(f.buffer) : "";
+
+        if (String(text).trim().length < 40) {
+          const ocr = require("../lib/ocr-engine");
+          if (!ocr.enabled()) { results.push({ id: c.id, error: "扫描件需要 OCR，服务器未启用" }); continue; }
+          let buf = f.buffer, e2 = ext;
+          if (["docx", "xlsx", "pptx"].includes(ext)) {
+            const { toPdf, hasLibreOffice } = require("../lib/office-preview");
+            if (!(await hasLibreOffice())) { results.push({ id: c.id, error: "Office 原件需要 LibreOffice" }); continue; }
+            buf = await toPdf(buf, ext, c.file_key.replace(/\.[^.]+$/, ""));
+            e2 = "pdf";
+          }
+          text = (await ocr.recognize(buf, e2)).text;
+        }
+
+        const { bank, account } = extractBankInfo(text);
+        if (!bank && !account) { results.push({ id: c.id, vendor: c.vendor, error: "合同里没有找到开户行或账号" }); continue; }
+
+        let cipher = c.payee_account_cipher;
+        if (account) {
+          const vp = require("../lib/verified-payees");
+          if (!vp.keyAvailable()) { results.push({ id: c.id, vendor: c.vendor, error: "未配置财务加密密钥，账号无法保存" }); continue; }
+          cipher = vp.sealAccount(account);
+        }
+        db.prepare("UPDATE contracts SET payee_bank=?, payee_account_cipher=? WHERE id=?")
+          .run(bank || c.payee_bank || null, cipher, c.id);
+        results.push({ id: c.id, vendor: c.vendor, bank: bank || "",
+          accountMasked: account ? "尾号 " + account.slice(-4) : "" });
+      } catch (e) {
+        results.push({ id: c.id, vendor: c.vendor, error: e.message || "识别失败" });
+      }
+    }
+
+    const ok = results.filter((r) => !r.error).length;
+    logAudit({ user: ctx.user, module: "财务结算", action: "识别合同收款账户",
+      target: p.id, detail: `扫描 ${rows.length} 份，识别成功 ${ok} 份`, ip: ctx.ip });
+    return { project: p.id, scanned: rows.length, updated: ok, results };
   });
 
   router.get("/api/projects/:id/payee-options", async ctx => {
