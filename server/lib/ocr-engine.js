@@ -71,7 +71,7 @@ function parseAgendaRows(raw){
   const lines=cleanText(raw).split("\n").map(x=>x.replace(/[\t　]+/g," ").replace(/\s{2,}/g,"  ").trim())
     .filter(Boolean)
     // 页脚、页码、纯英文噪声行（OCR 对表格线常吐出「ARE」「HATE」这类碎片）
-    .filter(x=>!/^(注\s*[:：]|备注|最终日程|第\s*\d+\s*页)/.test(x))
+    .filter(x=>!/^(注\s*[，,:：]|备注|最终日程|第\s*\d+\s*页)/.test(x))
     // 会议时间/地点/主办/联系人这类抬头信息不是场次内容
     .filter(x=>!/^(会议时间|会议地点|会议形式|主办|承办|协办|联系人|联系电话|邮箱|地址)\s*[:：]?/.test(x))
     .filter(x=>!/^[A-Za-z\s|·.,-]{1,12}$/.test(x));
@@ -102,6 +102,8 @@ function parseAgendaRows(raw){
   const STEP=/^(讨论|总结|主持|致辞|签到|茶歇|开幕|闭幕|合影|午餐|晚宴|会议|日程|备注|提问|交流|答疑|休息|签到入场)$/;
   // 表头单元格：OCR 把表头也读进来时，不能当成讲者或课题
   const HEADER=/^(姓名|职务|职称|单位|医院|时间|内容|讲者|讲师|主持|备注|序号|日程|环节|课程)$/;
+  // 两三个字但不是人名的常见词：OCR 里它们常出现在「讲者」列的位置
+  const NOT_NAME=/^(临床|讨论|总结|主持|致辞|专题|病例|手术|影像|诊疗|指南|研究|进展|交流|提问|答疑|签到|茶歇|开幕|闭幕|会议|日程|环节|内容|主题|课题)$/;
 
   return rows.filter(r=>{
     // 带显式标签的行交给 parseAgenda 的标签路径处理，这里跳过，
@@ -142,7 +144,7 @@ function parseAgendaRows(raw){
       org=usable[orgIdx];
       for(let i=orgIdx-1;i>=0;i--){
         const c=usable[i];
-        if(c.length>=2&&c.length<=6&&!STEP.test(c)&&!ORG.test(c)){speaker=c;break;}
+        if(c.length>=2&&c.length<=6&&!STEP.test(c)&&!ORG.test(c)&&!NOT_NAME.test(c)&&!HEADER.test(c)){speaker=c;break;}
       }
     }else{
       speaker=usable.find(x=>TITLE.test(x)&&x.length<=20)||"";
