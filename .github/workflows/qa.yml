@@ -91,6 +91,8 @@ jobs:
         run: ERP_DEMO_MODE=1 node --experimental-sqlite --test test/legacy-office.test.js test/legacy-ppt.test.js test/office-material.test.js
       - name: Verify flexible material gate in real production mode before OCR setup
         run: ERP_DEMO_MODE=1 node --experimental-sqlite --test test/v1219.test.js
+      - name: Verify final agenda confirms on upload with no manual task or speaker form
+        run: ERP_DEMO_MODE=1 node --experimental-sqlite --test test/final-agenda-upload.test.js
       - name: Install offline OCR runtime (Tesseract Chinese/English + Poppler)
         run: |
           sudo apt-get update -qq
