@@ -117,7 +117,7 @@ async function renderOne(root, pid) {
     ${d.materialsStatus.ok
       ? '<div class="gate ok"><b>材料条件已满足</b>可以继续核销流程；无需固定类别齐全。</div>'
       : '<div class="gate"><b>还没有有效上传附件</b>请先上传至少一份任意类别的材料。</div>'}`)}
-
+  `;
 
   root.querySelectorAll("[data-judge]").forEach((b) => b.onclick = () => openJudge(root, pid, Number(b.dataset.judge), d));
   root.querySelectorAll("[data-detail]").forEach((b) => b.onclick = () =>
