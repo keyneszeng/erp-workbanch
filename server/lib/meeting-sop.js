@@ -90,16 +90,25 @@ function validateSopEvidence(no, evidence, project, db, invoiceAmount) {
         signedAttendance:["线下","混合"].includes(form)?true:null};
     }
     case 4: {
-      if(!sameNames(e.agendaTopics,e.courseTopics)) fail("课件课题与终版议程不一致");
-      if(e.hostTitleMatches!==true || e.hostNameLogoMatches!==true)
-        fail("串场题目或主办方名称/logo 与终版议程不一致");
-      if (!Array.isArray(e.sponsorLogoPages) ||
-          e.sponsorLogoPages.some(p=>!["首页","尾页","鸣谢页"].includes(p)))
-        fail("药企 logo 只能出现在首页、尾页或鸣谢页");
-      if(!materialExists(db,pid,["课件"],true)||!materialExists(db,pid,["串场"],true))
-        fail("课件或串场材料缺少原件","SOP_MATERIAL_MISSING");
-      return {matchedTopics:list(e.agendaTopics).length,hostTitleMatches:true,hostNameLogoMatches:true,
-        sponsorLogoPages:[...new Set(e.sponsorLogoPages)]};
+      // 仅核验课件已上传、课件主题属于当前终版议程；不要求整份议程的
+      // 每个主题都上传课件，也不再校验串场、Logo 或药企展示位置。
+      if(!materialExists(db,pid,["课件"],true))
+        fail("请先在材料库上传课件原件","SOP_MATERIAL_MISSING");
+      const finalAgenda=db.prepare(
+        "SELECT COUNT(*) AS n FROM materials WHERE pid=? AND kind='终版议程' AND version='终版' "+
+        "AND (deleted_at IS NULL OR deleted_at='') AND file_key IS NOT NULL AND file_key<>''"
+      ).get(pid);
+      if(!Number(finalAgenda?.n))
+        fail("请先上传并确认当前终版议程原件，历史版不能作为核验依据","SOP_MATERIAL_MISSING");
+      const agendaTopics=list(e.agendaTopics),courseTopics=list(e.courseTopics);
+      if(!agendaTopics.length || !courseTopics.length)
+        throw bad("请从终版议程及已上传课件原件分别录入主题");
+      const normalize=topic=>topic.replace(/\s+/g,"");
+      const allowed=new Set(agendaTopics.map(normalize));
+      if(courseTopics.some(topic=>!allowed.has(normalize(topic))))
+        fail("课件主题不在当前终版议程中，请核对课件与终版议程原件");
+      // 只保留核对数量，不保存主题原文，不产生额外串场/品牌核验要求。
+      return {matchedTopics:courseTopics.length,comparedWith:"终版议程"};
     }
     case 5: {
       const a=e.collectionRecords,b=e.agreementRecords;

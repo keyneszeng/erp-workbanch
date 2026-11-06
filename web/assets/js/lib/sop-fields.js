@@ -27,11 +27,9 @@ export function sopEvidenceForm(no,p){
        +ck("noOmissions","已人工核对五处姓名及讲者照片，无冒领、漏发或重复"),
     3:input("onlineMinutes","有效讲者在线时长（分钟，线上/混合须 >30）")
        +ck("signedAttendance","已核验线下签到表（线下/混合必选）"),
-    4:area("agendaTopics","终版议程的课题清单（逗号或换行）","课题一、课题二")
-       +area("courseTopics","上传课件对应的课题清单","课题一、课题二")
-       +ck("hostTitleMatches","串场题目与议程一致")+ck("hostNameLogoMatches","主办方名称及 logo 一致")
-       +`<div class="fld"><label>药企 logo 出现页面（多选，仅允许三类）</label>`
-       +["首页","尾页","鸣谢页"].map(x=>ck("logo"+x,x)).join("")+`</div>`,
+    4:area("agendaTopics","终版议程包含的主题（逗号或换行）","主题甲、主题乙")
+       +area("courseTopics","已上传课件的主题（逗号或换行）","主题甲")
+       +`<div class="hint">只核对两点：材料库已有课件原件；所填每个课件主题都能在已确认的终版议程中找到。终版议程可以包含其他未上传课件的主题。无需核对串场、Logo 或赞助商展示页面。请从原件人工摘录主题。</div>`,
     5:area("collectionRecords","劳务收集表（每行：姓名|时间|角色|金额|银行账号|开户行（可选））","张老师|2026-11-01|讲者|1000|6222...")
        +area("agreementRecords","劳务协议（同样格式逐行输入）","张老师|2026-11-01|讲者|1000|6222...")
        +`<div class="hint">银行账号在第五步核验时对照，不进入核销正文或审计。生产环境配置专用加密密钥后，仅将核验后的劳务收款信息加密用于后续付款人选择。</div>`,
