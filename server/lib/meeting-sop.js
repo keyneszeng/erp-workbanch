@@ -43,12 +43,40 @@ function validateSopEvidence(no, evidence, project, db, invoiceAmount) {
         comparedWith:"串场"};
     }
     case 2: {
-      if (!sameNames(e.agendaSpeakers,e.collectionSpeakers) || !sameNames(e.agendaSpeakers,e.agreementSpeakers))
-        fail("议程、劳务收集表、劳务协议讲者名单不一致，或存在重名/漏名");
-      for(const kind of ["议程","劳务收集表","劳务协议"])
-        if(!materialExists(db,pid,[kind],true)) fail("第二步缺少已上传的 "+kind+" 原件","SOP_MATERIAL_MISSING");
-      if(e.noOmissions!==true) fail("须人工确认无冒领、漏发或重复劳务记录");
-      return {matchedPeople:list(e.agendaSpeakers).length,noOmissions:true};
+      // 五份材料逐人比对。签到表只录入讲者姓名，普通参会者不计入讲者交集。
+      // 照片不做未经验证的人脸识别：人工确认姓名，并与实际照片登记名称再核对。
+      const sources=[
+        ["终版议程",e.agendaSpeakers],
+        ["劳务收集表",e.collectionSpeakers],
+        ["劳务协议",e.agreementSpeakers],
+        ["签到表",e.attendanceSpeakers],
+        ["讲者照片",e.photoSpeakers]
+      ];
+      const baseline=sources[0][1];
+      if(!sameNames(baseline,baseline) ||
+          sources.slice(1).some(([,speakers])=>!sameNames(baseline,speakers)))
+        fail("终版议程、劳务收集表、劳务协议、签到表、讲者照片的讲者姓名不一致，或存在漏名、重名");
+      for(const [kind] of sources)
+        if(!materialExists(db,pid,[kind],true))
+          fail("第二步缺少已上传的 "+kind+" 原件","SOP_MATERIAL_MISSING");
+      // 旧版议程已降为历史版时不得冒充当前终版。
+      const current=db.prepare(
+        "SELECT COUNT(*) AS n FROM materials WHERE pid=? AND kind='终版议程' AND version='终版' "+
+        "AND (deleted_at IS NULL OR deleted_at='') AND file_key IS NOT NULL AND file_key<>''"
+      ).get(pid);
+      if(!Number(current?.n))
+        fail("请上传并确认当前终版议程原件，历史版不能用于核销","SOP_MATERIAL_MISSING");
+      const photos=db.prepare(
+        "SELECT name FROM materials WHERE pid=? AND kind='讲者照片' "+
+        "AND (deleted_at IS NULL OR deleted_at='') AND file_key IS NOT NULL AND file_key<>''"
+      ).all(pid).map(row=>String(row.name||"").trim());
+      if(!sameNames(baseline,photos))
+        fail("讲者照片登记姓名与终版议程讲者名单不一致：请逐人上传照片并以讲者姓名登记");
+      if(e.noOmissions!==true)
+        fail("须人工确认五处讲者信息及照片一致，无冒领、漏发或重复劳务记录");
+      // 只保存通过人数和核验来源摘要；姓名、照片关联与账户数据均不写入证据或审计。
+      return {matchedPeople:list(baseline).length,matchedSources:sources.map(([kind])=>kind),
+        photoRecordsMatched:photos.length,noOmissions:true};
     }
     case 3: {
       const form=project.form;

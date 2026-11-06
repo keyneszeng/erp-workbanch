@@ -56,6 +56,7 @@ jobs:
           node --input-type=module --check < web/assets/js/pages/contracts.js
           node --check server/api/verify.js
           node --check server/lib/meeting-sop.js
+          node --check miniprogram/pages/materials/index.js
           node --input-type=module --check < web/assets/js/lib/sop-fields.js
           node --input-type=module --check < web/assets/js/lib/verify-detail.js
           node --check server/api/system.js
@@ -97,6 +98,8 @@ jobs:
         run: ERP_DEMO_MODE=1 node --experimental-sqlite --test test/final-agenda-upload.test.js
       - name: Verify first-step stamped document versus host script without sponsor field
         run: ERP_DEMO_MODE=1 node --experimental-sqlite --test test/meeting-sop.test.js
+      - name: Verify five-source speaker reconciliation before OCR setup
+        run: ERP_DEMO_MODE=1 node --experimental-sqlite --test test/meeting-sop.test.js test/speaker-five-source.test.js
       - name: Install offline OCR runtime (Tesseract Chinese/English + Poppler)
         run: |
           sudo apt-get update -qq

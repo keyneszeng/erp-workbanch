@@ -124,6 +124,19 @@ test("production: association member IDs, approved contract signing and pay-afte
     assert.equal(item.status,200,"material "+kind+": "+JSON.stringify(item.body));
   }
 
+  // 使用人工合成的一像素图片与虚拟讲者姓名验证图片材料与五方核验。
+  const photoBytes=Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/cYUAAAAASUVORK5CYII=","base64");
+  const photoRes=await fetch(root+"/api/uploads?pid="+pid,{
+    method:"POST",headers:{Cookie:cookie,"Content-Type":"image/png","X-File-Name":"speaker.png"},
+    body:photoBytes
+  });
+  const photo=await photoRes.json();
+  assert.equal(photoRes.status,200,JSON.stringify(photo));
+  const reg=await request("POST","/api/projects/"+pid+"/materials",{
+    kind:"讲者照片",name:"测试讲者",file_key:photo.key,
+    file_name:photo.name,file_size:photo.size,file_mime:photo.mime
+  },cookie);
+  assert.equal(reg.status,200,JSON.stringify(reg.body));
   const allMaterials=await request("GET","/api/materials",undefined,cookie);
   assert.equal(allMaterials.status,200);
   const projectMaterials=allMaterials.body.rows.filter(x=>x.pid===pid);
@@ -159,7 +172,7 @@ test("production: association member IDs, approved contract signing and pay-afte
     1:{documentKind:"会议通知",meetingName:base.name,meetingDate:base.date,organizer:base.assoc,
       hostMeetingName:base.name,hostMeetingDate:base.date,hostOrganizer:base.assoc,
       stamped:true,final:true},
-    2:{agendaSpeakers:["测试讲者"],collectionSpeakers:["测试讲者"],agreementSpeakers:["测试讲者"],noOmissions:true},
+    2:{agendaSpeakers:["测试讲者"],collectionSpeakers:["测试讲者"],agreementSpeakers:["测试讲者"],attendanceSpeakers:["测试讲者"],photoSpeakers:["测试讲者"],noOmissions:true},
     3:{signedAttendance:true},
     4:{agendaTopics:["课题甲"],courseTopics:["课题甲"],hostTitleMatches:true,hostNameLogoMatches:true,sponsorLogoPages:[]},
     5:{collectionRecords:[record],agreementRecords:[record]},
