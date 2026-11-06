@@ -200,10 +200,38 @@ function tabOverview(d, p) {
     </div>
   </div>
   ${tabChanges(d, p)}
+  ${noticePanel(d, p)}
   ${panel("立项审批记录", "", table(
     [{ t: "审批单" }, { t: "类型", w: "96px" }, { t: "金额", w: "96px" }, { t: "提交人", w: "80px" }, { t: "状态", w: "80px" }, { t: "审批人", w: "80px" }, { t: "时间", w: "130px" }],
     d.approvals.map((a) => ({ c: [a.id, a.type, `¥${money(a.amount)}`, esc(a.by_user || ""), badge(a.status), esc(a.decided_by || "—"), `<span class="mono">${esc(a.created_at)}</span>`] })),
     { empty: "暂无审批记录" }))}`;
+}
+
+/* ---------------- 立项函与可盖章 Word 项目通知函 ---------------- */
+function noticePanel(d,p) {
+  const letter=d.initiationLetter||{};
+  const t=d.noticeTemplate||{name:"系统内置 Word 模板",version:0};
+  const n=d.projectNotice||{ready:false};
+  const manager=state.super || state.user.role==="assoc";
+  const editable=manager && ["草稿","待审批"].includes(p.status);
+  const approved=["已立项","筹备中","执行中","待核销","已核销","已结算","已归档"].includes(p.status);
+  const status=n.ready ? "已锁定 · "+(n.approvedAt||"")+(n.backfilled?" · 历史补发":"")
+    : approved?"已立项（历史项目尚无 Word 快照，可由管理员补发）":"等待立项审批";
+  return panel("立项函及项目通知函",esc(status),
+    '<div class="hint" style="margin-bottom:10px">立项函正文由协会管理员或总管理员审核编辑；立项通过时锁定正文及本协会模板版本。正式通知函为待盖章 Word，不是系统盖章。</div>'+
+    '<dl class="dl">'+
+      '<dt>立项函标题</dt><dd><b>'+esc(letter.title||"—")+'</b></dd>'+
+      '<dt>立项函正文</dt><dd style="white-space:pre-wrap;max-height:180px;overflow:auto">'+esc((letter.body||"").slice(0,2000))+'</dd>'+
+      '<dt>本协会 Word 模板</dt><dd>'+esc(t.name)+' · v'+Number(t.version||0)+'</dd>'+
+      (n.ready?'<dt>审批时模板</dt><dd>'+esc(n.templateName||"")+' · v'+Number(n.templateVersion||0)+'</dd>':"")+
+    '</dl>'+
+    '<div class="acts" style="display:flex;flex-wrap:wrap;gap:8px;padding:10px 0">'+
+      (editable?'<button class="btn btn-o btn-sm" data-notice-edit>编辑立项函</button>':"")+
+      (manager?'<button class="btn btn-o btn-sm" data-notice-template>上传 / 替换本协会 Word 模板</button>':"")+
+      (manager?'<button class="btn btn-o btn-sm" data-notice-preview>预览 Word</button>':"")+
+      (n.ready?'<button class="btn btn-p btn-sm" data-notice-download>下载项目通知函（Word）</button>':"")+
+      (approved&&!n.ready&&manager?'<button class="btn btn-o btn-sm" data-notice-backfill>历史项目补发通知函</button>':"")+
+    '</div><div class="hint">上传的 DOCX 模板至少包含 <code>{{会议名称}}</code> 和 <code>{{立项函正文}}</code>。模板更新不改变已审批通知函。</div>');
 }
 
 /* ---------------- 变更记录（审批通过 ≠ 生效，落账要第二个人） ---------------- */
@@ -426,6 +454,11 @@ function tabTimeline(d) {
 
 /* ---------------- 事件绑定 ---------------- */
 function wire(root, pid, d, body) {
+  body.querySelector("[data-notice-edit]")?.addEventListener("click",()=>editInitiationLetter(root,pid,d.initiationLetter));
+  body.querySelector("[data-notice-template]")?.addEventListener("click",()=>editNoticeTemplate(root,pid));
+  body.querySelector("[data-notice-preview]")?.addEventListener("click",()=>downloadNotice(pid,true));
+  body.querySelector("[data-notice-download]")?.addEventListener("click",()=>downloadNotice(pid,false));
+  body.querySelector("[data-notice-backfill]")?.addEventListener("click",()=>backfillNotice(root,pid));
   body.querySelectorAll("[data-pay-approve]").forEach((b) => b.onclick = () => payAct(root, pid, b.dataset.payApprove, "approve"));
   body.querySelectorAll("[data-pay-reject]").forEach((b) => b.onclick = () => payAct(root, pid, b.dataset.payReject, "reject"));
   body.querySelectorAll("[data-pay-pay]").forEach((b) => b.onclick = () => payAct(root, pid, b.dataset.payPay, "pay"));
