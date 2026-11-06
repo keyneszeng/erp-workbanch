@@ -122,7 +122,7 @@ async function openCreate(root) {
     { k: "people", l: "预计参会人数", t: "number", ph: "如：260" },
     { k: "owner_id", l: "项目负责人（协会成员）", t: "select", req: 1, opts: [] },
     { k: "phone", l: "联系电话", ph: "仅内部可见" },
-    { k: "dept", l: "承办部门", t: "select", opts: state.meta.depts },
+    { k: "dept", l: "承办部门", t: "select", opts: state.meta.projectDepts || [] },
     { k: "agenda", l: "初版议程要点", t: "textarea", req: 1, rows: 3, full: 1, ph: "按环节列出，如：09:10 主题演讲 / 10:10 病例讨论 …" }
   ];
   const m = modal({
