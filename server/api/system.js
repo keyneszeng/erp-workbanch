@@ -5,7 +5,7 @@ const { assertCan, scopeFilter, isSuper, ROLES, can, canVisitNav, STATUSES } = r
 const { logAudit } = require("../lib/audit");
 const { hashPassword, validatePassword } = require("../lib/auth");
 const { listProjects } = require("./projects");
-const { VERIFY_STEPS } = require("../lib/constants");
+const { VERIFY_STEPS, USER_DEPTS } = require("../lib/constants");
 const { readPaging, countOf } = require("../lib/paginate");
 const { seed, RESET_DATA_TABLES } = require("../lib/seed");
 const { isDemoMode, isTestEnvironment } = require("../lib/runtime");
@@ -331,6 +331,14 @@ function checkUserLen(b) {
   }
 }
 
+// 新写入的部门必须来自当前目录；旧账号的历史值可原样保留，避免误分类。
+function assertDepartmentChoice(dept, previous) {
+  if (dept === undefined) return;
+  const chosen = String(dept ?? "").trim();
+  if (previous !== undefined && chosen === String(previous ?? "")) return;
+  if (chosen && !USER_DEPTS.includes(chosen)) throw bad("请从有效部门分类中选择");
+}
+
 /**
  * 0/1 开关字段归一化。
  * JSON 客户端很自然会传 `{ active: false }`，但 node:sqlite 不接受布尔绑定，
@@ -436,6 +444,8 @@ function register(router) {
   router.post("/api/users", async (ctx) => {
     assertCan(ctx.user, "user:manage", "只有总管理员可以创建账号");
     const b = {...(ctx.body||{})};
+    checkUserLen(b);
+    assertDepartmentChoice(b.dept);
     const userAssocs=validateAssociations(b.assocs,b.assoc);
     if(b.assocs!==undefined && b.role!=="admin" && !userAssocs.length)throw bad("请选择至少一个所属协会");
     b.assoc=userAssocs[0]||null;
@@ -474,6 +484,8 @@ function register(router) {
     const u = db.prepare("SELECT * FROM users WHERE id = ?").get(Number(ctx.params.id));
     if (!u) throw notFound("用户不存在");
     const b = {...(ctx.body||{})};
+    checkUserLen(b);
+    assertDepartmentChoice(b.dept, u.dept);
     const userAssocs=b.assocs===undefined ? null : validateAssociations(b.assocs,b.assoc);
     if(userAssocs!==null) {
       if(b.role==="admin" && u.role!=="admin")throw bad("不能通过协会编辑将业务用户提升为总管理员");

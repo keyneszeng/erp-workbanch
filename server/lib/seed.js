@@ -17,13 +17,13 @@ const RESET_DATA_TABLES = ["meeting_sponsor_invoices", "meeting_sponsor_receipts
 
 const USERS = [
   { username: "admin",   name: "李静", role: "admin",   assoc: null,        dept: "秘书处", phone: "13800000001", title: "总管理员" },
-  { username: "assoc",   name: "王敏", role: "assoc",   assoc: "华东医学会", dept: "会务部", phone: "13800000002", title: "协会管理员" },
-  { username: "exec",    name: "张伟", role: "exec",    assoc: "华东医学会", dept: "会务部", phone: "13800000003", title: "会务执行" },
+  { username: "assoc",   name: "王敏", role: "assoc",   assoc: "华东医学会", dept: "非供应商", phone: "13800000002", title: "协会管理员" },
+  { username: "exec",    name: "张伟", role: "exec",    assoc: "华东医学会", dept: "非供应商", phone: "13800000003", title: "会务执行" },
   { username: "finance", name: "陈静", role: "finance", assoc: null,        dept: "财务部", phone: "13800000004", title: "财务与核销" },
   { username: "guest",   name: "刘洋", role: "user",    assoc: null,        dept: "—",     phone: "13800000005", title: "嘉宾" },
   { username: "zhaolei", name: "赵磊", role: "exec",    assoc: "消化病分会", dept: "学术部", phone: "13800000006", title: "会务执行" },
   { username: "sunqian", name: "孙倩", role: "assoc",   assoc: "肿瘤分会",   dept: "秘书处", phone: "13800000007", title: "协会管理员" },
-  { username: "zhoutao", name: "周涛", role: "exec",    assoc: "护理协会",   dept: "会务部", phone: "13800000008", title: "会务执行" }
+  { username: "zhoutao", name: "周涛", role: "exec",    assoc: "护理协会",   dept: "非供应商", phone: "13800000008", title: "会务执行" }
 ];
 
 // id, 名称, 协会, 形式, 日期, 预算, 人数, 负责人, 状态
