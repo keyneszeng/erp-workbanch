@@ -283,6 +283,9 @@ function transition(projectId, action, user, payload = {}, ip = "") {
       const ap = db
         .prepare("SELECT * FROM approvals WHERE pid = ? AND type = '立项审批' AND status = '待审批' ORDER BY created_at DESC")
         .get(p.id);
+      // 审批的同一同步业务动作中冻结函件正文和当前协会 Word 模板引用。
+      // Word 字节可在下载时由快照生成，之后模板更换也不会改变本项目通知函。
+      require("./project-notice").freeze(p,user,ap?.id||null,{approvedAt:now()});
       if (ap) {
         db.prepare("UPDATE approvals SET status = '已通过', decided_by = ?, decided_at = ?, comment = ? WHERE id = ?")
           .run(user.name, now(), String(payload.comment || "同意立项"), ap.id);
