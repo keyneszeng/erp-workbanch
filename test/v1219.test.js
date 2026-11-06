@@ -83,7 +83,7 @@ test("第5项随劳务表真实附件出现和移除，换表后旧证据失效"
   assert.equal(verification(pid).total,4);
   db.prepare("INSERT INTO materials(pid,kind,name,file_key,created_at) VALUES (?,?,?,?,?)")
     .run(pid,"劳务表","新劳务表","labor-proof-v1.pdf","2026-11-06");
-  assert.equal(verification(pid).total,4);
+  assert.equal(verification(pid).total,5);
   assert.equal(verification(pid).steps[4].result,"待判定");
   db.prepare("INSERT INTO verify_steps(pid,step_no,name,result,evidence_json) VALUES (?,?,?,?,?)")
     .run(pid,5,"劳务表五字段核验","通过",JSON.stringify({laborSourceSignature:laborSheetInfo(db,pid).signature}));
@@ -93,7 +93,7 @@ test("第5项随劳务表真实附件出现和移除，换表后旧证据失效"
   assert.equal(verification(pid).steps[4].result,"待判定","换表后旧通过结果必须失效");
   db.prepare("UPDATE materials SET deleted_at=? WHERE pid=? AND kind='劳务表' AND file_key IS NOT NULL")
     .run("2026-11-06",pid);
-  assert.equal(verification(pid).total,5);
+  assert.equal(verification(pid).total,4);
   assert.equal(verification(pid).steps[4].result,"不适用");
 });
 test("自定义材料分类没有数量上限，仍保留归档后冻结及财务审批等独立门禁",()=>{
