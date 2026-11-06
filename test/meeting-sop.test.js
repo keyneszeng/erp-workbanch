@@ -3,7 +3,7 @@ const {test}=require("node:test");
 const assert=require("node:assert/strict");
 const {validateSopEvidence,sameNames}=require("../server/lib/meeting-sop");
 const project={id:"MP-TEST",name:"会议甲",date:"2026-11-01",assoc:"学会甲",form:"混合"};
-const db={prepare(sql){return {get(pid,kind){return {n:1,total:1000};}};}};
+const db={prepare(sql){return {get(pid,kind){return {n:1,total:1000};},all(){return [{name:"甲"},{name:"乙"}];}};}};
 function expectBlock(no,evidence,p=project,amount=1000){
   assert.throws(()=>validateSopEvidence(no,evidence,p,db,amount));
 }
@@ -50,12 +50,55 @@ test("核销第1步页面不再有招商主体输入，需录入串场三项字�
  assert.doesNotMatch(form,/招商主体/);
  assert.match(detail,/\["会议通知","招商函","串场"\]/);
 });
-test("讲者三份名单必须完全覆盖且不得重名",()=>{
+test("讲者五方一致：终版议程、劳务收集表、劳务协议、签到表、讲者照片",()=>{
  assert.equal(sameNames(["甲","乙"],["乙","甲"]),true);
  assert.equal(sameNames(["甲","甲"],["甲","甲"]),false);
- expectBlock(2,{agendaSpeakers:["甲","乙"],collectionSpeakers:["甲"],agreementSpeakers:["甲","乙"],noOmissions:true});
- const x={agendaSpeakers:["甲","乙"],collectionSpeakers:["乙","甲"],agreementSpeakers:["甲","乙"],noOmissions:true};
- assert.equal(validateSopEvidence(2,x,project,db).matchedPeople,2);
+ const x={agendaSpeakers:["甲","乙"],collectionSpeakers:["乙","甲"],agreementSpeakers:["甲","乙"],
+   attendanceSpeakers:["乙","甲"],photoSpeakers:["甲","乙"],noOmissions:true};
+ const result=validateSopEvidence(2,x,project,db);
+ assert.equal(result.matchedPeople,2);
+ assert.equal(result.photoRecordsMatched,2);
+ assert.deepEqual(result.matchedSources,["终版议程","劳务收集表","劳务协议","签到表","讲者照片"]);
+ assert.doesNotMatch(JSON.stringify(result),/甲|乙/,"讲者姓名不得写入核销证据摘要");
+ for(const key of ["agendaSpeakers","collectionSpeakers","agreementSpeakers","attendanceSpeakers","photoSpeakers"]){
+   expectBlock(2,{...x,[key]:["甲"]});
+   expectBlock(2,{...x,[key]:["甲","甲"]});
+   expectBlock(2,{...x,[key]:[]});
+ }
+ expectBlock(2,{...x,noOmissions:false});
+ const noFile={prepare(sql){return {
+   get(pid,kind){return {n:kind==="签到表"?0:1};},
+   all(){return [{name:"甲"},{name:"乙"}];}
+ };}};
+ assert.throws(()=>validateSopEvidence(2,x,project,noFile),err=>
+   err.code==="SOP_MATERIAL_MISSING"&&err.message.includes("签到表"));
+ const noCurrentAgenda={prepare(sql){return {
+   get(pid,kind){return {n:sql.includes("version='终版'")?0:1};},
+   all(){return [{name:"甲"},{name:"乙"}];}
+ };}};
+ assert.throws(()=>validateSopEvidence(2,x,project,noCurrentAgenda),err=>
+   err.code==="SOP_MATERIAL_MISSING"&&err.message.includes("当前终版议程"));
+ const wrongPhotos={prepare(sql){return {
+   get(){return {n:1};},all(){return [{name:"甲"},{name:"另一个人"}];}
+ };}};
+ assert.throws(()=>validateSopEvidence(2,x,project,wrongPhotos),err=>
+   err.code==="SOP_EVIDENCE_MISMATCH"&&err.message.includes("照片登记姓名"));
+ const duplicatePhotos={prepare(sql){return {
+   get(){return {n:1};},all(){return [{name:"甲"},{name:"甲"}];}
+ };}};
+ assert.throws(()=>validateSopEvidence(2,x,project,duplicatePhotos),/照片登记姓名/);
+});
+test("第2步页面必须列出五份关联材料和五个讲者姓名输入",()=>{
+ const fs=require("node:fs"),path=require("node:path");
+ const root=path.join(__dirname,"..");
+ const labels=fs.readFileSync(path.join(root,"server/lib/constants.js"),"utf8");
+ const form=fs.readFileSync(path.join(root,"web/assets/js/lib/sop-fields.js"),"utf8");
+ const detail=fs.readFileSync(path.join(root,"web/assets/js/lib/verify-detail.js"),"utf8");
+ assert.match(labels,/讲者信息多处一致/);
+ assert.match(labels,/终版议程 ∩ 劳务收集表 ∩ 劳务协议 ∩ 签到表 ∩ 讲者照片/);
+ for(const key of ["agendaSpeakers","collectionSpeakers","agreementSpeakers","attendanceSpeakers","photoSpeakers"])
+   assert.match(form,new RegExp(key));
+ assert.match(detail,/\["终版议程","劳务收集表","劳务协议","签到表","讲者照片"\]/);
 });
 test("线上时长严格大于30，混合会议同时需要签到",()=>{
  expectBlock(3,{onlineMinutes:30,signedAttendance:true});
