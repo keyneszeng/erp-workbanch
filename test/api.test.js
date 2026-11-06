@@ -202,15 +202,16 @@ test("工作流：非法流转被拒", async () => {
 });
 
 test("核销：不按步骤顺序也可独立判定，全部完成前仍不允许核销通过", async () => {
-  const lastFirst = await finance("POST", `/api/projects/${pid}/verify/steps/6`, { result: "通过" });
-  assert.equal(lastFirst.status,200,"第6项允许最先核验");
-  assert.equal(lastFirst.data.verification.steps.find(s=>s.no===6).result,"通过");
+  const lastFirst = await finance("POST", `/api/projects/${pid}/verify/steps/4`, { result: "通过" });
+  assert.equal(lastFirst.status,200,"第4项允许最先核验");
+  assert.equal(lastFirst.data.verification.steps.find(s=>s.no===4).result,"通过");
+  assert.equal(lastFirst.data.verification.steps.find(s=>s.no===6).result,"不适用");
   const r = await finance("POST", `/api/projects/${pid}/verify/steps/3`, { result: "通过" });
   assert.equal(r.status, 200, JSON.stringify(r.data));
   assert.equal(r.data.verification.steps.find(s=>s.no===3).result,"通过");
   assert.equal(r.data.verification.steps.find(s=>s.no===1).result,"待判定");
   const blocked = await finance("POST", `/api/projects/${pid}/transition`, { action: "verify_pass" });
-  assert.equal(blocked.status,409,"六项未全部通过之前仍然禁止核销完成");
+  assert.equal(blocked.status,409,"所有适用核销项未全部通过之前仍禁止核销完成");
   assert.equal(blocked.data.error.code,"GATE_BLOCKED");
 });
 
