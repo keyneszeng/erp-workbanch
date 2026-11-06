@@ -365,6 +365,7 @@ const RESET_LABEL = {
   material_ocr_results: "材料 OCR 识别结果",
   verified_labor_payees: "加密劳务收款方", associations: "协会目录",
   user_associations: "用户关联协会", meeting_sponsor_contracts: "企业赞助合同",
+  sponsor_rights: "赞助合同权益二级类目",
   meeting_sponsor_receipts: "赞助到账凭证", meeting_sponsor_invoices: "企业赞助开票",
   demand_items: "需求明细", demand_sheets: "需求单", project_members: "项目成员",
   project_initiation_letters: "立项函正文", project_notice_templates: "协会 Word 通知函模板",
