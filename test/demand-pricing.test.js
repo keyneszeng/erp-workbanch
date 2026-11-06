@@ -126,7 +126,7 @@ test("CSV 含数量、单价、总价及需要项合计",async()=>{
   assert.equal(r.status,200);
   const bytes=Buffer.from(await r.arrayBuffer()),csv=bytes.toString("utf8");
   assert.deepEqual([...bytes.subarray(0,3)],[0xef,0xbb,0xbf]);
-  assert.match(csv,/数量,单价,总价/);
+  assert.match(csv,/"数量","单价","总价"/);
   assert.match(csv,/30\.30/);
   assert.match(csv,/需要项总价合计/);
 });
