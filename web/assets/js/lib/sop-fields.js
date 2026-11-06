@@ -18,10 +18,13 @@ export function sopEvidenceForm(no,p){
        +input("hostMeetingDate","串场 · 会议日期")
        +input("hostOrganizer","串场 · 主办方")
        +ck("stamped","确认函件已盖章")+ck("final","确认函件为终版"),
-    2:area("agendaSpeakers","终版议程讲者名单（逗号或换行分隔）","张老师、李老师")
-       +area("collectionSpeakers","劳务收集表讲者名单","张老师、李老师")
-       +area("agreementSpeakers","劳务协议讲者名单","张老师、李老师")
-       +ck("noOmissions","确认无冒领、漏发或重复劳务"),
+    2:area("agendaSpeakers","终版议程 · 讲者姓名（逗号或换行分隔）","张老师、李老师")
+       +area("collectionSpeakers","劳务收集表 · 讲者姓名","张老师、李老师")
+       +area("agreementSpeakers","劳务协议 · 讲者姓名","张老师、李老师")
+       +area("attendanceSpeakers","签到表 · 仅录入讲者姓名（不含普通参会人员）","张老师、李老师")
+       +area("photoSpeakers","讲者照片 · 每张照片对应的讲者姓名","张老师、李老师")
+       +`<div class="hint">须先上传五类原件。讲者照片请单张登记，材料名称填写照片中讲者的姓名；系统将校验照片材料姓名与填写名单一致。全部为人工核验，不自动进行人脸识别。</div>`
+       +ck("noOmissions","已人工核对五处姓名及讲者照片，无冒领、漏发或重复"),
     3:input("onlineMinutes","有效讲者在线时长（分钟，线上/混合须 >30）")
        +ck("signedAttendance","已核验线下签到表（线下/混合必选）"),
     4:area("agendaTopics","终版议程的课题清单（逗号或换行）","课题一、课题二")
@@ -46,7 +49,8 @@ export function collectSopEvidence(no,m){
       hostMeetingName:get("hostMeetingName"),hostMeetingDate:get("hostMeetingDate"),
       hostOrganizer:get("hostOrganizer"),stamped:checked("stamped"),final:checked("final")};
     case 2:return {agendaSpeakers:names(get("agendaSpeakers")),collectionSpeakers:names(get("collectionSpeakers")),
-      agreementSpeakers:names(get("agreementSpeakers")),noOmissions:checked("noOmissions")};
+      agreementSpeakers:names(get("agreementSpeakers")),attendanceSpeakers:names(get("attendanceSpeakers")),
+      photoSpeakers:names(get("photoSpeakers")),noOmissions:checked("noOmissions")};
     case 3:return {onlineMinutes:Number(get("onlineMinutes")),signedAttendance:checked("signedAttendance")};
     case 4:return {agendaTopics:names(get("agendaTopics")),courseTopics:names(get("courseTopics")),
       hostTitleMatches:checked("hostTitleMatches"),hostNameLogoMatches:checked("hostNameLogoMatches"),
