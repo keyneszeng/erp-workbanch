@@ -7,6 +7,7 @@
 const { bad, conflict, cents } = require("./util");
 const {laborSheetInfo}=require("./labor-sop");
 const {demandSopState}=require("./meeting-demand-sop");
+const {validateRightsEvidence}=require("./sponsor-rights");
 const eq = (a,b) => String(a ?? "").trim().replace(/\s+/g,"") === String(b ?? "").trim().replace(/\s+/g,"");
 const list = (a) => Array.isArray(a) ? a.map(x=>String(x ?? "").trim()).filter(Boolean) : [];
 function sameNames(a,b) {
@@ -147,7 +148,8 @@ function validateSopEvidence(no, evidence, project, db, invoiceAmount) {
         demandBudget:d.budgetTotal,invoiceAmount,needCount:d.needCount,
         demandSopSignature:d.signature,comparedWith:"终版议程+终版会务协议"};
     }
-    default: throw bad("核销步骤必须为 1~6");
+    case 7: return validateRightsEvidence(db,pid,e);
+    default: throw bad("核销步骤必须为 1~7");
   }
 }
 module.exports = {validateSopEvidence, sameNames};

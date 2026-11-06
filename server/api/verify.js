@@ -10,6 +10,7 @@ const { readPaging, countOf } = require("../lib/paginate");
 const { storage } = require("../lib/storage");
 const { assertUploadAttachable } = require("../lib/upload-ownership");
 const { validateSopEvidence } = require("../lib/meeting-sop");
+const {sponsorRights}=require("../lib/sponsor-rights");
 
 function register(router) {
   /**
@@ -38,6 +39,7 @@ function register(router) {
       payments,
       // 归档的会务需求单 —— 核销第 3 步的费用对照基准（与项目详情页同源）
       demand: demandSummary(p.id),
+      sponsorRights:sponsorRights(db,p.id),
       // 逐笔 reduce 会累积浮点尾巴，收敛到「分」再给前端
       paidTotal: yuan(payments.filter((y) => y.status === "已付款").reduce((s, y) => s + Number(y.amount), 0))
     };
@@ -49,7 +51,7 @@ function register(router) {
     assertProjectVisible(ctx.user, p);
     assertCan(ctx.user, "verify:check", "当前角色无核销判定权限");
     const no = Number(ctx.params.no);
-    if (!(no >= 1 && no <= 6)) throw bad("步骤编号应为 1~6");
+    if (!(no >= 1 && no <= 7)) throw bad("步骤编号应为 1~7");
     const settled = settlementOf(p.id);
     if (settled && !isSuper(ctx.user)) throw conflict("结算单已生成，核销结论已冻结，不可修改", "FROZEN");
     if (!["待核销"].includes(p.status) && !(p.status === "已核销" && isSuper(ctx.user))) {
@@ -72,6 +74,7 @@ function register(router) {
     const def = v.steps.find((s) => s.no === no);
     if(no===5 && !v.laborRequired)throw conflict("材料库无劳务表，第5项自动不适用，无需核销","SOP_NOT_APPLICABLE");
     if(no===6 && !v.demandRequired)throw conflict("没有实际需要的会务需求，第6项自动不适用，无需核销","SOP_NOT_APPLICABLE");
+    if(no===7 && !v.rightsRequired)throw conflict("没有已签署赞助合同，第7项自动不适用","SOP_NOT_APPLICABLE");
     let invoiceAmount = null;
     if (!isDemoMode() && no===6 && result==="通过") {
       const demand=require("../lib/meeting-demand-sop").demandSopState(db,p.id);
