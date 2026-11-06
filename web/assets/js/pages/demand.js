@@ -9,6 +9,19 @@ function optHtml(opts, val) {
   return opts.map((o) => `<option value="${esc(o)}"${o === val ? " selected" : ""}>${esc(o)}</option>`).join("");
 }
 
+/** 数量最多 4 位小数、单价到分；整数乘法防止 0.1+0.2 产生金额误差。 */
+function lineTotal(quantity, unitPrice) {
+  const q=String(quantity??"").trim(), p=String(unitPrice??"").trim();
+  if(!/^\d+(\.\d{1,4})?$/.test(q) || !/^\d+(\.\d{1,2})?$/.test(p))return "";
+  if(Number(q)>1000000 || Number(p)>1000000000)return "";
+  const [q0,q1=""]=q.split("."), [p0,p1=""]=p.split(".");
+  const q4=BigInt(q0)*10000n+BigInt(q1.padEnd(4,"0"));
+  const pc=BigInt(p0)*100n+BigInt(p1.padEnd(2,"0"));
+  const cents=(q4*pc+5000n)/10000n;
+  if(cents>100000000000n)return "";
+  return (Number(cents)/100).toFixed(2);
+}
+
 /** 一行需求的单元格。条目名做成无边框输入框：模板条目能改，新增条目能填，看着还像表格 */
 function cells(it, locked) {
   const dis = locked ? " disabled" : "";
