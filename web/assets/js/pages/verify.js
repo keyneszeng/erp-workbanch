@@ -55,7 +55,7 @@ async function renderOne(root, pid) {
   const p = d.project;
   const v = d.verification;
   const frozen = !!d.settlement;
-  // V1.2.19：材料 8 类齐备才开启核销
+  // 任何已上传材料原件满足流程材料门槛；核销六步与财务验证仍独立进行
   const materialReady = d.materialsStatus.ok;
   const canJudge = can("verify:check") && !frozen && materialReady
     && (p.status === "待核销" || (p.status === "已核销" && state.super));
@@ -69,17 +69,13 @@ async function renderOne(root, pid) {
       <button class="btn btn-o" data-go="projects/${p.id}">项目详情</button>
       ${can("verify:conclude") && p.status === "待核销"
         ? `<button class="btn ${v.complete && materialReady ? "btn-g" : "btn-o"}" id="passBtn"
-             ${v.complete && materialReady ? "" : `disabled title="${materialReady ? "6 步未全部通过，或存在未决例外单" : "材料 8 类未齐备，核销未开启"}"`}>核销通过</button>` : ""}
+             ${v.complete && materialReady ? "" : `disabled title="${materialReady ? "6 步未全部通过，或存在未决例外单" : "请至少上传一份材料附件"}"`}>核销通过</button>` : ""}
     </div>
   </div>
 
-  ${materialReady ? "" : (["已核销", "已结算", "已归档"].includes(p.status)
-    ? `<div class="gate" style="margin-bottom:12px"><b>材料还缺 ${d.materialsStatus.missing.length} 类</b>
-        核销已完成，缺料只影响归档：${esc(d.materialsStatus.missing.join("、"))}。
-        <a class="link" data-go="projects/${p.id}">去项目详情的材料页签登记 →</a></div>`
-    : `<div class="gate" style="margin-bottom:12px"><b>核销未开启：材料还缺 ${d.materialsStatus.missing.length} 类</b>
-        必须先完成材料 8 项录入才能判定（缺：${esc(d.materialsStatus.missing.join("、"))}）。
-        <a class="link" data-go="projects/${p.id}">去项目详情的材料页签登记 →</a></div>`)}
+  ${materialReady ? "" : `<div class="gate" style="margin-bottom:12px"><b>尚无已上传材料原件</b>
+    任意类别（含「权益照片」）上传至少一份有效附件即可满足材料条件，无需凑齐固定类别。
+    <a class="link" data-go="projects/${p.id}">去项目详情的材料页签登记 →</a></div>`}
   <div class="panel">
     <div class="panel-h"><h2>6 步核销 SOP · 严格按顺序，通过后解锁结算</h2>
       <div><span class="hint">已通过 ${v.passed}/6${v.openExceptions ? ` · ${v.openExceptions} 张例外单待处理或待复核` : ""}</span></div></div>
@@ -116,13 +112,12 @@ async function renderOne(root, pid) {
         ? `<span class="hint">已整改，请回第 ${e.step_no} 步复核</span>` : "—"] })),
     { empty: "无例外单" }))}
 
-  ${panel("材料齐备情况（核销前置）", `${8 - d.materialsStatus.missing.length}/8`, `<div class="chips">
-    ${d.materialsStatus.required.map((k) => `<span class="chip" style="${d.materialsStatus.have.includes(k) ? "border-color:#c9e8d4;background:#f4fbf6" : "border-color:#efdcc8;background:#fdf7f1"}">
-      <i>${d.materialsStatus.have.includes(k) ? "✅" : "⛔"}</i><b>${esc(k)}</b></span>`).join("")}</div>
-    ${d.materialsStatus.missing.length
-      ? `<div class="gate"><b>还缺 ${d.materialsStatus.missing.length} 类</b>${d.materialsStatus.missing.join("、")}
-         —— 材料 8 类齐备才开启核销；归档同样要求 8/8，这一关过了后面不用再补</div>`
-      : `<div class="gate ok"><b>材料 8/8 齐备</b>核销前置已满足。</div>`}`)}`;
+  ${panel("材料上传情况", `已上传 ${d.materialsStatus.uploadedCount || 0} 份附件`,
+    `<div class="chips">${d.materialsStatus.have.map(k=>`<span class="chip"><i>✓</i><b>${esc(k)}</b></span>`).join("")}</div>
+    ${d.materialsStatus.ok
+      ? '<div class="gate ok"><b>材料条件已满足</b>可以继续核销流程；无需固定类别齐全。</div>'
+      : '<div class="gate"><b>还没有有效上传附件</b>请先上传至少一份任意类别的材料。</div>'}`)}
+
 
   root.querySelectorAll("[data-judge]").forEach((b) => b.onclick = () => openJudge(root, pid, Number(b.dataset.judge), d));
   root.querySelectorAll("[data-detail]").forEach((b) => b.onclick = () =>
