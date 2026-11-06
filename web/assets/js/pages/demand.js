@@ -80,6 +80,94 @@ function collect(root) {
   return { items, blank };
 }
 
+/** 按单元格校验：错误标红 + 行内说明；修正后立即清除对应的红框。 */
+function validateDemand(root, mode, { focus = false } = {}) {
+  const rows=[...root.querySelectorAll("tr[data-grp]")];
+  const problems=[], used=new Map();
+  const fail=(tr,field,message)=>problems.push({tr,field,message});
+  for(const tr of rows) {
+    const val=field=>String(tr.querySelector('[data-f="'+field+'"]')?.value??"").trim();
+    const name=val("item"), group=tr.dataset.grp;
+    const key=group+"|"+name;
+    if(!name)fail(tr,"item","请填写需求项目名称");
+    else if(name.length>40)fail(tr,"item","项目名称不能超过40字");
+    else if(used.has(key)) {
+      fail(tr,"item","同一分组不能有重复项目名称");
+      fail(used.get(key),"item","同一分组不能有重复项目名称");
+    } else used.set(key,tr);
+    if(val("spec").length>200)fail(tr,"spec","规格说明不能超过200字");
+    if(val("owner").length>20)fail(tr,"owner","负责人不能超过20字");
+    const due=val("due"),dueInput=tr.querySelector('[data-f="due"]');
+    if(dueInput?.validity?.badInput || (due && (!/^\d{4}-\d{2}-\d{2}$/.test(due) ||
+      !Number.isFinite(Date.parse(due)) || new Date(due).toISOString().slice(0,10)!==due)))
+      fail(tr,"due","请输入有效的交付日期");
+    const q=val("quantity"),p=val("unit_price");
+    const qi=tr.querySelector('[data-f="quantity"]'),pi=tr.querySelector('[data-f="unit_price"]');
+    if(qi?.validity?.badInput || (q && (!/^\d+(\.\d{1,4})?$/.test(q) || Number(q)>1000000)))
+      fail(tr,"quantity","数量必须是0～1,000,000，最多4位小数");
+    if(pi?.validity?.badInput || (p && (!/^\d+(\.\d{1,2})?$/.test(p) || Number(p)>1000000000)))
+      fail(tr,"unit_price","单价必须是非负数字，最多2位小数");
+    if(q && !p)fail(tr,"unit_price","填写数量后，请同时填写单价");
+    if(p && !q)fail(tr,"quantity","填写单价后，请同时填写数量");
+    if(q && p && !lineTotal(q,p))
+      fail(tr,"unit_price","数量 × 单价超过金额上限");
+    if(mode==="confirm" && root.dataset.demandRequireCompletion==="1" && val("need")==="需要") {
+      if(!val("spec"))fail(tr,"spec","确认归档前请填写规格");
+      if(!val("owner"))fail(tr,"owner","确认归档前请填写负责人");
+      if(!due)fail(tr,"due","确认归档前请填写交付时间");
+    }
+  }
+  displayDemandErrors(root,problems,{focus});
+  return problems.length===0;
+}
+function displayDemandErrors(root, problems, {focus=false}={}) {
+  root.querySelectorAll(".demand-invalid").forEach(el=>{
+    el.classList.remove("demand-invalid");
+    el.removeAttribute("aria-invalid");
+    el.removeAttribute("aria-describedby");
+  });
+  root.querySelectorAll(".demand-field-error").forEach(el=>el.remove());
+  root.querySelectorAll(".demand-invalid-row").forEach(el=>el.classList.remove("demand-invalid-row"));
+  const seen=new Set();
+  let first=null,count=0;
+  for(const {tr,field,message} of problems) {
+    const el=tr.querySelector('[data-f="'+field+'"]');
+    if(!el || seen.has(el))continue;
+    seen.add(el);count++;
+    if(!first)first=el;
+    el.classList.add("demand-invalid");
+    el.setAttribute("aria-invalid","true");
+    tr.classList.add("demand-invalid-row");
+    const tip=document.createElement("span");
+    tip.className="demand-field-error";
+    tip.textContent=message;
+    const id="demand-err-"+count;
+    tip.id=id;
+    el.setAttribute("aria-describedby",id);
+    el.closest("td").appendChild(tip);
+  }
+  const banner=root.querySelector("#demand-errors");
+  if(banner) {
+    banner.hidden=count===0;
+    banner.textContent=count ? "发现"+count+"处填写问题，已标红。请按红色提示逐项修改，再保存或归档。" : "";
+  }
+  if(first && focus) {
+    first.scrollIntoView({behavior:"smooth",block:"center"});
+    first.focus({preventScroll:true});
+  }
+}
+function displayServerDemandError(root, err) {
+  const detail=err?.detail;
+  if(!detail?.field)return false;
+  const rows=[...root.querySelectorAll("tr[data-grp]")];
+  const row=Number.isInteger(detail.index) ? rows[detail.index] :
+    rows.find(tr=>tr.dataset.grp===detail.group &&
+      tr.querySelector('[data-f="item"]')?.value.trim()===detail.item);
+  if(!row)return false;
+  displayDemandErrors(root,[{tr:row,field:detail.field,message:err.message}],{focus:true});
+  return true;
+}
+
 function refreshHead(root) {
   const rows=[...root.querySelectorAll("tr[data-grp]")];
   const needed=rows.filter(tr=>tr.querySelector('[data-f="need"]').value==="需要");
