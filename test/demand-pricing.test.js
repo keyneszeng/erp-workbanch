@@ -211,4 +211,9 @@ test("重置恢复默认全不需要；零需求也可明确确认归档",async(
   assert.equal(confirm.data.sheet.needCount,0);
   assert.equal(confirm.data.sheet.budgetTotal,0);
   assert.equal(confirm.data.sheet.archived,true);
+  const detail=await admin("GET","/api/projects/"+PID);
+  assert.equal(detail.status,200);
+  assert.equal(detail.data.demand.needCount,0);
+  assert.equal(detail.data.demand.items.length,0,"没有需要项时项目详情应显示空清单");
+  assert.equal(detail.data.demand.total,23,"隐藏不需要项不应修改历史需求总数");
 });
