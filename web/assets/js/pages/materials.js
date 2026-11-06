@@ -62,6 +62,8 @@ export function openMaterialRegistration(root, projects, kinds, defaultPid="", o
     { k: "kind", l: "材料类别", t: "select", req: 1, custom: 1, ph: "如：盖章会议通知 / 招商函 / 终版议程 / 讲者照片",
       opts: [...kinds, "会议通知", "招商函", "终版议程", "课件", "串场", "劳务表", "劳务收集表", "讲者照片", "权益照片"].filter((v, i, a) => a.indexOf(v) === i),
       tip: "可任选类别或自定义类别；不要求固定类别全部上传。至少上传一份实际附件即可满足流程材料条件。" },
+    { k: "sponsor_right_id", l: "权益照片 · 二级类目（从赞助合同自动生成，可自定义）", t:"select",opts:[],
+      tip:"先选择项目及赞助合同权益，再上传对应照片。" },
     { k: "name", l: "材料名称", req: 1, ph: "如：签到表-终版.pdf" },
     { k: "version", l: "版本", v: "v1" },
     {
@@ -83,21 +85,45 @@ export function openMaterialRegistration(root, projects, kinds, defaultPid="", o
   let picked=[];
   const kindSelect=m.querySelector('[name="kind"]');
   const saveButton=m.querySelector('[data-x="1"]');
+  const rightSelect=m.querySelector('[name="sponsor_right_id"]');
+  const rightField=rightSelect.closest(".fld");
+  const pidSelect=m.querySelector('[name="pid"]');
+  let availableRights=[];
+  const loadRights=async()=>{
+    availableRights=[];
+    if(!pidSelect.value)return;
+    try{
+      const data=await api.get("/api/projects/"+encodeURIComponent(pidSelect.value)+"/sponsor-rights");
+      const sponsors=new Map((data.contracts||[]).filter(c=>c.status!=="已驳回").map(c=>[c.id,c]));
+      availableRights=(data.rights||[]).filter(x=>sponsors.has(x.sponsor_id))
+        .map(x=>({...x,enterprise:sponsors.get(x.sponsor_id).enterprise}));
+    }catch(err){if(kindSelect.value==="权益照片")toast("读取权益二级类目失败："+err.message,"warn");}
+    const old=rightSelect.value;
+    rightSelect.innerHTML='<option value="">选择赞助合同 → 权益二级类目</option>'+
+      availableRights.map(x=>'<option value="'+x.id+'">'+esc(x.enterprise)+" · "+esc(x.category)+(x.confirmed?"":"（待确认）")+'</option>').join("");
+    if(availableRights.some(x=>String(x.id)===old))rightSelect.value=old;
+  };
+  pidSelect.addEventListener("change",loadRights);
+  loadRights();
+
   // 终版议程只需上传一个文件，名称自动取文件名，版本自动确认为终版。
   const syncAgendaForm=()=>{
     const final=kindSelect.value==="终版议程";
     const photo=kindSelect.value==="讲者照片";
+    const rightsPhoto=kindSelect.value==="权益照片";
+    rightField.style.display=rightsPhoto?"":"none";
     for(const field of ["name","version"]){
       const el=m.querySelector('[name="'+field+'"]');
       if(el?.closest(".fld"))el.closest(".fld").style.display=final?"none":"";
     }
     picker.multiple=!final&&!photo;
-    picker.accept=photo?".jpg,.jpeg,.png,.webp":UPLOAD_ACCEPT;
+    picker.accept=photo||rightsPhoto?".jpg,.jpeg,.png,.webp":UPLOAD_ACCEPT;
     if(saveButton)saveButton.textContent=final?"确定终版议程":"保存";
     const tip=m.querySelector(".upload")?.closest(".fld")?.querySelector(".tip");
     if(tip)tip.textContent=final
       ? "上传一份终版议程原件，点击「确定终版议程」即完成；无需额外的讲者、课题或待办流程。"
       : photo ? "每次登记一位讲者的 JPG/PNG/WebP 照片，材料名称必须填写对应讲者姓名，供核销第2步逐人核对。"
+        : rightsPhoto ? "选择赞助合同对应的权益二级类目，可为同一权益上传多张 JPG/PNG/WebP 照片。"
         : UPLOAD_TIP+" 讲者照片请在名称栏填写讲者姓名。";
   };
   kindSelect.addEventListener("change",syncAgendaForm);
@@ -112,6 +138,9 @@ export function openMaterialRegistration(root, projects, kinds, defaultPid="", o
       !/\.(jpg|jpeg|png|webp)$/i.test(files[0].name||""))){
       toast("讲者照片每次只能上传一张 JPG/PNG/WebP 图片","warn");picker.value="";picked=[];return;
     }
+    if(kindSelect.value==="权益照片"&&files.some(f=>!/\.(jpe?g|png|webp)$/i.test(f.name||""))){
+      toast("权益照片仅支持 JPG/PNG/WebP 图片","warn");picker.value="";picked=[];return;
+    }
     picked=files;
     const count=m.querySelector(".upload .fn");
     if(count)count.textContent=files.length?files.length+" 份文件已选择":"未选择";
@@ -123,12 +152,17 @@ export function openMaterialRegistration(root, projects, kinds, defaultPid="", o
   const btn = saveButton;
   btn.onclick = async () => {
     const isFinalAgenda=kindSelect.value==="终版议程";
+    if(kindSelect.value==="权益照片"&&!availableRights.some(x=>String(x.id)===rightSelect.value)){
+      toast("请先选择当前合同的权益二级类目；识别失败请到赞助收入页面人工补录","warn");return;
+    }
     if(!validate(m,isFinalAgenda?fields.filter(f=>f.k!=="name"):fields))return;
     if(isFinalAgenda&&picked.length!==1){toast("请先选择一份终版议程文件","warn");return;}
     if(kindSelect.value==="讲者照片"&&picked.length!==1){
       toast("讲者照片请一次选择一位讲者的一张图片","warn");return;
     }
     const v=readForm(m);
+    if(kindSelect.value==="权益照片")v.sponsor_right_id=Number(rightSelect.value);
+    else delete v.sponsor_right_id;
     if(isFinalAgenda){
       v.name=picked[0].name;
       v.version="终版";
