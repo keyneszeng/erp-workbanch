@@ -156,7 +156,9 @@ test("production: association member IDs, approved contract signing and pay-afte
   assert.equal(step.status,200,JSON.stringify(step.body));
   const record={name:"测试讲者",time:"2027-08-10",role:"讲者",amount:"1000",bankAccount:"TEST_ACCOUNT_REFERENCE"};
   const sop={
-    1:{documentKind:"会议通知",meetingName:base.name,meetingDate:base.date,organizer:base.assoc,sponsor:"不适用",stamped:true,final:true},
+    1:{documentKind:"会议通知",meetingName:base.name,meetingDate:base.date,organizer:base.assoc,
+      hostMeetingName:base.name,hostMeetingDate:base.date,hostOrganizer:base.assoc,
+      stamped:true,final:true},
     2:{agendaSpeakers:["测试讲者"],collectionSpeakers:["测试讲者"],agreementSpeakers:["测试讲者"],noOmissions:true},
     3:{signedAttendance:true},
     4:{agendaTopics:["课题甲"],courseTopics:["课题甲"],hostTitleMatches:true,hostNameLogoMatches:true,sponsorLogoPages:[]},
