@@ -1,6 +1,6 @@
 "use strict";
 const { db, transaction } = require("../lib/db");
-const { now, bad, notFound, conflict, yuan, toCsv } = require("../lib/util");
+const { now, bad, notFound, conflict, yuan, toCsv, HttpError } = require("../lib/util");
 const { assertCan, assertModule, assertProjectVisible, isSuper } = require("../lib/rbac");
 const { logAudit } = require("../lib/audit");
 const { listProjects } = require("./projects");
@@ -12,6 +12,23 @@ const { isDemoMode } = require("../lib/runtime");
 const MAX_LEN = { item: 40, spec: 200, owner: 20, due: 20, note: 120, attach: 150, budget_owner: 80 };
 
 const money2 = (n) => Number(n || 0).toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+// 返回准确字段信息，供前端定位错误行并标红，而不是只有笼统 toast。
+function invalidField(message, it, field, index) {
+  return new HttpError(400, "DEMAND_FIELD_INVALID", message, {
+    group: it.grp, item: String(it.item||""), field, index
+  });
+}
+function errorField(message) {
+  if (/数量/.test(message)) return "quantity";
+  if (/单价/.test(message)) return "unit_price";
+  if (/交付时间|日期|due/.test(message)) return "due";
+  if (/负责人|owner/.test(message)) return "owner";
+  if (/规格|spec/.test(message)) return "spec";
+  if (/总价|金额|budget/.test(message)) return "budget";
+  if (/是否需要/.test(message)) return "need";
+  return "item";
+}
 
 /**
  * 预算金额只收数字。
@@ -238,7 +255,8 @@ function register(router) {
     // 原来靠 replaceItems 里的 seen 集合静默跳过重复项 —— 用户提交 10 条只存 9 条，
     // 接口返回 200、审计还写「更新 10 条」，账实不符。这里直接拒绝并指出是哪一条。
     const seen = new Set();
-    for (const it of b.items) {
+    for (const [index,it] of b.items.entries()) {
+      try {
       if (!DEMAND_GROUPS.includes(it.grp)) throw bad(`分组「${it.grp || ""}」非法`);
       // 名字统一 trim 后再校验、判重、入库：三处用同一份值，
       // 否则「台卡」与「台卡 」在长度校验上算两个长度，在唯一键上又算同一个
@@ -288,7 +306,16 @@ function register(router) {
       } else {
         it.budget=submittedBudget;
       }
+      if ((it.quantity && !it.unit_price) || (!it.quantity && it.unit_price))
+        throw invalidField("「"+name+"」请同时填写数量和单价，系统才能自动汇算总价",it,
+          it.quantity?"unit_price":"quantity",index);
       checkItem(it);
+      } catch (err) {
+        if (err.status===400 && !err.extra) {
+          err.extra={group:it.grp,item:it.item,index,field:errorField(err.message)};
+        }
+        throw err;
+      }
     }
     const before = loadSheet(p.id);
     const at = ensureSheet(p.id);
@@ -326,9 +353,10 @@ function register(router) {
       const rows = db.prepare("SELECT * FROM demand_items WHERE pid=? AND need='需要'").all(p.id);
       // 全部不需要也允许确认：明确的零需求比强迫用户勾选虚假需求更可靠。
       for (const it of rows) {
-        const missing = ["spec","owner","due"].filter(k=>!String(it[k]??"").trim());
-        if (missing.length) throw bad("需求「"+it.item+"」缺少必填字段："+missing.join("、"));
-
+        const labels={spec:"规格",owner:"负责人",due:"交付时间"};
+        const missing=["spec","owner","due"].filter(k=>!String(it[k]??"").trim());
+        if (missing.length) throw invalidField("需求「"+it.item+"」请补充"+missing.map(k=>labels[k]).join("、"),
+          it,missing[0]);
       }
     }
     db.prepare("INSERT INTO demand_revisions (pid,before_json,after_json,changed_by,changed_at,action) VALUES (?,?,?,?,?,?)")
