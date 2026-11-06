@@ -4,7 +4,7 @@ import { canDownloadArchivePdf, downloadArchivePdf } from "../lib/archive-pdf.js
 import {
   badge, confirmBox, esc, formHtml, kv, modal, money, panel, promptBox, readForm, table, timeline, toast, validate, yuan
 } from "../lib/ui.js";
-import { bindFilePicker, fileUrl } from "../lib/upload.js";
+import { bindFilePicker, fileUrl, UPLOAD_ACCEPT, UPLOAD_TIP } from "../lib/upload.js";
 import { exStepLabel, openStepDetail } from "../lib/verify-detail.js";
 import { flowHint, flowOf, openContractDetail } from "../lib/contract-detail.js";
 
@@ -433,7 +433,7 @@ function tabMaterials(d, p) {
         c: [
           esc(m.kind), esc(m.name),
           m.file_key
-            ? ((m.file_mime === "application/pdf" || /\.(ppt|pptx|xlsx|docx)$/i.test(m.file_key))
+            ? ((m.file_mime === "application/pdf" || /\.(doc|docx|ppt|pptx|xls|xlsx|csv|txt)$/i.test(m.file_key))
                 ? `<a class="link" href="${fileUrl(m.file_key)}" target="_blank" rel="noopener">查看附件</a>`
                 : `<a href="${fileUrl(m.file_key)}" target="_blank" rel="noopener"><img class="thumb" src="${fileUrl(m.file_key)}" alt=""></a>`)
             : '<span style="color:var(--mute)">—</span>',
@@ -705,8 +705,8 @@ function openContract(root, pid) {
     { k: "status", l: "状态", t: "select", opts: ["草稿", "待签署", "已签署"], tip: "已签署需要管理员审批，不能通过录入直接跳过审批" },
     {
       k: "file", l: "合同原件", t: "file", full: 1,
-      accept: "image/jpeg,image/png,image/webp,image/gif,application/pdf,.ppt,.pptx,.xlsx,.docx",
-      tip: "可上传盖章扫描件 PDF 或手机拍照件，单个不超过 8 MB。图片会在本地压缩后上传，PDF 原样保存。"
+      accept: UPLOAD_ACCEPT,
+      tip: UPLOAD_TIP
     }
   ];
   const m = modal({
