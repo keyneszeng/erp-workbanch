@@ -57,6 +57,10 @@ jobs:
           node --check server/api/verify.js
           node --check server/api/system.js
           node --check server/api/files.js
+          node --check server/lib/legacy-office.js
+          node --check server/lib/storage.js
+          node --input-type=module --check < web/assets/js/lib/upload.js
+          node --input-type=module --check < web/assets/js/lib/income-workbench.js
           node --check server/lib/ocr-engine.js
           node --check server/api/material-workbench.js
           node --input-type=module --check < web/assets/js/lib/material-workbench.js
@@ -81,6 +85,8 @@ jobs:
         run: ERP_DEMO_MODE=1 node --experimental-sqlite --test test/demand-pricing.test.js
       - name: Verify signed-review contract replacement and automatic old-file removal
         run: ERP_DEMO_MODE=1 node --experimental-sqlite --test test/contract-replace.test.js
+      - name: Verify XLS/DOC/PPT legacy upload, CSV/TXT and download before OCR setup
+        run: ERP_DEMO_MODE=1 node --experimental-sqlite --test test/legacy-office.test.js test/legacy-ppt.test.js test/office-material.test.js
       - name: Install offline OCR runtime (Tesseract Chinese/English + Poppler)
         run: |
           sudo apt-get update -qq
@@ -91,6 +97,8 @@ jobs:
         run: npm run test:cf
       - name: Install headless browser test harness
         run: npm install --no-save --no-package-lock --no-audit --no-fund playwright
+      - name: "Black-box legacy XLS upload from material register"
+        run: ERP_DEMO_MODE=1 node test/ui/xls-upload.js
       - name: "Black-box contract sign confirmation and replacement"
         run: ERP_DEMO_MODE=1 node test/ui/contract-detail.js
       - name: "Black-box demand UI: quantity times unit price and archiving"

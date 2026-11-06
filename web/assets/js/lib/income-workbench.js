@@ -1,6 +1,6 @@
 import {api,can} from "./api.js";
 import {esc,formHtml,readForm,validate,modal,toast,confirmBox,promptBox,money} from "./ui.js";
-import {bindFilePicker} from "./upload.js";
+import {bindFilePicker,UPLOAD_ACCEPT,UPLOAD_TIP} from "./upload.js";
 let chosen="";
 const yuan=n=>"¥"+money(n||0);
 const link=k=>k?`<a class="link" href="/api/uploads/${encodeURIComponent(k)}" target="_blank" rel="noopener">点击原件查看</a>`:"未上传";
@@ -74,7 +74,7 @@ function formIncome(root,projects,type,sponsorId=""){
  };
  const cfg=defs[type];
  const fields=[...cfg.fields,{k:"file",l:"佐证原件（必需）",t:"file",full:1,
-   accept:".jpg,.png,.pdf,.ppt,.pptx,.xlsx,.docx",tip:"必须上传合同原件、银行回款凭证或开票原件（单份≤20MB）"}];
+   accept:UPLOAD_ACCEPT,tip:UPLOAD_TIP+" 必须上传可核对的合同、回款或开票原件。"}];
  const modalEl=modal({title:cfg.title,width:"640px",body:formHtml(fields),
     footer:'<button class="btn btn-o" data-cancel>取消</button><button class="btn btn-p" data-save>提交</button>'});
  let picked=null;

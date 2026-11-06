@@ -1,6 +1,6 @@
 import { api, can } from "../lib/api.js";
 import { bindPager, esc, formHtml, modal, pager, panel, readForm, table, toast, validate } from "../lib/ui.js";
-import { checkFile, compressImage, fileUrl } from "../lib/upload.js";
+import { checkFile, compressImage, fileUrl, UPLOAD_ACCEPT, UPLOAD_TIP } from "../lib/upload.js";
 import { renderMaterialWorkbench } from "../lib/material-workbench.js";
 
 const PAGE_SIZE = 50;
@@ -42,7 +42,7 @@ export async function render(root) {
           c: [`<a class="link" data-go="projects/${m.pid}">${esc(m.pname)}</a>`, esc(m.kind),
             esc(m.name),
             m.file_key
-              ? (m.file_mime === "application/pdf" || /\.(docx|ppt|pptx|xlsx)$/i.test(m.file_key)
+              ? (m.file_mime === "application/pdf" || /\.(doc|docx|ppt|pptx|xls|xlsx|csv|txt)$/i.test(m.file_key)
                   ? `<a class="link" href="${fileUrl(m.file_key)}" target="_blank" rel="noopener">${esc(m.file_name || "下载附件")}</a>`
                   : `<a href="${fileUrl(m.file_key)}" target="_blank" rel="noopener"><img class="thumb" src="${fileUrl(m.file_key)}" alt=""></a>`)
               : '<span style="color:var(--mute)">—</span>',
@@ -70,8 +70,8 @@ export function openMaterialRegistration(root, projects, kinds, defaultPid="", o
     { k: "version", l: "版本", v: "v1" },
     {
       k: "file", l: "附件", t: "file", full: 1,
-      accept: "image/jpeg,image/png,image/webp,image/gif,application/pdf,.docx,.ppt,.pptx,.xlsx",
-      tip: "支持图片、PDF、DOCX、PPTX、XLSX（Office 2007 及以上格式），每份不超过 20 MB；讲者照片请在名称栏填写讲者姓名。图片可自动压缩。"
+      accept: UPLOAD_ACCEPT,
+      tip: UPLOAD_TIP+" 讲者照片请在名称栏填写讲者姓名。"
     }
   ];
   const m = modal({

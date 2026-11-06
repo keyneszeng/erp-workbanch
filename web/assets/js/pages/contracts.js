@@ -1,6 +1,6 @@
 import { api, can, state } from "../lib/api.js";
 import { badge, confirmBox, promptBox, esc, formHtml, modal, money, panel, readForm, table, toast, validate } from "../lib/ui.js";
-import { bindFilePicker } from "../lib/upload.js";
+import { bindFilePicker, UPLOAD_ACCEPT, UPLOAD_TIP } from "../lib/upload.js";
 import { flowHint, flowOf, openContractDetail } from "../lib/contract-detail.js";
 
 let q = "";
@@ -27,7 +27,7 @@ function flowBtn(c) {
  * 现在点详情直接在弹窗里看原件（PDF 内嵌、图片铺开），上下文和下一步动作都在同一屏。
  */
 function fileCell(c) {
-  const tag = !c.file_key ? "无原件" : c.file_mime === "application/pdf" ? "PDF" : "图片";
+  const tag = !c.file_key ? "无原件" : c.file_mime === "application/pdf" ? "PDF" : /^image\//.test(c.file_mime||"") ? "图片" : String(c.file_key).split(".").pop().toUpperCase();
   return `<button class="link" data-cdet="${c.id}"
     title="${esc(c.file_key ? c.file_name || "查看合同原件" : "查看合同详情")}">详情<span class="ftag${c.file_key ? "" : " off"}">${tag}</span></button>`;
 }
@@ -126,8 +126,8 @@ function openCreate(root, projects) {
     { k: "status", l: "状态", t: "select", opts: ["草稿", "待签署", "已签署"], tip: "已签署需管理员审批确认；新录入选择已签署会自动转为待签署，不能跳过审批" },
     {
       k: "file", l: "合同原件", t: "file", full: 1,
-      accept: "image/jpeg,image/png,image/webp,image/gif,application/pdf,.ppt,.pptx,.xlsx,.docx",
-      tip: "可上传盖章扫描件 PDF 或手机拍照件，单个不超过 8 MB。图片会在本地压缩后上传，PDF 原样保存。"
+      accept: UPLOAD_ACCEPT,
+      tip: UPLOAD_TIP
     }
   ];
   const m = modal({

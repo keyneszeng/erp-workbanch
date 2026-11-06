@@ -22,7 +22,7 @@ const PAYABLE_STATUS = ["已核销"];
 const EX_DECIDED = { 已通过: "已通过", 已驳回: "已驳回", 已撤销: "已撤销" };
 
 /** 与 server/api/files.js 生成的 key 格式保持一致，避免任意字符串被写进 file_key */
-const FILE_KEY_RE = /^[a-f0-9]{32}\.(jpg|png|webp|gif|pdf|ppt|pptx|xlsx|docx)$/;
+const FILE_KEY_RE = /^[a-f0-9]{32}\.(jpg|png|webp|gif|pdf|ppt|doc|pptx|docx|xls|xlsx|csv|txt)$/;
 
 /**
  * 合同状态白名单。
@@ -202,7 +202,7 @@ function register(router) {
     const obj=await storage().get(newKey);
     if(!obj || !obj.buffer?.length)throw notFound("新合同上传文件不存在，请重新上传");
     if(obj.buffer.length>MAX_BYTES)throw bad("新合同文件大小超出 20 MB 限制");
-    const mime=sniffMime(obj.buffer);
+    const mime=sniffMime(obj.buffer,newKey);
     if(!mime || ALLOWED_MIME[mime]!==newKey.split(".").pop())
       throw bad("新合同文件类型与上传标识不符");
     const fileName=safeName(b.file_name||newKey);

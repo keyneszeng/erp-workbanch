@@ -1,6 +1,6 @@
 import { api, can } from "./api.js";
 import { badge, closeModal, esc, modal, money, toast } from "./ui.js";
-import { fileUrl, formatBytes, checkFile, compressImage } from "./upload.js";
+import { fileUrl, formatBytes, checkFile, compressImage, UPLOAD_ACCEPT } from "./upload.js";
 
 /**
  * 合同详情弹窗 —— 台账与项目详情共用。
@@ -176,7 +176,7 @@ function openContractReplace(c,opt={}) {
     '同步更新合同台账与归档材料。如旧文件没有其他业务引用，其存储文件将自动删除；' +
     '原合同编号、金额和审批流程保持不变。更新后仍须重新核对并点击「确认签署」。</div>' +
     '<div class="fld"><label for="contractReplaceFile">选择新合同原件</label>' +
-    '<input type="file" id="contractReplaceFile" accept=".pdf,.jpg,.jpeg,.png,.webp,.gif,.ppt,.pptx,.docx,.xlsx,application/pdf,image/*">' +
+    '<input type="file" id="contractReplaceFile" accept="${UPLOAD_ACCEPT}">' +
     '<div class="hint" style="margin-top:8px">仅支持 PDF、图片或 Office 文件，单个不超过 20 MB。</div></div>';
   const m=modal({
     title:"更新合同 · "+esc(c.id),
