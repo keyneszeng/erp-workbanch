@@ -325,3 +325,16 @@ tr.row-focus td .mono{font-weight:600}
 #fin-payments,#fin-settlements{scroll-margin-top:18px}
 @media(max-width:1320px){.ux-kpi-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:740px){.ux-kpi-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.ux-checkpoints{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
+/* 需求表校验：错误单元格红框、行底色与就地纠错说明；无错时自动恢复 */
+.demand-error-summary{margin:10px 0;padding:10px 14px;border:1px solid #e29da4;
+  background:#fff1f2;border-radius:8px;color:#942b36;font-size:13px;line-height:1.55}
+.demand-error-summary[hidden]{display:none!important}
+.tw tr.demand-invalid-row td{background:#fff8f8}
+.tw td .mini.demand-invalid,.tw td .mini.demand-invalid:focus,
+.tw td .c-item .mini.demand-invalid,.tw td .c-item .mini.demand-invalid:focus{
+  border:2px solid var(--red)!important;background:#fff5f5!important;
+  outline:2px solid rgba(184,53,68,.12);outline-offset:1px;box-shadow:none!important}
+.tw td .demand-field-error{display:block;margin-top:4px;color:#aa2839;
+  font-size:11px;line-height:1.45;max-width:180px;overflow-wrap:anywhere}
+.tw td:has(.demand-invalid) {vertical-align:top}

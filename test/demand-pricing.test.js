@@ -98,6 +98,62 @@ test("非法数量、单价精度及超额总价全部被拒，不能破坏已�
   assert.equal(current.data.budgetTotal,37.63);
 });
 
+test("需求负责人可自定义填写：不在协会用户目录的姓名也能保存并回显",async()=>{
+  const name="外部会务协调员-张三";
+  const saved=await admin("PATCH","/api/demand/"+PID,{items:[
+    {grp:"设计",item:"临时布置",need:"需要",owner:name,spec:"签到处",due:"2026-12-12",quantity:"2",unit_price:"12.30"}
+  ]});
+  assert.equal(saved.status,200,JSON.stringify(saved.data));
+  const row=saved.data.sheet.items["设计"][0];
+  assert.equal(row.owner,name);
+  assert.equal(row.owner_id,"");
+  assert.equal(row.budget,"24.60");
+  const read=await admin("GET","/api/demand/"+PID);
+  assert.equal(read.data.items["设计"][0].owner,name);
+});
+
+test("原有成员绑定不被自由输入误清除，改为自定义姓名时解绑而不授予账号权限",async()=>{
+  const list=await admin("GET","/api/users/assignable?assoc="+encodeURIComponent("护理协会"));
+  assert.equal(list.status,200);
+  const member=list.data.rows.find(x=>x.name==="周涛");
+  assert.ok(member,"测试数据应有护理协会会务执行负责人");
+  const item={grp:"设计",item:"本会人员接洽",need:"需要",quantity:"1",unit_price:"12"};
+  const linked=await admin("PATCH","/api/demand/"+PID,{items:[{...item,owner_id:member.id}]});
+  assert.equal(linked.status,200,JSON.stringify(linked.data));
+  assert.equal(Number(linked.data.sheet.items["设计"][0].owner_id),Number(member.id));
+  const unchanged=await admin("PATCH","/api/demand/"+PID,{items:[{...item,owner:member.name}]});
+  assert.equal(unchanged.status,200);
+  assert.equal(Number(unchanged.data.sheet.items["设计"][0].owner_id),Number(member.id));
+  const custom=await admin("PATCH","/api/demand/"+PID,{items:[{...item,owner:"外部顾问"}]});
+  assert.equal(custom.status,200);
+  assert.equal(custom.data.sheet.items["设计"][0].owner,"外部顾问");
+  assert.equal(custom.data.sheet.items["设计"][0].owner_id,"");
+});
+
+test("字段错误返回精确定位信息：负责人、数量、日期、重复行",async()=>{
+  const cases=[
+    [{grp:"设计",item:"长度超限",need:"需要",owner:"张".repeat(21)},"owner"],
+    [{grp:"设计",item:"数量错误",need:"需要",quantity:"1.12345",unit_price:"8"},"quantity"],
+    [{grp:"设计",item:"单价错误",need:"需要",quantity:"2",unit_price:"5.999"},"unit_price"],
+    [{grp:"设计",item:"日期错误",need:"需要",due:"2026-02-30"},"due"],
+    [{grp:"设计",item:"缺单价",need:"需要",quantity:"2",unit_price:""},"unit_price"]
+  ];
+  for(const [item,field] of cases) {
+    const r=await admin("PATCH","/api/demand/"+PID,{items:[item]});
+    assert.equal(r.status,400,JSON.stringify({item,error:r.data}));
+    assert.equal(r.data.error.detail?.field,field,JSON.stringify(r.data));
+    assert.equal(r.data.error.detail?.index,0);
+    assert.equal(r.data.error.detail?.item,item.item);
+  }
+  const duplicate=await admin("PATCH","/api/demand/"+PID,{items:[
+    {grp:"设计",item:"同名条目",need:"不需要"},
+    {grp:"设计",item:"同名条目 ",need:"不需要"}
+  ]});
+  assert.equal(duplicate.status,400);
+  assert.equal(duplicate.data.error.detail?.field,"item");
+  assert.equal(duplicate.data.error.detail?.index,1);
+});
+
 test("空数量/单价无法伪造总价；仍兼容无定价字段的历史数据",async()=>{
   const legacy=await admin("PATCH","/api/demand/"+PID,{items:[
     {grp:"设计",item:"旧需求",need:"需要",budget:"88.50"}
