@@ -58,15 +58,15 @@ export async function compressImage(file, { maxEdge = 2000, quality = 0.85, skip
   return new File([blob], `${base}.jpg`, { type: "image/jpeg", lastModified: Date.now() });
 }
 
-/** 客户端预检，避免传完 8 MB 才被服务端拒 */
-/** 所有通用上传窗口共用相同扩展名；服务端独立验证真实内容。 */
-export const UPLOAD_ACCEPT = ".jpg,.jpeg,.png,.webp,.gif,.pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.csv,.txt";
+/** 所有通用上传窗口共用扩展名；同时保留 MIME 供老浏览器与现有 UI 使用。 */
+const ACCEPTED_EXTS = ["jpg","jpeg","png","webp","gif","pdf","doc","docx","ppt","pptx","xls","xlsx","csv","txt"];
+export const UPLOAD_ACCEPT = ACCEPTED_EXTS.map(ext=>"."+ext).join(",")+",application/pdf,image/jpeg,image/png,image/webp,image/gif";
 export const UPLOAD_FORMATS = "JPG / PNG / WebP / GIF / PDF / DOC / DOCX / PPT / PPTX / XLS / XLSX / CSV / TXT";
 export const UPLOAD_TIP = "支持图片、PDF、Word、PowerPoint、Excel（包括老版 XLS）及 CSV/TXT，单个不超过 20 MB。旧版 Office 文件只提供安全下载，不执行宏。";
 
 export function checkFile(file) {
   const ext=String(file?.name||"").split(".").pop().toLowerCase();
-  const allowed=new Set(UPLOAD_ACCEPT.split(",").map(x=>x.slice(1)));
+  const allowed=new Set(ACCEPTED_EXTS);
   if(!allowed.has(ext))return "不支持该文件类型；可上传 "+UPLOAD_FORMATS;
   if(file.size===0)return "不能上传空文件";
   if(file.size>MAX_UPLOAD_BYTES)
