@@ -20,7 +20,7 @@
   <view wx:if="{{error}}" class="error">{{error}}</view>
   <view wx:if="{{uploaded}}" class="success-note">{{uploaded}}</view>
   <button class="btn primary" loading="{{busy}}" disabled="{{busy||locked||!pid}}" bindtap="addPhoto">拍照或从相册选择并归档</button>
-  <button class="btn ghost" loading="{{busy}}" disabled="{{busy||locked||!pid}}" bindtap="addFile">选择 PPT / PPTX / XLSX / PDF / DOCX 附件</button>
-  <view class="muted">每次上传 1 个附件、最多 8 MB。旧 PPT 作为附件下载，不在小程序内运行；OCR 识别不等于核销通过。</view>
+  <button class="btn ghost" loading="{{busy}}" disabled="{{busy||locked||!pid}}" bindtap="addFile">选择 Excel XLS / XLSX、Word、PPT、PDF、CSV / TXT 附件</button>
+  <view class="muted">每次上传 1 个附件、最多 20 MB。支持旧版 Excel XLS、Word DOC；Office 文件作为附件存储下载，不在小程序内执行宏，OCR 识别不等于核销通过。</view>
  </view>
 </view>
