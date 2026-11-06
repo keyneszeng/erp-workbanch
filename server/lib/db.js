@@ -436,6 +436,39 @@ CREATE TABLE IF NOT EXISTS uploaded_files (
 );
 CREATE INDEX IF NOT EXISTS idx_uploaded_files_user ON uploaded_files(user_id);
 
+-- 立项函可编辑草稿：审批通过后禁止修改原始函件文本。
+CREATE TABLE IF NOT EXISTS project_initiation_letters (
+  pid TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
+  title TEXT NOT NULL,
+  body TEXT NOT NULL,
+  updated_by INTEGER,
+  updated_at TEXT NOT NULL
+);
+
+-- 协会级 Word 模板。替换时版本递增，旧文件保留用于已批准项目。
+CREATE TABLE IF NOT EXISTS project_notice_templates (
+  assoc TEXT PRIMARY KEY,
+  file_key TEXT NOT NULL UNIQUE,
+  file_name TEXT NOT NULL,
+  version INTEGER NOT NULL DEFAULT 1,
+  updated_by INTEGER,
+  updated_at TEXT NOT NULL
+);
+
+-- 正式通知函内容与模板引用在「立项通过」的同一个同步业务流中冻结。
+CREATE TABLE IF NOT EXISTS project_notices (
+  pid TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
+  approval_id TEXT,
+  template_key TEXT,
+  template_version INTEGER NOT NULL DEFAULT 0,
+  template_name TEXT NOT NULL,
+  snapshot_json TEXT NOT NULL,
+  approved_by TEXT,
+  approved_at TEXT NOT NULL,
+  backfilled INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL
+);
+
 -- 项目筹备邀请函：内置固定模板、已生成 PDF 的快照与发送/回复追踪。
 CREATE TABLE IF NOT EXISTS prep_invitations (
   id               TEXT PRIMARY KEY,
