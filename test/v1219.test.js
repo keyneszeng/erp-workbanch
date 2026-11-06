@@ -44,7 +44,7 @@ before(async()=>{
   admin=api;
   const created=await admin("POST","/api/projects",{
     name:"灵活材料归档测试",assoc:"华东医学会",form:"线下",date:"2027-12-12",budget:30000,
-    people:30,owner:"王敏",agenda:"09:00 开幕并进行专家交流"
+    people:30,owner_id:1,agenda:"09:00 开幕并进行专家交流"
   });
   assert.equal(created.status,200,JSON.stringify(created.data));
   pid=created.data.project.id;
