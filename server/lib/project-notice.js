@@ -155,6 +155,7 @@ function defaultWordTemplate() {
     docParagraph("会议名称：{{会议名称}}")+
     docParagraph("项目编号：{{项目编号}}")+
     docParagraph("致：{{协会名称}}")+
+    docParagraph("立项依据：{{立项函标题}}")+
     docParagraph("根据项目立项审批结果，现通知如下：")+
     docParagraph("{{立项函正文}}")+
     docParagraph("会议日期：{{会议日期}}  项目负责人：{{项目负责人}}")+
