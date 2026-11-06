@@ -82,6 +82,7 @@ export function openMaterialRegistration(root, projects, kinds, defaultPid="", o
   picker.multiple=true;
   let picked=[];
   const kindSelect=m.querySelector('[name="kind"]');
+  const saveButton=m.querySelector('[data-x="1"]');
   // 终版议程只需上传一个文件，名称自动取文件名，版本自动确认为终版。
   const syncAgendaForm=()=>{
     const final=kindSelect.value==="终版议程";
@@ -90,9 +91,10 @@ export function openMaterialRegistration(root, projects, kinds, defaultPid="", o
       if(el?.closest(".fld"))el.closest(".fld").style.display=final?"none":"";
     }
     picker.multiple=!final;
+    if(saveButton)saveButton.textContent=final?"确定终版议程":"保存";
     const tip=m.querySelector(".upload")?.closest(".fld")?.querySelector(".tip");
     if(tip)tip.textContent=final
-      ? "仅需上传一份终版议程文件，保存即确认；无需填写讲者、课题或生成待办。"
+      ? "上传一份终版议程原件，点击「确定终版议程」即完成；无需额外的讲者、课题或待办流程。"
       : UPLOAD_TIP+" 讲者照片请在名称栏填写讲者姓名。";
   };
   kindSelect.addEventListener("change",syncAgendaForm);
@@ -111,7 +113,7 @@ export function openMaterialRegistration(root, projects, kinds, defaultPid="", o
   };
 
   m.querySelector('[data-x="0"]').onclick = () => m.classList.remove("open");
-  const btn = m.querySelector('[data-x="1"]');
+  const btn = saveButton;
   btn.onclick = async () => {
     const isFinalAgenda=kindSelect.value==="终版议程";
     if(!validate(m,isFinalAgenda?fields.filter(f=>f.k!=="name"):fields))return;
@@ -148,7 +150,7 @@ export function openMaterialRegistration(root, projects, kinds, defaultPid="", o
     } catch (e) {
       toast(e.message, "warn");
       btn.disabled = false;
-      btn.textContent = "保存";
+      btn.textContent = isFinalAgenda ? "确定终版议程" : "保存";
     }
   };
 }
