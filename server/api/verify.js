@@ -10,6 +10,7 @@ const { readPaging, countOf } = require("../lib/paginate");
 const { storage } = require("../lib/storage");
 const { assertUploadAttachable } = require("../lib/upload-ownership");
 const { validateSopEvidence } = require("../lib/meeting-sop");
+const {sponsorRights}=require("../lib/sponsor-rights");
 
 function register(router) {
   /**
@@ -38,6 +39,7 @@ function register(router) {
       payments,
       // 归档的会务需求单 —— 核销第 3 步的费用对照基准（与项目详情页同源）
       demand: demandSummary(p.id),
+      sponsorRights:sponsorRights(db,p.id),
       // 逐笔 reduce 会累积浮点尾巴，收敛到「分」再给前端
       paidTotal: yuan(payments.filter((y) => y.status === "已付款").reduce((s, y) => s + Number(y.amount), 0))
     };
@@ -49,7 +51,7 @@ function register(router) {
     assertProjectVisible(ctx.user, p);
     assertCan(ctx.user, "verify:check", "当前角色无核销判定权限");
     const no = Number(ctx.params.no);
-    if (!(no >= 1 && no <= 6)) throw bad("步骤编号应为 1~6");
+    if (!(no >= 1 && no <= 7)) throw bad("步骤编号应为 1~7");
     const settled = settlementOf(p.id);
     if (settled && !isSuper(ctx.user)) throw conflict("结算单已生成，核销结论已冻结，不可修改", "FROZEN");
     if (!["待核销"].includes(p.status) && !(p.status === "已核销" && isSuper(ctx.user))) {
@@ -72,6 +74,7 @@ function register(router) {
     const def = v.steps.find((s) => s.no === no);
     if(no===5 && !v.laborRequired)throw conflict("材料库无劳务表，第5项自动不适用，无需核销","SOP_NOT_APPLICABLE");
     if(no===6 && !v.demandRequired)throw conflict("没有实际需要的会务需求，第6项自动不适用，无需核销","SOP_NOT_APPLICABLE");
+    if(no===7 && !v.rightsRequired)throw conflict("没有已签署赞助合同，第7项自动不适用","SOP_NOT_APPLICABLE");
     let invoiceAmount = null;
     if (!isDemoMode() && no===6 && result==="通过") {
       const demand=require("../lib/meeting-demand-sop").demandSopState(db,p.id);
@@ -195,8 +198,8 @@ function register(router) {
     if (no === 0) {
       if (!label) throw bad("选「其他」时必须填写具体事项");
       if (label.length > 60) throw bad(`具体事项不能超过 60 字（当前 ${label.length} 字）`);
-    } else if (!(no >= 1 && no <= 6)) {
-      throw bad("例外步骤应为第 1~6 步，或选「其他」自行填写具体事项");
+    } else if (!(no >= 1 && no <= 7)) {
+      throw bad("例外步骤应为第 1~7 步，或选「其他」自行填写具体事项");
     }
     if (!String(reason || "").trim()) throw bad("必须说明例外原因");
     if (String(reason).trim().length > 500) throw bad(`例外原因不能超过 500 字（当前 ${String(reason).trim().length} 字）`);
@@ -309,16 +312,16 @@ function register(router) {
     const { sql, params } = require("../lib/rbac").scopeFilter(ctx.user);
     const paging = readPaging(ctx.query);
 
-    const base = `FROM materials m JOIN projects p ON p.id = m.pid WHERE ${sql} AND m.deleted_at IS NULL`;
+    const base = `FROM materials m JOIN projects p ON p.id = m.pid LEFT JOIN sponsor_rights sr ON sr.id=m.sponsor_right_id LEFT JOIN meeting_sponsor_contracts sc ON sc.id=sr.sponsor_id WHERE ${sql} AND m.deleted_at IS NULL`;
     let rows;
     let total;
     if (paging) {
       total = countOf(db.prepare(`SELECT COUNT(*) AS c ${base}`).get(...params));
       rows = db.prepare(
-        `SELECT m.*, p.name AS pname, p.status AS pstatus ${base} ORDER BY m.id DESC LIMIT ? OFFSET ?`
+        `SELECT m.*, p.name AS pname, p.status AS pstatus, sr.category AS sponsor_right_category, sc.enterprise AS sponsor_enterprise ${base} ORDER BY m.id DESC LIMIT ? OFFSET ?`
       ).all(...params, paging.size, paging.offset);
     } else {
-      rows = db.prepare(`SELECT m.*, p.name AS pname, p.status AS pstatus ${base} ORDER BY m.id DESC`).all(...params);
+      rows = db.prepare(`SELECT m.*, p.name AS pname, p.status AS pstatus, sr.category AS sponsor_right_category, sc.enterprise AS sponsor_enterprise ${base} ORDER BY m.id DESC`).all(...params);
       total = rows.length;
     }
 
@@ -360,7 +363,7 @@ function register(router) {
     assertCan(ctx.user, "material:write", "当前角色无材料登记权限");
     if (p.status === "已归档") throw conflict("项目已归档，材料清单已封存，不可再登记", "ARCHIVED", { status: p.status });
     if (settlementOf(p.id)) throw conflict("结算单已生成，材料证据已冻结，不可追加或修改", "FROZEN");
-    const { kind: rawKind, name, version, file_key, file_name, file_size, file_mime } = ctx.body || {};
+    const { kind: rawKind, name, version, file_key, file_name, file_size, file_mime, sponsor_right_id } = ctx.body || {};
     // 材料类别全部自选；推荐类目仅供快速选择，不影响推进权限。
     const kind = String(rawKind || "").trim();
     if (!kind) throw bad("请选择或填写材料类别");
@@ -389,6 +392,16 @@ function register(router) {
       throw bad("终版议程必须上传一份文件，保存即确认，不需要其他操作");
     // “讲者照片”是独立的照片类目，不允许仅填名称标记已收，
     // 也不能将 PPT/Excel 文件伪装成讲者肖像。
+    if (kind === "权益照片" && (!fk || !/\.(jpg|png|webp)$/i.test(fk)))
+      throw bad("权益照片必须上传 JPG/PNG/WebP 图片并选择来自赞助合同的权益二级类目");
+    let sponsorRightId=null;
+    if(kind==="权益照片"){
+      sponsorRightId=Number(sponsor_right_id);
+      if(!Number.isSafeInteger(sponsorRightId)||sponsorRightId<1)
+        throw bad("必须选择与当前项目赞助合同对应的权益二级类目");
+      const right=db.prepare("SELECT id FROM sponsor_rights WHERE id=? AND pid=?").get(sponsorRightId,p.id);
+      if(!right)throw conflict("所选权益二级类目不存在或不属于当前项目","RIGHT_CATEGORY_INVALID");
+    }else if(sponsor_right_id!=null && sponsor_right_id!=="")throw bad("只有权益照片可关联赞助权益二级类目");
     if (kind === "讲者照片" && (!fk || !/\.(jpg|png|webp)$/i.test(fk))) {
       throw bad("讲者照片必须上传 JPG、PNG 或 WebP 图片，名称请填写讲者姓名");
     }
@@ -400,12 +413,13 @@ function register(router) {
         db.prepare("UPDATE materials SET version='历史版' WHERE pid=? AND kind='终版议程' AND version='终版' AND deleted_at IS NULL")
           .run(p.id);
       db.prepare(
-        `INSERT INTO materials (pid,kind,name,version,uploader,created_at,file_key,file_name,file_size,file_mime)
-         VALUES (?,?,?,?,?,?,?,?,?,?)`
+        `INSERT INTO materials (pid,kind,name,version,uploader,created_at,file_key,file_name,file_size,file_mime,sponsor_right_id)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?)`
       ).run(
         p.id, kind, materialName, finalAgenda ? "终版" : (version || "v1"), ctx.user.name, now(),
         fk, fk ? String(file_name || "").slice(0, 120) : null,
-        fk ? Number(file_size) || null : null, fk ? String(file_mime || "").slice(0, 60) : null
+        fk ? Number(file_size) || null : null, fk ? String(file_mime || "").slice(0, 60) : null,
+        sponsorRightId
       );
     });
 

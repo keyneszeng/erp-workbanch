@@ -108,9 +108,11 @@ function listProjects(user, { status, q, assoc, stage, page, size } = {}) {
               (SELECT COUNT(*) FROM verify_steps v WHERE v.pid=p.id AND v.result IN ('通过','已解例外')
                 AND (v.step_no NOT IN (5,6) OR
                   (v.step_no=5 AND EXISTS(SELECT 1 FROM materials m WHERE m.pid=p.id AND m.kind IN ('劳务表','劳务收集表') AND m.deleted_at IS NULL AND m.file_key IS NOT NULL AND m.file_key<>'')) OR
-                  (v.step_no=6 AND EXISTS(SELECT 1 FROM demand_items di WHERE di.pid=p.id AND di.need='需要')))) AS v_passed,
-              (6 - (CASE WHEN EXISTS(SELECT 1 FROM materials m WHERE m.pid=p.id AND m.kind IN ('劳务表','劳务收集表') AND m.deleted_at IS NULL AND m.file_key IS NOT NULL AND m.file_key<>'') THEN 0 ELSE 1 END)
-                 - (CASE WHEN EXISTS(SELECT 1 FROM demand_items di WHERE di.pid=p.id AND di.need='需要') THEN 0 ELSE 1 END)) AS v_total,
+                  (v.step_no=6 AND EXISTS(SELECT 1 FROM demand_items di WHERE di.pid=p.id AND di.need='需要')) OR
+                  (v.step_no=7 AND EXISTS(SELECT 1 FROM meeting_sponsor_contracts sc WHERE sc.pid=p.id AND sc.status='已签署')))) AS v_passed,
+              (7 - (CASE WHEN EXISTS(SELECT 1 FROM materials m WHERE m.pid=p.id AND m.kind IN ('劳务表','劳务收集表') AND m.deleted_at IS NULL AND m.file_key IS NOT NULL AND m.file_key<>'') THEN 0 ELSE 1 END)
+                 - (CASE WHEN EXISTS(SELECT 1 FROM demand_items di WHERE di.pid=p.id AND di.need='需要') THEN 0 ELSE 1 END)
+                 - (CASE WHEN EXISTS(SELECT 1 FROM meeting_sponsor_contracts sc WHERE sc.pid=p.id AND sc.status='已签署') THEN 0 ELSE 1 END)) AS v_total,
               (SELECT COUNT(*) FROM exceptions e WHERE e.pid = p.id AND e.status='待审批') AS ex_open,
               (SELECT id FROM settlements s WHERE s.pid = p.id) AS st_id
        FROM projects p WHERE ${whereSql} ORDER BY p.date DESC, p.id`
@@ -131,9 +133,11 @@ function listProjects(user, { status, q, assoc, stage, page, size } = {}) {
             (SELECT COUNT(*) FROM verify_steps v WHERE v.pid=p.id AND v.result IN ('通过','已解例外')
                 AND (v.step_no NOT IN (5,6) OR
                   (v.step_no=5 AND EXISTS(SELECT 1 FROM materials m WHERE m.pid=p.id AND m.kind IN ('劳务表','劳务收集表') AND m.deleted_at IS NULL AND m.file_key IS NOT NULL AND m.file_key<>'')) OR
-                  (v.step_no=6 AND EXISTS(SELECT 1 FROM demand_items di WHERE di.pid=p.id AND di.need='需要')))) AS v_passed,
-              (6 - (CASE WHEN EXISTS(SELECT 1 FROM materials m WHERE m.pid=p.id AND m.kind IN ('劳务表','劳务收集表') AND m.deleted_at IS NULL AND m.file_key IS NOT NULL AND m.file_key<>'') THEN 0 ELSE 1 END)
-                 - (CASE WHEN EXISTS(SELECT 1 FROM demand_items di WHERE di.pid=p.id AND di.need='需要') THEN 0 ELSE 1 END)) AS v_total,
+                  (v.step_no=6 AND EXISTS(SELECT 1 FROM demand_items di WHERE di.pid=p.id AND di.need='需要')) OR
+                  (v.step_no=7 AND EXISTS(SELECT 1 FROM meeting_sponsor_contracts sc WHERE sc.pid=p.id AND sc.status='已签署')))) AS v_passed,
+              (7 - (CASE WHEN EXISTS(SELECT 1 FROM materials m WHERE m.pid=p.id AND m.kind IN ('劳务表','劳务收集表') AND m.deleted_at IS NULL AND m.file_key IS NOT NULL AND m.file_key<>'') THEN 0 ELSE 1 END)
+                 - (CASE WHEN EXISTS(SELECT 1 FROM demand_items di WHERE di.pid=p.id AND di.need='需要') THEN 0 ELSE 1 END)
+                 - (CASE WHEN EXISTS(SELECT 1 FROM meeting_sponsor_contracts sc WHERE sc.pid=p.id AND sc.status='已签署') THEN 0 ELSE 1 END)) AS v_total,
             (SELECT COUNT(*) FROM exceptions e WHERE e.pid = p.id AND e.status='待审批') AS ex_open,
             (SELECT id FROM settlements s WHERE s.pid = p.id) AS st_id
      FROM projects p WHERE ${whereSql} ORDER BY p.date DESC, p.id LIMIT ? OFFSET ?`
@@ -188,6 +192,7 @@ function detail(project, user) {
     issues,
     materials,
     verification: verification(pid),
+    sponsorRights:require("../lib/sponsor-rights").sponsorRights(db,pid),
     materialsStatus: materialsStatus(pid),
     settlement: settlementOf(pid),
     // 核销第 3 步的费用对照基准。项目详情页的核销页签读的是这个接口，

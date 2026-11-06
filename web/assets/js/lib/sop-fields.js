@@ -6,7 +6,23 @@ const ck=(name,label)=>`<label style="display:block;margin-top:9px"><input type=
 const names=v=>String(v||"").split(/[\n,，、;；]+/).map(x=>x.trim()).filter(Boolean);
 const labor=v=>String(v||"").split(/\n+/).map(line=>line.split("|").map(x=>x.trim()))
   .filter(x=>x.some(Boolean)).map(([name,time,role,amount,bankAccount,bankName])=>({name,time,role,amount,bankAccount,bankName}));
-export function sopEvidenceForm(no,p){
+function rightsChecklist(data){
+  const rights=data?.requiredRights||[];
+  if(!rights.length)return '<div class="gate">没有可核对的已签署赞助合同权益。若存在已签赞助合同，请到「会议收入」先审核权益类目。</div>';
+  return '<div class="hint">权益照片必须按赞助合同权益二级类目上传。请逐一打开照片，对照合同原件，只有实际内容相符才勾选通过；OCR 不自动判定照片合规。</div>'+
+    rights.map(r=>{
+      const c=(data.contracts||[]).find(x=>x.id===r.sponsor_id);
+      const photos=(data.photos||[]).filter(x=>Number(x.sponsor_right_id)===Number(r.id)&&x.file_key);
+      return '<div class="fld" style="margin-top:10px;padding:10px;border:1px solid var(--line);border-radius:8px">'+
+        '<div><b>'+esc(c?.enterprise||r.sponsor_id)+'</b> · '+esc(r.category)+
+        ' · '+(r.confirmed?'已确认权益':'权益尚未人工确认')+' · '+photos.length+' 张照片</div>'+
+        photos.map(m=>'<a class="link" href="/api/uploads/'+encodeURIComponent(m.file_key)+'" target="_blank" rel="noopener">'+esc(m.file_name||m.name)+' · 打开照片</a>').join(' · ')+
+        (!photos.length?'<div class="hint">尚未上传对应权益照片</div>':'')+
+        '<label style="display:block;margin-top:10px"><input type="checkbox" name="rightReviewed" value="'+r.id+'"> 已按合同权益逐项人工审查，确认照片内容一致</label></div>';
+    }).join('');
+}
+
+export function sopEvidenceForm(no,p,rightsData=null){
   const head=`<div class="gate" style="margin-bottom:9px">以下信息来自人工核验/结构化录入，系统只做字段比较；不具备自动 OCR。原件请先在材料中心上传。</div>`;
   const s={
     1:`<div class="fld"><label>盖章函件原件</label><select name="documentKind"><option value="会议通知">盖章会议通知</option><option value="招商函">盖章招商函</option></select></div>`
@@ -38,7 +54,8 @@ export function sopEvidenceForm(no,p){
        +input("agreementTime","会务协议 · 会议时间")
        +input("agreementFormat","会务协议 · 会议形式（线下/线上/混合）")
        +input("agreementPartyA","会务协议 · 甲方（须等于协会主体）",p.assoc)
-       +ck("agreementFinal","已核验当前会务协议为终版，且字段来自所上传的协议原件")
+       +ck("agreementFinal","已核验当前会务协议为终版，且字段来自所上传的协议原件"),
+    7:rightsChecklist(rightsData)
   };
   return head+(s[no]||"");
 }
@@ -62,6 +79,7 @@ export function collectSopEvidence(no,m){
       agreementTitle:get("agreementTitle"),agreementTime:get("agreementTime"),
       agreementFormat:get("agreementFormat"),agreementPartyA:get("agreementPartyA"),
       agreementFinal:checked("agreementFinal")};
+    case 7:return {verifiedRights:[...m.querySelectorAll('input[name="rightReviewed"]:checked')].map(x=>Number(x.value))};
     default:return {};
   }
 }

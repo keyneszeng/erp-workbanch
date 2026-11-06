@@ -62,7 +62,7 @@ export async function render(root, params = []) {
        <button class="ux-finance-tab active" data-finance-jump="fin-payments">付款申请与执行</button>
        <button class="ux-finance-tab" data-finance-jump="fin-settlements">结算与归档</button>
      </div>
-    <div class="ux-finance-rule">核销六步全部通过 → 付款申请 → 协会审批 → 财务执行 → 金额对齐后结算；发票号随付款记录核对。</div>
+    <div class="ux-finance-rule">适用核销项全部通过 → 付款申请 → 协会审批 → 财务执行 → 金额对齐后结算；发票号随付款记录核对。</div>
     <div class="panel mt" id="fin-payments">
       <div class="panel-h"><h2>付款记录</h2><div><span class="hint">共 ${pay.total} 笔</span></div></div>
       <div class="tabs">${["", "待审批", "已审批", "已付款", "已驳回"].map((x) =>

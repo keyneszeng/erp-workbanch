@@ -62,7 +62,7 @@ export async function render(root, [pid]) {
     ${!participant ? `<div class="ux-checkpoints">
        <button type="button" data-tab="demand"><strong>${d.demand?.archived?"已确认":"待确认"}</strong><span>会务需求</span></button>
        <button type="button" data-tab="materials"><strong>${d.materialsStatus.uploadedCount || 0} 份</strong><span>归档材料</span></button>
-       <button type="button" data-tab="verify"><strong>${d.verification.passed}/${d.verification.total}</strong><span>六步核销</span></button>
+       <button type="button" data-tab="verify"><strong>${d.verification.passed}/${d.verification.total}</strong><span>七步核销</span></button>
        <button type="button" data-tab="payments"><strong>${d.settlement?"已生成":"未生成"}</strong><span>财务结算</span></button>
      </div>` : '<p class="ux-public-hint">会议审批与执行状态公开给有权查看本项目的成员；财务明细仅限授权角色。</p>'}
   </div>
@@ -70,7 +70,7 @@ export async function render(root, [pid]) {
     ${d.actions.filter((a) => !a.enabled && a.reason).map((a) => `${a.label}：${esc(a.reason)}`).join("；")}</div>` : ""}
 
   <div class="tabs mt">${visibleTabs.map(([k, n]) => `<button data-tab="${k}" class="${tab === k ? "on" : ""}">${n}${
-    k === "verify" ? ` <span style="color:var(--mute)">${d.verification.passed}/6</span>` : ""}${
+    k === "verify" ? ` <span style="color:var(--mute)">${d.verification.passed}/${d.verification.total}</span>` : ""}${
     k === "materials" ? ` <span style="color:var(--mute)">${d.materialsStatus.uploadedCount || 0} 份</span>` : ""}</button>`).join("")}</div>
   <div id="tabbody"></div>`;
 
@@ -343,7 +343,7 @@ function tabPayments(d, p) {
       ? `<div class="gate" style="margin-bottom:12px"><b>账目已封账</b>结算单已生成，不可再新增付款；如需补付请走线下流程。</div>`
       : payable ? ""
       : `<div class="gate" style="margin-bottom:12px"><b>付款门禁锁定</b>
-      项目状态「${p.status}」，按制度必须完成全部适用核销项并通过（已核销）才可付款。当前核销进度 ${d.verification.passed}/6。</div>`;
+      项目状态「${p.status}」，按制度必须完成全部适用核销项并通过（已核销）才可付款。当前核销进度 ${d.verification.passed}/${d.verification.total}。</div>`;
   return `${gate}
   ${panel("付款记录", `已付款 ¥${money(d.paidTotal)}`, table(
     [{ t: "付款单号", w: "112px" }, { t: "类型", w: "86px" }, { t: "收款方" }, { t: "金额", w: "100px", cls: "num" },
@@ -380,7 +380,7 @@ function tabVerify(d, p) {
       任意材料类别上传至少一份附件后即可继续，无需固定类别齐全。
       <button class="link" data-goto-tab="materials">去上传材料 →</button></div>`;
   return `${banner}
-  ${panel("核销 6 步 SOP", `已通过 ${v.passed}/${v.total} 项必核 · ${v.openExceptions ? v.openExceptions + " 张例外单待审批" : "无未决例外"}`,
+  ${panel("核销 7 步 SOP", `已通过 ${v.passed}/${v.total} 项必核 · ${v.openExceptions ? v.openExceptions + " 张例外单待审批" : "无未决例外"}`,
     `<div class="vsteps">${v.steps.map((s) => {
       const cls = s.result === "通过" || s.result === "已解例外" ? "s-pass" : s.result === "不通过" ? "s-fail" : "s-wait";
       const canJudge = can("verify:check") && !frozen && materialReady
@@ -415,15 +415,17 @@ function tabVerify(d, p) {
 /* ---------------- 材料 ---------------- */
 function tabMaterials(d, p) {
   const ms = d.materialsStatus;
+  const rightById=new Map((d.sponsorRights?.rights||[]).map(r=>[Number(r.id),r]));
+  const sponsorsById=new Map((d.sponsorRights?.contracts||[]).map(c=>[c.id,c]));
   return panel("归档材料",
     `已上传 ${ms.uploadedCount || 0} 份附件 · ${ms.have.length} 类 · ${ms.ok ? "可进入后续流程" : "请先上传至少一份附件"}`, `
-    <div class="hint" style="padding:8px 14px">材料类别可自由选择（含「权益照片」），不再要求固定类别齐全；至少上传一份原件即可满足材料门槛。核销与财务独立审批仍须按流程完成。</div>
+    <div class="hint" style="padding:8px 14px">材料类别可自由选择（「权益照片」须选择合同对应权益二级类目），不再要求固定类别齐全；至少上传一份原件即可满足材料门槛。核销与财务独立审批仍须按流程完成。</div>
     <div class="chips">${ms.have.map((k) => `<span class="chip"><i>✓</i><b>${esc(k)}</b></span>`).join("")}</div>
     ${table([{ t: "类别", w: "104px" }, { t: "材料名称" }, { t: "附件", w: "84px" }, { t: "版本", w: "56px" },
       { t: "上传人", w: "76px" }, { t: "时间", w: "130px" }, { t: "操作", w: "56px" }],
       d.materials.map((m) => ({
         c: [
-          esc(m.kind), esc(m.name),
+          esc(m.kind)+(m.kind==="权益照片"?`<div class="hint">${esc(sponsorsById.get(rightById.get(Number(m.sponsor_right_id))?.sponsor_id)?.enterprise||"未关联赞助合同")} · ${esc(rightById.get(Number(m.sponsor_right_id))?.category||"未关联权益类目")}</div>`:""), esc(m.name),
           m.file_key
             ? ((m.file_mime === "application/pdf" || /\.(doc|docx|ppt|pptx|xls|xlsx|csv|txt)$/i.test(m.file_key))
                 ? `<a class="link" href="${fileUrl(m.file_key)}" target="_blank" rel="noopener">查看附件</a>`
@@ -648,7 +650,7 @@ function openJudge(root, pid, no, d) {
       <div class="fld" style="margin-top:12px"><label>问题描述 / 备注</label>
         <textarea name="remark" rows="3" placeholder="判定不通过时必填，如：课件「XX」不在议程课题内"></textarea></div>
       ${no===6?`<div class="fld"><label>会务发票总金额（元，须与会务需求预算、已签会务合同金额相同）</label><input type="number" name="invoiceAmount" step="0.01" min="0"></div>`:""}
-      ${sopEvidenceForm(no,d.project)}`,
+      ${sopEvidenceForm(no,d.project,d.sponsorRights)}`,
     footer: `<button class="btn btn-o" data-x="0">取消</button><button class="btn btn-p" data-x="1">提交判定</button>`
   });
   m.querySelector('[data-x="0"]').onclick = () => m.classList.remove("open");
@@ -817,7 +819,7 @@ function openException(root, pid, d) {
     {
       k: "step_no", l: "对应步骤", t: "select", req: 1, custom: 1, ph: "如：专家临时换人 / 场地变更",
       opts: d.verification.steps.map((s) => ({ v: s.no, l: `第 ${s.no} 步 · ${s.name}` })),
-      tip: "不属于上面 6 步的问题，选「自定义填入」写清具体事项。这类例外单照样要审批，批准后不再阻塞核销，但不会把某一步标成「已解例外」"
+      tip: "不属于上面 7 步的问题，选「自定义填入」写清具体事项。这类例外单照样要审批，批准后不再阻塞核销，但不会把某一步标成「已解例外」"
     },
     { k: "reason", l: "例外原因", t: "textarea", req: 1, full: 1, rows: 3 }
   ];
@@ -832,7 +834,7 @@ function openException(root, pid, d) {
       // 所以这里拿到的是人写的事项名而不是 "__custom__"。
       // 步骤是数字字段：不是 1~6 就说明选了自定义，转成 step_no = 0 + step_label。
       const no = Number(v.step_no);
-      if (!(no >= 1 && no <= 6)) {
+      if (!(no >= 1 && no <= 7)) {
         v.step_label = String(v.step_no || "").trim();
         v.step_no = 0;
       }

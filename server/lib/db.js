@@ -174,6 +174,19 @@ CREATE TABLE IF NOT EXISTS meeting_sponsor_contracts (
   approved_at TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_sponsor_contracts_pid ON meeting_sponsor_contracts(pid);
+-- 赞助权益按「合同 → 权益二级类目 → 权益照片」逐级关联。
+CREATE TABLE IF NOT EXISTS sponsor_rights (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  pid TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  sponsor_id TEXT NOT NULL REFERENCES meeting_sponsor_contracts(id) ON DELETE CASCADE,
+  category TEXT NOT NULL,
+  source TEXT NOT NULL DEFAULT 'manual',
+  confirmed INTEGER NOT NULL DEFAULT 0,
+  updated_at TEXT NOT NULL,
+  UNIQUE(sponsor_id,category)
+);
+CREATE INDEX IF NOT EXISTS idx_sponsor_rights_pid ON sponsor_rights(pid);
+
 CREATE TABLE IF NOT EXISTS meeting_sponsor_receipts (
   id TEXT PRIMARY KEY,
   pid TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
@@ -637,6 +650,9 @@ function migrate() {
     }
   };
 
+  addColumn("materials","sponsor_right_id","sponsor_right_id INTEGER");
+  addColumn("meeting_sponsor_contracts","rights_scan_status","rights_scan_status TEXT NOT NULL DEFAULT '未识别'");
+  addColumn("meeting_sponsor_contracts","rights_scan_note","rights_scan_note TEXT");
   // Existing projects keep historical evidence, only the displayed SOP labels are corrected.
   db.exec("UPDATE verify_steps SET name='盖章函件与立项信息核验' WHERE step_no=1 AND name='盖章通知／招商函核验'");
   db.exec("UPDATE verify_steps SET name='课件与串场内容核验' WHERE step_no=4 AND name='课件／串场一致性'");
