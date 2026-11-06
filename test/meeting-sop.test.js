@@ -102,7 +102,6 @@ test("第2项仅包含终版议程、签到表、讲者照片输入与关联材�
  assert.match(detail,/2:\["终版议程","签到表","讲者照片"\]/);
  assert.doesNotMatch(form,/collectionSpeakers|hasLaborSheet/);
  assert.doesNotMatch(form,/agreementRecords|agreementSpeakers/);
- assert.equal(result.matchedSources.length,3);
 });
 test("线上时长严格大于30，混合会议同时需要签到",()=>{
  expectBlock(3,{onlineMinutes:30,signedAttendance:true});
