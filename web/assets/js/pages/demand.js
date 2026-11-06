@@ -23,13 +23,15 @@ function cells(it, locked) {
       <input type="hidden" data-f="note" value="${esc(it.note || "")}">
     </td>
     <td><select class="mini" data-f="need"${dis}>${optHtml(["需要", "不需要"], it.need)}</select></td>
-    <td>${locked ? plain(it.spec) : `<input class="mini" data-f="spec" value="${esc(it.spec || "")}" placeholder="规格 / 数量">`}</td>
+    <td>${locked ? plain(it.spec) : `<input class="mini" data-f="spec" value="${esc(it.spec || "")}" placeholder="规格说明">`}</td>
+    <td>${locked ? plain(it.quantity) : `<input class="mini" type="number" data-f="quantity" min="0" max="1000000" step="any" inputmode="decimal" value="${esc(it.quantity || "")}" placeholder="数量">`}</td>
+    <td>${locked ? plain(it.unit_price, true) : `<input class="mini" type="number" data-f="unit_price" min="0" step="0.01" inputmode="decimal" value="${esc(it.unit_price || "")}" placeholder="单价">`}</td>
+    <td>${locked ? plain(it.budget, true) : `<input class="mini" data-f="budget" value="${esc(it.budget || "")}" readonly tabindex="-1" title="总价根据数量与单价自动计算；历史金额保持原值" placeholder="自动计算">`}</td>
     <td>${locked ? plain(it.owner) : `<select class="mini" data-f="owner_id">
           <option value="">请选择成员</option>
           ${memberOptions.map((u) => `<option value="${esc(String(u.id))}"${Number(it.owner_id) === Number(u.id) ? " selected" : ""}>${esc(u.name)}</option>`).join("")}
         </select>`}</td>
     <td>${locked ? plain(it.due) : `<input class="mini" type="date" data-f="due" value="${esc(it.due || "")}">`}</td>
-    <td>${locked ? plain(it.budget, true) : `<input class="mini" data-f="budget" inputmode="decimal" value="${esc(it.budget || "")}" placeholder="0.00">`}</td>
     <td style="width:34px;text-align:center">${locked ? "" : '<button class="link del" data-del="1" title="删除该条">×</button>'}</td>`;
 }
 
