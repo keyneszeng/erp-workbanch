@@ -30,8 +30,15 @@ export function sopEvidenceForm(no,p){
        +`<div class="hint">只核对两点：材料库已有课件原件；所填每个课件主题都能在已确认的终版议程中找到。终版议程可以包含其他未上传课件的主题。无需核对串场、Logo 或赞助商展示页面。请从原件人工摘录主题。</div>`,
     5:area("collectionRecords","劳务表（每行：姓名|时间|角色|金额|银行账号|开户行（可选））","张老师|2026-11-01|讲者|1000|6222...")
        +`<div class="hint">仅材料库上传劳务表原件时需要判定。合同在现有合同台账核对，协议不重复上传或录入。银行账号不写入核销证据，专用密钥启用时才加密保存已核验收款信息。</div>`,
-    6:input("meetingName","拟结算单会议名称",p.name)+input("meetingDate","拟结算单会议日期",p.date)
-       +input("draftAmount","拟请款总金额（元，须等于所有已签合同总额；专家费可免发票）")
+    6: `<div class="hint">第6项仅有实际标记「需要」的会务需求时核销。请分别从材料库「终版议程」与终版「会务协议」原件录入下列字段，并核对实际会务需求预算、已签署会务合同及发票三方金额一致。系统当前不自动 OCR 提取字段。</div>`
+       +input("agendaTitle","终版议程 · 会议主题",p.name)
+       +input("agendaTime","终版议程 · 会议时间",p.date)
+       +input("agendaFormat","终版议程 · 会议形式（线下/线上/混合）",p.form)
+       +input("agreementTitle","会务协议 · 会议主题")
+       +input("agreementTime","会务协议 · 会议时间")
+       +input("agreementFormat","会务协议 · 会议形式（线下/线上/混合）")
+       +input("agreementPartyA","会务协议 · 甲方（须等于协会主体）",p.assoc)
+       +ck("agreementFinal","已核验当前会务协议为终版，且字段来自所上传的协议原件")
   };
   return head+(s[no]||"");
 }
@@ -51,7 +58,10 @@ export function collectSopEvidence(no,m){
       hostTitleMatches:checked("hostTitleMatches"),hostNameLogoMatches:checked("hostNameLogoMatches"),
       sponsorLogoPages:["首页","尾页","鸣谢页"].filter(x=>checked("logo"+x))};
     case 5:return {collectionRecords:labor(get("collectionRecords"))};
-    case 6:return {draftAmount:Number(get("draftAmount")),meetingName:get("meetingName"),meetingDate:get("meetingDate")};
+    case 6:return {agendaTitle:get("agendaTitle"),agendaTime:get("agendaTime"),agendaFormat:get("agendaFormat"),
+      agreementTitle:get("agreementTitle"),agreementTime:get("agreementTime"),
+      agreementFormat:get("agreementFormat"),agreementPartyA:get("agreementPartyA"),
+      agreementFinal:checked("agreementFinal")};
     default:return {};
   }
 }

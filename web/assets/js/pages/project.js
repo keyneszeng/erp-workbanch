@@ -62,7 +62,7 @@ export async function render(root, [pid]) {
     ${!participant ? `<div class="ux-checkpoints">
        <button type="button" data-tab="demand"><strong>${d.demand?.archived?"已确认":"待确认"}</strong><span>会务需求</span></button>
        <button type="button" data-tab="materials"><strong>${d.materialsStatus.uploadedCount || 0} 份</strong><span>归档材料</span></button>
-       <button type="button" data-tab="verify"><strong>${d.verification.passed}/6</strong><span>六步核销</span></button>
+       <button type="button" data-tab="verify"><strong>${d.verification.passed}/${d.verification.total}</strong><span>六步核销</span></button>
        <button type="button" data-tab="payments"><strong>${d.settlement?"已生成":"未生成"}</strong><span>财务结算</span></button>
      </div>` : '<p class="ux-public-hint">会议审批与执行状态公开给有权查看本项目的成员；财务明细仅限授权角色。</p>'}
   </div>
@@ -200,15 +200,15 @@ function tabOverview(d, p) {
              <div style="margin-top:4px">收款方 ${esc(settle.payee || "—")}${
                settle.payee_account ? ` · ${esc(settle.payee_bank || "")} <span class="mono">${esc(settle.payee_account)}</span>` : " · 未登记收款账户"
              }</div></div>`
-        : `<div class="gate"><b>结算单未生成</b>核销 6 步全部通过后，由财务生成结算单；生成后核销结论冻结。</div>`}</div>
+        : `<div class="gate"><b>结算单未生成</b>适用核销项全部通过后，由财务生成结算单；生成后核销结论冻结。</div>`}</div>
       <div style="margin-top:10px">${PAYABLE.includes(p.status)
         ? `<div class="gate ok"><b>付款门禁已放行</b>项目已完成核销，可提交付款申请。</div>`
-        : `<div class="gate"><b>付款门禁锁定</b>当前状态「${p.status}」，6 步核销通过（已核销）后才可付款${p.status === "已结算" ? "；结算后账目已封账" : p.status === "已归档" ? "；归档后卷宗已封存" : ""}。</div>`}</div>
+        : `<div class="gate"><b>付款门禁锁定</b>当前状态「${p.status}」，适用核销项全部通过（已核销）后才可付款${p.status === "已结算" ? "；结算后账目已封账" : p.status === "已归档" ? "；归档后卷宗已封存" : ""}。</div>`}</div>
       `)}
       ${panel("流程门禁", "系统实时校验", `<div style="display:flex;flex-direction:column;gap:8px;font-size:12.5px">
         <div>${d.demand && d.demand.archived ? "✅" : "⛔"} 会务需求：${d.demand ? (d.demand.archived ? `已归档（${d.demand.needCount} 项 · ¥${money(d.demand.budgetTotal)}）` : "草稿未归档") : "未建单"}</div>
         <div>${ms.ok ? "✅" : "⛔"} 材料（核销前置）：${8 - ms.missing.length}/8${ms.missing.length ? "，缺 " + ms.missing.join("、") : ""}</div>
-        <div>${v.complete ? "✅" : "⛔"} 核销：${ms.ok ? "" : "材料未齐不可判定 · "}${v.passed}/6 通过${v.openExceptions ? `，${v.openExceptions} 张例外单待审批` : ""}</div>
+        <div>${v.complete ? "✅" : "⛔"} 核销：${ms.ok ? "" : "材料未齐不可判定 · "}${v.passed}/${v.total} 通过${v.openExceptions ? `，${v.openExceptions} 张例外单待审批` : ""}</div>
         <div>${payBlocked ? "⛔" : "✅"} 付款：${payDone} 笔已付 · ¥${money(d.paidTotal)}${payBlocked ? `，${payBlocked} 笔未完成（待审批 / 已审批）` : ""}</div>
         <div>${settle ? "✅" : "⛔"} 结算：${settle ? "已生成 " + settle.id : "未生成"}</div>
       </div>`)}
@@ -343,7 +343,7 @@ function tabPayments(d, p) {
       ? `<div class="gate" style="margin-bottom:12px"><b>账目已封账</b>结算单已生成，不可再新增付款；如需补付请走线下流程。</div>`
       : payable ? ""
       : `<div class="gate" style="margin-bottom:12px"><b>付款门禁锁定</b>
-      项目状态「${p.status}」，按制度必须先完成 6 步核销并通过（已核销）才可付款。当前核销进度 ${d.verification.passed}/6。</div>`;
+      项目状态「${p.status}」，按制度必须完成全部适用核销项并通过（已核销）才可付款。当前核销进度 ${d.verification.passed}/6。</div>`;
   return `${gate}
   ${panel("付款记录", `已付款 ¥${money(d.paidTotal)}`, table(
     [{ t: "付款单号", w: "112px" }, { t: "类型", w: "86px" }, { t: "收款方" }, { t: "金额", w: "100px", cls: "num" },
@@ -647,7 +647,7 @@ function openJudge(root, pid, no, d) {
         <select name="result"><option value="通过">通过</option><option value="不通过">不通过（自动生成例外单）</option></select></div>
       <div class="fld" style="margin-top:12px"><label>问题描述 / 备注</label>
         <textarea name="remark" rows="3" placeholder="判定不通过时必填，如：课件「XX」不在议程课题内"></textarea></div>
-      ${no===6?`<div class="fld"><label>发票总额（元）</label><input type="number" name="invoiceAmount" step="0.01" min="0"></div>`:""}
+      ${no===6?`<div class="fld"><label>会务发票总金额（元，须与会务需求预算、已签会务合同金额相同）</label><input type="number" name="invoiceAmount" step="0.01" min="0"></div>`:""}
       ${sopEvidenceForm(no,d.project)}`,
     footer: `<button class="btn btn-o" data-x="0">取消</button><button class="btn btn-p" data-x="1">提交判定</button>`
   });
