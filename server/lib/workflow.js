@@ -1,4 +1,5 @@
 "use strict";
+const {laborSheetInfo}=require("./labor-sop");
 const { db } = require("./db");
 const { now, nextId, conflict, forbidden, notFound, bad, cents, yuan, parseBankAccount, parseBankName } = require("./util");
 const { can, isSuper, ROLES } = require("./rbac");
@@ -14,37 +15,33 @@ function getProject(id) {
 
 /** 核销进度 */
 function verification(pid) {
-  const rows = db.prepare("SELECT * FROM verify_steps WHERE pid = ? ORDER BY step_no").all(pid);
-  const map = new Map(rows.map((r) => [r.step_no, r]));
-  const steps = VERIFY_STEPS.map((def) => {
-    const r = map.get(def.no);
-    return {
-      ...def,
-      result: r ? r.result : "待判定",
-      remark: r ? r.remark : "",
-      invoiceAmount: r ? r.invoice_amount : null,
-      checked_by: r ? r.checked_by : "",
-      checked_at: r ? r.checked_at : "",
-      evidence: r && r.evidence_json ? JSON.parse(r.evidence_json) : null
-    };
+  const rows=db.prepare("SELECT * FROM verify_steps WHERE pid = ? ORDER BY step_no").all(pid);
+  const map=new Map(rows.map(r=>[r.step_no,r]));
+  const labor=laborSheetInfo(db,pid);
+  const steps=VERIFY_STEPS.map(def=>{
+    const r=map.get(def.no);
+    const required=def.no!==5 || labor.required;
+    const evidence=r?.evidence_json?JSON.parse(r.evidence_json):null;
+    const stale=required && r?.result==="通过" && (
+      (def.no===5 && evidence?.laborSourceSignature!==labor.signature) ||
+      (def.no===2 && !isDemoMode() && evidence?.laborSourceSignature!==(labor.required?labor.signature:null))
+    );
+    return {...def,required,
+      result:!required?"不适用":stale?"待判定":(r?r.result:"待判定"),
+      remark:!required||stale?"":(r?r.remark:""),
+      invoiceAmount:r?r.invoice_amount:null,
+      checked_by:!required||stale?"":(r?r.checked_by:""),
+      checked_at:!required||stale?"":(r?r.checked_at:""),
+      evidence:!required||stale?null:evidence};
   });
-  const judged = steps.filter((s) => s.result !== "待判定").length;
-  const passed = steps.filter((s) => (s.result === "通过" && (isDemoMode() || !!s.evidence)) || (isDemoMode() && s.result === "已解例外")).length;
-  const failedSteps = steps.filter((s) => s.result === "不通过").map((s) => s.no);
-  const openExceptions = db
-    .prepare("SELECT COUNT(*) AS c FROM exceptions WHERE pid = ? AND status IN ('待审批','待复核')")
-    .get(pid).c;
-  const exceptions = db.prepare("SELECT * FROM exceptions WHERE pid = ? ORDER BY created_at DESC").all(pid);
-  return {
-    steps,
-    judged,
-    passed,
-    total: VERIFY_STEPS.length,
-    failedSteps,
-    openExceptions,
-    exceptions,
-    complete: passed === VERIFY_STEPS.length && openExceptions === 0 && (isDemoMode() || failedSteps.length===0)
-  };
+  const active=steps.filter(s=>s.required);
+  const judged=active.filter(s=>s.result!=="待判定").length;
+  const passed=active.filter(s=>(s.result==="通过" && (isDemoMode()||!!s.evidence)) || (isDemoMode() && s.result==="已解例外")).length;
+  const failedSteps=active.filter(s=>s.result==="不通过").map(s=>s.no);
+  const openExceptions=db.prepare("SELECT COUNT(*) AS c FROM exceptions WHERE pid = ? AND status IN ('待审批','待复核')").get(pid).c;
+  const exceptions=db.prepare("SELECT * FROM exceptions WHERE pid = ? ORDER BY created_at DESC").all(pid);
+  return {steps,judged,passed,total:active.length,laborRequired:labor.required,failedSteps,openExceptions,exceptions,
+    complete:passed===active.length && openExceptions===0 && (isDemoMode() || failedSteps.length===0)};
 }
 
 /** 归档材料改为自由类别：任意一份有效附件即可进入后续核销/归档，不要求固定8类。 */
@@ -150,15 +147,15 @@ const GUARDS = {
   verify_pass(p) {
     if (!materialsStatus(p.id).ok) return "会议材料附件已全部删除，请至少保留一份上传附件";
     const v = verification(p.id);
-    if (v.judged < v.total) return `还有 ${v.total - v.judged} 步未判定，6 步必须全部判定`;
+    if (v.judged < v.total) return `还有 ${v.total - v.judged} 项必核步骤未判定，第5项按劳务表是否上传决定`;
     if (v.failedSteps.length) return `第 ${v.failedSteps.join("、")} 步不通过，需提交例外单并获批`;
     if (v.openExceptions > 0) return `存在 ${v.openExceptions} 张未完成处理或待复核的例外单`;
-    if (!v.complete) return "六步须全部复核通过；生产环境不接受缺少结构化证据的旧结论或以例外审批代替核销";
+    if (!v.complete) return "适用核销项须全部通过；不接受缺少证据的旧结论或以例外审批代替核销";
     return null;
   },
   settle(p) {
     const v = verification(p.id);
-    if (!v.complete) return "核销未通过（6 步未全过或存在未决例外），不能结算";
+    if (!v.complete) return "核销未通过（适用项目未全过或存在未决例外），不能结算";
     if (settlementOf(p.id)) return "结算单已存在，不可重复生成";
     const pending = db
       .prepare("SELECT COUNT(*) AS c FROM payments WHERE pid = ? AND status IN ('待审批','已审批')")

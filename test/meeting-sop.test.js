@@ -50,17 +50,17 @@ test("核销第1步页面不再有招商主体输入，需录入串场三项字�
  assert.doesNotMatch(form,/招商主体/);
  assert.match(detail,/\["会议通知","招商函","串场"\]/);
 });
-test("讲者五方一致：终版议程、劳务收集表、劳务协议、签到表、讲者照片",()=>{
+test("讲者核验按劳务表是否上传而动态调整资料来源",()=>{
  assert.equal(sameNames(["甲","乙"],["乙","甲"]),true);
  assert.equal(sameNames(["甲","甲"],["甲","甲"]),false);
- const x={agendaSpeakers:["甲","乙"],collectionSpeakers:["乙","甲"],agreementSpeakers:["甲","乙"],
+ const x={agendaSpeakers:["甲","乙"],collectionSpeakers:["乙","甲"],
    attendanceSpeakers:["乙","甲"],photoSpeakers:["甲","乙"],noOmissions:true};
  const result=validateSopEvidence(2,x,project,db);
  assert.equal(result.matchedPeople,2);
  assert.equal(result.photoRecordsMatched,2);
- assert.deepEqual(result.matchedSources,["终版议程","劳务收集表","劳务协议","签到表","讲者照片"]);
+ assert.deepEqual(result.matchedSources,["终版议程","劳务表","签到表","讲者照片"]);
  assert.doesNotMatch(JSON.stringify(result),/甲|乙/,"讲者姓名不得写入核销证据摘要");
- for(const key of ["agendaSpeakers","collectionSpeakers","agreementSpeakers","attendanceSpeakers","photoSpeakers"]){
+ for(const key of ["agendaSpeakers","collectionSpeakers","attendanceSpeakers","photoSpeakers"]){
    expectBlock(2,{...x,[key]:["甲"]});
    expectBlock(2,{...x,[key]:["甲","甲"]});
    expectBlock(2,{...x,[key]:[]});
@@ -88,17 +88,19 @@ test("讲者五方一致：终版议程、劳务收集表、劳务协议、签�
  };}};
  assert.throws(()=>validateSopEvidence(2,x,project,duplicatePhotos),/照片登记姓名/);
 });
-test("第2步页面必须列出五份关联材料和五个讲者姓名输入",()=>{
+test("第2项不再强制要求协议，有劳务表才出现对应输入",()=>{
  const fs=require("node:fs"),path=require("node:path");
  const root=path.join(__dirname,"..");
  const labels=fs.readFileSync(path.join(root,"server/lib/constants.js"),"utf8");
  const form=fs.readFileSync(path.join(root,"web/assets/js/lib/sop-fields.js"),"utf8");
  const detail=fs.readFileSync(path.join(root,"web/assets/js/lib/verify-detail.js"),"utf8");
  assert.match(labels,/讲者信息多处一致/);
- assert.match(labels,/终版议程 ∩ 劳务收集表 ∩ 劳务协议 ∩ 签到表 ∩ 讲者照片/);
- for(const key of ["agendaSpeakers","collectionSpeakers","agreementSpeakers","attendanceSpeakers","photoSpeakers"])
+ assert.match(labels,/终版议程、签到表、讲者照片一致/);
+ assert.doesNotMatch(labels,/劳务协议/);
+ for(const key of ["agendaSpeakers","collectionSpeakers","attendanceSpeakers","photoSpeakers"])
    assert.match(form,new RegExp(key));
- assert.match(detail,/\["终版议程","劳务收集表","劳务协议","签到表","讲者照片"\]/);
+ assert.match(detail,/\["终版议程","劳务表","劳务收集表","签到表","讲者照片"\]/);
+ assert.doesNotMatch(form,/agreementRecords|agreementSpeakers/);
 });
 test("线上时长严格大于30，混合会议同时需要签到",()=>{
  expectBlock(3,{onlineMinutes:30,signedAttendance:true});
@@ -141,13 +143,17 @@ test("核销第4步文字、关联材料与表单中不再包含串场和 Logo �
  assert.ok(stepFour);
  assert.doesNotMatch(stepFour,/hostTitleMatches|hostNameLogoMatches|sponsorLogoPages|logo首页|药企/);
 });
-test("劳务五字段即时比对，不保留任何姓名或银行账号",()=>{
+test("第5项按劳务表五字段核验，无单独协议，且不保留任何姓名或银行账号",()=>{
  const a={name:"甲",time:"9:00",role:"讲者",amount:"100",bankAccount:"IN_MEMORY_ONLY"};
- const e={collectionRecords:[a],agreementRecords:[a]};
+ const e={collectionRecords:[a]};
  const result=validateSopEvidence(5,e,project,db);
  assert.equal(result.matchedLaborRecords,1);
+ assert.ok(result.laborSourceSignature);
  assert.doesNotMatch(JSON.stringify(result),/IN_MEMORY_ONLY|甲/);
- expectBlock(5,{...e,agreementRecords:[{...a,role:"主持"}]});
+ expectBlock(5,{collectionRecords:[{...a,role:""}]});
+ expectBlock(5,{collectionRecords:[a,{...a}]});
+ const noLabor={prepare(){return {all(){return [];}};}};
+ assert.throws(()=>validateSopEvidence(5,e,project,noLabor),x=>x.code==="SOP_NOT_APPLICABLE");
 });
 test("正式结算单不能提前生成；核销只校验拟结算金额与会议基线",()=>{
  const e={draftAmount:1000,meetingName:project.name,meetingDate:project.date};

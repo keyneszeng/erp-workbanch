@@ -69,7 +69,7 @@ async function renderOne(root, pid) {
       <button class="btn btn-o" data-go="projects/${p.id}">项目详情</button>
       ${can("verify:conclude") && p.status === "待核销"
         ? `<button class="btn ${v.complete && materialReady ? "btn-g" : "btn-o"}" id="passBtn"
-             ${v.complete && materialReady ? "" : `disabled title="${materialReady ? "6 步未全部通过，或存在未决例外单" : "请至少上传一份材料附件"}"`}>核销通过</button>` : ""}
+             ${v.complete && materialReady ? "" : `disabled title="${materialReady ? "适用的核销项目未全部通过，或存在未决例外单" : "请至少上传一份材料附件"}"`}>核销通过</button>` : ""}
     </div>
   </div>
 
@@ -77,8 +77,8 @@ async function renderOne(root, pid) {
     任意类别（含「权益照片」）上传至少一份有效附件即可满足材料条件，无需凑齐固定类别。
     <a class="link" data-go="projects/${p.id}">去项目详情的材料页签登记 →</a></div>`}
   <div class="panel">
-    <div class="panel-h"><h2>6 项核销 SOP · 自由选择顺序，全部通过后解锁结算</h2>
-      <div><span class="hint">已通过 ${v.passed}/6${v.openExceptions ? ` · ${v.openExceptions} 张例外单待处理或待复核` : ""}</span></div></div>
+    <div class="panel-h"><h2>核销 SOP · 自由选择顺序 · 第5项有劳务表才必核</h2>
+      <div><span class="hint">已通过 ${v.passed}/${v.total} 项必核${v.openExceptions ? ` · ${v.openExceptions} 张例外单待处理或待复核` : ""}</span></div></div>
     <div class="vsteps">${v.steps.map((s) => {
       const cls = ["通过", "已解例外"].includes(s.result) ? "s-pass" : s.result === "不通过" ? "s-fail" : "s-wait";
       return `<div class="vstep ${cls}">
@@ -90,8 +90,8 @@ async function renderOne(root, pid) {
           ${s.evidence ? `<span class="hint">· 结构化核验已留痕</span>` : ""}
           <div style="flex:1"></div>
           <button class="btn btn-o btn-sm" data-detail="${s.no}">详情</button>
-          ${canJudge && s.result === "待判定" ? `<button class="btn btn-o btn-sm" data-judge="${s.no}">判定</button>` : ""}
-          ${canJudge && s.result !== "待判定" ? `<button class="btn btn-o btn-sm" data-judge="${s.no}">重新判定</button>` : ""}
+          ${canJudge && s.required!==false && s.result === "待判定" ? `<button class="btn btn-o btn-sm" data-judge="${s.no}">判定</button>` : ""}
+          ${canJudge && s.required!==false && s.result !== "待判定" ? `<button class="btn btn-o btn-sm" data-judge="${s.no}">重新判定</button>` : ""}
         </div></div>`;
     }).join("")}</div>
     ${frozen ? '<div class="gate ok" style="margin-top:12px"><b>结论已冻结</b>结算单已生成，核销结论不可修改。</div>' : ""}
@@ -146,7 +146,7 @@ function openJudge(root, pid, no, d) {
         <textarea name="remark" rows="3" placeholder="判定不通过时必填"></textarea></div>
       ${no === 6 ? `<div class="fld" style="margin-top:12px"><label>需开票合同对应的发票总额（元；纯专家劳务可填 0）</label>
         <input type="number" name="invoiceAmount" min="0" step="0.01" value="${esc(String(s.invoiceAmount || ""))}" placeholder="应等于非劳务合同金额"></div>` : ""}
-      ${sopEvidenceForm(no, d.project)}`,
+      ${sopEvidenceForm(no, d.project, d.verification.laborRequired)}`,
     footer: `<button class="btn btn-o" data-x="0">取消</button><button class="btn btn-p" data-x="1">提交判定</button>`
   });
   m.querySelector('[data-x="0"]').onclick = () => m.classList.remove("open");

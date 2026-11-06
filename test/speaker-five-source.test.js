@@ -1,5 +1,5 @@
 "use strict";
-/** 使用真实 SQLite 记录核验第2步：五份源材料、照片登记姓名和当前终版。 */
+/** 真实 SQLite：有劳务表时四处讲者名单；无劳务表时三处，协议不独立要求。 */
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
 const { DatabaseSync } = require("node:sqlite");
@@ -9,12 +9,11 @@ const project={id:pid,name:"测试会议",date:"2027-11-01",assoc:"测试协会"
 const base={
   agendaSpeakers:["李老师","王老师"],
   collectionSpeakers:["王老师","李老师"],
-  agreementSpeakers:["李老师","王老师"],
   attendanceSpeakers:["王老师","李老师"],
   photoSpeakers:["李老师","王老师"],
   noOmissions:true
 };
-const kinds=["终版议程","劳务收集表","劳务协议","签到表"];
+const kinds=["终版议程","劳务收集表","签到表"];
 function build(){
   const db=new DatabaseSync(":memory:");
   db.exec("CREATE TABLE materials(pid TEXT,kind TEXT,name TEXT,version TEXT,file_key TEXT,deleted_at TEXT)");
@@ -26,26 +25,26 @@ function build(){
   add("讲者照片","王老师","v1","speaker2.jpg");
   return {db,add};
 }
-test("五方信息一致且各原件真实关联时成功，仅保存人数/来源摘要",()=>{
+test("四处讲者姓名一致且有原件时通过，仅保存人数/来源摘要",()=>{
   const {db}=build();
   const r=validateSopEvidence(2,base,project,db);
   assert.equal(r.matchedPeople,2);
   assert.equal(r.photoRecordsMatched,2);
-  assert.deepEqual(r.matchedSources,["终版议程","劳务收集表","劳务协议","签到表","讲者照片"]);
+  assert.deepEqual(r.matchedSources,["终版议程","劳务表","签到表","讲者照片"]);
   assert.doesNotMatch(JSON.stringify(r),/李老师|王老师/);
   db.close();
 });
-test("五方任一漏名、重名、串名或未人工确认均不能通过",()=>{
+test("适用讲者名单任一漏名、重名、串名或未确认不得通过",()=>{
   const {db}=build();
-  for(const k of ["agendaSpeakers","collectionSpeakers","agreementSpeakers","attendanceSpeakers","photoSpeakers"]){
+  for(const k of ["agendaSpeakers","collectionSpeakers","attendanceSpeakers","photoSpeakers"]){
     assert.throws(()=>validateSopEvidence(2,{...base,[k]:["李老师"]},project,db),/不一致/);
     assert.throws(()=>validateSopEvidence(2,{...base,[k]:["李老师","李老师"]},project,db),/不一致/);
   }
   assert.throws(()=>validateSopEvidence(2,{...base,noOmissions:false},project,db),/人工确认/);
   db.close();
 });
-test("缺失五类原件中的任意一类，或只存材料名称没有附件，不能通过",()=>{
-  for(const kind of [...kinds,"讲者照片"]){
+test("缺失必需原件、或只登记文件名却没有附件，不能通过",()=>{
+  for(const kind of ["终版议程","签到表","讲者照片"]){
     const {db}=build();
     db.prepare("DELETE FROM materials WHERE kind=?").run(kind);
     assert.throws(()=>validateSopEvidence(2,base,project,db),err=>
@@ -55,6 +54,13 @@ test("缺失五类原件中的任意一类，或只存材料名称没有附件�
   const {db}=build();
   db.prepare("UPDATE materials SET file_key='' WHERE kind='签到表'").run();
   assert.throws(()=>validateSopEvidence(2,base,project,db),/缺少已上传的 签到表/);
+  db.close();
+});
+test("未上传劳务表时三处讲者信息足够，不再要求协议",()=>{
+  const {db}=build();
+  db.prepare("DELETE FROM materials WHERE kind='劳务收集表'").run();
+  const r=validateSopEvidence(2,{...base,collectionSpeakers:[]},project,db);
+  assert.deepEqual(r.matchedSources,["终版议程","签到表","讲者照片"]);
   db.close();
 });
 test("仅有历史议程而没有当前终版，不能用于第2步核销",()=>{

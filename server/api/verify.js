@@ -70,11 +70,12 @@ function register(router) {
     // 仅在最终「核销通过」时检查六项全部通过且无未决例外。
     const v = verification(p.id);
     const def = v.steps.find((s) => s.no === no);
+    if(no===5 && !v.laborRequired)throw conflict("材料库无劳务表，第5项自动不适用，无需核销","SOP_NOT_APPLICABLE");
     let invoiceAmount = null;
     if (!isDemoMode() && no === 6 && result === "通过") {
       const signed = db.prepare("SELECT COUNT(*) AS n, COALESCE(SUM(amount),0) AS total FROM contracts WHERE pid=? AND status='已签署'").get(p.id);
       if (!signed.n) throw conflict("核票前必须有经协会管理员审批的已签署合同", "CONTRACT_NOT_SIGNED");
-      // 专家劳务费用可以按协议和核验后的劳务表请款，不要求虚构发票号。
+      // 专家劳务依据已签署合同和按需核验的劳务表；不再另设协议材料。
       // 非劳务合同仍要求：发票总额 = 应开票合同总额；总拟请款 = 全部合同总额。
       const billable=db.prepare("SELECT COALESCE(SUM(amount),0) AS total FROM contracts WHERE pid=? AND status='已签署' AND COALESCE(category,'')<>'劳务专家'").get(p.id).total;
       const invoiceMaterial=db.prepare("SELECT COUNT(*) AS n FROM materials WHERE pid=? AND kind='发票' AND file_key IS NOT NULL AND deleted_at IS NULL").get(p.id);
