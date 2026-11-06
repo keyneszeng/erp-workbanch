@@ -53,7 +53,7 @@ function groupPanel(grp, items, locked) {
   const sum = need.reduce((s, i) => s + (Number(i.budget) || 0), 0);
   return `<div class="panel mt" data-panel="${esc(grp)}">
     <div class="panel-h"><h2>⭐ ${esc(grp)}</h2>
-      <div><span class="hint" data-group-total>需要 ${need.length} 项 · 总价 ${yuan(sum)}</span></div></div>`;
+      <div><span class="hint" data-group-total>需要 ${need.length} 项 · 总价 ${yuan(sum)}</span></div></div>
     <div class="tw"><table>
       <thead><tr>
         <th>项目 / 业务提示</th><th style="width:84px">是否需要</th><th>规格</th>
