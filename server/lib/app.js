@@ -73,6 +73,7 @@ function buildRouter() {
     require("../api/mini"),
     require("../api/mini-applications"),
     require("../api/projects"),
+    require("../api/project-notice"),
     require("../api/verify"),
     require("../api/finance"),
     require("../api/income"),
