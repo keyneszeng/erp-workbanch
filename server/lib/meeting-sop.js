@@ -5,6 +5,7 @@
  * 银行账户和参会人员明细只在内存里进行等值比较，绝不写入 verify_steps 或审计日志。
  */
 const { bad, conflict, cents } = require("./util");
+const {laborSheetInfo}=require("./labor-sop");
 const eq = (a,b) => String(a ?? "").trim().replace(/\s+/g,"") === String(b ?? "").trim().replace(/\s+/g,"");
 const list = (a) => Array.isArray(a) ? a.map(x=>String(x ?? "").trim()).filter(Boolean) : [];
 function sameNames(a,b) {
@@ -43,40 +44,22 @@ function validateSopEvidence(no, evidence, project, db, invoiceAmount) {
         comparedWith:"串场"};
     }
     case 2: {
-      // 五份材料逐人比对。签到表只录入讲者姓名，普通参会者不计入讲者交集。
-      // 照片不做未经验证的人脸识别：人工确认姓名，并与实际照片登记名称再核对。
-      const sources=[
-        ["终版议程",e.agendaSpeakers],
-        ["劳务收集表",e.collectionSpeakers],
-        ["劳务协议",e.agreementSpeakers],
-        ["签到表",e.attendanceSpeakers],
-        ["讲者照片",e.photoSpeakers]
-      ];
+      // 无劳务表时只比对终版议程、签到与讲者照片；有劳务表时再核对其讲者名单。
+      const labor=laborSheetInfo(db,pid);
+      const sources=[["终版议程",e.agendaSpeakers],
+        ...(labor.required?[["劳务表",e.collectionSpeakers]]:[]),
+        ["签到表",e.attendanceSpeakers],["讲者照片",e.photoSpeakers]];
       const baseline=sources[0][1];
-      if(!sameNames(baseline,baseline) ||
-          sources.slice(1).some(([,speakers])=>!sameNames(baseline,speakers)))
-        fail("终版议程、劳务收集表、劳务协议、签到表、讲者照片的讲者姓名不一致，或存在漏名、重名");
-      for(const [kind] of sources)
-        if(!materialExists(db,pid,[kind],true))
-          fail("第二步缺少已上传的 "+kind+" 原件","SOP_MATERIAL_MISSING");
-      // 旧版议程已降为历史版时不得冒充当前终版。
-      const current=db.prepare(
-        "SELECT COUNT(*) AS n FROM materials WHERE pid=? AND kind='终版议程' AND version='终版' "+
-        "AND (deleted_at IS NULL OR deleted_at='') AND file_key IS NOT NULL AND file_key<>''"
-      ).get(pid);
-      if(!Number(current?.n))
-        fail("请上传并确认当前终版议程原件，历史版不能用于核销","SOP_MATERIAL_MISSING");
-      const photos=db.prepare(
-        "SELECT name FROM materials WHERE pid=? AND kind='讲者照片' "+
-        "AND (deleted_at IS NULL OR deleted_at='') AND file_key IS NOT NULL AND file_key<>''"
-      ).all(pid).map(row=>String(row.name||"").trim());
-      if(!sameNames(baseline,photos))
-        fail("讲者照片登记姓名与终版议程讲者名单不一致：请逐人上传照片并以讲者姓名登记");
-      if(e.noOmissions!==true)
-        fail("须人工确认五处讲者信息及照片一致，无冒领、漏发或重复劳务记录");
-      // 只保存通过人数和核验来源摘要；姓名、照片关联与账户数据均不写入证据或审计。
-      return {matchedPeople:list(baseline).length,matchedSources:sources.map(([kind])=>kind),
-        photoRecordsMatched:photos.length,noOmissions:true};
+      if(!sameNames(baseline,baseline)||sources.slice(1).some(([,names])=>!sameNames(baseline,names)))
+        fail("终版议程、签到表、讲者照片及已上传劳务表中的讲者姓名不一致，或存在漏名、重名");
+      for(const [kind] of sources)if(kind!=="劳务表"&&!materialExists(db,pid,[kind],true))
+        fail("第二步缺少已上传的 "+kind+" 原件","SOP_MATERIAL_MISSING");
+      const current=db.prepare("SELECT COUNT(*) AS n FROM materials WHERE pid=? AND kind='终版议程' AND version='终版' AND (deleted_at IS NULL OR deleted_at='') AND file_key IS NOT NULL AND file_key<>''").get(pid);
+      if(!Number(current?.n))fail("请上传并确认当前终版议程原件，历史版不能用于核销","SOP_MATERIAL_MISSING");
+      const photos=db.prepare("SELECT name FROM materials WHERE pid=? AND kind='讲者照片' AND (deleted_at IS NULL OR deleted_at='') AND file_key IS NOT NULL AND file_key<>''").all(pid).map(x=>String(x.name||"").trim());
+      if(!sameNames(baseline,photos))fail("讲者照片登记姓名与终版议程讲者名单不一致：请逐人上传并登记讲者照片");
+      if(e.noOmissions!==true)fail("须确认适用的讲者资料与照片一致，无冒领、漏发或重复");
+      return {matchedPeople:list(baseline).length,matchedSources:sources.map(([kind])=>kind),photoRecordsMatched:photos.length,noOmissions:true};
     }
     case 3: {
       const form=project.form;
@@ -111,25 +94,29 @@ function validateSopEvidence(no, evidence, project, db, invoiceAmount) {
       return {matchedTopics:courseTopics.length,comparedWith:"终版议程"};
     }
     case 5: {
-      const a=e.collectionRecords,b=e.agreementRecords;
-      if(!Array.isArray(a)||!Array.isArray(b)||!a.length||a.length!==b.length) fail("劳务收集表与协议条数不一致");
-      const keys=["name","time","role","amount","bankAccount"];
-      const norm = x=> keys.map(k=>String(x?.[k]??"").trim()).join("\u001f");
-      if(a.some(x=>keys.some(k=>!String(x?.[k]??"").trim())) ||
-         b.some(x=>keys.some(k=>!String(x?.[k]??"").trim())))
-        fail("劳务五字段（姓名/时间/角色/金额/银行账号）不得缺漏");
-      if(new Set(a.map(norm)).size!==a.length || new Set(b.map(norm)).size!==b.length ||
-         a.map(norm).sort().some((x,i)=>x!==b.map(norm).sort()[i]))
-        fail("劳务收集表与劳务协议五字段不一致");
-      // 不返回、存储姓名、账号或记录原文。
-      return {matchedLaborRecords:a.length,matchedFields:keys.length,accountDataStored:false};
+      const source=laborSheetInfo(db,pid);
+      if(!source.required)fail("未上传劳务表原件，第5项不适用","SOP_NOT_APPLICABLE");
+      const rows=e.collectionRecords,keys=["name","time","role","amount","bankAccount"];
+      if(!Array.isArray(rows)||!rows.length)fail("请根据已上传劳务表录入劳务明细");
+      const norm=x=>keys.map(k=>String(x?.[k]??"").trim()).join("\u001f");
+      if(rows.some(x=>keys.some(k=>!String(x?.[k]??"").trim())))
+        fail("劳务表五字段（姓名/时间/角色/金额/银行账号）不得缺漏");
+      if(new Set(rows.map(norm)).size!==rows.length||new Set(rows.map(x=>String(x.name).trim())).size!==rows.length)
+        fail("劳务表存在重复讲者或重复劳务记录");
+      if(rows.some(x=>!Number.isFinite(Number(x.amount))||Number(x.amount)<=0))
+        fail("劳务金额必须为正数");
+      // 协议即合同，不再重复要求协议原件或五字段第二次录入。
+      const signed=db.prepare("SELECT COUNT(*) AS n FROM contracts WHERE pid=? AND status='已签署'").get(pid);
+      if(!Number(signed?.n))fail("请先在合同台账确认已签署合同","CONTRACT_NOT_SIGNED");
+      return {matchedLaborRecords:rows.length,matchedFields:keys.length,laborSourceSignature:source.signature,
+        contractChecked:true,accountDataStored:false};
     }
     case 6: {
       if(!Number.isFinite(invoiceAmount)||invoiceAmount<0) throw bad("请输入核对后的发票金额");
       const total=db.prepare("SELECT COALESCE(SUM(amount),0) AS total FROM contracts WHERE pid=? AND status='已签署'").get(pid).total;
       if(cents(e.draftAmount)!==cents(total)) fail("拟请款总额必须与已签署合同总额一致");
       const taxable=db.prepare("SELECT COALESCE(SUM(amount),0) AS total FROM contracts WHERE pid=? AND status='已签署' AND COALESCE(category,'')<>'劳务专家'").get(pid).total;
-      if(cents(invoiceAmount)!==cents(taxable)) fail("发票金额必须与应开票合同金额一致；劳务专家协议免票单独核验");
+      if(cents(invoiceAmount)!==cents(taxable)) fail("发票金额必须与应开票合同金额一致；劳务专家合同依类别处理");
       if(!eq(e.meetingName,project.name)||!eq(e.meetingDate,project.date))
         fail("拟结算单/发票的会议名称或会议时间与立项信息不一致");
       if(cents(taxable)>0 && !materialExists(db,pid,["发票"],true)) fail("尚无发票原件","SOP_MATERIAL_MISSING");
