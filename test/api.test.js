@@ -201,10 +201,14 @@ test("工作流：非法流转被拒", async () => {
   assert.equal(r.data.error.code, "ILLEGAL_TRANSITION");
 });
 
-test("核销：跳步判定被拒", async () => {
+test("核销：不按步骤顺序也可独立判定，全部完成前仍不允许核销通过", async () => {
   const r = await finance("POST", `/api/projects/${pid}/verify/steps/3`, { result: "通过" });
-  assert.equal(r.status, 409);
-  assert.equal(r.data.error.code, "OUT_OF_ORDER");
+  assert.equal(r.status, 200, JSON.stringify(r.data));
+  assert.equal(r.data.verification.steps.find(s=>s.no===3).result,"通过");
+  assert.equal(r.data.verification.steps.find(s=>s.no===1).result,"待判定");
+  const blocked = await finance("POST", `/api/projects/${pid}/transition`, { action: "verify_pass" });
+  assert.equal(blocked.status,409,"六项未全部通过之前仍然禁止核销完成");
+  assert.equal(blocked.data.error.code,"GATE_BLOCKED");
 });
 
 test("付款门禁：待核销项目付款被拦截", async () => {
@@ -215,7 +219,7 @@ test("付款门禁：待核销项目付款被拦截", async () => {
 });
 
 test("核销：不通过自动生成例外单，核销通过被门禁拦截", async () => {
-  for (const no of [1, 2, 3]) {
+  for (const no of [2, 1, 3]) {
     const r = await exec("POST", `/api/projects/${pid}/verify/steps/${no}`, { result: "通过" });
     assert.equal(r.status, 200);
   }
