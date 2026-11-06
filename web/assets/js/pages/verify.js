@@ -14,7 +14,7 @@ async function renderList(root) {
   const pending = rows.filter((p) => p.status === "待核销").length;
 
   root.innerHTML = `<div class="phead">
-      <div><h2>核销看板</h2><p>6 项 SOP 任意顺序办理 · 例外单闭环 · 六项全过后解锁付款</p></div>
+      <div><h2>核销看板</h2><p>核销项任意顺序办理 · 第5项按劳务表、第6项按实际会务需求自动决定是否必核</p></div>
       <div class="acts">${can("export:any") ? '<button class="btn btn-o" id="exp">导出核销明细</button>' : ""}</div>
     </div>
     <div class="grid g4">
@@ -29,13 +29,14 @@ async function renderList(root) {
          { t: "核销进度", w: "150px" }, { t: "例外单", w: "76px" }, { t: "结算单", w: "112px" }, { t: "操作", w: "96px" }],
         rows.map((p) => {
           const passed = p.v_passed || 0;
-          const pct = Math.round((passed / 6) * 100);
+          const total = p.v_total || 4;
+          const pct = Math.round((passed / total) * 100);
           return {
             c: [`<span class="mono">${p.id}</span>`, esc(p.name), `<span class="mono">${esc(p.date)}</span>`, badge(p.status),
               `<div style="display:flex;align-items:center;gap:8px">
                  <div style="flex:1;height:6px;background:#eef2f7;border-radius:4px;overflow:hidden">
-                   <div style="width:${pct}%;height:100%;background:${passed === 6 ? "var(--green)" : "var(--blue)"}"></div></div>
-                 <b style="font-size:12px" class="num">${passed}/6</b></div>`,
+                   <div style="width:${pct}%;height:100%;background:${passed === total ? "var(--green)" : "var(--blue)"}"></div></div>
+                 <b style="font-size:12px" class="num">${passed}/${total}</b></div>`,
               p.ex_open ? `<span class="badge b-orange">${p.ex_open} 待审批</span>` : '<span style="color:var(--mute)">—</span>',
               p.st_id ? `<span class="mono">${p.st_id}</span>` : '<span style="color:var(--mute)">未生成</span>',
               `<div class="tacts"><button class="link" data-go="verify/${p.id}">核销</button>
@@ -77,7 +78,7 @@ async function renderOne(root, pid) {
     任意类别（含「权益照片」）上传至少一份有效附件即可满足材料条件，无需凑齐固定类别。
     <a class="link" data-go="projects/${p.id}">去项目详情的材料页签登记 →</a></div>`}
   <div class="panel">
-    <div class="panel-h"><h2>核销 SOP · 自由选择顺序 · 第5项有劳务表才必核</h2>
+    <div class="panel-h"><h2>核销 SOP · 自由选择顺序 · 第5项、第6项按实际材料与需求自动适用</h2>
       <div><span class="hint">已通过 ${v.passed}/${v.total} 项必核${v.openExceptions ? ` · ${v.openExceptions} 张例外单待处理或待复核` : ""}</span></div></div>
     <div class="vsteps">${v.steps.map((s) => {
       const cls = ["通过", "已解例外"].includes(s.result) ? "s-pass" : s.result === "不通过" ? "s-fail" : "s-wait";
@@ -144,8 +145,8 @@ function openJudge(root, pid, no, d) {
         <select name="result"><option value="通过">通过</option><option value="不通过">不通过（自动生成例外单）</option></select></div>
       <div class="fld" style="margin-top:12px"><label>问题描述 / 备注</label>
         <textarea name="remark" rows="3" placeholder="判定不通过时必填"></textarea></div>
-      ${no === 6 ? `<div class="fld" style="margin-top:12px"><label>需开票合同对应的发票总额（元；纯专家劳务可填 0）</label>
-        <input type="number" name="invoiceAmount" min="0" step="0.01" value="${esc(String(s.invoiceAmount || ""))}" placeholder="应等于非劳务合同金额"></div>` : ""}
+      ${no === 6 ? `<div class="fld" style="margin-top:12px"><label>会务发票总金额（元，须等于会务需求总预算和会务合同总金额）</label>
+        <input type="number" name="invoiceAmount" min="0" step="0.01" value="${esc(String(s.invoiceAmount || ""))}" placeholder="必须与会务需求预算和会务合同金额一致"></div>` : ""}
       ${sopEvidenceForm(no, d.project)}`,
     footer: `<button class="btn btn-o" data-x="0">取消</button><button class="btn btn-p" data-x="1">提交判定</button>`
   });

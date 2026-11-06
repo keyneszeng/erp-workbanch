@@ -1,5 +1,6 @@
 "use strict";
 const {laborSheetInfo}=require("./labor-sop");
+const {demandSopState}=require("./meeting-demand-sop");
 const { db } = require("./db");
 const { now, nextId, conflict, forbidden, notFound, bad, cents, yuan, parseBankAccount, parseBankName } = require("./util");
 const { can, isSuper, ROLES } = require("./rbac");
@@ -18,16 +19,18 @@ function verification(pid) {
   const rows=db.prepare("SELECT * FROM verify_steps WHERE pid = ? ORDER BY step_no").all(pid);
   const map=new Map(rows.map(r=>[r.step_no,r]));
   const labor=laborSheetInfo(db,pid);
+  const demand=demandSopState(db,pid);
   const steps=VERIFY_STEPS.map(def=>{
     const r=map.get(def.no);
-    const required=def.no!==5 || labor.required;
+    const required=(def.no!==5 || labor.required) && (def.no!==6 || demand.required);
     const evidence=r?.evidence_json?JSON.parse(r.evidence_json):null;
     const stale=required && r?.result==="通过" && (
       (def.no===5 && evidence?.laborSourceSignature!==labor.signature) ||
       (def.no===2 && !isDemoMode() && (
         !Array.isArray(evidence?.matchedSources) ||
         evidence.matchedSources.join("|")!=="终版议程|签到表|讲者照片"
-      ))
+      )) ||
+      (def.no===6 && !isDemoMode() && evidence?.demandSopSignature!==demand.signature)
     );
     return {...def,required,
       result:!required?"不适用":stale?"待判定":(r?r.result:"待判定"),
@@ -43,7 +46,7 @@ function verification(pid) {
   const failedSteps=active.filter(s=>s.result==="不通过").map(s=>s.no);
   const openExceptions=db.prepare("SELECT COUNT(*) AS c FROM exceptions WHERE pid = ? AND status IN ('待审批','待复核')").get(pid).c;
   const exceptions=db.prepare("SELECT * FROM exceptions WHERE pid = ? ORDER BY created_at DESC").all(pid);
-  return {steps,judged,passed,total:active.length,laborRequired:labor.required,failedSteps,openExceptions,exceptions,
+  return {steps,judged,passed,total:active.length,laborRequired:labor.required,demandRequired:demand.required,failedSteps,openExceptions,exceptions,
     complete:passed===active.length && openExceptions===0 && (isDemoMode() || failedSteps.length===0)};
 }
 
@@ -150,7 +153,7 @@ const GUARDS = {
   verify_pass(p) {
     if (!materialsStatus(p.id).ok) return "会议材料附件已全部删除，请至少保留一份上传附件";
     const v = verification(p.id);
-    if (v.judged < v.total) return `还有 ${v.total - v.judged} 项必核步骤未判定，第5项按劳务表是否上传决定`;
+    if (v.judged < v.total) return `还有 ${v.total - v.judged} 项必核步骤未判定，第5项看劳务表、第6项看会务需求是否存在`;
     if (v.failedSteps.length) return `第 ${v.failedSteps.join("、")} 步不通过，需提交例外单并获批`;
     if (v.openExceptions > 0) return `存在 ${v.openExceptions} 张未完成处理或待复核的例外单`;
     if (!v.complete) return "适用核销项须全部通过；不接受缺少证据的旧结论或以例外审批代替核销";
@@ -167,9 +170,11 @@ const GUARDS = {
     if (!isDemoMode()) {
       const paid = db.prepare("SELECT COUNT(*) AS n, COALESCE(SUM(amount),0) AS total FROM payments WHERE pid=? AND status='已付款'").get(p.id);
       if (!paid.n) return "结算前必须先申请付款并由财务完成实际付款，不能跳过付款直接结算";
-      const matched = db.prepare("SELECT invoice_amount FROM verify_steps WHERE pid=? AND step_no=6 AND result='通过'").get(p.id);
-      if (!matched || !Number.isFinite(matched.invoice_amount))
-        return "发票与已签署合同金额尚未完成核对，不允许结算";
+      if (v.demandRequired) {
+        const step=v.steps.find(s=>s.no===6);
+        if(step?.result!=="通过" || !Number.isFinite(step.invoiceAmount))
+          return "会务需求存在时必须完成第6项会务协议、预算、合同及发票核对，才能结算";
+      }
       const signedTotal=db.prepare("SELECT COALESCE(SUM(amount),0) AS total FROM contracts WHERE pid=? AND status='已签署'").get(p.id).total;
       if(cents(paid.total)!==cents(signedTotal))
         return `已付款总额 ¥${yuan(paid.total)} 与已核销合同请款总额 ¥${yuan(signedTotal)} 不一致，不能结算；含免票专家劳务费`;

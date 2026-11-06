@@ -105,7 +105,12 @@ function listProjects(user, { status, q, assoc, stage, page, size } = {}) {
     return db.prepare(
       `SELECT p.*, (SELECT COUNT(*) FROM payments y WHERE y.pid = p.id) AS pay_cnt,
               (SELECT COALESCE(ROUND(SUM(y.amount),2),0) FROM payments y WHERE y.pid = p.id AND y.status='已付款') AS paid_amt,
-              (SELECT COUNT(*) FROM verify_steps v WHERE v.pid = p.id AND v.result IN ('通过','已解例外')) AS v_passed,
+              (SELECT COUNT(*) FROM verify_steps v WHERE v.pid=p.id AND v.result IN ('通过','已解例外')
+                AND (v.step_no NOT IN (5,6) OR
+                  (v.step_no=5 AND EXISTS(SELECT 1 FROM materials m WHERE m.pid=p.id AND m.kind IN ('劳务表','劳务收集表') AND m.deleted_at IS NULL AND m.file_key IS NOT NULL AND m.file_key<>'')) OR
+                  (v.step_no=6 AND EXISTS(SELECT 1 FROM demand_items di WHERE di.pid=p.id AND di.need='需要')))) AS v_passed,
+              (6 - (CASE WHEN EXISTS(SELECT 1 FROM materials m WHERE m.pid=p.id AND m.kind IN ('劳务表','劳务收集表') AND m.deleted_at IS NULL AND m.file_key IS NOT NULL AND m.file_key<>'') THEN 0 ELSE 1 END)
+                 - (CASE WHEN EXISTS(SELECT 1 FROM demand_items di WHERE di.pid=p.id AND di.need='需要') THEN 0 ELSE 1 END)) AS v_total,
               (SELECT COUNT(*) FROM exceptions e WHERE e.pid = p.id AND e.status='待审批') AS ex_open,
               (SELECT id FROM settlements s WHERE s.pid = p.id) AS st_id
        FROM projects p WHERE ${whereSql} ORDER BY p.date DESC, p.id`
@@ -123,7 +128,12 @@ function listProjects(user, { status, q, assoc, stage, page, size } = {}) {
   const rows = db.prepare(
     `SELECT p.*, (SELECT COUNT(*) FROM payments y WHERE y.pid = p.id) AS pay_cnt,
             (SELECT COALESCE(ROUND(SUM(y.amount),2),0) FROM payments y WHERE y.pid = p.id AND y.status='已付款') AS paid_amt,
-            (SELECT COUNT(*) FROM verify_steps v WHERE v.pid = p.id AND v.result IN ('通过','已解例外')) AS v_passed,
+            (SELECT COUNT(*) FROM verify_steps v WHERE v.pid=p.id AND v.result IN ('通过','已解例外')
+                AND (v.step_no NOT IN (5,6) OR
+                  (v.step_no=5 AND EXISTS(SELECT 1 FROM materials m WHERE m.pid=p.id AND m.kind IN ('劳务表','劳务收集表') AND m.deleted_at IS NULL AND m.file_key IS NOT NULL AND m.file_key<>'')) OR
+                  (v.step_no=6 AND EXISTS(SELECT 1 FROM demand_items di WHERE di.pid=p.id AND di.need='需要')))) AS v_passed,
+              (6 - (CASE WHEN EXISTS(SELECT 1 FROM materials m WHERE m.pid=p.id AND m.kind IN ('劳务表','劳务收集表') AND m.deleted_at IS NULL AND m.file_key IS NOT NULL AND m.file_key<>'') THEN 0 ELSE 1 END)
+                 - (CASE WHEN EXISTS(SELECT 1 FROM demand_items di WHERE di.pid=p.id AND di.need='需要') THEN 0 ELSE 1 END)) AS v_total,
             (SELECT COUNT(*) FROM exceptions e WHERE e.pid = p.id AND e.status='待审批') AS ex_open,
             (SELECT id FROM settlements s WHERE s.pid = p.id) AS st_id
      FROM projects p WHERE ${whereSql} ORDER BY p.date DESC, p.id LIMIT ? OFFSET ?`
