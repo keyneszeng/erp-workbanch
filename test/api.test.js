@@ -243,14 +243,11 @@ test("例外单：财务审批通过后该步记为已解例外", async () => {
   assert.equal(r.data.verification.steps.find((s) => s.no === 4).result, "已解例外");
 });
 
-test("核销：未上传劳务表，第5项自动不适用且可直接完成其余5项", async () => {
+test("核销：无劳务表和实际会务需求，第5/6项均自动不适用，四项通过即可核销", async () => {
   const status=await finance("GET", `/api/projects/${pid}/verify`);
   assert.equal(status.data.verification.steps.find(s=>s.no===5).result,"不适用");
-  assert.equal(status.data.verification.total,5);
-  for (const no of [6]) {
-    const r = await exec("POST", `/api/projects/${pid}/verify/steps/${no}`, { result: "通过" });
-    assert.equal(r.status, 200);
-  }
+  assert.equal(status.data.verification.steps.find(s=>s.no===6).result,"不适用");
+  assert.equal(status.data.verification.total,4);
   const r = await finance("POST", `/api/projects/${pid}/transition`, { action: "verify_pass" });
   assert.equal(r.status, 200);
   assert.equal(r.data.project.status, "已核销");

@@ -156,9 +156,8 @@ test("第5项按劳务表五字段核验，无单独协议，且不保留任何�
  const noLabor={prepare(){return {all(){return [];}};}};
  assert.throws(()=>validateSopEvidence(5,e,project,noLabor),x=>x.code==="SOP_NOT_APPLICABLE");
 });
-test("正式结算单不能提前生成；核销只校验拟结算金额与会议基线",()=>{
- const e={draftAmount:1000,meetingName:project.name,meetingDate:project.date};
- assert.equal(validateSopEvidence(6,e,project,db,1000).meetingMatched,true);
- expectBlock(6,{...e,draftAmount:999},project,1000);
- expectBlock(6,{...e,meetingName:"其他会议"},project,1000);
+test("无实际会务需求，第6项不适用；不再以拟结算单金额替代会务需求预算",()=>{
+ assert.throws(()=>validateSopEvidence(6,{draftAmount:1000},project,{
+   prepare(){return {all(){return [];},get(){return null;}};}
+ },1000),err=>err.code==="SOP_NOT_APPLICABLE");
 });

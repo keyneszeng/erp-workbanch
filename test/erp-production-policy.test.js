@@ -105,6 +105,14 @@ test("production: association member IDs, approved contract signing and pay-afte
   assert.equal(unarchive.status,200);
   const reset=await request("POST","/api/demand/"+pid+"/reset",{},cookie);
   assert.equal(reset.status,200);
+  // 第6项只有存在真实会务需求才必核，使用与会务合同、发票相同的8000元预算。
+  const currentDemand={...demandBase,need:"需要",budget:"8000",owner:"测试会务负责人",
+    spec:"80套",quantity:"80",unit_price:"100",status:"已交付"};
+  const savedNeed=await request("PATCH","/api/demand/"+pid,{items:[currentDemand]},cookie);
+  assert.equal(savedNeed.status,200,JSON.stringify(savedNeed.body));
+  const confirmedNeed=await request("POST","/api/demand/"+pid+"/confirm",{},cookie);
+  assert.equal(confirmedNeed.status,200,JSON.stringify(confirmedNeed.body));
+
 
   for (const kind of [...new Set([...MATERIAL_KINDS,"会议通知","劳务收集表","串场"])]) {
     const attachment = kind === "发票" ? uploadBody : await (async () => {
@@ -176,7 +184,9 @@ test("production: association member IDs, approved contract signing and pay-afte
     3:{signedAttendance:true},
     4:{agendaTopics:["课题甲","课题乙"],courseTopics:["课题甲"]},
     5:{collectionRecords:[record]},
-    6:{draftAmount:8000,meetingName:base.name,meetingDate:base.date}
+    6:{agendaTitle:base.name,agendaTime:base.date,agendaFormat:base.form,
+      agreementTitle:base.name,agreementTime:base.date,agreementFormat:base.form,
+      agreementPartyA:base.assoc,agreementFinal:true}
   };
   // 真实例外单闭环：审批并不等于核销，必须登记整改和关联材料后再回原步骤。
   let failed=await request("POST","/api/projects/"+pid+"/verify/steps/1",
