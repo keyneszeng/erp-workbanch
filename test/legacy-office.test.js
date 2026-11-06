@@ -34,6 +34,8 @@ test("reject damaged FAT, unknown OLE stream, fake magic, CFB truncated and mism
 });
 test("CSV/TXT are recognized as text, not arbitrary binary or renamed Office",()=>{
   assert.equal(sniffMime(Buffer.from("姓名,费用\n张三,100\n"),"账目.csv"),"text/csv");
+  assert.equal(sniffMime(Buffer.from("A"),"只有一列.csv"),"text/csv");
+  assert.equal(sniffMime(Buffer.from("好"),"简短.txt"),"text/plain");
   assert.equal(sniffMime(Buffer.from("这是文字档案\n"),"说明.txt"),"text/plain");
   assert.equal(sniffMime(Buffer.from([0x00,0x02,0x03,0x0a]),"bad.csv"),null);
   assert.equal(sniffMime(Buffer.from("<html>hi</html>\n"),"bad.pdf"),null);
