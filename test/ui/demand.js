@@ -138,12 +138,13 @@ async function seedArchivedDemand() {
     await page.goto(`${BASE}/#/demand/${PID}`, { waitUntil: "networkidle" });
     await page.waitForTimeout(1600);
     const heads = await page.$$eval("[data-panel] th", (els) => els.map((e) => e.textContent.trim()));
-    check("有「预算金额」列", heads.includes("预算金额"), JSON.stringify(heads));
+    check("数量、单价、总价均有独立列", ["数量","单价","总价"].every(h=>heads.includes(h)), JSON.stringify(heads));
+    check("总价只读字段存在", !!(await page.$('[data-f="budget"][readonly]')), "");
     check("没有「附件」列", !heads.includes("附件"), JSON.stringify(heads));
     check("没有「执行状态」列", !heads.includes("执行状态"), JSON.stringify(heads));
     check("没有「预算归属」列", !heads.includes("预算归属"), JSON.stringify(heads));
     const stat0 = await page.textContent("#dstat");
-    check("页头显示预算合计", /预算合计\s*¥/.test(stat0), stat0);
+    check("页头显示总价合计", /总价合计\s*¥/.test(stat0), stat0);
     check("种子数据合计 90,900", /90,900/.test(stat0), stat0);
 
     console.log("\n[4] 新增一行：加一条模板里没有的");
@@ -157,10 +158,14 @@ async function seedArchivedDemand() {
     const last = rows[rows.length - 1];
     check("新行条目名可编辑", !!(await last.$('[data-f="item"]')), "");
     await (await last.$('[data-f="item"]')).fill("临时加：指引牌");
-    await (await last.$('[data-f="budget"]')).fill("260");
+    check("新行默认不需要", (await (await last.$('[data-f="need"]')).inputValue()) === "不需要", "");
+    await (await last.$('[data-f="need"]')).selectOption("需要");
+    await (await last.$('[data-f="quantity"]')).fill("2");
+    await (await last.$('[data-f="unit_price"]')).fill("130");
+    check("2 × 130 自动得出只读总价 260.00", (await (await last.$('[data-f="budget"]')).inputValue()) === "260.00", "");
     await page.waitForTimeout(300);
     const stat1 = await page.textContent("#dstat");
-    check("预算合计随输入实时更新", /91,160/.test(stat1), stat1);
+    check("总价合计随输入实时更新", /91,160/.test(stat1), stat1);
 
     await page.click("#save");
     await page.waitForTimeout(1800);
@@ -168,7 +173,9 @@ async function seedArchivedDemand() {
     check("保存后自定义条目还在", names.includes("临时加：指引牌"), JSON.stringify(names));
     const saved = await api("GET", `/api/demand/${PID}`);
     check("后端已存下自定义条目", saved.data.items["其他"].some((x) => x.item === "临时加：指引牌"), "");
-    check("后端预算合计 91160", Number(saved.data.budgetTotal) === 91160, String(saved.data.budgetTotal));
+    check("后端总价合计 91160", Number(saved.data.budgetTotal) === 91160, String(saved.data.budgetTotal));
+    const newRow=saved.data.items["其他"].find(x=>x.item==="临时加：指引牌");
+    check("保存数量/单价/总价",newRow.quantity==="2" && newRow.unit_price==="130" && newRow.budget==="260.00",JSON.stringify(newRow));
 
     console.log("\n[5] 确认并归档：整单锁定");
     await page.click("#confirm");
