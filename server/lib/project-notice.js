@@ -59,8 +59,13 @@ function noticeFor(pid) {
 function overview(project) {
   const t = templateFor(project.assoc);
   const n = noticeFor(project.id);
+  const frozen=n ? JSON.parse(n.snapshot_json) : null;
   return {
-    initiationLetter: letterFor(project),
+    // 页面也展示当时批准的正文；否则旧的默认函会随项目修改而静默漂移。
+    initiationLetter: frozen ? {
+      title:frozen["立项函标题"],body:frozen["立项函正文"],
+      updated_at:n.approved_at,updated_by:n.approved_by,locked:true
+    } : letterFor(project),
     noticeTemplate: t ? {name:t.file_name,version:t.version,updatedAt:t.updated_at} :
       {name:"系统内置 Word 模板",version:0,updatedAt:null},
     projectNotice: n ? {
