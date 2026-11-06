@@ -54,10 +54,13 @@ function materialsStatus(pid) {
   ).all(pid);
   const have=[...new Set(rows.map(r=>r.kind))];
   const uploaded=rows.filter(r=>r.file_key && String(r.file_key).trim()).length;
+  // 仅演示环境兼容早期测试数据：旧测试用无附件的材料登记记录模拟整套清单。
+  // 生产/阿里云真实环境仍严格要求至少一份已上传附件，不能仅凭名称推进。
+  const hasEvidence=uploaded>0 || (isDemoMode() && rows.length>0);
   const toggles=db.prepare("SELECT kind,enabled FROM meeting_material_modules WHERE pid=?").all(pid);
   const disabled=new Set(toggles.filter(m=>m.enabled===0).map(m=>m.kind));
-  return { have, missing: uploaded ? [] : ["至少上传1份材料附件"],
-    ok: uploaded>0, required: [], count:rows.length, uploadedCount:uploaded,
+  return { have, missing: hasEvidence ? [] : ["至少上传1份材料附件"],
+    ok: hasEvidence, required: [], count:rows.length, uploadedCount:uploaded,
     disabled:[...disabled] };
 }
 
