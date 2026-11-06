@@ -152,6 +152,7 @@ function defaultWordTemplate() {
   zip.file("word/document.xml", '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'+
     '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>'+
     docParagraph("{{通知函标题}}",{bold:true,center:true,size:34})+
+    docParagraph("会议名称：{{会议名称}}")+
     docParagraph("项目编号：{{项目编号}}")+
     docParagraph("致：{{协会名称}}")+
     docParagraph("根据项目立项审批结果，现通知如下：")+
