@@ -1,5 +1,5 @@
 "use strict";
-const { db } = require("../lib/db");
+const { db, transaction } = require("../lib/db");
 const { now, nextId, bad, notFound, conflict, forbidden, yuan, cents } = require("../lib/util");
 const { isDemoMode } = require("../lib/runtime");
 const { assertCan, assertModule, assertProjectVisible, isSuper } = require("../lib/rbac");
@@ -382,8 +382,13 @@ function register(router) {
       const module=db.prepare("SELECT enabled FROM meeting_material_modules WHERE pid=? AND kind=?").get(p.id,kind);
       if (module && module.enabled===0) throw conflict("当前材料模块已停用，不可继续上传；历史资料保留","MODULE_DISABLED");
     }
-    if (!String(name || "").trim()) throw bad("请填写材料名称");
-    if (String(name).trim().length > 120) throw bad("材料名称不能超过 120 字");
+    // 「终版议程」只由原件上传确认，名称直接使用文件名，版本统一标记「终版」。
+    // 不再要求人工输入讲者、课题、生成待办或点击第二次确认。
+    const finalAgenda=kind==="终版议程";
+    const materialName=finalAgenda
+      ? String(file_name || name || "终版议程").trim() : String(name || "").trim();
+    if (!materialName) throw bad("请填写材料名称");
+    if (materialName.length > 120) throw bad("材料名称不能超过 120 字");
 
     // 附件 key 必须是本系统签发的格式，否则等于允许把任意字符串写进库
     let fk = null;
@@ -392,26 +397,37 @@ function register(router) {
       fk = String(file_key);
       assertUploadAttachable(fk, p.id, ctx.user);
     }
+    if (finalAgenda && !fk)
+      throw bad("终版议程必须上传一份文件，保存即确认，不需要其他操作");
     // “讲者照片”是独立的照片类目，不允许仅填名称标记已收，
     // 也不能将 PPT/Excel 文件伪装成讲者肖像。
     if (kind === "讲者照片" && (!fk || !/\.(jpg|png|webp)$/i.test(fk))) {
       throw bad("讲者照片必须上传 JPG、PNG 或 WebP 图片，名称请填写讲者姓名");
     }
 
-    db.prepare(
-      `INSERT INTO materials (pid,kind,name,version,uploader,created_at,file_key,file_name,file_size,file_mime)
-       VALUES (?,?,?,?,?,?,?,?,?,?)`
-    ).run(
-      p.id, kind, String(name).trim(), version || "v1", ctx.user.name, now(),
-      fk, fk ? String(file_name || "").slice(0, 120) : null,
-      fk ? Number(file_size) || null : null, fk ? String(file_mime || "").slice(0, 60) : null
-    );
+    // 上传新的终版议程时，旧的终版原件自动降为历史版（保留证据和原始文件）。
+    // 数据更新同事务完成，确保一个项目不会因中途失败出现两个当前终版版本。
+    transaction(() => {
+      if (finalAgenda)
+        db.prepare("UPDATE materials SET version='历史版' WHERE pid=? AND kind='终版议程' AND version='终版' AND deleted_at IS NULL")
+          .run(p.id);
+      db.prepare(
+        `INSERT INTO materials (pid,kind,name,version,uploader,created_at,file_key,file_name,file_size,file_mime)
+         VALUES (?,?,?,?,?,?,?,?,?,?)`
+      ).run(
+        p.id, kind, materialName, finalAgenda ? "终版" : (version || "v1"), ctx.user.name, now(),
+        fk, fk ? String(file_name || "").slice(0, 120) : null,
+        fk ? Number(file_size) || null : null, fk ? String(file_mime || "").slice(0, 60) : null
+      );
+    });
 
     logAudit({
-      user: ctx.user, module: "材料中心", action: "上传", target: p.id,
-      detail: `${kind}：${name}${fk ? "（含附件）" : ""}`, ip: ctx.ip
+      user: ctx.user, module: "材料中心", action: finalAgenda ? "终版议程上传确认" : "上传", target: p.id,
+      detail: `${kind}：${materialName}${fk ? "（含附件）" : ""}`, ip: ctx.ip
     });
-    return { materialsStatus: materialsStatus(p.id), message: `${kind} 已登记` };
+    return { materialsStatus: materialsStatus(p.id),
+      finalAgendaConfirmed: finalAgenda,
+      message: finalAgenda ? "终版议程已上传并确认，无需额外操作" : `${kind} 已登记` };
   });
 
   router.delete("/api/materials/:id", async (ctx) => {
