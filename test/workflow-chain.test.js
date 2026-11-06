@@ -201,7 +201,7 @@ test("全链路：立项 → 筹备 → 执行 → 核销（含例外）→ 付�
   });
   assert.equal(c1.status, 200, JSON.stringify(c1.data));
 
-  // V1.2.19：材料 8 类齐备才开启核销
+  // 新规则：材料类别不再强制齐备；只需任意类别材料原件（演示环境兼容老模拟数据）。
   await fillMaterials(executor, pid);
   const rv = await executor("POST", `/api/projects/${pid}/transition`, { action: "request_verify" });
   assert.equal(rv.status, 200, rv.msg);
@@ -253,7 +253,7 @@ test("事后勾稽：结算单 income/expense/profit 与预算、已付款一致
   assert.equal(Number(d.paidTotal), paid, "项目详情 paidTotal 应与付款一致");
 });
 
-test("事后勾稽：6 步核销全通过，8 类材料齐备", async () => {
+test("事后勾稽：6 步核销通过，至少一个材料类别已登记", async () => {
   const d = (await admin("GET", `/api/projects/${pid}`)).data;
   const passed = d.verification.steps.filter((x) => ["通过", "已解例外"].includes(x.result));
   assert.equal(passed.length, 6, `核销通过步数 ${passed.length}/6`);
