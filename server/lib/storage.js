@@ -189,7 +189,7 @@ function isPlainText(buf) {
 
 /** 通过真实文件结构识别二进制 Office；CSV/TXT 需额外校验文本内容与文件扩展名。 */
 function sniffMime(buf, filename = "") {
-  if (!Buffer.isBuffer(buf) || buf.length < 4) return null;
+  if (!Buffer.isBuffer(buf) || buf.length === 0) return null;
   if (buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return "image/jpeg";
   if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) return "image/png";
   if (buf[0] === 0x47 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x38) return "image/gif";
