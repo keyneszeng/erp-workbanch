@@ -153,7 +153,7 @@ function renderList(root) {
     const needAll = d.projects.reduce((s, p) => s + (p.needCount || 0), 0);
 
     root.innerHTML = `<div class="phead">
-      <div><h2>会务需求确认</h2><p>设计 / 制作 / 现场执行 / 其他 · 按需填写规格数量、负责人、交付时间和预算金额。确认后变更必须撤销并重新确认，留存前后快照。</p></div>
+      <div><h2>会务需求确认</h2><p>设计 / 制作 / 现场执行 / 其他 · 新需求默认全部“不需要”，按需填写规格、数量、单价，系统自动计算总价。确认后变更必须撤销并重新确认，留存前后快照。</p></div>
       <div class="acts"></div>
     </div>
     <div class="grid g4">
@@ -194,7 +194,7 @@ function renderSheet(root, pid) {
 
     root.innerHTML = `<div class="phead">
       <div><h2>会务需求确认 · ${esc(d.projectName)}</h2>
-        <p id="dstat">共 ${total} 项（需要 ${need} 项）· 预算合计 ${yuan(d.budgetTotal)}</p></div>
+        <p id="dstat">共 ${total} 项（需要 ${need} 项）· 总价合计 ${yuan(d.budgetTotal)}</p></div>
       <div class="acts">
         <button class="btn btn-o" data-go="demand">← 返回</button>
         ${writable && !d.archived ? '<button class="btn btn-p" id="save">保存</button>' : ""}
@@ -211,7 +211,8 @@ function renderSheet(root, pid) {
           需求单仍可补确认 —— 核销第 3 步要拿这份清单做费用对照，缺了它核销会少一项依据。</div>`
       : ""}
     ${d.archived ? `<div class="banner ok">✓ 该会议会务需求已由 <b>${esc(d.confirmed_by || "")}</b> 于 ${esc(d.confirmed_at || "")} 确认并归档
-      —— 已封存，后续核销以这份清单和预算金额为依据。${writable ? "如需修改，先「撤销归档」。" : ""}</div>` : ""}
+      —— 已封存，后续核销以这份清单的总价为依据。${writable ? "如需修改，先「撤销归档」。" : ""}</div>` : ""}
+    <div class="hint" style="padding:8px 12px">新建与重置模板默认全部“不需要”。总价 = 数量 × 单价，仅“需要”的项目进入合计；历史单据未录入数量和单价时保留原金额。</div>
     ${d.groups.map((g) => groupPanel(g, d.items[g], locked)).join("")}`;
 
     wireSheet(root, pid, d);
