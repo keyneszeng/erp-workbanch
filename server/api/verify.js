@@ -71,21 +71,20 @@ function register(router) {
     const v = verification(p.id);
     const def = v.steps.find((s) => s.no === no);
     if(no===5 && !v.laborRequired)throw conflict("材料库无劳务表，第5项自动不适用，无需核销","SOP_NOT_APPLICABLE");
+    if(no===6 && !v.demandRequired)throw conflict("没有实际需要的会务需求，第6项自动不适用，无需核销","SOP_NOT_APPLICABLE");
     let invoiceAmount = null;
-    if (!isDemoMode() && no === 6 && result === "通过") {
-      const signed = db.prepare("SELECT COUNT(*) AS n, COALESCE(SUM(amount),0) AS total FROM contracts WHERE pid=? AND status='已签署'").get(p.id);
-      if (!signed.n) throw conflict("核票前必须有经协会管理员审批的已签署合同", "CONTRACT_NOT_SIGNED");
-      // 专家劳务依据已签署合同和按需核验的劳务表；不再另设协议材料。
-      // 非劳务合同仍要求：发票总额 = 应开票合同总额；总拟请款 = 全部合同总额。
-      const billable=db.prepare("SELECT COALESCE(SUM(amount),0) AS total FROM contracts WHERE pid=? AND status='已签署' AND COALESCE(category,'')<>'劳务专家'").get(p.id).total;
-      const invoiceMaterial=db.prepare("SELECT COUNT(*) AS n FROM materials WHERE pid=? AND kind='发票' AND file_key IS NOT NULL AND deleted_at IS NULL").get(p.id);
-      if(cents(billable)>0 && !invoiceMaterial.n)throw conflict("非劳务合同请先上传发票原件","INVOICE_EVIDENCE_REQUIRED");
+    if (!isDemoMode() && no===6 && result==="通过") {
+      const demand=require("../lib/meeting-demand-sop").demandSopState(db,p.id);
+      if(!demand.confirmed)throw conflict("请先确认并归档会务需求","DEMAND_NOT_CONFIRMED");
+      if(!demand.contractCount)throw conflict("没有已签署的会务合同","CONTRACT_NOT_SIGNED");
+      if(!demand.agreements.length || !demand.agenda.length || !demand.invoices.length)
+        throw conflict("需上传终版议程、终版会务协议及会务发票原件","SOP_MATERIAL_MISSING");
       invoiceAmount=Number(ctx.body?.invoiceAmount);
       if(ctx.body?.invoiceAmount===""||ctx.body?.invoiceAmount==null||!Number.isFinite(invoiceAmount)||
          invoiceAmount<0||Number(invoiceAmount.toFixed(2))!==invoiceAmount)
-        throw bad("请输入发票总金额（无开票合同可为 0）");
-      if(cents(invoiceAmount)!==cents(billable))
-        throw conflict(`发票金额 ¥${yuan(invoiceAmount)} 与需开票合同总额 ¥${yuan(billable)} 不符；专家劳务合同按核验劳务表另行请款`,"INVOICE_CONTRACT_MISMATCH");
+        throw bad("请输入会务发票总金额（精确到分）");
+      if(cents(demand.budgetTotal)!==cents(demand.contractTotal)||cents(invoiceAmount)!==cents(demand.budgetTotal))
+        throw conflict("会务需求总预算、会务合同总金额、会务发票金额三方必须一致","MEETING_THREE_WAY_MISMATCH");
     }
     if (!isDemoMode() && result==="通过") {
       const outstanding = db.prepare("SELECT id,resolved_at,evidence_material_id FROM exceptions WHERE pid=? AND step_no=? AND status='待复核'").all(p.id,no);

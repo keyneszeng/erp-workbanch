@@ -453,9 +453,9 @@ function register(router) {
     }
     if (!PAYABLE_STATUS.includes(p.status)) {
       throw conflict(
-        `付款被拦截：项目「${p.name}」当前状态为「${p.status}」，按制度必须先完成 6 步核销并通过（已核销）才可付款`,
+        `付款被拦截：项目「${p.name}」当前状态为「${p.status}」，按制度必须完成所有适用核销项（已核销）才可付款`,
         "VERIFY_GATE",
-        { status: p.status, verify: verification(p.id).judged + "/6" }
+        { status: p.status, verify: verification(p.id).judged + "/" + verification(p.id).total }
       );
     }
     if (!PAYMENT_TYPES.includes(b.type)) throw bad(`付款类型必须是：${PAYMENT_TYPES.join(" / ")}`);
@@ -472,9 +472,10 @@ function register(router) {
     const invoiceNo=String(b.invoice_no||"").trim(); // Legacy API remains readable/deduplicated; new UI omits this field.
     if(invoiceNo.length>40)throw bad("发票号不能超过 40 字");
     if (!isDemoMode()) {
-      const checked=db.prepare("SELECT invoice_amount FROM verify_steps WHERE pid=? AND step_no=6 AND result='通过'").get(p.id);
-      if(!checked || !Number.isFinite(checked.invoice_amount))
-        throw conflict("必须先完成合同与开票金额核验再请款","INVOICE_CHECK_REQUIRED");
+      const v=verification(p.id);
+      if(v.demandRequired && (v.steps.find(s=>s.no===6)?.result!=="通过" ||
+          !Number.isFinite(v.steps.find(s=>s.no===6)?.invoiceAmount)))
+        throw conflict("存在会务需求时必须先完成第6项会务三单一致核验再请款","INVOICE_CHECK_REQUIRED");
       const signed=db.prepare("SELECT COALESCE(SUM(amount),0) AS total FROM contracts WHERE pid=? AND status='已签署'").get(p.id);
       const allocated=db.prepare("SELECT COALESCE(SUM(amount),0) AS total FROM payments WHERE pid=? AND status IN ('待审批','已审批','已付款')").get(p.id);
       const requested=Number(b.amount);
