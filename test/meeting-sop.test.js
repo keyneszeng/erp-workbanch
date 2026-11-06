@@ -3,7 +3,7 @@ const {test}=require("node:test");
 const assert=require("node:assert/strict");
 const {validateSopEvidence,sameNames}=require("../server/lib/meeting-sop");
 const project={id:"MP-TEST",name:"会议甲",date:"2026-11-01",assoc:"学会甲",form:"混合"};
-const db={prepare(sql){return {get(pid,kind){return {n:1,total:1000};},all(){return [{name:"甲"},{name:"乙"}];}};}};
+const db={prepare(sql){return {get(pid,kind){return {n:1,total:1000};},all(){return [{id:1,name:"甲",file_name:"甲.pdf",file_key:"fake-1.pdf"},{id:2,name:"乙",file_name:"乙.pdf",file_key:"fake-2.pdf"}];}};}};
 function expectBlock(no,evidence,p=project,amount=1000){
   assert.throws(()=>validateSopEvidence(no,evidence,p,db,amount));
 }
@@ -149,6 +149,9 @@ test("第5项按劳务表五字段核验，无单独协议，且不保留任何�
  const result=validateSopEvidence(5,e,project,db);
  assert.equal(result.matchedLaborRecords,1);
  assert.ok(result.laborSourceSignature);
+ assert.equal(result.matchedContracts,1);
+ assert.equal(result.matchedContractMaterialIds[0],1);
+ assert.ok(result.contractPoolSignature);
  assert.doesNotMatch(JSON.stringify(result),/IN_MEMORY_ONLY|甲/);
  expectBlock(5,{collectionRecords:[{...a,role:""}]});
  expectBlock(5,{collectionRecords:[a,{...a}]});

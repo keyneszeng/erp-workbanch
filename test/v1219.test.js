@@ -75,6 +75,7 @@ test("唯一一份上传原件被删除时，继续推进再次被拦；再传�
 test("第5项随劳务表真实附件出现和移除，换表后旧证据失效",()=>{
   const {verification}=require("../server/lib/workflow");
   const {laborSheetInfo}=require("../server/lib/labor-sop");
+  const {contractPool}=require("../server/lib/labor-contracts");
   assert.equal(verification(pid).total,5);
   assert.equal(verification(pid).steps[4].result,"不适用");
   db.prepare("INSERT INTO materials(pid,kind,name,created_at) VALUES (?,?,?,?)")
@@ -84,9 +85,18 @@ test("第5项随劳务表真实附件出现和移除，换表后旧证据失效"
     .run(pid,"劳务表","新劳务表","labor-proof-v1.pdf","2026-11-06");
   assert.equal(verification(pid).total,6);
   assert.equal(verification(pid).steps[4].result,"待判定");
+  db.prepare("INSERT INTO materials(pid,kind,name,file_name,file_key,created_at) VALUES (?,?,?,?,?,?)")
+    .run(pid,"合同","李老师","李老师.pdf","test-person-contract-v1.pdf","2026-11-06");
   db.prepare("INSERT INTO verify_steps(pid,step_no,name,result,evidence_json) VALUES (?,?,?,?,?)")
-    .run(pid,5,"劳务表五字段核验","通过",JSON.stringify({laborSourceSignature:laborSheetInfo(db,pid).signature}));
+    .run(pid,5,"劳务表五字段核验","通过",JSON.stringify({laborSourceSignature:laborSheetInfo(db,pid).signature,
+      contractPoolSignature:contractPool(db,pid).signature}));
   assert.equal(verification(pid).steps[4].result,"通过");
+  db.prepare("UPDATE materials SET file_name=? WHERE pid=? AND kind='合同'")
+    .run("李老师合同-新版.pdf",pid);
+  assert.equal(verification(pid).steps[4].result,"待判定","按姓名关联的合同文件变更后旧结论失效");
+  db.prepare("UPDATE materials SET file_name=? WHERE pid=? AND kind='合同'")
+    .run("李老师.pdf",pid);
+  assert.equal(verification(pid).steps[4].result,"通过","恢复原文件名称后关联凭证重新有效");
   db.prepare("INSERT INTO materials(pid,kind,name,file_key,created_at) VALUES (?,?,?,?,?)")
     .run(pid,"劳务表","替换的新劳务表","labor-proof-v2.pdf","2026-11-06");
   assert.equal(verification(pid).steps[4].result,"待判定","换表后旧通过结果必须失效");
