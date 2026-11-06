@@ -202,7 +202,7 @@ async function seedArchivedDemand() {
     check("PATCH 返回 409", rej.status === 409, String(rej.status));
     check("错误码 DEMAND_ARCHIVED", rej.data?.error?.code === "DEMAND_ARCHIVED", JSON.stringify(rej.data?.error));
 
-    console.log("\n[7] 核销第 3 步：拿归档需求单当费用对照");
+    console.log("\n[7] 核销第 3 步按新版 SOP 查参会数据；需求总价通过核销接口独立核对");
     await page.goto(`${BASE}/#/verify/${PID2}`, { waitUntil: "networkidle" });
     await page.waitForTimeout(1800);
     const d3 = await page.$('[data-detail="3"]');
@@ -210,17 +210,23 @@ async function seedArchivedDemand() {
     await d3.click();
     await page.waitForTimeout(700);
     const body = await page.textContent("#modal .mb");
-    check("出现「会务需求预算对照」", /会务需求预算对照/.test(body), "");
-    check("显示归档预算合计", /需求单预算合计（归档）/.test(body), "");
-    check("显示已申请费用与其中已付款", /已申请费用（不含已驳回）/.test(body) && /其中已付款/.test(body), "");
-    check("显示归档人与时间", /确认归档/.test(body), "");
-    check("列出需要的条目", /串场/.test(body) && /横幅/.test(body), "");
-    check("标了不需要的条目不在核对清单", !/9999/.test(body), "");
-    check("核对要点提到归档预算", /归档预算/.test(body), "");
+    check("第3步依据新版SOP核验参会数据与时长",
+      /线上有效讲者在线时长/.test(body) && /线下有签到原件/.test(body),body.slice(0,120));
+    check("第3步提供关联签到材料入口",/已登记的关联材料/.test(body),"");
+    // 费用核对通过独立 demand 字段提供，不属于第3步「参会数据与时长」。
+    const verify=await api("GET","/api/projects/"+PID2+"/verify");
+    check("核销接口包含已归档需求",verify.data.demand?.archived===true,JSON.stringify(verify.data.demand));
+    check("核销预算合计与归档一致",Number(verify.data.demand?.budgetTotal)===8000,
+      String(verify.data.demand?.budgetTotal));
+    check("只呈现需要项，排除不需要的酒水",
+      verify.data.demand?.items?.length===2 &&
+      verify.data.demand.items.some(i=>i.item==="串场") &&
+      verify.data.demand.items.some(i=>i.item==="横幅") &&
+      !verify.data.demand.items.some(i=>i.item==="代购酒水"),"");
     await page.click('#modal [data-x="0"]');
     await page.waitForTimeout(300);
 
-    console.log("\n[7b] 项目详情页的核销页签：同一个第 3 步，同样的对照");
+    console.log("\n[7b] 项目详情页的核销页签：同一个参会时长核验");
     await page.goto(`${BASE}/#/projects/${PID2}`, { waitUntil: "networkidle" });
     await page.waitForTimeout(1600);
     const vtab = await page.$('button[data-tab="verify"]');
@@ -234,10 +240,9 @@ async function seedArchivedDemand() {
         await d3b.click();
         await page.waitForTimeout(700);
         const body2 = await page.textContent("#modal .mb");
-        check("页签里也有「会务需求预算对照」", /会务需求预算对照/.test(body2), "");
-        check("页签里也显示归档预算", /需求单预算合计（归档）/.test(body2), "");
-        check("口径已拆开：申请费用 + 其中已付款",
-          /已申请费用（不含已驳回）/.test(body2) && /其中已付款/.test(body2), "");
+        check("项目详情第3步同样遵循参会数据与时长SOP",
+          /线上有效讲者在线时长/.test(body2) && /线下有签到原件/.test(body2),"");
+        check("项目详情第3步展示关联材料入口",/已登记的关联材料/.test(body2),"");
         check("不再出现误导性的「已发生费用」", !/已发生费用/.test(body2), "");
         await page.click('#modal [data-x="0"]');
         await page.waitForTimeout(300);
