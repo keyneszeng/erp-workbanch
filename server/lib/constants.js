@@ -7,7 +7,9 @@ const ASSOCS = [
 ];
 
 const FORMS = ["线下", "线上", "混合"];
-const DEPTS = ["供应商", "非供应商", "学术部", "财务部", "秘书处"];
+// 承办部门与账号部门分类的业务含义不同，不能共用一个选项表。
+const DEPTS = ["会务部", "学术部", "财务部", "秘书处"];
+const USER_DEPTS = ["供应商", "非供应商", "学术部", "财务部", "秘书处"];
 const PAYMENT_TYPES = ["学会公付", "专家费", "个人报销", "厂家款"];
 
 /** 核销 6 步 SOP —— 顺序不可跳过，全部通过才允许进入结算 */
@@ -129,4 +131,4 @@ const DEMAND_NEED_OPTIONS = ["需要", "不需要"];
  */
 const DEMAND_STATUSES = ["筹备中", "执行中"];
 
-module.exports = { ASSOCS, FORMS, DEPTS, PAYMENT_TYPES, VERIFY_STEPS, MATERIAL_KINDS, MATERIAL_MODULE_KINDS, CONTRACT_CATEGORIES, guessContractCategory, FLOW, STATUS_DESC, DEMAND_GROUPS, DEMAND_TEMPLATE, DEMAND_NEED_OPTIONS, DEMAND_STATUSES };
+module.exports = { ASSOCS, FORMS, DEPTS, USER_DEPTS, PAYMENT_TYPES, VERIFY_STEPS, MATERIAL_KINDS, MATERIAL_MODULE_KINDS, CONTRACT_CATEGORIES, guessContractCategory, FLOW, STATUS_DESC, DEMAND_GROUPS, DEMAND_TEMPLATE, DEMAND_NEED_OPTIONS, DEMAND_STATUSES };
