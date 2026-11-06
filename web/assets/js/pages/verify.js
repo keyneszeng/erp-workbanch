@@ -2,6 +2,7 @@ import { api, can, state } from "../lib/api.js";
 import { badge, confirmBox, esc, modal, money, panel, readForm, table, toast } from "../lib/ui.js";
 import { exStepLabel, openStepDetail } from "../lib/verify-detail.js";
 import { sopEvidenceForm, collectSopEvidence } from "../lib/sop-fields.js";
+import { bindLaborContractPreview } from "../lib/labor-contract-preview.js";
 
 export async function render(root, params) {
   if (params && params[0]) return renderOne(root, params[0]);
@@ -149,6 +150,7 @@ function openJudge(root, pid, no, d) {
       ${sopEvidenceForm(no, d.project, d.verification.laborRequired)}`,
     footer: `<button class="btn btn-o" data-x="0">取消</button><button class="btn btn-p" data-x="1">提交判定</button>`
   });
+  if (no===5) bindLaborContractPreview(m,d.materials||[]);
   m.querySelector('[data-x="0"]').onclick = () => m.classList.remove("open");
   m.querySelector('[data-x="1"]').onclick = async () => {
     const val = readForm(m);
