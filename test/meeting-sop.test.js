@@ -106,11 +106,40 @@ test("线上时长严格大于30，混合会议同时需要签到",()=>{
  assert.equal(validateSopEvidence(3,{onlineMinutes:31,signedAttendance:true},project,db).format,"混合");
  assert.equal(validateSopEvidence(3,{signedAttendance:true},{...project,form:"线下"},db).format,"线下");
 });
-test("课件课题与串场、logo位置不一致不能通过",()=>{
- const e={agendaTopics:["课题甲"],courseTopics:["课题甲"],hostTitleMatches:true,hostNameLogoMatches:true,sponsorLogoPages:["首页"]};
- assert.equal(validateSopEvidence(4,e,project,db).matchedTopics,1);
- expectBlock(4,{...e,courseTopics:["另一个课题"]});
- expectBlock(4,{...e,sponsorLogoPages:["正文"]});
+test("第4步仅要求课件主题包含在终版议程内，允许议程有其他未上传课件主题",()=>{
+ const e={agendaTopics:["课题甲","课题乙","课题丙"],courseTopics:["课题乙"]};
+ const result=validateSopEvidence(4,e,project,db);
+ assert.equal(result.matchedTopics,1);
+ assert.equal(result.comparedWith,"终版议程");
+ assert.ok(!Object.hasOwn(result,"hostNameLogoMatches"));
+ assert.ok(!Object.hasOwn(result,"sponsorLogoPages"));
+ assert.doesNotMatch(JSON.stringify(result),/课题乙/,"核销摘要不应保存主题原文");
+ assert.equal(validateSopEvidence(4,{...e,courseTopics:["课题甲","课题丙"]},project,db).matchedTopics,2);
+ assert.equal(validateSopEvidence(4,{...e,courseTopics:["课 题 乙"]},project,db).matchedTopics,1,
+   "允许课题名称中多余的空格，但不使用模糊匹配");
+ expectBlock(4,{...e,courseTopics:["不在议程中的课题"]});
+ expectBlock(4,{...e,courseTopics:["课题乙","不在议程中的课题"]});
+ expectBlock(4,{...e,courseTopics:[]});
+ expectBlock(4,{...e,agendaTopics:[]});
+ expectBlock(4,{...e,agendaTopics:["课题甲"]});
+ const noLogoFields={...e,courseTopics:["课题甲"],hostTitleMatches:false,
+   hostNameLogoMatches:false,sponsorLogoPages:["正文"]};
+ assert.equal(validateSopEvidence(4,noLogoFields,project,db).matchedTopics,1,
+   "旧版串场与 Logo 字段不应再作为核验条件");
+});
+test("核销第4步文字、关联材料与表单中不再包含串场和 Logo 必填项",()=>{
+ const fs=require("node:fs"),path=require("node:path");
+ const root=path.join(__dirname,"..");
+ const labels=fs.readFileSync(path.join(root,"server/lib/constants.js"),"utf8");
+ const form=fs.readFileSync(path.join(root,"web/assets/js/lib/sop-fields.js"),"utf8");
+ const detail=fs.readFileSync(path.join(root,"web/assets/js/lib/verify-detail.js"),"utf8");
+ assert.match(labels,/name: "课件主题在终版议程里"/);
+ assert.match(detail,/4:\["终版议程","课件"\]/);
+ assert.ok(form.includes('area("agendaTopics"'));
+ assert.ok(form.includes('area("courseTopics"'));
+ const stepFour=form.split("    4:area(")[1]?.split("    5:area(")[0]||"";
+ assert.ok(stepFour);
+ assert.doesNotMatch(stepFour,/hostTitleMatches|hostNameLogoMatches|sponsorLogoPages|logo首页|药企/);
 });
 test("劳务五字段即时比对，不保留任何姓名或银行账号",()=>{
  const a={name:"甲",time:"9:00",role:"讲者",amount:"100",bankAccount:"IN_MEMORY_ONLY"};
