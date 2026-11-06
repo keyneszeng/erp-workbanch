@@ -95,9 +95,9 @@ test("更新接口必须由协会管理员审批，非法附件或其他项目�
   const invalid=await req("assoc","POST","/api/contracts/"+cid+"/replace-file",
     {file_key:"../../etc/passwd",file_name:"evil"});
   assert.equal(invalid.status,400);
-  const unrelated=await upload("assoc",PDF2,"跨项目附件.pdf","MP-2026-003");
+  const unrelated=await upload("admin",PDF2,"跨项目附件.pdf","MP-2026-003");
   assert.equal(unrelated.status,200);
-  const cross=await req("assoc","POST","/api/contracts/"+cid+"/replace-file",
+  const cross=await req("admin","POST","/api/contracts/"+cid+"/replace-file",
     {file_key:unrelated.data.key,file_name:unrelated.data.name});
   assert.equal(cross.status,403);
   assert.equal((await contract()).file_key,firstKey);
