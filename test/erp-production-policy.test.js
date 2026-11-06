@@ -196,9 +196,10 @@ test("production: association member IDs, approved contract signing and pay-afte
   exception=await request("POST","/api/exceptions/"+exceptionId+"/resolve",
     {resolution:"已补充原件并完成逐项确认",materialId:agendaMaterial.id},cookie);
   assert.equal(exception.status,200,JSON.stringify(exception.body));
-  for(let no=1;no<=5;no++){
+  // 各步骤独立：第 1 步存在待复核例外时，其他步骤也可先行判定。
+  for(const no of [5,3,2,4,1]){
     step=await request("POST","/api/projects/"+pid+"/verify/steps/"+no,{result:"通过",evidence:sop[no]},cookie);
-    assert.equal(step.status,200,"verification "+no+": "+JSON.stringify(step.body));
+    assert.equal(step.status,200,"out-of-order verification "+no+": "+JSON.stringify(step.body));
   }
   step=await request("POST","/api/projects/"+pid+"/verify/steps/6",{result:"通过",invoiceAmount:7999,evidence:sop[6]},cookie);
   assert.equal(step.status,409,"invoice total cannot differ from signed contracts");
@@ -218,19 +219,16 @@ test("production: association member IDs, approved contract signing and pay-afte
   assert.equal(status.body.verification.complete,false,"旧版未留证的通过结果不能满足生产核销门禁");
   let blocked=await request("POST","/api/projects/"+pid+"/transition",{action:"verify_pass"},cookie);
   assert.equal(blocked.status,409,"历史缺证据不得进入财务结算");
-  // 重新确认前置步骤后，下游旧证据全部失效，必须顺序重新核验。
+  // 补录第1项的历史结构化依据，不应清除其他五项已完成的独立核验。
   step=await request("POST","/api/projects/"+pid+"/verify/steps/1",{result:"通过",evidence:sop[1]},cookie);
   assert.equal(step.status,200,JSON.stringify(step.body));
   status=await request("GET","/api/projects/"+pid+"/verify",undefined,cookie);
-  assert.equal(status.body.verification.steps.find(s=>s.no===2).result,"待判定");
-  assert.equal(status.body.verification.steps.find(s=>s.no===6).result,"待判定");
-  for(let no=2;no<=5;no++){
-    step=await request("POST","/api/projects/"+pid+"/verify/steps/"+no,{result:"通过",evidence:sop[no]},cookie);
-    assert.equal(step.status,200,"repeat verification "+no+": "+JSON.stringify(step.body));
+  for(const no of [2,3,4,5,6]){
+    const checked=status.body.verification.steps.find(s=>s.no===no);
+    assert.equal(checked.result,"通过","重新判定第1项不能抹掉第"+no+"项");
+    assert.ok(checked.evidence,"其他核验步骤仍须保留原始证据摘要");
   }
-  step=await request("POST","/api/projects/"+pid+"/verify/steps/6",
-    {result:"通过",invoiceAmount:8000,evidence:sop[6]},cookie);
-  assert.equal(step.status,200,JSON.stringify(step.body));
+  assert.equal(status.body.verification.complete,true,"六项全部独立通过后恢复完整核销状态");
   step=await request("POST","/api/projects/"+pid+"/transition",{action:"verify_pass"},cookie);
   assert.equal(step.status,200,JSON.stringify(step.body));
   const settlementData={action:"settle",payee_bank:"中国银行北京分行",payee_account:"1234567890123456"};
