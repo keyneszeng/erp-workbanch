@@ -33,3 +33,11 @@ test("singleton administrator can be selected as project owner, but cannot bypas
   .run("associationmember","协会成员","assoc","华东医学会","salt","hash",new Date().toISOString());
  assert.equal(assignedMember(admin.lastInsertRowid,"华东医学会").role,"admin","总管理员无论其他成员数量都可被指派");
 });
+
+test("department choices retire meeting department and include supplier / non-supplier",()=>{
+ const {DEPTS}=require("../server/lib/constants");
+ assert.equal(DEPTS.includes("会务部"),false);
+ assert.ok(DEPTS.includes("供应商"));
+ assert.ok(DEPTS.includes("非供应商"));
+ assert.equal(new Set(DEPTS).size,DEPTS.length,"部门分类不可重复");
+});
