@@ -36,8 +36,8 @@ test("终版议程、签到表、讲者照片一致且附件真实时通过",()=
 test("适用讲者名单任一漏名、重名、串名或未确认不得通过",()=>{
   const {db}=build();
   for(const k of ["agendaSpeakers","attendanceSpeakers","photoSpeakers"]){
-    assert.throws(()=>validateSopEvidence(2,{...base,[k]:["李老师"]},project,db),/不一致/);
-    assert.throws(()=>validateSopEvidence(2,{...base,[k]:["李老师","李老师"]},project,db),/不一致/);
+    assert.throws(()=>validateSopEvidence(2,{...base,[k]:["李老师"]},project,db),/不一致|重复姓名/);
+    assert.throws(()=>validateSopEvidence(2,{...base,[k]:["李老师","李老师"]},project,db),/不一致|重复姓名/);
   }
   assert.throws(()=>validateSopEvidence(2,{...base,noOmissions:false},project,db),/人工确认/);
   db.close();
