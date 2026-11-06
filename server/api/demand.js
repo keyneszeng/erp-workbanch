@@ -49,6 +49,10 @@ function calculateBudget(quantity, unitPrice, itemName) {
 }
 
 function checkItem(it) {
+  if (it.due && (!/^\d{4}-\d{2}-\d{2}$/.test(it.due) ||
+    !Number.isFinite(Date.parse(it.due)) ||
+    new Date(it.due).toISOString().slice(0,10)!==it.due))
+    throw bad(`「${it.item || ""}」的交付时间必须是有效日期`);
   if (it.need !== undefined && !DEMAND_NEED_OPTIONS.includes(it.need)) throw bad(`「${it.item || ""}」的「是否需要」取值非法`);
   if (it.status !== undefined && !["未开始", "执行中", "已交付", "已验收", "不需要"].includes(it.status)) throw bad(`「${it.item || ""}」的执行状态非法`);
   for (const [k, max] of Object.entries(MAX_LEN)) {
@@ -206,6 +210,7 @@ function register(router) {
     // 列表页已经按阶段过滤，但详情页仍可直接打开（归档记录、核销对照都要看得到）
     sheet.projectStatus = p.status;
     sheet.inDemandPhase = DEMAND_STATUSES.includes(p.status);
+    sheet.requireCompletion = !isDemoMode();
     return sheet;
   });
 
@@ -245,15 +250,21 @@ function register(router) {
         throw bad(`「${it.grp}」分组下存在重复条目「${name}」，同一分组内条目名必须唯一`, "DUPLICATE_ITEM");
       }
       seen.add(key);
+      // 仅需求表的负责人可自由填写；立项项目负责人仍按协会成员权限模型校验。
+      // 向后兼容旧客户端的 owner_id，用户输入的新姓名优先，且不额外授予任何项目权限。
+      const typedOwner = String(it.owner ?? "").trim();
       if (it.owner_id != null && String(it.owner_id).trim() !== "") {
         const member = assignedMember(it.owner_id, p.assoc);
-        it.owner_id = member.id;
-        it.owner = member.name;
-      } else if (!isDemoMode() && String(it.owner || "").trim()) {
-        throw bad("需求负责人必须从本协会有效成员选择，不可手动输入姓名");
+        if (!typedOwner || typedOwner === member.name) {
+          it.owner = member.name;
+          it.owner_id = member.id;
+        } else {
+          it.owner = typedOwner;
+          it.owner_id = null;
+        }
       } else {
+        it.owner = typedOwner;
         it.owner_id = null;
-        if (!isDemoMode()) it.owner = "";
       }
       // 新版客户端发送数量/单价时，只允许服务端自动计算总价。
       // 老版接口未传数量/单价：兼容旧金额；旧单在新版编辑时仍保留原手填金额。
@@ -315,7 +326,7 @@ function register(router) {
       const rows = db.prepare("SELECT * FROM demand_items WHERE pid=? AND need='需要'").all(p.id);
       // 全部不需要也允许确认：明确的零需求比强迫用户勾选虚假需求更可靠。
       for (const it of rows) {
-        const missing = ["spec","owner_id","due"].filter(k=>!String(it[k]??"").trim());
+        const missing = ["spec","owner","due"].filter(k=>!String(it[k]??"").trim());
         if (missing.length) throw bad("需求「"+it.item+"」缺少必填字段："+missing.join("、"));
 
       }
