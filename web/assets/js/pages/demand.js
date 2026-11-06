@@ -2,7 +2,7 @@ import { api, can } from "../lib/api.js";
 import { esc, badge, toast, confirmBox, money } from "../lib/ui.js";
 
 const yuan = (n) => `¥${money(Number(n) || 0)}`;
-const blankItem = { item: "", note: "", need: "需要", spec: "", owner: "", owner_id: "", due: "", budget: "", budget_owner: "", attach: "", status: "未开始" };
+const blankItem = { item: "", note: "", need: "不需要", spec: "", quantity: "", unit_price: "", owner: "", owner_id: "", due: "", budget: "", budget_owner: "", attach: "", status: "未开始" };
 let memberOptions = [];
 
 function optHtml(opts, val) {
