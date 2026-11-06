@@ -12,7 +12,7 @@ export async function render(root) {
   const profit = archived.reduce((s, p) => s + (settleMap.get(p.id)?.profit || 0), 0);
 
   root.innerHTML = `<div class="phead">
-      <div><h2>数字卷宗</h2><p>归档前置：结算单已生成 + 材料 8/8 齐备；归档后卷宗封存</p></div>
+      <div><h2>数字卷宗</h2><p>归档前置：结算单已生成 + 至少保留一份已上传的材料附件；材料类别自由选择，归档后卷宗封存</p></div>
       <div class="acts">${can("export:any") ? '<button class="btn btn-o" id="exp">导出核销卷宗</button>' : ""}</div>
     </div>
     <div class="grid g3">

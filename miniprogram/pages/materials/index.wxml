@@ -7,8 +7,8 @@
  <view wx:if="{{locked}}" class="error">当前项目已结算或归档，材料被冻结，无法继续上传。</view>
  </view>
  <view class="card">
-  <view class="section-caption">01 · 固定材料模块</view>
-  <view class="muted">已停用的模块不在上传列表中，但保留历史原件。</view>
+  <view class="section-caption">01 · 材料类别（自由选择）</view>
+  <view class="muted">请选择需要归档的材料类别，也可以自定义名称。不要求固定类别齐全，上传任意一份附件后即可继续后续业务流程。</view>
   <view class="chip-list">
    <view wx:for="{{activeKinds}}" wx:key="*this" data-kind="{{item}}" bindtap="chooseKind"
      class="select-chip {{!custom&&kind===item?'chip-selected':''}}">{{item}}</view>

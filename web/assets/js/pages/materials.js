@@ -8,29 +8,29 @@ let curPage = 1;
 
 export async function render(root) {
   const d = await api.get(`/api/materials?page=${curPage}&size=${PAGE_SIZE}`);
-  const complete = d.projects.filter((p) => p.missing.length === 0).length;
+  const complete = d.projects.filter((p) => p.uploadedCount > 0).length;
 
   root.innerHTML = `<div class="phead">
-      <div><h2>材料中心</h2><p>模块化采集 · 按会议管理版本、原件与归档齐备度</p></div>
+      <div><h2>材料中心</h2><p>材料类别自由选择 · 上传后按会议归档，不再要求固定类别</p></div>
       <div class="acts">${can("material:write") ? '<button class="btn btn-p" id="add">+ 登记材料</button>' : ""}</div>
     </div>
     <div class="grid g4">
       <div class="kpi"><div class="t">材料条目</div><div class="v">${d.total}<span class="u">条</span></div></div>
       <div class="kpi k2"><div class="t">在管项目</div><div class="v">${d.projects.length}<span class="u">个</span></div></div>
-      <div class="kpi k4"><div class="t">8 类齐备</div><div class="v">${complete}<span class="u">个</span></div></div>
-      <div class="kpi k3"><div class="t">待补齐</div><div class="v">${d.projects.length - complete}<span class="u">个</span></div></div>
+      <div class="kpi k4"><div class="t">已有附件项目</div><div class="v">${complete}<span class="u">个</span></div></div>
+      <div class="kpi k3"><div class="t">尚未上传附件</div><div class="v">${d.projects.length - complete}<span class="u">个</span></div></div>
     </div>
 
     <div class="ux-section-intro mt"><div><h2>按项目收集材料</h2><p>固定模块按会议启停，自定义材料独立登记；历史版本与原件持续保留</p></div></div>
     <div id="materialWorkbench"></div>
     <div class="panel mt">
-      <div class="panel-h"><h2>项目齐备情况</h2><span class="hint">缺项项目无法归档</span></div>
-      ${table([{ t: "项目" }, { t: "状态", w: "84px" }, { t: "齐备度", w: "110px" }, { t: "缺失类别" }, { t: "操作", w: "90px" }],
+      <div class="panel-h"><h2>项目材料上传情况</h2><span class="hint">任意类别上传至少一份附件即可进入后续流程</span></div>
+      ${table([{ t: "项目" }, { t: "状态", w: "84px" }, { t: "上传原件", w: "110px" }, { t: "类别数" }, { t: "操作", w: "90px" }],
         d.projects.map((p) => ({
           c: [`<a class="link" data-go="projects/${p.id}">${esc(p.name)}</a>`,
-            p.status, `<b class="${p.missing.length ? "neg" : "pos"}">${8 - p.missing.length}/8</b>`,
-            p.missing.length ? `<span style="color:var(--orange)">${p.missing.join("、")}</span>` : '<span style="color:var(--green)">齐备</span>',
-            `<button class="link" data-go="projects/${p.id}">去补</button>`]
+            p.status, `<b class="${p.uploadedCount ? "pos" : "neg"}">${p.uploadedCount || 0} 份</b>`,
+            esc(String(p.have?.length || 0))+" 类 · "+(p.uploadedCount ? "已满足材料条件" : "待上传附件"),
+            `<button class="link" data-go="projects/${p.id}">查看</button>`]
         })), { empty: "暂无项目" })}
     </div>
 
@@ -64,8 +64,8 @@ export function openMaterialRegistration(root, projects, kinds, defaultPid="", o
   const fields = [
     { k: "pid", l: "所属项目", t: "select", req: 1, v:defaultPid, opts: projects.map((p) => ({ v: p.id, l: `${p.id} ${p.name}` })) },
     { k: "kind", l: "材料类别", t: "select", req: 1, custom: 1, ph: "如：盖章会议通知 / 招商函 / 终版议程 / 讲者照片",
-      opts: [...kinds, "会议通知", "招商函", "终版议程", "课件", "串场", "劳务收集表", "劳务协议", "讲者照片"].filter((v, i, a) => a.indexOf(v) === i),
-      tip: "8 类是归档必备，建议优先选；确实不属于这 8 类的，选「自定义填入」自己写，能登记能查，但不顶替必备的那 8 类" },
+      opts: [...kinds, "会议通知", "招商函", "终版议程", "课件", "串场", "劳务收集表", "劳务协议", "讲者照片", "权益照片"].filter((v, i, a) => a.indexOf(v) === i),
+      tip: "可任选类别或自定义类别；不要求固定类别全部上传。至少上传一份实际附件即可满足流程材料条件。" },
     { k: "name", l: "材料名称", req: 1, ph: "如：签到表-终版.pdf" },
     { k: "version", l: "版本", v: "v1" },
     {

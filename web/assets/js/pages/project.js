@@ -14,7 +14,7 @@ const PAYABLE = ["已核销"];
  * 页签顺序 = 作业顺序。
  *
  * 「材料 → 核销 → 付款」这一段是硬顺序，不是排版偏好：
- *   · 材料 8 类齐备才开启核销（V1.2.19）；
+ *   · 任意类别上传至少一份材料附件后即可进入核销；
  *   · 核销通过（已核销）是付款的唯一前置门（V1.2.20 把付款挪到核销后面）。
  * 页签顺序跟流程反着放，人会先去点后面那个、被拦、再回头找前一个 —— 顺序本身就是提示。
  */
@@ -60,7 +60,7 @@ export async function render(root, [pid]) {
     <div class="ux-progress"><span style="width:${Math.max(0,ORDER.indexOf(p.status))/8*100}%"></span></div>
     ${!participant ? `<div class="ux-checkpoints">
        <button type="button" data-tab="demand"><strong>${d.demand?.archived?"已确认":"待确认"}</strong><span>会务需求</span></button>
-       <button type="button" data-tab="materials"><strong>${8-d.materialsStatus.missing.length}/8</strong><span>归档材料</span></button>
+       <button type="button" data-tab="materials"><strong>${d.materialsStatus.uploadedCount || 0} 份</strong><span>归档材料</span></button>
        <button type="button" data-tab="verify"><strong>${d.verification.passed}/6</strong><span>六步核销</span></button>
        <button type="button" data-tab="payments"><strong>${d.settlement?"已生成":"未生成"}</strong><span>财务结算</span></button>
      </div>` : '<p class="ux-public-hint">会议审批与执行状态公开给有权查看本项目的成员；财务明细仅限授权角色。</p>'}
@@ -70,7 +70,7 @@ export async function render(root, [pid]) {
 
   <div class="tabs mt">${visibleTabs.map(([k, n]) => `<button data-tab="${k}" class="${tab === k ? "on" : ""}">${n}${
     k === "verify" ? ` <span style="color:var(--mute)">${d.verification.passed}/6</span>` : ""}${
-    k === "materials" ? ` <span style="color:var(--mute)">${8 - d.materialsStatus.missing.length}/8</span>` : ""}</button>`).join("")}</div>
+    k === "materials" ? ` <span style="color:var(--mute)">${d.materialsStatus.uploadedCount || 0} 份</span>` : ""}</button>`).join("")}</div>
   <div id="tabbody"></div>`;
 
   root.querySelectorAll("[data-tab]").forEach((b) => b.addEventListener("click", () => { tab = b.dataset.tab; render(root, [pid]); }));
@@ -372,20 +372,12 @@ function tabVerify(d, p) {
   const v = d.verification;
   const frozen = !!d.settlement;
   const ms = d.materialsStatus;
-  // V1.2.19：材料 8 类齐备才开启核销，缺料时判定按钮一律禁用
+  // 核销入口只要求项目上传至少一份任意类别的材料附件。
   const materialReady = ms.ok;
-  /**
-   * 文案要分状态：已经核销完的项目说「核销未开启」是错的 —— 它早就核销了，
-   * 缺料只影响归档。历史数据（门禁上线前就核销完、材料没齐）会走到这一支。
-   */
-  const doneVerify = ["已核销", "已结算", "已归档"].includes(p.status);
-  const banner = materialReady ? "" : (doneVerify
-    ? `<div class="gate" style="margin-bottom:12px"><b>材料还缺 ${ms.missing.length} 类</b>
-        核销已完成，缺料只影响归档（归档要求 8/8）：${esc(ms.missing.join("、"))}。
-        <button class="link" data-goto-tab="materials">去登记材料 →</button></div>`
-    : `<div class="gate" style="margin-bottom:12px"><b>核销未开启：材料还缺 ${ms.missing.length} 类</b>
-        必须先完成材料 8 项录入才能判定（缺：${esc(ms.missing.join("、"))}）。
-        <button class="link" data-goto-tab="materials">去登记材料 →</button></div>`);
+  const banner = materialReady ? "" :
+    `<div class="gate" style="margin-bottom:12px"><b>尚未上传材料原件</b>
+      任意材料类别上传至少一份附件后即可继续，无需固定类别齐全。
+      <button class="link" data-goto-tab="materials">去上传材料 →</button></div>`;
   return `${banner}
   ${panel("核销 6 步 SOP", `已通过 ${v.passed}/6 · ${v.openExceptions ? v.openExceptions + " 张例外单待审批" : "无未决例外"}`,
     `<div class="vsteps">${v.steps.map((s) => {
@@ -423,10 +415,10 @@ function tabVerify(d, p) {
 /* ---------------- 材料 ---------------- */
 function tabMaterials(d, p) {
   const ms = d.materialsStatus;
-  return panel("归档材料（必备 8 类）",
-    `${8 - ms.missing.length}/8 齐备${ms.ok ? " · 已满足核销前置" : " · 核销前置未满足"}`, `
-    <div class="chips">${ms.required.map((k) => `<span class="chip" style="${ms.have.includes(k) ? "border-color:#c9e8d4;background:#f4fbf6" : "border-color:#efdcc8;background:#fdf7f1"}">
-      <i>${ms.have.includes(k) ? "✅" : "⛔"}</i><b>${esc(k)}</b></span>`).join("")}</div>
+  return panel("归档材料",
+    `已上传 ${ms.uploadedCount || 0} 份附件 · ${ms.have.length} 类 · ${ms.ok ? "可进入后续流程" : "请先上传至少一份附件"}`, `
+    <div class="hint" style="padding:8px 14px">材料类别可自由选择（含「权益照片」），不再要求固定类别齐全；至少上传一份原件即可满足材料门槛。核销与财务独立审批仍须按流程完成。</div>
+    <div class="chips">${ms.have.map((k) => `<span class="chip"><i>✓</i><b>${esc(k)}</b></span>`).join("")}</div>
     ${table([{ t: "类别", w: "104px" }, { t: "材料名称" }, { t: "附件", w: "84px" }, { t: "版本", w: "56px" },
       { t: "上传人", w: "76px" }, { t: "时间", w: "130px" }, { t: "操作", w: "56px" }],
       d.materials.map((m) => ({
