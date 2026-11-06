@@ -59,6 +59,8 @@ jobs:
           node --check server/api/files.js
           node --check server/lib/legacy-office.js
           node --check server/lib/storage.js
+          node --input-type=module --check < web/assets/js/pages/verify.js
+          node --input-type=module --check < web/assets/js/pages/archive.js
           node --input-type=module --check < web/assets/js/lib/upload.js
           node --input-type=module --check < web/assets/js/lib/income-workbench.js
           node --check server/lib/ocr-engine.js
@@ -87,6 +89,8 @@ jobs:
         run: ERP_DEMO_MODE=1 node --experimental-sqlite --test test/contract-replace.test.js
       - name: Verify XLS/DOC/PPT legacy upload, CSV/TXT and download before OCR setup
         run: ERP_DEMO_MODE=1 node --experimental-sqlite --test test/legacy-office.test.js test/legacy-ppt.test.js test/office-material.test.js
+      - name: Verify flexible material gate in real production mode before OCR setup
+        run: ERP_DEMO_MODE=1 node --experimental-sqlite --test test/v1219.test.js
       - name: Install offline OCR runtime (Tesseract Chinese/English + Poppler)
         run: |
           sudo apt-get update -qq
