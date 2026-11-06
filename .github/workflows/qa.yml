@@ -5,9 +5,11 @@ on:
     branches:
       - main
       - 'fix/**'
+      - 'feat/**'
   pull_request:
     branches:
       - main
+      - '云服务器测试版本'
 
 permissions:
   contents: read
@@ -37,6 +39,8 @@ jobs:
           node --input-type=module --check < web/assets/js/pages/finance.js
           node --input-type=module --check < web/assets/js/pages/materials.js
           node --check server/api/projects.js
+          node --check server/api/project-notice.js
+          node --check server/lib/project-notice.js
           node --check miniprogram/app.js
           node --check miniprogram/config.js
           node --check miniprogram/pages/bind/index.js
@@ -66,8 +70,10 @@ jobs:
           node --input-type=module --check < web/assets/js/pages/invitation-config.js
           node --input-type=module --check < web/assets/js/invitation-public.js
           node --check miniprogram/pages/invite/index.js
-      - name: Install PDF generation dependency
+      - name: Install PDF and Word generation dependencies
         run: npm install --no-audit --no-fund
+      - name: Verify Word initiation notice workflow before heavy OCR setup
+        run: ERP_DEMO_MODE=1 node --experimental-sqlite --test test/project-notice.test.js
       - name: Install offline OCR runtime (Tesseract Chinese/English + Poppler)
         run: |
           sudo apt-get update -qq

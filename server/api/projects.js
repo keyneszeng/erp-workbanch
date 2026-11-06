@@ -183,6 +183,7 @@ function detail(project, user) {
     // 核销第 3 步的费用对照基准。项目详情页的核销页签读的是这个接口，
     // 之前只在 /verify 里返回，导致同一个第 3 步在两个页面给出不同答案。
     demand: demandSummary(pid),
+    ...require("../lib/project-notice").overview(project),
     actions: availableActions(project, user),
     timeline,
     // 与 /verify 的 paidTotal 必须同口径：裸 reduce 会留浮点尾巴（0.1+0.2 → 0.30000000000000004），

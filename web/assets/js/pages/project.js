@@ -200,10 +200,38 @@ function tabOverview(d, p) {
     </div>
   </div>
   ${tabChanges(d, p)}
+  ${noticePanel(d, p)}
   ${panel("立项审批记录", "", table(
     [{ t: "审批单" }, { t: "类型", w: "96px" }, { t: "金额", w: "96px" }, { t: "提交人", w: "80px" }, { t: "状态", w: "80px" }, { t: "审批人", w: "80px" }, { t: "时间", w: "130px" }],
     d.approvals.map((a) => ({ c: [a.id, a.type, `¥${money(a.amount)}`, esc(a.by_user || ""), badge(a.status), esc(a.decided_by || "—"), `<span class="mono">${esc(a.created_at)}</span>`] })),
     { empty: "暂无审批记录" }))}`;
+}
+
+/* ---------------- 立项函与可盖章 Word 项目通知函 ---------------- */
+function noticePanel(d,p) {
+  const letter=d.initiationLetter||{};
+  const t=d.noticeTemplate||{name:"系统内置 Word 模板",version:0};
+  const n=d.projectNotice||{ready:false};
+  const manager=state.super || state.user.role==="assoc";
+  const editable=manager && ["草稿","待审批"].includes(p.status);
+  const approved=["已立项","筹备中","执行中","待核销","已核销","已结算","已归档"].includes(p.status);
+  const status=n.ready ? "已锁定 · "+(n.approvedAt||"")+(n.backfilled?" · 历史补发":"")
+    : approved?"已立项（历史项目尚无 Word 快照，可由管理员补发）":"等待立项审批";
+  return panel("立项函及项目通知函",esc(status),
+    '<div class="hint" style="margin-bottom:10px">立项函正文由协会管理员或总管理员审核编辑；立项通过时锁定正文及本协会模板版本。正式通知函为待盖章 Word，不是系统盖章。</div>'+
+    '<dl class="dl">'+
+      '<dt>立项函标题</dt><dd><b>'+esc(letter.title||"—")+'</b></dd>'+
+      '<dt>立项函正文</dt><dd style="white-space:pre-wrap;max-height:180px;overflow:auto">'+esc((letter.body||"").slice(0,2000))+'</dd>'+
+      '<dt>本协会 Word 模板</dt><dd>'+esc(t.name)+' · v'+Number(t.version||0)+'</dd>'+
+      (n.ready?'<dt>审批时模板</dt><dd>'+esc(n.templateName||"")+' · v'+Number(n.templateVersion||0)+'</dd>':"")+
+    '</dl>'+
+    '<div class="acts" style="display:flex;flex-wrap:wrap;gap:8px;padding:10px 0">'+
+      (editable?'<button class="btn btn-o btn-sm" data-notice-edit>编辑立项函</button>':"")+
+      (manager?'<button class="btn btn-o btn-sm" data-notice-template>上传 / 替换本协会 Word 模板</button>':"")+
+      (manager?'<button class="btn btn-o btn-sm" data-notice-preview>预览 Word</button>':"")+
+      (n.ready?'<button class="btn btn-p btn-sm" data-notice-download>下载项目通知函（Word）</button>':"")+
+      (approved&&!n.ready&&manager?'<button class="btn btn-o btn-sm" data-notice-backfill>历史项目补发通知函</button>':"")+
+    '</div><div class="hint">上传的 DOCX 模板至少包含 <code>{{会议名称}}</code> 和 <code>{{立项函正文}}</code>。模板更新不改变已审批通知函。</div>');
 }
 
 /* ---------------- 变更记录（审批通过 ≠ 生效，落账要第二个人） ---------------- */
@@ -426,6 +454,11 @@ function tabTimeline(d) {
 
 /* ---------------- 事件绑定 ---------------- */
 function wire(root, pid, d, body) {
+  body.querySelector("[data-notice-edit]")?.addEventListener("click",()=>editInitiationLetter(root,pid,d.initiationLetter));
+  body.querySelector("[data-notice-template]")?.addEventListener("click",()=>editNoticeTemplate(root,pid));
+  body.querySelector("[data-notice-preview]")?.addEventListener("click",()=>downloadNotice(pid,true));
+  body.querySelector("[data-notice-download]")?.addEventListener("click",()=>downloadNotice(pid,false));
+  body.querySelector("[data-notice-backfill]")?.addEventListener("click",()=>backfillNotice(root,pid));
   body.querySelectorAll("[data-pay-approve]").forEach((b) => b.onclick = () => payAct(root, pid, b.dataset.payApprove, "approve"));
   body.querySelectorAll("[data-pay-reject]").forEach((b) => b.onclick = () => payAct(root, pid, b.dataset.payReject, "reject"));
   body.querySelectorAll("[data-pay-pay]").forEach((b) => b.onclick = () => payAct(root, pid, b.dataset.payPay, "pay"));
@@ -469,6 +502,65 @@ function wire(root, pid, d, body) {
   const ae = body.querySelector("#addEx"); if (ae) ae.onclick = () => openException(root, pid, d);
   const am = body.querySelector("#addMat"); if (am) am.onclick = () => openMaterial(root, pid);
   const amm = body.querySelector("#addMem"); if (amm) amm.onclick = () => openMember(root, pid, d);
+}
+
+async function editInitiationLetter(root,pid,letter={}) {
+  const fields=[
+    {k:"title",l:"立项函标题",req:1,full:1},
+    {k:"body",l:"立项函正文",t:"textarea",req:1,rows:12,full:1,
+      tip:"审批通过前可反复修改；批准后正式内容冻结，以保证通知函可追溯。"}
+  ];
+  const m=modal({title:"编辑立项函",width:"700px",body:formHtml(fields,letter),
+    footer:'<button class="btn btn-o" data-x="0">取消</button><button class="btn btn-p" data-x="1">保存正文</button>'});
+  m.querySelector('[data-x="0"]').onclick=()=>m.classList.remove("open");
+  const save=m.querySelector('[data-x="1"]');
+  save.onclick=async()=>{
+    if(!validate(m,fields))return;
+    save.disabled=true;
+    try {
+      const r=await api.patch("/api/projects/"+encodeURIComponent(pid)+"/initiation-letter",readForm(m));
+      toast(r.message,"ok");m.classList.remove("open");await refresh(root,pid);
+    }catch(e){save.disabled=false;toast(e.message,"warn");}
+  };
+}
+async function editNoticeTemplate(root,pid) {
+  const m=modal({title:"上传本协会固定 Word 通知函模板",width:"620px",
+    body:'<div class="hint">模板适用于本协会今后审批通过的项目；已审批通知函的内容与模板版本不会改变。</div>'+
+      '<p style="margin:10px 0">必须为 DOCX，保留协会公文抬头、格式、署名和盖章区域，使用 <code>{{会议名称}}</code>、<code>{{立项函正文}}</code> 填入数据。</p>'+
+      '<input type="file" data-word-file accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document">'+
+      '<div class="hint" style="margin-top:8px">单个文件不超过 20 MB。请勿上传含宏的 DOCM。</div>',
+    footer:'<button class="btn btn-o" data-x="0">取消</button><button class="btn btn-p" data-x="1">上传并设置模板</button>'});
+  m.querySelector('[data-x="0"]').onclick=()=>m.classList.remove("open");
+  const button=m.querySelector('[data-x="1"]');
+  button.onclick=async()=>{
+    const file=m.querySelector("[data-word-file]").files?.[0];
+    if(!file||!/\.docx$/i.test(file.name)||file.size>20*1024*1024){
+      toast("请上传不超过 20 MB 的 DOCX 模板","warn");return;
+    }
+    button.disabled=true;
+    try {
+      const uploaded=await api.upload(file,{pid});
+      const result=await api.post("/api/projects/"+encodeURIComponent(pid)+"/notice-template",
+        {file_key:uploaded.key,file_name:file.name});
+      toast(result.message,"ok");m.classList.remove("open");await refresh(root,pid);
+    }catch(e){button.disabled=false;toast(e.message,"warn");}
+  };
+}
+async function downloadNotice(pid,preview) {
+  try {
+    const url="/api/projects/"+encodeURIComponent(pid)+(preview?"/notice/preview.docx":"/notice.docx");
+    const r=await api.download(url);
+    toast("已下载 "+r.name+"，请按制度办理纸质盖章","ok");
+  }catch(e){toast(e.message,"warn");}
+}
+async function backfillNotice(root,pid) {
+  const ok=await confirmBox("旧项目没有审批当日的正式快照。补发函只能根据当前资料生成，并将明确标注为历史补发，不能冒充当年原件。是否继续？",
+    {title:"补发历史项目通知函",ok:"确认补发"});
+  if(!ok)return;
+  try {
+    const r=await api.post("/api/projects/"+encodeURIComponent(pid)+"/notice/backfill",{});
+    toast(r.message,"ok");await refresh(root,pid);
+  }catch(e){toast(e.message,"warn");}
 }
 
 async function refresh(root, pid) {
@@ -796,7 +888,7 @@ async function openEdit(root, pid, p) {
     { k: "people", l: "预计人数", t: "number" },
     { k: "owner_id", l: "负责人（协会成员）", t: "select", req: 1, opts: members.map((u) => ({v:String(u.id),l:u.name+"（"+u.role_name+"）"})) },
     { k: "phone", l: "联系电话" },
-    { k: "dept", l: "承办部门", t: "select", opts: state.meta.depts },
+    { k: "dept", l: "承办部门", t: "select", opts: state.meta.projectDepts || [] },
     { k: "agenda", l: "议程要点", t: "textarea", req: 1, full: 1, rows: 3 }
   ];
   const m = modal({ title: "编辑项目资料", width: "640px", body: formHtml(fields, p),

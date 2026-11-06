@@ -100,7 +100,9 @@ test("重置预览：只有总管理员能看，且数量与实际一致", async
   const a = client(await login("admin"));
   const r = await a("GET", "/api/admin/reset-preview");
   assert.equal(r.status, 200, JSON.stringify(r.data));
-  assert.equal(r.data.rows.length, 32, "预览应覆盖多协会关系和新增的三张赞助收入表");
+  assert.equal(r.data.rows.length, 35, "预览必须覆盖新增的立项函、Word 模板与通知函快照表");
+  for(const key of ["project_initiation_letters","project_notice_templates","project_notices"])
+    assert.ok(r.data.rows.some(x=>x.key===key),"重置预览缺少 "+key);
   const sum = r.data.rows.reduce((acc, x) => acc + x.count, 0);
   assert.equal(r.data.total, sum, "total 应等于各行之和");
 
