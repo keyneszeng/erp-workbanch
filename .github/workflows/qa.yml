@@ -56,6 +56,7 @@ jobs:
           node --input-type=module --check < web/assets/js/pages/contracts.js
           node --check server/api/verify.js
           node --check server/lib/meeting-sop.js
+          node --check miniprogram/pages/materials/index.js
           node --input-type=module --check < web/assets/js/lib/sop-fields.js
           node --input-type=module --check < web/assets/js/lib/verify-detail.js
           node --check server/api/system.js
