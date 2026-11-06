@@ -39,13 +39,14 @@ async function waitReady() {
   await page.waitForSelector("#add");
   await page.click("#add");
   const input=page.locator('#modal input[type="file"]');
-  await input.waitFor();
+  // formHtml 把原生 file input 视觉隐藏在上传卡片内；Playwright 只需等待挂载即可。
+  await input.waitFor({state:"attached"});
   const accept=await input.getAttribute("accept");
   if(!accept?.includes(".xls"))throw Error("材料上传控件没有 .xls: "+accept);
   await input.setInputFiles({name:"测试旧版.xls",mimeType:"application/vnd.ms-excel",buffer:BYTES});
   await page.waitForTimeout(300);
   const pid=await page.locator('#modal [name="pid"]').evaluate(el=>{
-    const opt=Array.from(el.options).find(o=>o.value);
+    const opt=Array.from(el.options).find(o=>o.value==="MP-2026-001") || Array.from(el.options).find(o=>o.value);
     return opt?.value || "";
   });
   if(!pid)throw Error("no accessible project");
