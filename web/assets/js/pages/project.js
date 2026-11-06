@@ -497,7 +497,18 @@ function wire(root, pid, d, body) {
   body.querySelectorAll("[data-del-mem]").forEach((b) => b.onclick = () => delMember(root, pid, b.dataset.delMem));
   // 变更落账（双人复核）与合同两步流转
   body.querySelectorAll("[data-exec]").forEach((b) => b.onclick = () => execChange(root, pid, b.dataset.exec));
-  body.querySelectorAll("[data-cflow]").forEach((b) => b.onclick = () => contractFlow(root, pid, b.dataset.cflow, b.dataset.caction));
+  body.querySelectorAll("[data-cflow]").forEach((b) => b.onclick = () => {
+    if(b.dataset.caction==="sign") {
+      const c=d.contracts.find(x=>x.id===b.dataset.cflow);
+      if(c) {
+        openContractDetail(c,{pname:d.project.name,
+          locked:CONTRACT_LOCKED.includes(d.project.status),
+          startConfirm:true,onDone:()=>refresh(root,pid)});
+        return;
+      }
+    }
+    return contractFlow(root,pid,b.dataset.cflow,b.dataset.caction);
+  });
   // 合同详情：原件预览 + 基本信息 + 下一步动作，三样在同一屏
   body.querySelectorAll("[data-cdet]").forEach((b) => {
     b.onclick = () => {
