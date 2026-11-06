@@ -90,12 +90,10 @@ function demandSummary(pid) {
     needCount: need.length,
     // 逐条累加会留浮点尾巴，收敛到「分」
     budgetTotal: yuan(need.reduce((s, x) => s + (Number(x.budget) || 0), 0)),
-    // 老接口契约保持不变：核销费用对照只需要「需要」项。
-    items: need.map((x) => ({ grp: x.grp, item: x.item, budget: x.budget || "",
-      quantity: x.quantity || "", unit_price: x.unit_price || "" })),
-    // 项目管理 > 会议项目 > 会务需求：必须能复核整张清单的全部字段，
-    // 包括「不需要」项（仅展示，不参与预算合计），并保留保存时的排序。
-    allItems: items.map((x) => ({
+    // 会议项目详情与核销共用该摘要：仅暴露「需要」项，但补齐展示所需的
+    // 业务提示、规格、负责人、交付时间；保留原有数量/单价/金额字段口径及排序。
+    // 「不需要」项仍留在原始需求单与数据库中，不进入本清单或核销汇总。
+    items: need.map((x) => ({
       grp: x.grp, item: x.item, note: x.note || "", need: x.need,
       spec: x.spec || "", quantity: x.quantity || "", unit_price: x.unit_price || "",
       budget: x.budget || "", owner: x.owner || "", due: x.due || ""
