@@ -55,22 +55,11 @@ function register(router) {
     if (!["待核销"].includes(p.status) && !(p.status === "已核销" && isSuper(ctx.user))) {
       throw conflict(`当前状态「${p.status}」不可判定核销，只有「待核销」项目可判定`, "ILLEGAL_STATE", { status: p.status });
     }
-    /**
-     * V1.2.19：材料 8 类齐备才能判定。
-     *
-     * 提交核销那一步已经拦过一次，这里再拦一次是因为：
-     *   1) 库里存在「已提交核销但材料不齐」的历史项目（门禁是这一版才加的）；
-     *   2) 提交之后、判定之前，材料还可能被删。
-     * 判定人要对着签到表、发票、现场照片逐条核，缺料时点「通过」就是凭印象盖章。
-     */
+    // 不再核验固定材料类别齐备度。任何一份上传原件即可解锁核销入口。
     const ms = materialsStatus(p.id);
-    if (!ms.ok) {
-      throw conflict(
-        `核销材料还缺 ${ms.missing.length} 类：${ms.missing.join("、")}。材料齐备后才能判定`,
-        "MATERIAL_GATE",
-        { missing: ms.missing }
-      );
-    }
+    if (!ms.ok)
+      throw conflict("请先上传至少一份会议材料附件，再进行核销判定","MATERIAL_GATE",
+        { missing: ms.missing });
 
     const { result, remark } = ctx.body || {};
     if (!["通过", "不通过"].includes(result)) throw bad("判定结果只能是「通过」或「不通过」");
@@ -345,20 +334,23 @@ function register(router) {
       total = rows.length;
     }
 
-    // 齐备度必须用独立聚合算：分页后的 rows 只是当前页，拿它算会漏掉其它页的材料
-    const kindsByPid = new Map();
-    for (const r of db.prepare(`SELECT DISTINCT m.pid, m.kind ${base}`).all(...params)) {
-      if (!kindsByPid.has(r.pid)) kindsByPid.set(r.pid, []);
-      kindsByPid.get(r.pid).push(r.kind);
+    // 分页清单不能用于计算项目上传量；单独汇总各项目未删除材料。
+    const statsByPid=new Map();
+    for(const row of db.prepare(`SELECT m.pid,m.kind,m.file_key ${base}`).all(...params)) {
+      if(!statsByPid.has(row.pid))statsByPid.set(row.pid,{kinds:new Set(),count:0,uploadedCount:0});
+      const stats=statsByPid.get(row.pid);
+      stats.kinds.add(row.kind);
+      stats.count++;
+      if(row.file_key)stats.uploadedCount++;
     }
 
     // 已归档项目卷宗封存，不再出现在可登记列表
     const projects = db.prepare(
       `SELECT p.id, p.name, p.status FROM projects p WHERE ${sql} AND p.status IN ('筹备中','执行中','待核销','已核销','已结算') ORDER BY p.date DESC`
     ).all(...params).map((p) => {
-      const have = kindsByPid.get(p.id) || [];
-      const required = MATERIAL_KINDS;
-      return { ...p, have, required, missing: required.filter((k) => !have.includes(k)) };
+      const stats=statsByPid.get(p.id)||{kinds:new Set(),count:0,uploadedCount:0};
+      return { ...p, have:[...stats.kinds],required:[],missing:stats.uploadedCount?[]:["至少上传1份材料附件"],
+        count:stats.count,uploadedCount:stats.uploadedCount,ok:stats.uploadedCount>0 };
     });
 
     return {
@@ -373,7 +365,7 @@ function register(router) {
     };
   });
 
-  /** 材料登记（归档 8 类，可选挂一个附件） */
+  /** 材料登记（推荐/自定义类别均可；真正上传的附件计入流程门槛） */
   router.post("/api/projects/:id/materials", async (ctx) => {
     const p = getProject(ctx.params.id);
     assertProjectVisible(ctx.user, p);
@@ -381,10 +373,7 @@ function register(router) {
     if (p.status === "已归档") throw conflict("项目已归档，材料清单已封存，不可再登记", "ARCHIVED", { status: p.status });
     if (settlementOf(p.id)) throw conflict("结算单已生成，材料证据已冻结，不可追加或修改", "FROZEN");
     const { kind: rawKind, name, version, file_key, file_name, file_size, file_mime } = ctx.body || {};
-    // 8 类是归档必备，必须用标准名，齐备校验只认这 8 个；
-    // 但实际卷宗里还有会议纪要、专家简历、批文这类东西，以前一律被白名单挡在门外，
-    // 只能硬塞进 8 类里凑数，反而让「齐备」变得不可信。所以允许自定义类别：
-    // 自定义的能登记、能查，但不顶替必备的 8 类。
+    // 材料类别全部自选；推荐类目仅供快速选择，不影响推进权限。
     const kind = String(rawKind || "").trim();
     if (!kind) throw bad("请选择或填写材料类别");
     if (kind.length > 20) throw bad(`材料类别不能超过 20 字（当前 ${kind.length} 字）`);
