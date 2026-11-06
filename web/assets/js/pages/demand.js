@@ -38,15 +38,16 @@ function groupPanel(grp, items, locked) {
   const sum = need.reduce((s, i) => s + (Number(i.budget) || 0), 0);
   return `<div class="panel mt" data-panel="${esc(grp)}">
     <div class="panel-h"><h2>⭐ ${esc(grp)}</h2>
-      <div><span class="hint">需要 ${need.length} 项 · 预算 ${yuan(sum)}</span></div></div>
+      <div><span class="hint" data-group-total>需要 ${need.length} 项 · 总价 ${yuan(sum)}</span></div></div>`;
     <div class="tw"><table>
       <thead><tr>
-        <th>项目 / 业务提示</th><th style="width:84px">是否需要</th><th>规格数量</th>
+        <th>项目 / 业务提示</th><th style="width:84px">是否需要</th><th>规格</th>
+        <th style="width:88px">数量</th><th style="width:100px">单价</th><th style="width:105px">总价</th>
         <th style="width:96px">负责人</th><th style="width:130px">交付时间</th>
-        <th style="width:110px">预算金额</th><th style="width:34px"></th>
+        <th style="width:34px"></th>
       </tr></thead>
       <tbody>${items.map((it) => `<tr data-grp="${esc(grp)}">${cells(it, locked)}</tr>`).join("")}
-        ${locked ? "" : `<tr class="addrow"><td colspan="7">
+        ${locked ? "" : `<tr class="addrow"><td colspan="9">
           <button class="link" data-add="${esc(grp)}">+ 新增一行</button></td></tr>`}
       </tbody>
     </table></div>
