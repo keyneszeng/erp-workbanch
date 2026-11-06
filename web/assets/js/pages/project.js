@@ -649,7 +649,7 @@ function openJudge(root, pid, no, d) {
       <div class="fld" style="margin-top:12px"><label>问题描述 / 备注</label>
         <textarea name="remark" rows="3" placeholder="判定不通过时必填，如：课件「XX」不在议程课题内"></textarea></div>
       ${no===6?`<div class="fld"><label>发票总额（元）</label><input type="number" name="invoiceAmount" step="0.01" min="0"></div>`:""}
-      ${sopEvidenceForm(no,d.project,d.verification.laborRequired)}`,
+      ${sopEvidenceForm(no,d.project)}`,
     footer: `<button class="btn btn-o" data-x="0">取消</button><button class="btn btn-p" data-x="1">提交判定</button>`
   });
   if (no===5) bindLaborContractPreview(m,d.materials||[]);

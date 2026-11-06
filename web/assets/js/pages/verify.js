@@ -147,7 +147,7 @@ function openJudge(root, pid, no, d) {
         <textarea name="remark" rows="3" placeholder="判定不通过时必填"></textarea></div>
       ${no === 6 ? `<div class="fld" style="margin-top:12px"><label>需开票合同对应的发票总额（元；纯专家劳务可填 0）</label>
         <input type="number" name="invoiceAmount" min="0" step="0.01" value="${esc(String(s.invoiceAmount || ""))}" placeholder="应等于非劳务合同金额"></div>` : ""}
-      ${sopEvidenceForm(no, d.project, d.verification.laborRequired)}`,
+      ${sopEvidenceForm(no, d.project)}`,
     footer: `<button class="btn btn-o" data-x="0">取消</button><button class="btn btn-p" data-x="1">提交判定</button>`
   });
   if (no===5) bindLaborContractPreview(m,d.materials||[]);

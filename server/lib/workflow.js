@@ -27,7 +27,10 @@ function verification(pid) {
       (def.no===5 && (evidence?.laborSourceSignature!==labor.signature ||
         !evidence?.contractPoolSignature ||
         evidence.contractPoolSignature!==contractPool(db,pid).signature)) ||
-      (def.no===2 && !isDemoMode() && evidence?.laborSourceSignature!==(labor.required?labor.signature:null))
+      (def.no===2 && !isDemoMode() && (
+        !Array.isArray(evidence?.matchedSources) ||
+        evidence.matchedSources.join("|")!=="终版议程|签到表|讲者照片"
+      ))
     );
     return {...def,required,
       result:!required?"不适用":stale?"待判定":(r?r.result:"待判定"),

@@ -6,7 +6,7 @@ const ck=(name,label)=>`<label style="display:block;margin-top:9px"><input type=
 const names=v=>String(v||"").split(/[\n,，、;；]+/).map(x=>x.trim()).filter(Boolean);
 const labor=v=>String(v||"").split(/\n+/).map(line=>line.split("|").map(x=>x.trim()))
   .filter(x=>x.some(Boolean)).map(([name,time,role,amount,bankAccount,bankName])=>({name,time,role,amount,bankAccount,bankName}));
-export function sopEvidenceForm(no,p,hasLaborSheet=false){
+export function sopEvidenceForm(no,p){
   const head=`<div class="gate" style="margin-bottom:9px">以下信息来自人工核验/结构化录入，系统只做字段比较；不具备自动 OCR。原件请先在材料中心上传。</div>`;
   const s={
     1:`<div class="fld"><label>盖章函件原件</label><select name="documentKind"><option value="会议通知">盖章会议通知</option><option value="招商函">盖章招商函</option></select></div>`
@@ -19,10 +19,9 @@ export function sopEvidenceForm(no,p,hasLaborSheet=false){
        +input("hostOrganizer","串场 · 主办方")
        +ck("stamped","确认函件已盖章")+ck("final","确认函件为终版"),
     2:area("agendaSpeakers","终版议程 · 讲者姓名（逗号或换行分隔）","张老师、李老师")
-       +(hasLaborSheet?area("collectionSpeakers","已上传劳务表 · 讲者姓名","张老师、李老师"):"")
        +area("attendanceSpeakers","签到表 · 仅录入讲者姓名（不含普通参会人员）","张老师、李老师")
        +area("photoSpeakers","讲者照片 · 每张照片对应讲者的姓名","张老师、李老师")
-       +`<div class="hint">终版议程、签到表、讲者照片三处必核；若上传劳务表，增加劳务表讲者名单比对。合同使用现有合同台账，不必另传协议。</div>`
+       +`<div class="hint">仅以终版议程的讲者名单为基准，逐一检查签到表和讲者照片是否漏人、多出人员或出现重复姓名。签到表只录入讲者，不包括普通参会人员；第2项不关联劳务表或合同。</div>`
        +ck("noOmissions","已人工核对讲者信息及照片，无冒领、漏发或重复"),
     3:input("onlineMinutes","有效讲者在线时长（分钟，线上/混合须 >30）")
        +ck("signedAttendance","已核验线下签到表（线下/混合必选）"),
@@ -45,7 +44,7 @@ export function collectSopEvidence(no,m){
       meetingDate:get("meetingDate"),organizer:get("organizer"),
       hostMeetingName:get("hostMeetingName"),hostMeetingDate:get("hostMeetingDate"),
       hostOrganizer:get("hostOrganizer"),stamped:checked("stamped"),final:checked("final")};
-    case 2:return {agendaSpeakers:names(get("agendaSpeakers")),collectionSpeakers:names(get("collectionSpeakers")),
+    case 2:return {agendaSpeakers:names(get("agendaSpeakers")),
       attendanceSpeakers:names(get("attendanceSpeakers")),
       photoSpeakers:names(get("photoSpeakers")),noOmissions:checked("noOmissions")};
     case 3:return {onlineMinutes:Number(get("onlineMinutes")),signedAttendance:checked("signedAttendance")};
