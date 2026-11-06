@@ -10,11 +10,21 @@ function expectBlock(no,evidence,p=project,amount=1000){
 test("六步核销必须有结构化证据，缺字段无法通过",()=>{
   for(let n=1;n<=6;n++)expectBlock(n,null);
 });
-test("盖章通知必须终版并与会议基线一致",()=>{
- const e={documentKind:"会议通知",meetingName:project.name,meetingDate:project.date,organizer:project.assoc,sponsor:"不适用",stamped:true,final:true};
- assert.equal(validateSopEvidence(1,e,project,db).fieldsMatched,4);
+test("盖章函件与串场三个字段一致即可通过；不需要招商主体或对照立项",()=>{
+ const e={documentKind:"会议通知",meetingName:"会议乙",meetingDate:"2026-12-01",organizer:"学会乙",
+   hostMeetingName:"会议乙",hostMeetingDate:"2026-12-01",hostOrganizer:"学会乙",
+   stamped:true,final:true};
+ const result=validateSopEvidence(1,e,project,db);
+ assert.equal(result.fieldsMatched,3);
+ assert.equal(result.comparedWith,"串场");
+ assert.ok(!Object.hasOwn(result,"sponsor"));
  expectBlock(1,{...e,stamped:false});
+ expectBlock(1,{...e,final:false});
  expectBlock(1,{...e,meetingDate:"2026-11-02"});
+ expectBlock(1,{...e,hostMeetingName:"其他会议"});
+ expectBlock(1,{...e,hostOrganizer:"其他学会"});
+ expectBlock(1,{...e,hostMeetingDate:""});
+ expectBlock(1,{...e,hostMeetingName:undefined});
 });
 test("讲者三份名单必须完全覆盖且不得重名",()=>{
  assert.equal(sameNames(["甲","乙"],["乙","甲"]),true);
