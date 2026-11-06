@@ -796,7 +796,7 @@ async function openEdit(root, pid, p) {
     { k: "people", l: "预计人数", t: "number" },
     { k: "owner_id", l: "负责人（协会成员）", t: "select", req: 1, opts: members.map((u) => ({v:String(u.id),l:u.name+"（"+u.role_name+"）"})) },
     { k: "phone", l: "联系电话" },
-    { k: "dept", l: "承办部门", t: "select", opts: state.meta.depts },
+    { k: "dept", l: "承办部门", t: "select", opts: state.meta.projectDepts || [] },
     { k: "agenda", l: "议程要点", t: "textarea", req: 1, full: 1, rows: 3 }
   ];
   const m = modal({ title: "编辑项目资料", width: "640px", body: formHtml(fields, p),
