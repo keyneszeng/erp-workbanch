@@ -1,7 +1,7 @@
 const app=getApp();
 Page({
  data:{projects:[],index:0,pid:"",kind:"课件",name:"",error:"",busy:false,uploaded:"",
-  standardKinds:["课件","串场","劳务收集表","劳务协议","议程","终版议程","签到表","现场照片","权益照片"],
+  standardKinds:["课件","串场","劳务收集表","劳务协议","议程","终版议程","签到表","讲者照片","现场照片","权益照片"],
   activeKinds:[],custom:false,customKind:"",locked:false},
  onLoad(q){if(q.pid)this.setData({pid:q.pid});},
  onShow(){this.load();},
