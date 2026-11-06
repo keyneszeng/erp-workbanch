@@ -1,7 +1,6 @@
 import { api, can } from "../lib/api.js";
 import { bindPager, esc, formHtml, modal, pager, panel, readForm, table, toast, validate } from "../lib/ui.js";
 import { checkFile, compressImage, fileUrl, UPLOAD_ACCEPT, UPLOAD_TIP } from "../lib/upload.js";
-import { renderMaterialWorkbench } from "../lib/material-workbench.js";
 
 const PAGE_SIZE = 50;
 let curPage = 1;
@@ -21,8 +20,6 @@ export async function render(root) {
       <div class="kpi k3"><div class="t">尚未上传附件</div><div class="v">${d.projects.length - complete}<span class="u">个</span></div></div>
     </div>
 
-    <div class="ux-section-intro mt"><div><h2>按项目收集材料</h2><p>固定模块按会议启停，自定义材料独立登记；历史版本与原件持续保留</p></div></div>
-    <div id="materialWorkbench"></div>
     <div class="panel mt">
       <div class="panel-h"><h2>项目材料上传情况</h2><span class="hint">任意类别上传至少一份附件即可进入后续流程</span></div>
       ${table([{ t: "项目" }, { t: "状态", w: "84px" }, { t: "上传原件", w: "110px" }, { t: "类别数" }, { t: "操作", w: "90px" }],
@@ -54,7 +51,6 @@ export async function render(root) {
 `;
 
   bindPager(root, (n) => { curPage = n; render(root); });
-  renderMaterialWorkbench(root.querySelector("#materialWorkbench"),d.projects).catch(e=>toast(e.message,"warn"));
 
   const add = root.querySelector("#add");
   if (add) add.onclick = () => openMaterialRegistration(root, d.projects, d.kinds);
@@ -85,11 +81,28 @@ export function openMaterialRegistration(root, projects, kinds, defaultPid="", o
   const picker=m.querySelector('input[name="file"]');
   picker.multiple=true;
   let picked=[];
+  const kindSelect=m.querySelector('[name="kind"]');
+  // 终版议程只需上传一个文件，名称自动取文件名，版本自动确认为终版。
+  const syncAgendaForm=()=>{
+    const final=kindSelect.value==="终版议程";
+    for(const field of ["name","version"]){
+      const el=m.querySelector('[name="'+field+'"]');
+      if(el?.closest(".fld"))el.closest(".fld").style.display=final?"none":"";
+    }
+    picker.multiple=!final;
+    const tip=m.querySelector(".upload")?.closest(".fld")?.querySelector(".tip");
+    if(tip)tip.textContent=final
+      ? "仅需上传一份终版议程文件，保存即确认；无需填写讲者、课题或生成待办。"
+      : UPLOAD_TIP+" 讲者照片请在名称栏填写讲者姓名。";
+  };
+  kindSelect.addEventListener("change",syncAgendaForm);
+  syncAgendaForm();
   picker.onchange=()=>{
     const files=[...(picker.files||[])];
     if(files.length>20){toast("单次最多选择 20 份附件","warn");picker.value="";picked=[];return;}
     const error=files.map(checkFile).find(Boolean);
     if(error){toast(error,"warn");picker.value="";picked=[];return;}
+    if(kindSelect.value==="终版议程"&&files.length!==1){toast("终版议程只能上传一份文件","warn");picker.value="";picked=[];return;}
     picked=files;
     const count=m.querySelector(".upload .fn");
     if(count)count.textContent=files.length?files.length+" 份文件已选择":"未选择";
@@ -100,10 +113,17 @@ export function openMaterialRegistration(root, projects, kinds, defaultPid="", o
   m.querySelector('[data-x="0"]').onclick = () => m.classList.remove("open");
   const btn = m.querySelector('[data-x="1"]');
   btn.onclick = async () => {
-    if (!validate(m, fields)) return;
-    const v = readForm(m);
-    if (!v.name && picked.length) v.name = picked[0].name;
-    if (!String(v.name || "").trim()) { toast("请填写材料名称或选择附件", "warn"); return; }
+    const isFinalAgenda=kindSelect.value==="终版议程";
+    if(!validate(m,isFinalAgenda?fields.filter(f=>f.k!=="name"):fields))return;
+    if(isFinalAgenda&&picked.length!==1){toast("请先选择一份终版议程文件","warn");return;}
+    const v=readForm(m);
+    if(isFinalAgenda){
+      v.name=picked[0].name;
+      v.version="终版";
+    }else if(!v.name&&picked.length){
+      v.name=picked[0].name;
+    }
+    if(!String(v.name||"").trim()){toast("请填写材料名称或选择附件","warn");return;}
 
     btn.disabled = true;
     try {
@@ -122,7 +142,7 @@ export function openMaterialRegistration(root, projects, kinds, defaultPid="", o
           saved++;
         }
       }
-      toast(picked.length?`已登记 ${picked.length} 份材料附件`:"材料已登记","ok");
+      toast(isFinalAgenda?"终版议程已上传并确认":picked.length?`已登记 ${picked.length} 份材料附件`:"材料已登记","ok");
       m.classList.remove("open");
       if(onSaved)await onSaved(); else await render(root);
     } catch (e) {
