@@ -27,12 +27,20 @@ function validateSopEvidence(no, evidence, project, db, invoiceAmount) {
   switch(no) {
     case 1: {
       if (!["会议通知","招商函"].includes(e.documentKind)) throw bad("第一步请选择盖章的会议通知或招商函");
-      if (e.stamped!==true || e.final!==true) fail("第一步须确认文件已盖章且为终版");
-      if (!eq(e.meetingName,project.name)||!eq(e.meetingDate,project.date)||!eq(e.organizer,project.assoc))
-        fail("通知/招商函的会议名称、时间、主办方与立项信息不一致");
-      if (!String(e.sponsor||"").trim()) throw bad("请填写招商主体（无招商须明确填写「不适用」）");
-      if (!materialExists(db,pid,[e.documentKind],true)) fail("请先登记并上传已盖章的会议通知/招商函原件","SOP_MATERIAL_MISSING");
-      return {documentKind:e.documentKind, stamped:true, final:true, fieldsMatched:4};
+      if (e.stamped!==true || e.final!==true) fail("第一步须确认函件已盖章且为终版");
+      // 核对的是两份真实材料，不再用立项元数据代替「串场」，也不要求招商主体。
+      const fields=["meetingName","meetingDate","organizer","hostMeetingName","hostMeetingDate","hostOrganizer"];
+      if (fields.some(k=>!String(e[k]||"").trim()))
+        throw bad("请分别填写盖章函件与串场的会议名称、日期和主办方");
+      if (!eq(e.meetingName,e.hostMeetingName)||!eq(e.meetingDate,e.hostMeetingDate)||
+          !eq(e.organizer,e.hostOrganizer))
+        fail("盖章函件与串场的会议名称、日期或主办方不一致");
+      if (!materialExists(db,pid,[e.documentKind],true))
+        fail("请先上传已盖章的会议通知或招商函原件","SOP_MATERIAL_MISSING");
+      if (!materialExists(db,pid,["串场"],true))
+        fail("请先上传串场原件，用于与盖章函件核对","SOP_MATERIAL_MISSING");
+      return {documentKind:e.documentKind,stamped:true,final:true,fieldsMatched:3,
+        comparedWith:"串场"};
     }
     case 2: {
       if (!sameNames(e.agendaSpeakers,e.collectionSpeakers) || !sameNames(e.agendaSpeakers,e.agreementSpeakers))

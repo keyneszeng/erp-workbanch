@@ -10,11 +10,45 @@ function expectBlock(no,evidence,p=project,amount=1000){
 test("六步核销必须有结构化证据，缺字段无法通过",()=>{
   for(let n=1;n<=6;n++)expectBlock(n,null);
 });
-test("盖章通知必须终版并与会议基线一致",()=>{
- const e={documentKind:"会议通知",meetingName:project.name,meetingDate:project.date,organizer:project.assoc,sponsor:"不适用",stamped:true,final:true};
- assert.equal(validateSopEvidence(1,e,project,db).fieldsMatched,4);
+test("盖章函件与串场三个字段一致即可通过；不需要招商主体或对照立项",()=>{
+ const e={documentKind:"会议通知",meetingName:"会议乙",meetingDate:"2026-12-01",organizer:"学会乙",
+   hostMeetingName:"会议乙",hostMeetingDate:"2026-12-01",hostOrganizer:"学会乙",
+   stamped:true,final:true};
+ const result=validateSopEvidence(1,e,project,db);
+ assert.equal(result.fieldsMatched,3);
+ assert.equal(result.comparedWith,"串场");
+ assert.ok(!Object.hasOwn(result,"sponsor"));
  expectBlock(1,{...e,stamped:false});
+ expectBlock(1,{...e,final:false});
  expectBlock(1,{...e,meetingDate:"2026-11-02"});
+ expectBlock(1,{...e,hostMeetingName:"其他会议"});
+ expectBlock(1,{...e,hostOrganizer:"其他学会"});
+ expectBlock(1,{...e,hostMeetingDate:""});
+ expectBlock(1,{...e,hostMeetingName:undefined});
+});
+test("第1步须有盖章函件及串场两份原件，不接受无附件材料登记",()=>{
+ const e={documentKind:"会议通知",meetingName:"会议甲",meetingDate:"2026-11-01",organizer:"学会甲",
+   hostMeetingName:"会议甲",hostMeetingDate:"2026-11-01",hostOrganizer:"学会甲",
+   stamped:true,final:true};
+ const withoutHost={prepare(sql){return {get(pid,kind){return {n:kind==="会议通知"?1:0};}};}};
+ assert.throws(()=>validateSopEvidence(1,e,project,withoutHost),
+   x=>x.code==="SOP_MATERIAL_MISSING"&&/串场原件/.test(x.message));
+ const withoutNotice={prepare(sql){return {get(pid,kind){return {n:kind==="串场"?1:0};}};}};
+ assert.throws(()=>validateSopEvidence(1,e,project,withoutNotice),
+   x=>x.code==="SOP_MATERIAL_MISSING"&&/盖章/.test(x.message));
+});
+test("核销第1步页面不再有招商主体输入，需录入串场三项字段",()=>{
+ const fs=require("node:fs"),path=require("node:path");
+ const root=path.join(__dirname,"..");
+ const form=fs.readFileSync(path.join(root,"web/assets/js/lib/sop-fields.js"),"utf8");
+ const labels=fs.readFileSync(path.join(root,"server/lib/constants.js"),"utf8");
+ const detail=fs.readFileSync(path.join(root,"web/assets/js/lib/verify-detail.js"),"utf8");
+ assert.match(labels,/盖章函件与串场核验/);
+ assert.match(form,/hostMeetingName/);
+ assert.match(form,/hostMeetingDate/);
+ assert.match(form,/hostOrganizer/);
+ assert.doesNotMatch(form,/招商主体/);
+ assert.match(detail,/\["会议通知","招商函","串场"\]/);
 });
 test("讲者三份名单必须完全覆盖且不得重名",()=>{
  assert.equal(sameNames(["甲","乙"],["乙","甲"]),true);

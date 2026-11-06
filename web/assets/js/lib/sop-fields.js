@@ -9,10 +9,15 @@ const labor=v=>String(v||"").split(/\n+/).map(line=>line.split("|").map(x=>x.tri
 export function sopEvidenceForm(no,p){
   const head=`<div class="gate" style="margin-bottom:9px">以下信息来自人工核验/结构化录入，系统只做字段比较；不具备自动 OCR。原件请先在材料中心上传。</div>`;
   const s={
-    1:`<div class="fld"><label>基线原件</label><select name="documentKind"><option value="会议通知">盖章会议通知</option><option value="招商函">盖章招商函</option></select></div>`
-       +input("meetingName","会议名称",p.name)+input("meetingDate","会议日期",p.date)+input("organizer","主办方",p.assoc)
-       +input("sponsor","招商主体（如无招商请填不适用）")
-       +ck("stamped","确认原件已盖章")+ck("final","确认原件为终版"),
+    1:`<div class="fld"><label>盖章函件原件</label><select name="documentKind"><option value="会议通知">盖章会议通知</option><option value="招商函">盖章招商函</option></select></div>`
+       +`<div class="hint">请对照已上传的盖章函件与串场原件，分别填写两份材料中的信息。两边一致才能通过。</div>`
+       +input("meetingName","盖章函件 · 会议名称")
+       +input("meetingDate","盖章函件 · 会议日期")
+       +input("organizer","盖章函件 · 主办方")
+       +input("hostMeetingName","串场 · 会议名称")
+       +input("hostMeetingDate","串场 · 会议日期")
+       +input("hostOrganizer","串场 · 主办方")
+       +ck("stamped","确认函件已盖章")+ck("final","确认函件为终版"),
     2:area("agendaSpeakers","终版议程讲者名单（逗号或换行分隔）","张老师、李老师")
        +area("collectionSpeakers","劳务收集表讲者名单","张老师、李老师")
        +area("agreementSpeakers","劳务协议讲者名单","张老师、李老师")
@@ -37,7 +42,9 @@ export function collectSopEvidence(no,m){
   const checked=k=>!!m.querySelector('[name="'+k+'"]')?.checked;
   switch(no){
     case 1:return {documentKind:get("documentKind"),meetingName:get("meetingName"),
-      meetingDate:get("meetingDate"),organizer:get("organizer"),sponsor:get("sponsor"),stamped:checked("stamped"),final:checked("final")};
+      meetingDate:get("meetingDate"),organizer:get("organizer"),
+      hostMeetingName:get("hostMeetingName"),hostMeetingDate:get("hostMeetingDate"),
+      hostOrganizer:get("hostOrganizer"),stamped:checked("stamped"),final:checked("final")};
     case 2:return {agendaSpeakers:names(get("agendaSpeakers")),collectionSpeakers:names(get("collectionSpeakers")),
       agreementSpeakers:names(get("agreementSpeakers")),noOmissions:checked("noOmissions")};
     case 3:return {onlineMinutes:Number(get("onlineMinutes")),signedAttendance:checked("signedAttendance")};
