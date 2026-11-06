@@ -19,13 +19,13 @@ const money2 = (n) => Number(n || 0).toLocaleString("zh-CN", { minimumFractionDi
  * 混进「会务预算」这种文字就失去意义了。
  * 空值合法（这一项还没定价），非空必须是 ≤2 位小数的非负数。
  */
-function parseAmount(v, itemName) {
+function parseAmount(v, itemName, label = "总价") {
   const s = String(v === undefined || v === null ? "" : v).trim();
   if (!s) return "";
   if (!/^\d+(\.\d{1,2})?$/.test(s)) {
-    throw bad(`「${itemName}」的预算金额只能填数字（最多两位小数），当前填的是「${s}」`);
+    throw bad(`「${itemName}」的${label}只能填数字（最多两位小数），当前填的是「${s}」`);
   }
-  if (Number(s) > 1e9) throw bad(`「${itemName}」的预算金额过大`);
+  if (Number(s) > 1e9) throw bad(`「${itemName}」的${label}过大`);
   return s;
 }
 
@@ -255,13 +255,28 @@ function register(router) {
         it.owner_id = null;
         if (!isDemoMode()) it.owner = "";
       }
-      // 传入数量/单价后，以服务端计算结果为准，忽略客户端传来的“总价”。
-      // 旧客户端或历史需求如果两项都未录入，继续保留此前的 budget，不影响核销依据。
+      // 新版客户端发送数量/单价时，只允许服务端自动计算总价。
+      // 老版接口未传数量/单价：兼容旧金额；旧单在新版编辑时仍保留原手填金额。
+      const hasPricing=Object.prototype.hasOwnProperty.call(it,"quantity") ||
+        Object.prototype.hasOwnProperty.call(it,"unit_price");
+      const prior=hasPricing ? db.prepare(
+        "SELECT quantity,unit_price,budget FROM demand_items WHERE pid=? AND grp=? AND item=?"
+      ).get(p.id,it.grp,name) : null;
+      const submittedBudget=parseAmount(it.budget,name);
       it.quantity=parseQuantity(it.quantity,name);
-      it.unit_price=parseAmount(it.unit_price,name).trim();
-      it.budget=it.quantity || it.unit_price
-        ? calculateBudget(it.quantity,it.unit_price,name)
-        : parseAmount(it.budget,name);
+      it.unit_price=parseAmount(it.unit_price,name,"单价");
+      if(hasPricing) {
+        if(it.quantity && it.unit_price) {
+          it.budget=calculateBudget(it.quantity,it.unit_price,name);
+        } else {
+          const oldBudget=prior ? String(prior.budget||"") : "";
+          const isLegacy=prior && !prior.quantity && !prior.unit_price &&
+            !it.quantity && !it.unit_price && submittedBudget === oldBudget;
+          it.budget=isLegacy ? oldBudget : "";
+        }
+      } else {
+        it.budget=submittedBudget;
+      }
       checkItem(it);
     }
     const before = loadSheet(p.id);
