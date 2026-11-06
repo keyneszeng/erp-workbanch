@@ -5,9 +5,11 @@ on:
     branches:
       - main
       - 'fix/**'
+      - 'feat/**'
   pull_request:
     branches:
       - main
+      - '云服务器测试版本'
 
 permissions:
   contents: read
@@ -37,6 +39,8 @@ jobs:
           node --input-type=module --check < web/assets/js/pages/finance.js
           node --input-type=module --check < web/assets/js/pages/materials.js
           node --check server/api/projects.js
+          node --check server/api/project-notice.js
+          node --check server/lib/project-notice.js
           node --check miniprogram/app.js
           node --check miniprogram/config.js
           node --check miniprogram/pages/bind/index.js
