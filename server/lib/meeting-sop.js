@@ -59,7 +59,9 @@ function validateSopEvidence(no, evidence, project, db, invoiceAmount) {
       const photos=db.prepare("SELECT name FROM materials WHERE pid=? AND kind='讲者照片' AND (deleted_at IS NULL OR deleted_at='') AND file_key IS NOT NULL AND file_key<>''").all(pid).map(x=>String(x.name||"").trim());
       if(!sameNames(baseline,photos))fail("讲者照片登记姓名与终版议程讲者名单不一致：请逐人上传并登记讲者照片");
       if(e.noOmissions!==true)fail("须确认适用的讲者资料与照片一致，无冒领、漏发或重复");
-      return {matchedPeople:list(baseline).length,matchedSources:sources.map(([kind])=>kind),photoRecordsMatched:photos.length,noOmissions:true};
+      return {matchedPeople:list(baseline).length,matchedSources:sources.map(([kind])=>kind),
+        laborSourceSignature:labor.required?labor.signature:null,
+        photoRecordsMatched:photos.length,noOmissions:true};
     }
     case 3: {
       const form=project.form;

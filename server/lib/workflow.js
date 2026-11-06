@@ -22,7 +22,10 @@ function verification(pid) {
     const r=map.get(def.no);
     const required=def.no!==5 || labor.required;
     const evidence=r?.evidence_json?JSON.parse(r.evidence_json):null;
-    const stale=def.no===5 && required && r?.result==="通过" && evidence?.laborSourceSignature!==labor.signature;
+    const stale=required && r?.result==="通过" && (
+      (def.no===5 && evidence?.laborSourceSignature!==labor.signature) ||
+      (def.no===2 && !isDemoMode() && evidence?.laborSourceSignature!==(labor.required?labor.signature:null))
+    );
     return {...def,required,
       result:!required?"不适用":stale?"待判定":(r?r.result:"待判定"),
       remark:!required||stale?"":(r?r.remark:""),
