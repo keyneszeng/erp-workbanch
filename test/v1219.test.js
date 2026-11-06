@@ -54,7 +54,7 @@ test("上传任意一种权益照片附件即可进入下一阶段，原先其�
   assert.deepEqual(st.missing,[]);
   assert.ok(st.have.includes("权益照片"));
   assert.equal(GUARDS.request_verify(project),null);
-  assert.match(GUARDS.verify_pass(project),/步未判定/,"仍必须完成六步核销");
+  assert.match(GUARDS.verify_pass(project),/项必核步骤未判定/,"无劳务表时必须完成其余五项核销");
   assert.match(GUARDS.archive(project),/结算单未生成/,"仍必须完成结算");
 });
 
