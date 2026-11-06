@@ -174,8 +174,10 @@ function compileDocx(buffer) {
       delimiters:{start:"{{",end:"}}"},linebreaks:true,paragraphLoop:false,
       nullGetter(){return "";}
     });
-  } catch {
-    throw bad("Word 模板无法解析，请上传合法且未加密的 DOCX 文件");
+  } catch (err) {
+    const detail=err?.properties?.errors?.[0]?.properties?.explanation ||
+      err?.properties?.explanation || err?.message || "未知错误";
+    throw bad("Word 模板无法解析：" + String(detail).slice(0,160));
   }
   return doc;
 }
