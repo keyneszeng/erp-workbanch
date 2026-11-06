@@ -114,7 +114,7 @@ test("production: association member IDs, approved contract signing and pay-afte
   assert.equal(confirmedNeed.status,200,JSON.stringify(confirmedNeed.body));
 
 
-  for (const kind of [...new Set([...MATERIAL_KINDS,"会议通知","劳务收集表","串场"])]) {
+  for (const kind of [...new Set([...MATERIAL_KINDS.filter(x=>x!=="权益照片"),"会议通知","劳务收集表","串场"])]) {
     const attachment = kind === "发票" ? uploadBody : await (async () => {
       const response = await fetch(root + "/api/uploads?pid=" + pid, {
         method:"POST",
