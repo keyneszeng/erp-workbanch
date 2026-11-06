@@ -282,7 +282,12 @@ function register(router) {
         }
       } else {
         it.owner = typedOwner;
-        it.owner_id = null;
+        // 自由输入不自动授予系统用户身份；仅姓名未改变时保留原有成员关联。
+        const previousOwner = db.prepare(
+          "SELECT owner,owner_id FROM demand_items WHERE pid=? AND grp=? AND item=?"
+        ).get(p.id,it.grp,name);
+        it.owner_id = previousOwner && String(previousOwner.owner||"").trim()===typedOwner
+          ? (previousOwner.owner_id||null) : null;
       }
       // 新版客户端发送数量/单价时，只允许服务端自动计算总价。
       // 老版接口未传数量/单价：兼容旧金额；旧单在新版编辑时仍保留原手填金额。
