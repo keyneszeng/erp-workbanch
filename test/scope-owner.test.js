@@ -84,7 +84,7 @@ test("新建同名账号看不到同名负责人名下的项目", async () => {
 
   const mk = await admin("POST", "/api/users", {
     username: "zhangwei2", name: "张伟", role: "exec",
-    assoc: "华东医学会", dept: "会务部", phone: "13900000009", password: "Init1234"
+    assoc: "华东医学会", dept: "非供应商", phone: "13900000009", password: "Init1234"
   });
   assert.equal(mk.status, 200, mk.msg);
 
