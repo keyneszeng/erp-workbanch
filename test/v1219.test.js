@@ -38,7 +38,7 @@ before(async()=>{
   proc.stderr.on("data",b=>{if(!String(b).includes("ExperimentalWarning"))process.stderr.write(String(b));});
   await ready();
   const login=await fetch(BASE+"/api/auth/login",{method:"POST",
-    headers:{"content-type":"application/json"},body:JSON.stringify({username:"admin",password:"123456"})});
+    headers:{"content-type":"application/json"},body:JSON.stringify({username:process.env.QA_ADMIN_LOGIN||"13800138000",password:"123456"})});
   assert.equal(login.status,200);
   cookie=login.headers.get("set-cookie").split(";")[0];
   admin=api;
