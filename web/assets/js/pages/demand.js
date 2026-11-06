@@ -85,25 +85,43 @@ function collect(root) {
 }
 
 function refreshHead(root) {
-  const rows = [...root.querySelectorAll("tr[data-grp]")];
-  const need = rows.filter((tr) => tr.querySelector('[data-f="need"]').value === "需要");
-  const sum = need.reduce((s, tr) => s + (Number(tr.querySelector('[data-f="budget"]').value) || 0), 0);
-  const el = root.querySelector("#dstat");
-  if (el) el.textContent = `共 ${rows.length} 项（需要 ${need.length} 项）· 预算合计 ${yuan(sum)}`;
+  const rows=[...root.querySelectorAll("tr[data-grp]")];
+  const needed=rows.filter(tr=>tr.querySelector('[data-f="need"]').value==="需要");
+  const totalCents=needed.reduce((c,tr)=>c+Math.round(Number(tr.querySelector('[data-f="budget"]').value||0)*100),0);
+  const el=root.querySelector("#dstat");
+  if(el)el.textContent="共 "+rows.length+" 项（需要 "+needed.length+" 项）· 总价合计 "+yuan(totalCents/100);
+  root.querySelectorAll("[data-panel]").forEach(panel=>{
+    const rs=rows.filter(tr=>tr.dataset.grp===panel.dataset.panel);
+    const nd=rs.filter(tr=>tr.querySelector('[data-f="need"]').value==="需要");
+    const sum=nd.reduce((c,tr)=>c+Math.round(Number(tr.querySelector('[data-f="budget"]').value||0)*100),0);
+    const label=panel.querySelector("[data-group-total]");
+    if(label)label.textContent="需要 "+nd.length+" 项 · 总价 "+yuan(sum/100);
+  });
 }
 
-function wireRow(root, tr) {
-  tr.querySelector("[data-del]")?.addEventListener("click", async () => {
-    if (!tr.dataset.added) {
-      const name = tr.querySelector('[data-f="item"]').value || "该条";
-      if (!(await confirmBox(`删除「${name}」？保存后生效，可用「重置」恢复模板。`, { ok: "删除" }))) return;
+function updateRowTotal(tr) {
+  const q=tr.querySelector('[data-f="quantity"]')?.value||"";
+  const p=tr.querySelector('[data-f="unit_price"]')?.value||"";
+  const total=tr.querySelector('[data-f="budget"]');
+  if(total)total.value=lineTotal(q,p);
+}
+
+function wireRow(root,tr) {
+  tr.querySelector("[data-del]")?.addEventListener("click",async()=>{
+    if(!tr.dataset.added) {
+      const name=tr.querySelector('[data-f="item"]').value||"该条";
+      if(!(await confirmBox("删除「"+name+"」？保存后生效，可用「重置」恢复模板。",{ok:"删除"})))return;
     }
     tr.remove();
     refreshHead(root);
   });
-  tr.querySelectorAll("input,select").forEach((el) => {
-    el.addEventListener("input", () => refreshHead(root));
-    el.addEventListener("change", () => refreshHead(root));
+  tr.querySelectorAll("input,select").forEach(el=>{
+    const update=()=>{
+      if(el.dataset.f==="quantity" || el.dataset.f==="unit_price")updateRowTotal(tr);
+      refreshHead(root);
+    };
+    el.addEventListener("input",update);
+    el.addEventListener("change",update);
   });
 }
 
