@@ -53,7 +53,7 @@ const assert=require("node:assert/strict");
   assert.equal(await page.locator("#materialWorkbench").count(),0,
     "deprecated final-agenda module and task panel must be removed");
   assert.doesNotMatch(await page.locator("body").innerText(),
-    /终版议程\\s*[·•]\\s*材料模块与待办|从终版议程生成待办/,
+    /终版议程\s*[·•]\s*材料模块与待办|从终版议程生成待办/,
     "final agenda must not require a separate speaker/topic task wizard");
   assert.ok((await page.locator("body").innerText()).includes("项目材料上传情况"),
     "material center should show flexible upload status instead of 8/8 mandatory categories");
@@ -75,7 +75,7 @@ const assert=require("node:assert/strict");
   assert.equal(await page.locator("#modal.open").count(),1,
     "cannot confirm a final agenda without uploading a file");
   const chosenPid=await page.locator('#modal [name="pid"]').inputValue();
-  const finalPdf=Buffer.from("%PDF-1.4\\n1 0 obj\\n<< /Type /Catalog >>\\nendobj\\n%%EOF\\n");
+  const finalPdf=Buffer.from("%PDF-1.4\n1 0 obj\n<< /Type /Catalog >>\nendobj\n%%EOF\n");
   await finalUpload.setInputFiles({name:"会议终版议程.pdf",mimeType:"application/pdf",buffer:finalPdf});
   await page.locator('#modal [data-x="1"]').click();
   await page.waitForFunction(()=>!document.querySelector("#modal.open"),null,{timeout:15000});
