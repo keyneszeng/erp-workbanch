@@ -1,6 +1,6 @@
 import { api, can } from "./api.js";
 import { badge, closeModal, esc, modal, money, toast } from "./ui.js";
-import { fileUrl, formatBytes } from "./upload.js";
+import { fileUrl, formatBytes, checkFile, compressImage } from "./upload.js";
 
 /**
  * 合同详情弹窗 —— 台账与项目详情共用。
@@ -54,10 +54,12 @@ function fileBlock(c) {
   const name = esc(c.file_name || `${c.id} 原件`);
   const size = c.file_size ? formatBytes(c.file_size) : "";
   const isPdf = c.file_mime === "application/pdf";
+  const isImage = /^image\//.test(c.file_mime || "");
 
   const body = isPdf
     ? `<iframe class="cdpdf" src="${url}#view=FitH" title="${name}"></iframe>`
-    : `<div class="cdimg-wrap"><img class="cdimg" src="${url}" alt="${name}"></div>`;
+    : isImage ? `<div class="cdimg-wrap"><img class="cdimg" src="${url}" alt="${name}"></div>`
+    : '<div class="cdfile-tip">Office 格式请通过右上角「新窗口打开」下载查看。</div>';
 
   return `<div class="cdfile">
     <div class="cdfile-h">
@@ -148,9 +150,11 @@ export function openContractDetail(c, opt = {}) {
   const askSign = () => {
     const bar = m.querySelector(".mf");
     bar.innerHTML = `<span class="cdconfirm">确认后签署日期记为今天（${todayStr()}），台账里可核对</span>
+      <button class="btn btn-o" data-replace="1">更新合同</button>
       <button class="btn btn-o" data-back="1">取消</button>
       <button class="btn btn-p" data-ok="1">确认签署</button>`;
     bar.querySelector('[data-ok="1"]').onclick = (e) => run(e.currentTarget);
+    bar.querySelector('[data-replace="1"]').onclick = () => openContractReplace(c,opt);
     bar.querySelector('[data-back="1"]').onclick = () => {
       // 退回原来的底部，详情内容原样还在（不是把弹窗关掉重开）
       bar.innerHTML = `<button class="btn btn-o" data-x="0">关闭</button>
@@ -162,6 +166,7 @@ export function openContractDetail(c, opt = {}) {
   };
 
   act.onclick = (e) => (flow.action === "sign" ? askSign() : run(e.currentTarget));
+  if(opt.startConfirm && flow.action==="sign")askSign();
 }
 
 /** 今天，YYYY-MM-DD —— 与后端 transition 的默认签署日期同口径 */
