@@ -1,7 +1,7 @@
 const app=getApp();
 Page({
  data:{projects:[],index:0,pid:"",kind:"课件",name:"",error:"",busy:false,uploaded:"",
-  standardKinds:["课件","串场","劳务收集表","劳务协议","议程","签到表","现场照片","权益照片"],
+  standardKinds:["课件","串场","劳务收集表","劳务协议","议程","终版议程","签到表","现场照片","权益照片"],
   activeKinds:[],custom:false,customKind:"",locked:false},
  onLoad(q){if(q.pid)this.setData({pid:q.pid});},
  onShow(){this.load();},
@@ -56,8 +56,9 @@ Page({
  },
  async uploadPicked(selected,fileName){
   const kind=this.data.custom?this.data.customKind.trim():this.data.kind.trim();
-  if(!this.data.pid||!kind||!this.data.name.trim()||kind.length>20||this.data.name.length>120){
-   this.setData({error:"请选择会议并填写有效材料类别（20 字内）和名称（120 字内）"});return;
+  const final=kind==="终版议程";
+  if(!this.data.pid||!kind||(!final&&!this.data.name.trim())||kind.length>20||this.data.name.length>120){
+   this.setData({error:final?"请先选择所属会议和终版议程类别":"请选择会议并填写有效材料类别（20 字内）和名称（120 字内）"});return;
   }
   if(Number(selected.size)>20*1024*1024){this.setData({error:"单个附件不能超过 20 MB"});return;}
   this.setData({busy:true,error:"",uploaded:""});
@@ -67,10 +68,10 @@ Page({
    const upload=await app.api("/uploads?pid="+encodeURIComponent(this.data.pid),"POST",buffer,
     {"Content-Type":"application/octet-stream","X-File-Name":encodeURIComponent(fileName)});
    await app.api("/projects/"+encodeURIComponent(this.data.pid)+"/materials","POST",{
-    kind,name:this.data.name.trim(),file_key:upload.key,
+    kind,name:final?fileName:this.data.name.trim(),version:final?"终版":"v1",file_key:upload.key,
     file_name:upload.name,file_size:upload.size,file_mime:upload.mime});
-   this.setData({uploaded:"已归档："+upload.name,name:""});
-   wx.showToast({title:"归档成功",icon:"success"});
+   this.setData({uploaded:final?"终版议程已上传并确认："+upload.name:"已归档："+upload.name,name:""});
+   wx.showToast({title:final?"终版已确认":"归档成功",icon:"success"});
   }catch(e){this.setData({error:e.message||"归档失败"});}
   finally{this.setData({busy:false});}
  }
