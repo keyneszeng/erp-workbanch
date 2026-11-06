@@ -16,7 +16,8 @@
   </view>
   <input wx:if="{{custom}}" class="field" value="{{customKind}}" data-key="customKind" bindinput="input" placeholder="请输入自定义材料类别"/>
   <view class="section-caption space">02 · 材料记录</view>
-  <input class="field" placeholder="材料名称，例如：张老师课件／签到照片" data-key="name" value="{{name}}" bindinput="input"/>
+  <input wx:if="{{custom||kind!=='终版议程'}}" class="field" placeholder="材料名称，例如：张老师课件／签到照片" data-key="name" value="{{name}}" bindinput="input"/>
+  <view wx:if="{{!custom&&kind==='终版议程'}}" class="muted">只需选择一个终版议程文件上传，即自动确认为终版；无需填写名称或生成待办。</view>
   <view wx:if="{{error}}" class="error">{{error}}</view>
   <view wx:if="{{uploaded}}" class="success-note">{{uploaded}}</view>
   <button class="btn primary" loading="{{busy}}" disabled="{{busy||locked||!pid}}" bindtap="addPhoto">拍照或从相册选择并归档</button>
