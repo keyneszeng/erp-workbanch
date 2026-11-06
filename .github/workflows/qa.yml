@@ -97,6 +97,8 @@ jobs:
         run: npm run test:cf
       - name: Install headless browser test harness
         run: npm install --no-save --no-package-lock --no-audit --no-fund playwright
+      - name: "Black-box legacy XLS upload from material register"
+        run: ERP_DEMO_MODE=1 node test/ui/xls-upload.js
       - name: "Black-box contract sign confirmation and replacement"
         run: ERP_DEMO_MODE=1 node test/ui/contract-detail.js
       - name: "Black-box demand UI: quantity times unit price and archiving"
