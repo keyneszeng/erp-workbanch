@@ -87,6 +87,8 @@ jobs:
         run: npm run test:cf
       - name: Install headless browser test harness
         run: npm install --no-save --no-package-lock --no-audit --no-fund playwright
+      - name: "Black-box demand UI: quantity times unit price and archiving"
+        run: ERP_DEMO_MODE=1 node test/ui/demand.js
       - name: "Black-box Web UI smoke: workbench, project, materials and finance"
         run: node test/ui/prototype-visual-smoke.js
       - name: Assert Cloudflare demo-only config and blocked production deploy
