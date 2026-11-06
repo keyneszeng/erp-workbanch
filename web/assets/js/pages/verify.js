@@ -14,7 +14,7 @@ async function renderList(root) {
   const pending = rows.filter((p) => p.status === "待核销").length;
 
   root.innerHTML = `<div class="phead">
-      <div><h2>核销看板</h2><p>6 步 SOP 顺序判定 · 例外单闭环 · 核销是付款的唯一前置门</p></div>
+      <div><h2>核销看板</h2><p>6 项 SOP 任意顺序办理 · 例外单闭环 · 六项全过后解锁付款</p></div>
       <div class="acts">${can("export:any") ? '<button class="btn btn-o" id="exp">导出核销明细</button>' : ""}</div>
     </div>
     <div class="grid g4">
@@ -77,11 +77,10 @@ async function renderOne(root, pid) {
     任意类别（含「权益照片」）上传至少一份有效附件即可满足材料条件，无需凑齐固定类别。
     <a class="link" data-go="projects/${p.id}">去项目详情的材料页签登记 →</a></div>`}
   <div class="panel">
-    <div class="panel-h"><h2>6 步核销 SOP · 严格按顺序，通过后解锁结算</h2>
+    <div class="panel-h"><h2>6 项核销 SOP · 自由选择顺序，全部通过后解锁结算</h2>
       <div><span class="hint">已通过 ${v.passed}/6${v.openExceptions ? ` · ${v.openExceptions} 张例外单待处理或待复核` : ""}</span></div></div>
     <div class="vsteps">${v.steps.map((s) => {
       const cls = ["通过", "已解例外"].includes(s.result) ? "s-pass" : s.result === "不通过" ? "s-fail" : "s-wait";
-      const prevUnjudged = v.steps.some((x) => x.no < s.no && !["通过","已解例外"].includes(x.result));
       return `<div class="vstep ${cls}">
         <div class="vh"><span class="no">${s.no}</span><span class="nm">${esc(s.name)}</span><span class="who">${esc(s.who)}</span></div>
         <div class="desc">${esc(s.desc)}</div>
@@ -91,7 +90,7 @@ async function renderOne(root, pid) {
           ${s.evidence ? `<span class="hint">· 结构化核验已留痕</span>` : ""}
           <div style="flex:1"></div>
           <button class="btn btn-o btn-sm" data-detail="${s.no}">详情</button>
-          ${canJudge && s.result === "待判定" ? `<button class="btn btn-o btn-sm" data-judge="${s.no}" ${prevUnjudged ? 'disabled title="必须按顺序判定"' : ""}>判定</button>` : ""}
+          ${canJudge && s.result === "待判定" ? `<button class="btn btn-o btn-sm" data-judge="${s.no}">判定</button>` : ""}
           ${canJudge && s.result !== "待判定" ? `<button class="btn btn-o btn-sm" data-judge="${s.no}">重新判定</button>` : ""}
         </div></div>`;
     }).join("")}</div>
