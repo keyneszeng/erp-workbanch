@@ -131,6 +131,8 @@ function tabDemand(d, p) {
   const rows = dm.items.map((it) => ({
     c: [
       esc(it.grp), esc(it.item),
+      esc(it.quantity || "—"),
+      it.unit_price ? `¥${money(it.unit_price)}` : "—",
       it.budget ? `<b class="num">¥${money(it.budget)}</b>` : '<span style="color:var(--mute)">—</span>'
     ]
   }));
@@ -143,7 +145,7 @@ function tabDemand(d, p) {
   return `${banner}
     ${panel("会务需求清单",
       `需要 ${dm.needCount} 项 / 共 ${dm.total} 项 · 预算合计 ¥${money(dm.budgetTotal)}`,
-      table([{ t: "分组", w: "96px" }, { t: "条目" }, { t: "预算金额", w: "120px", cls: "num" }], rows,
+      table([{ t: "分组", w: "96px" }, { t: "条目" }, { t: "数量", w: "72px" }, { t: "单价", w: "94px", cls: "num" }, { t: "总价", w: "120px", cls: "num" }], rows,
         { empty: "这份需求单里没有标「需要」的条目" }),
       inPhase && writable
         ? `<button class="btn btn-o" data-go="demand/${esc(p.id)}">${dm.archived ? "查看 / 撤销归档" : "去填写"}</button>`
