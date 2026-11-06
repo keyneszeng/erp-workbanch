@@ -50,17 +50,17 @@ test("核销第1步页面不再有招商主体输入，需录入串场三项字�
  assert.doesNotMatch(form,/招商主体/);
  assert.match(detail,/\["会议通知","招商函","串场"\]/);
 });
-test("讲者核验按劳务表是否上传而动态调整资料来源",()=>{
+test("以终版议程为基准，仅核对签到表及讲者照片",()=>{
  assert.equal(sameNames(["甲","乙"],["乙","甲"]),true);
  assert.equal(sameNames(["甲","甲"],["甲","甲"]),false);
- const x={agendaSpeakers:["甲","乙"],collectionSpeakers:["乙","甲"],
+ const x={agendaSpeakers:["甲","乙"],collectionSpeakers:["额外人员"],
    attendanceSpeakers:["乙","甲"],photoSpeakers:["甲","乙"],noOmissions:true};
  const result=validateSopEvidence(2,x,project,db);
  assert.equal(result.matchedPeople,2);
  assert.equal(result.photoRecordsMatched,2);
- assert.deepEqual(result.matchedSources,["终版议程","劳务表","签到表","讲者照片"]);
+ assert.deepEqual(result.matchedSources,["终版议程","签到表","讲者照片"]);
  assert.doesNotMatch(JSON.stringify(result),/甲|乙/,"讲者姓名不得写入核销证据摘要");
- for(const key of ["agendaSpeakers","collectionSpeakers","attendanceSpeakers","photoSpeakers"]){
+ for(const key of ["agendaSpeakers","attendanceSpeakers","photoSpeakers"]){
    expectBlock(2,{...x,[key]:["甲"]});
    expectBlock(2,{...x,[key]:["甲","甲"]});
    expectBlock(2,{...x,[key]:[]});
@@ -88,18 +88,19 @@ test("讲者核验按劳务表是否上传而动态调整资料来源",()=>{
  };}};
  assert.throws(()=>validateSopEvidence(2,x,project,duplicatePhotos),/照片登记姓名/);
 });
-test("第2项不再强制要求协议，有劳务表才出现对应输入",()=>{
+test("第2项仅包含终版议程、签到表、讲者照片输入与关联材料",()=>{
  const fs=require("node:fs"),path=require("node:path");
  const root=path.join(__dirname,"..");
  const labels=fs.readFileSync(path.join(root,"server/lib/constants.js"),"utf8");
  const form=fs.readFileSync(path.join(root,"web/assets/js/lib/sop-fields.js"),"utf8");
  const detail=fs.readFileSync(path.join(root,"web/assets/js/lib/verify-detail.js"),"utf8");
- assert.match(labels,/讲者信息多处一致/);
- assert.match(labels,/终版议程、签到表、讲者照片一致/);
+ assert.match(labels,/讲者名单信息一致/);
+ assert.match(labels,/以终版议程讲者名单为基准/);
  assert.doesNotMatch(labels,/劳务协议/);
- for(const key of ["agendaSpeakers","collectionSpeakers","attendanceSpeakers","photoSpeakers"])
+ for(const key of ["agendaSpeakers","attendanceSpeakers","photoSpeakers"])
    assert.match(form,new RegExp(key));
- assert.match(detail,/\["终版议程","劳务表","劳务收集表","签到表","讲者照片"\]/);
+ assert.match(detail,/2:\["终版议程","签到表","讲者照片"\]/);
+ assert.doesNotMatch(form,/collectionSpeakers|hasLaborSheet/);
  assert.doesNotMatch(form,/agreementRecords|agreementSpeakers/);
 });
 test("线上时长严格大于30，混合会议同时需要签到",()=>{

@@ -44,23 +44,25 @@ function validateSopEvidence(no, evidence, project, db, invoiceAmount) {
         comparedWith:"串场"};
     }
     case 2: {
-      // 无劳务表时只比对终版议程、签到与讲者照片；有劳务表时再核对其讲者名单。
-      const labor=laborSheetInfo(db,pid);
-      const sources=[["终版议程",e.agendaSpeakers],
-        ...(labor.required?[["劳务表",e.collectionSpeakers]]:[]),
-        ["签到表",e.attendanceSpeakers],["讲者照片",e.photoSpeakers]];
-      const baseline=sources[0][1];
-      if(!sameNames(baseline,baseline)||sources.slice(1).some(([,names])=>!sameNames(baseline,names)))
-        fail("终版议程、签到表、讲者照片及已上传劳务表中的讲者姓名不一致，或存在漏名、重名");
-      for(const [kind] of sources)if(kind!=="劳务表"&&!materialExists(db,pid,[kind],true))
-        fail("第二步缺少已上传的 "+kind+" 原件","SOP_MATERIAL_MISSING");
+      // 以当前终版议程讲者名单为唯一基准：只核对签到表及讲者照片。
+      // 不引用劳务表、个人合同或其他台账中的名单。
+      const baseline=list(e.agendaSpeakers);
+      if(!sameNames(baseline,baseline))
+        fail("终版议程讲者名单不能为空或有重复姓名");
+      if(!sameNames(baseline,e.attendanceSpeakers))
+        fail("签到表中的讲者姓名与终版议程不一致，请核对缺失、多余或重复姓名");
+      if(!sameNames(baseline,e.photoSpeakers))
+        fail("讲者照片填写的姓名与终版议程不一致，请核对缺失、多余或重复姓名");
+      for(const kind of ["终版议程","签到表","讲者照片"])
+        if(!materialExists(db,pid,[kind],true))
+          fail("第二步缺少已上传的 "+kind+" 原件","SOP_MATERIAL_MISSING");
       const current=db.prepare("SELECT COUNT(*) AS n FROM materials WHERE pid=? AND kind='终版议程' AND version='终版' AND (deleted_at IS NULL OR deleted_at='') AND file_key IS NOT NULL AND file_key<>''").get(pid);
       if(!Number(current?.n))fail("请上传并确认当前终版议程原件，历史版不能用于核销","SOP_MATERIAL_MISSING");
       const photos=db.prepare("SELECT name FROM materials WHERE pid=? AND kind='讲者照片' AND (deleted_at IS NULL OR deleted_at='') AND file_key IS NOT NULL AND file_key<>''").all(pid).map(x=>String(x.name||"").trim());
-      if(!sameNames(baseline,photos))fail("讲者照片登记姓名与终版议程讲者名单不一致：请逐人上传并登记讲者照片");
-      if(e.noOmissions!==true)fail("须人工确认适用的讲者资料与照片一致，无冒领、漏发或重复");
-      return {matchedPeople:list(baseline).length,matchedSources:sources.map(([kind])=>kind),
-        laborSourceSignature:labor.required?labor.signature:null,
+      if(!sameNames(baseline,photos))
+        fail("材料库讲者照片登记姓名与终版议程讲者名单不一致：请逐人上传照片并核对缺失、多余或重复");
+      if(e.noOmissions!==true)fail("须人工确认签到表与讲者照片名单均与终版议程一致，无漏项、冒名或重复");
+      return {matchedPeople:baseline.length,matchedSources:["终版议程","签到表","讲者照片"],
         photoRecordsMatched:photos.length,noOmissions:true};
     }
     case 3: {

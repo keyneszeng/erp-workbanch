@@ -6,6 +6,7 @@ import {
 } from "../lib/ui.js";
 import { bindFilePicker, fileUrl, UPLOAD_ACCEPT, UPLOAD_TIP } from "../lib/upload.js";
 import { exStepLabel, openStepDetail } from "../lib/verify-detail.js";
+import { sopEvidenceForm, collectSopEvidence } from "../lib/sop-fields.js";
 import { flowHint, flowOf, openContractDetail } from "../lib/contract-detail.js";
 
 const ORDER = ["草稿", "待审批", "已立项", "筹备中", "执行中", "待核销", "已核销", "已结算", "已归档"];
@@ -645,12 +646,15 @@ function openJudge(root, pid, no, d) {
       <div class="fld"><label>判定结果<span class="req">*</span></label>
         <select name="result"><option value="通过">通过</option><option value="不通过">不通过（自动生成例外单）</option></select></div>
       <div class="fld" style="margin-top:12px"><label>问题描述 / 备注</label>
-        <textarea name="remark" rows="3" placeholder="判定不通过时必填，如：课件「XX」不在议程课题内"></textarea></div>`,
+        <textarea name="remark" rows="3" placeholder="判定不通过时必填，如：课件「XX」不在议程课题内"></textarea></div>
+      ${no===6?`<div class="fld"><label>发票总额（元）</label><input type="number" name="invoiceAmount" step="0.01" min="0"></div>`:""}
+      ${sopEvidenceForm(no,d.project)}`,
     footer: `<button class="btn btn-o" data-x="0">取消</button><button class="btn btn-p" data-x="1">提交判定</button>`
   });
   m.querySelector('[data-x="0"]').onclick = () => m.classList.remove("open");
   m.querySelector('[data-x="1"]').onclick = async () => {
     const v = readForm(m);
+    v.evidence=collectSopEvidence(no,m);
     if (v.result === "不通过" && !v.remark.trim()) { toast("判定不通过必须填写问题描述", "warn"); return; }
     try {
       const r = await api.post(`/api/projects/${pid}/verify/steps/${no}`, v);
