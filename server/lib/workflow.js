@@ -3,7 +3,7 @@ const { db } = require("./db");
 const { now, nextId, conflict, forbidden, notFound, bad, cents, yuan, parseBankAccount, parseBankName } = require("./util");
 const { can, isSuper, ROLES } = require("./rbac");
 const { logAudit } = require("./audit");
-const { FLOW, VERIFY_STEPS, MATERIAL_KINDS } = require("./constants");
+const { FLOW, VERIFY_STEPS } = require("./constants");
 const { isDemoMode } = require("./runtime");
 
 function getProject(id) {
@@ -47,16 +47,18 @@ function verification(pid) {
   };
 }
 
-/** 归档材料 8 类齐备情况 */
+/** 归档材料改为自由类别：任意一份有效附件即可进入后续核销/归档，不要求固定8类。 */
 function materialsStatus(pid) {
-  const rows = db.prepare("SELECT DISTINCT kind FROM materials WHERE pid = ? AND deleted_at IS NULL").all(pid);
-  const have = rows.map((r) => r.kind);
+  const rows = db.prepare(
+    "SELECT kind,file_key FROM materials WHERE pid=? AND (deleted_at IS NULL OR deleted_at='')"
+  ).all(pid);
+  const have=[...new Set(rows.map(r=>r.kind))];
+  const uploaded=rows.filter(r=>r.file_key && String(r.file_key).trim()).length;
   const toggles=db.prepare("SELECT kind,enabled FROM meeting_material_modules WHERE pid=?").all(pid);
   const disabled=new Set(toggles.filter(m=>m.enabled===0).map(m=>m.kind));
-  // 固定模块可以停用待办入口，但不能豁免归档必备 8 类（尤其课件）。
-  const required=MATERIAL_KINDS;
-  const missing = required.filter(k=>!have.includes(k));
-  return { have, missing, ok: missing.length === 0, required, disabled:[...disabled] };
+  return { have, missing: uploaded ? [] : ["至少上传1份材料附件"],
+    ok: uploaded>0, required: [], count:rows.length, uploadedCount:uploaded,
+    disabled:[...disabled] };
 }
 
 function settlementOf(pid) {
@@ -137,25 +139,13 @@ const GUARDS = {
     if (!(p.budget > 0)) return "预算必须大于 0";
     return null;
   },
-  /**
-   * V1.2.19：材料 8 类齐备才能「开启核销」。
-   *
-   * 老板 2026-10-28：「必须完成 材料 8 项录入，才能开启 核销功能」。
-   * 原来材料只是**归档**的前置，核销 6 步可以先判、材料后补 ——
-   * 于是判定人手里没有签到表、没有票据，只能凭印象点「通过」，核销就退化成橡皮图章。
-   * 现在把材料前置到核销入口：材料不齐，提交核销直接拦。
-   */
+  // 只要求登记并上传至少一份材料原件；不限制类别、数量或固定清单。
   request_verify(p) {
-    const m = materialsStatus(p.id);
-    if (!m.ok) {
-      return `核销材料还缺 ${m.missing.length} 类：${m.missing.join("、")}。` +
-        `材料 8 类齐备后才能开启核销（材料页签可逐类登记）`;
-    }
+    if (!materialsStatus(p.id).ok) return "请先上传至少一份会议材料附件，再开启核销";
     return null;
   },
   verify_pass(p) {
-    const m = materialsStatus(p.id);
-    if (!m.ok) return `核销材料缺 ${m.missing.length} 类：${m.missing.join("、")}，补齐后才能核销通过`;
+    if (!materialsStatus(p.id).ok) return "会议材料附件已全部删除，请至少保留一份上传附件";
     const v = verification(p.id);
     if (v.judged < v.total) return `还有 ${v.total - v.judged} 步未判定，6 步必须全部判定`;
     if (v.failedSteps.length) return `第 ${v.failedSteps.join("、")} 步不通过，需提交例外单并获批`;
@@ -185,7 +175,7 @@ const GUARDS = {
   },
   archive(p) {
     const m = materialsStatus(p.id);
-    if (!m.ok) return `归档材料缺 ${m.missing.length} 类：${m.missing.join("、")}`;
+    if (!m.ok) return "归档前至少保留一份已上传材料附件";
     if (!settlementOf(p.id)) return "结算单未生成，不能归档";
     const pending = db
       .prepare("SELECT COUNT(*) AS c FROM payments WHERE pid = ? AND status IN ('待审批','已审批')")
@@ -338,7 +328,7 @@ function transition(projectId, action, user, payload = {}, ip = "") {
     case "archive": {
       const at = now();
       db.prepare("UPDATE projects SET status = '已归档', status_at = ?, updated_at = ? WHERE id = ?").run(at, at, p.id);
-      logAudit({ user, module: "档案中心", action: "归档", target: p.id, detail: "数字卷宗封存，材料 8/8 齐备", ip });
+      logAudit({ user, module: "档案中心", action: "归档", target: p.id, detail: "数字卷宗封存，材料按自由类别归档，至少保留一份附件", ip });
       return { project: getProject(p.id), message: "已归档，卷宗封存" };
     }
     default: {
