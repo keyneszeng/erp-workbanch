@@ -44,10 +44,10 @@ function normalizedCategories(v){
   return a;
 }
 function sponsorRights(db,pid){
-  const contracts=db.prepare("SELECT id,pid,enterprise,contract_no,status,file_key,file_name FROM meeting_sponsor_contracts WHERE pid=? ORDER BY id").all(pid);
+  const contracts=db.prepare("SELECT id,pid,enterprise,contract_no,status,file_key,file_name,rights_scan_status FROM meeting_sponsor_contracts WHERE pid=? ORDER BY id").all(pid);
   const rights=db.prepare("SELECT r.id,r.pid,r.sponsor_id,r.category,r.source,r.confirmed,r.updated_at FROM sponsor_rights r WHERE r.pid=? ORDER BY r.sponsor_id,r.id").all(pid);
   const photos=db.prepare("SELECT id,pid,kind,name,file_key,file_name,version,deleted_at,sponsor_right_id FROM materials WHERE pid=? AND kind='权益照片' AND (deleted_at IS NULL OR deleted_at='') ORDER BY id").all(pid);
-  const active=contracts.filter(c=>c.status==="已签署");
+  const active=contracts.filter(c=>c.status==="已签署"&&c.rights_scan_status!=="确认无权益");
   const activeIds=new Set(active.map(c=>c.id));
   const needed=rights.filter(r=>activeIds.has(r.sponsor_id));
   const associated=photos.filter(p=>p.sponsor_right_id!=null);

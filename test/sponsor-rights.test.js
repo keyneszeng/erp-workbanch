@@ -5,7 +5,7 @@ const {DatabaseSync}=require("node:sqlite");
 const {parseSponsorRights,normalizedCategories,sponsorRights,validateRightsEvidence}=require("../server/lib/sponsor-rights");
 function fixture(){
  const db=new DatabaseSync(":memory:");
- db.exec("CREATE TABLE meeting_sponsor_contracts(id TEXT PRIMARY KEY,pid TEXT,enterprise TEXT,contract_no TEXT,status TEXT,file_key TEXT,file_name TEXT);"+
+ db.exec("CREATE TABLE meeting_sponsor_contracts(id TEXT PRIMARY KEY,pid TEXT,enterprise TEXT,contract_no TEXT,status TEXT,file_key TEXT,file_name TEXT,rights_scan_status TEXT DEFAULT '未识别');"+
    "CREATE TABLE sponsor_rights(id INTEGER PRIMARY KEY,pid TEXT,sponsor_id TEXT,category TEXT,source TEXT,confirmed INTEGER,updated_at TEXT);"+
    "CREATE TABLE materials(id INTEGER PRIMARY KEY,pid TEXT,kind TEXT,name TEXT,file_name TEXT,file_key TEXT,version TEXT,deleted_at TEXT,sponsor_right_id INTEGER)");
  const addSponsor=(id,pid="P1",status="已签署")=>db.prepare(
@@ -31,6 +31,14 @@ test("无已签赞助合同第7项不适用；待签合同不触发",()=>{
  addSponsor("A","P1","待确认");
  assert.equal(sponsorRights(db,"P1").required,false);
  assert.throws(()=>validateRightsEvidence(db,"P1",{}),e=>e.code==="SOP_NOT_APPLICABLE");
+ db.close();
+});
+test("合同明确人工确认没有权益时，第7项不应强制上传不存在的权益照片",()=>{
+ const {db,addSponsor}=fixture();
+ addSponsor("A");
+ assert.equal(sponsorRights(db,"P1").required,true);
+ db.prepare("UPDATE meeting_sponsor_contracts SET rights_scan_status='确认无权益' WHERE id='A'").run();
+ assert.equal(sponsorRights(db,"P1").required,false);
  db.close();
 });
 test("签署合同权益必须经人工确认，OCR建议不得直接视为权益交付",()=>{

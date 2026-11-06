@@ -312,16 +312,16 @@ function register(router) {
     const { sql, params } = require("../lib/rbac").scopeFilter(ctx.user);
     const paging = readPaging(ctx.query);
 
-    const base = `FROM materials m JOIN projects p ON p.id = m.pid WHERE ${sql} AND m.deleted_at IS NULL`;
+    const base = `FROM materials m JOIN projects p ON p.id = m.pid LEFT JOIN sponsor_rights sr ON sr.id=m.sponsor_right_id LEFT JOIN meeting_sponsor_contracts sc ON sc.id=sr.sponsor_id WHERE ${sql} AND m.deleted_at IS NULL`;
     let rows;
     let total;
     if (paging) {
       total = countOf(db.prepare(`SELECT COUNT(*) AS c ${base}`).get(...params));
       rows = db.prepare(
-        `SELECT m.*, p.name AS pname, p.status AS pstatus ${base} ORDER BY m.id DESC LIMIT ? OFFSET ?`
+        `SELECT m.*, p.name AS pname, p.status AS pstatus, sr.category AS sponsor_right_category, sc.enterprise AS sponsor_enterprise ${base} ORDER BY m.id DESC LIMIT ? OFFSET ?`
       ).all(...params, paging.size, paging.offset);
     } else {
-      rows = db.prepare(`SELECT m.*, p.name AS pname, p.status AS pstatus ${base} ORDER BY m.id DESC`).all(...params);
+      rows = db.prepare(`SELECT m.*, p.name AS pname, p.status AS pstatus, sr.category AS sponsor_right_category, sc.enterprise AS sponsor_enterprise ${base} ORDER BY m.id DESC`).all(...params);
       total = rows.length;
     }
 
