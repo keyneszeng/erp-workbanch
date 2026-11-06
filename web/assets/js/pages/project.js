@@ -384,7 +384,6 @@ function tabVerify(d, p) {
       const cls = s.result === "通过" || s.result === "已解例外" ? "s-pass" : s.result === "不通过" ? "s-fail" : "s-wait";
       const canJudge = can("verify:check") && !frozen && materialReady
         && (p.status === "待核销" || (p.status === "已核销" && state.super));
-      const prevUnjudged = v.steps.some((x) => x.no < s.no && x.result === "待判定");
       return `<div class="vstep ${cls}">
         <div class="vh"><span class="no">${s.no}</span><span class="nm">${esc(s.name)}</span>
           <span class="who">${esc(s.who)}</span></div>
@@ -394,7 +393,7 @@ function tabVerify(d, p) {
           ${s.checked_by ? `<span style="color:var(--mute)">· ${esc(s.checked_by)} ${esc(s.checked_at)}</span>` : ""}
           <div style="flex:1"></div>
           <button class="btn btn-o btn-sm" data-detail="${s.no}">详情</button>
-          ${canJudge && s.result === "待判定" ? `<button class="btn btn-o btn-sm" data-judge="${s.no}" ${prevUnjudged ? "disabled title=\"必须按顺序判定\"" : ""}>判定</button>` : ""}
+          ${canJudge && s.result === "待判定" ? `<button class="btn btn-o btn-sm" data-judge="${s.no}">判定</button>` : ""}
           ${canJudge && s.result !== "待判定" ? `<button class="btn btn-o btn-sm" data-judge="${s.no}">重新判定</button>` : ""}
         </div></div>`;
     }).join("")}</div>

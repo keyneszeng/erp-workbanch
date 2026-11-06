@@ -66,11 +66,9 @@ function register(router) {
     if (String(remark || "").length > 1000) throw bad(`问题描述不能超过 1000 字（当前 ${String(remark).length} 字）`);
     if (result === "不通过" && !String(remark || "").trim()) throw bad("判定不通过必须填写问题描述");
 
+    // 六项核销彼此独立，可以任意顺序判定和重新判定。
+    // 仅在最终「核销通过」时检查六项全部通过且无未决例外。
     const v = verification(p.id);
-    const prev = v.steps.filter((s) => s.no < no);
-    const unjudged = prev.filter((s) => isDemoMode() ? s.result === "待判定" : s.result !== "通过");
-    if (unjudged.length) throw conflict(`核销必须按顺序完成并通过，第 ${unjudged[0].no} 步尚未通过或仍待复核`, "OUT_OF_ORDER", { step: unjudged[0].no });
-
     const def = v.steps.find((s) => s.no === no);
     let invoiceAmount = null;
     if (!isDemoMode() && no === 6 && result === "通过") {
@@ -99,25 +97,15 @@ function register(router) {
     const validated = !isDemoMode() && result==="通过"
       ? validateSopEvidence(no,ctx.body?.evidence,p,db,invoiceAmount) : null;
     const at = now();
-    // 前置步骤重新判定后，后续步骤先前的结论不再可靠，必须按顺序复核。
-    // 判定依据完成校验后才清空，防止一个无效请求意外破坏已通过结果。
-    if (!isDemoMode() && def.result !== "待判定" && no < 6) {
-      db.prepare(
-        "UPDATE verify_steps SET result='待判定', remark='前置步骤重新核验，须依序复核', " +
-        "invoice_amount=NULL, checked_by=NULL, checked_at=NULL, evidence_json=NULL " +
-        "WHERE pid=? AND step_no>? AND result<>'待判定'"
-      ).run(p.id, no);
-      logAudit({user:ctx.user,module:"会后核销",action:"后续步骤重新复核",target:p.id,
-        detail:"第 "+no+" 步重新判定，后续步骤核验结果失效并需重新取证",ip:ctx.ip});
-    }
+    // 重新核验仅更新当前步骤；不清除其他步骤的判定、依据或发票核对结果。
     db.prepare(
       "INSERT OR REPLACE INTO verify_steps (pid,step_no,name,result,remark,invoice_amount,checked_by,checked_at,evidence_json) VALUES (?,?,?,?,?,?,?,?,?)"
     ).run(p.id, no, def.name, result, String(remark || ""), invoiceAmount, ctx.user.name, at,
       validated ? JSON.stringify(validated) : null);
     // 第五步通过后保留 AES-GCM 加密的已核验劳务收款资料供财务选用。
     // 如未配置服务器专用密钥，不落地敏感账号，仍需手工登记。
-    if(!isDemoMode() && (no===5 || no<5)){
-      if(no<5 || result!=="通过") db.prepare("DELETE FROM verified_labor_payees WHERE pid=?").run(p.id);
+    if(!isDemoMode() && no===5){
+      if(result!=="通过") db.prepare("DELETE FROM verified_labor_payees WHERE pid=?").run(p.id);
       else require("../lib/verified-payees").saveLabor(p.id,ctx.body.evidence.collectionRecords);
     }
     if (!isDemoMode() && result==="通过") {

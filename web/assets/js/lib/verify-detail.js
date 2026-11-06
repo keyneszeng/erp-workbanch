@@ -118,8 +118,8 @@ export function stepBody(d,no){
  */
 export function openStepDetail(d, no, opt = {}) {
   const s = d.verification.steps.find((x) => x.no === no);
-  const prevUnjudged = d.verification.steps.some((x) => x.no < no && !["通过","已解例外"].includes(x.result));
-  const canJudgeThis = !!opt.canJudge && !prevUnjudged;
+  // 各项独立判定：查看任意步骤详情都可直接执行本步骤判定。
+  const canJudgeThis = !!opt.canJudge;
 
   const m = modal({
     title: `第 ${no} 步 · ${esc(s.name)}`,
