@@ -363,7 +363,7 @@ function register(router) {
     assertCan(ctx.user, "material:write", "当前角色无材料登记权限");
     if (p.status === "已归档") throw conflict("项目已归档，材料清单已封存，不可再登记", "ARCHIVED", { status: p.status });
     if (settlementOf(p.id)) throw conflict("结算单已生成，材料证据已冻结，不可追加或修改", "FROZEN");
-    const { kind: rawKind, name, version, file_key, file_name, file_size, file_mime } = ctx.body || {};
+    const { kind: rawKind, name, version, file_key, file_name, file_size, file_mime, sponsor_right_id } = ctx.body || {};
     // 材料类别全部自选；推荐类目仅供快速选择，不影响推进权限。
     const kind = String(rawKind || "").trim();
     if (!kind) throw bad("请选择或填写材料类别");
@@ -392,6 +392,16 @@ function register(router) {
       throw bad("终版议程必须上传一份文件，保存即确认，不需要其他操作");
     // “讲者照片”是独立的照片类目，不允许仅填名称标记已收，
     // 也不能将 PPT/Excel 文件伪装成讲者肖像。
+    if (kind === "权益照片" && (!fk || !/\.(jpg|png|webp)$/i.test(fk)))
+      throw bad("权益照片必须上传 JPG/PNG/WebP 图片并选择来自赞助合同的权益二级类目");
+    let sponsorRightId=null;
+    if(kind==="权益照片"){
+      sponsorRightId=Number(sponsor_right_id);
+      if(!Number.isSafeInteger(sponsorRightId)||sponsorRightId<1)
+        throw bad("必须选择与当前项目赞助合同对应的权益二级类目");
+      const right=db.prepare("SELECT id FROM sponsor_rights WHERE id=? AND pid=?").get(sponsorRightId,p.id);
+      if(!right)throw conflict("所选权益二级类目不存在或不属于当前项目","RIGHT_CATEGORY_INVALID");
+    }else if(sponsor_right_id!=null && sponsor_right_id!=="")throw bad("只有权益照片可关联赞助权益二级类目");
     if (kind === "讲者照片" && (!fk || !/\.(jpg|png|webp)$/i.test(fk))) {
       throw bad("讲者照片必须上传 JPG、PNG 或 WebP 图片，名称请填写讲者姓名");
     }
@@ -403,12 +413,13 @@ function register(router) {
         db.prepare("UPDATE materials SET version='历史版' WHERE pid=? AND kind='终版议程' AND version='终版' AND deleted_at IS NULL")
           .run(p.id);
       db.prepare(
-        `INSERT INTO materials (pid,kind,name,version,uploader,created_at,file_key,file_name,file_size,file_mime)
-         VALUES (?,?,?,?,?,?,?,?,?,?)`
+        `INSERT INTO materials (pid,kind,name,version,uploader,created_at,file_key,file_name,file_size,file_mime,sponsor_right_id)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?)`
       ).run(
         p.id, kind, materialName, finalAgenda ? "终版" : (version || "v1"), ctx.user.name, now(),
         fk, fk ? String(file_name || "").slice(0, 120) : null,
-        fk ? Number(file_size) || null : null, fk ? String(file_mime || "").slice(0, 60) : null
+        fk ? Number(file_size) || null : null, fk ? String(file_mime || "").slice(0, 60) : null,
+        sponsorRightId
       );
     });
 
