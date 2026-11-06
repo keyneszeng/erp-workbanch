@@ -44,13 +44,13 @@ Page({
   if(this.data.busy||this.data.locked)return;
   try{
    const result=await new Promise((resolve,reject)=>wx.chooseMessageFile({
-    count:1,type:"file",extension:["ppt","pptx","xlsx","pdf","docx"],
+    count:1,type:"file",extension:["ppt","pptx","xls","xlsx","doc","docx","pdf","csv","txt","jpg","jpeg","png","webp","gif"],
     success:resolve,fail:reject
    }));
    const selected=result.tempFiles?.[0];
    if(!selected)throw new Error("未选择文件");
    const name=String(selected.name||"");
-   if(!/\.(ppt|pptx|xlsx|pdf|docx)$/i.test(name))throw new Error("仅允许 PPT、PPTX、XLSX、PDF、DOCX 文件");
+   if(!/\.(ppt|pptx|xls|xlsx|doc|docx|pdf|csv|txt|jpg|jpeg|png|webp|gif)$/i.test(name))throw new Error("仅支持图片、PDF、PPT/PPTX、DOC/DOCX、XLS/XLSX、CSV/TXT 文件");
    await this.uploadPicked(selected,name);
   }catch(e){this.setData({error:e.message||"文件选择失败"});}
  },
