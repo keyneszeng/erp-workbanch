@@ -158,10 +158,26 @@ async function seedArchivedDemand() {
     const last = rows[rows.length - 1];
     check("新行条目名可编辑", !!(await last.$('[data-f="item"]')), "");
     await (await last.$('[data-f="item"]')).fill("临时加：指引牌");
+    await (await last.$('[data-f="owner"]')).fill("外部协作负责人小张");
+    check("负责人可自定义键入姓名", (await (await last.$('[data-f="owner"]')).inputValue()) === "外部协作负责人小张", "");
     check("新行默认不需要", (await (await last.$('[data-f="need"]')).inputValue()) === "不需要", "");
     await (await last.$('[data-f="need"]')).selectOption("需要");
-    await (await last.$('[data-f="quantity"]')).fill("2");
+    await (await last.$('[data-f="quantity"]')).fill("-2");
     await (await last.$('[data-f="unit_price"]')).fill("130");
+    await page.click("#save");
+    await page.waitForTimeout(180);
+    check("非法数量被标红并提示纠正",!!(await last.$('[data-f="quantity"].demand-invalid')) &&
+      !!(await last.$(".demand-field-error")),"");
+    check("错误汇总显示",!!(await page.$("#demand-errors:not([hidden])")),"");
+    check("非法表单没有保存到服务器",!(await api("GET",`/api/demand/${PID}`)).data.items["其他"].some(x=>x.item==="临时加：指引牌"),"");
+    await (await last.$('[data-f="quantity"]')).fill("2");
+    check("纠正数量后红框消失",!(await last.$('[data-f="quantity"].demand-invalid')),"");
+    await (await last.$('[data-f="item"]')).fill("代购酒水");
+    await page.click("#save");
+    await page.waitForTimeout(150);
+    check("同组重名时项目名称标红",!!(await last.$('[data-f="item"].demand-invalid')),"");
+    await (await last.$('[data-f="item"]')).fill("临时加：指引牌");
+    check("纠正重名后标红取消",!(await last.$('[data-f="item"].demand-invalid')),"");
     check("2 × 130 自动得出只读总价 260.00", (await (await last.$('[data-f="budget"]')).inputValue()) === "260.00", "");
     await page.waitForTimeout(300);
     const stat1 = await page.textContent("#dstat");
@@ -176,6 +192,7 @@ async function seedArchivedDemand() {
     check("后端总价合计 91160", Number(saved.data.budgetTotal) === 91160, String(saved.data.budgetTotal));
     const newRow=saved.data.items["其他"].find(x=>x.item==="临时加：指引牌");
     check("保存数量/单价/总价",newRow.quantity==="2" && newRow.unit_price==="130" && newRow.budget==="260.00",JSON.stringify(newRow));
+    check("自定义负责人成功持久化",newRow.owner==="外部协作负责人小张",JSON.stringify(newRow));
 
     console.log("\n[5] 确认并归档：整单锁定");
     await page.click("#confirm");
