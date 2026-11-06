@@ -15,6 +15,18 @@ function selectedAssocs(root) {
   return [...root.querySelectorAll("[data-assoc-pick]:checked")].map(x=>x.value);
 }
 
+// 已停用的旧部门仅作为当前值保留，避免编辑姓名/手机号时误改为“供应商”。
+function departmentOptions(current = "") {
+  const active = state.meta.depts || [];
+  return [
+    { v: "", l: "请选择部门" },
+    ...(current && !active.includes(current)
+      ? [{ v: current, l: "历史部门（待重新分类）" }]
+      : []),
+    ...active.map(d => ({ v: d, l: d }))
+  ];
+}
+
 export async function render(root) {
   const d = await api.get("/api/users");
   const roles = state.meta.roles;
@@ -32,7 +44,7 @@ export async function render(root) {
         d.rows.map((u) => ({
           c: [esc(u.name), `<span class="mono">${esc(u.username)}</span>`,
             `<span class="role-tag ${u.role === "admin" ? "super" : ""}">${esc(u.role_name)}</span>`,
-            esc(u.role==="admin" ? "全平台" : (u.assocs||[u.assoc]).filter(Boolean).join("、") || "—"), esc(u.dept || "—"),
+            esc(u.role==="admin" ? "全平台" : (u.assocs||[u.assoc]).filter(Boolean).join("、") || "—"), esc(u.dept === "会务部" ? "待重新分类" : (u.dept || "—")),
             u.active ? badge("已启用") : badge("已停用"),
             `<span class="mono">${esc(u.created_at)}</span>`,
             manage ? `<button class="link" data-edit="${u.id}">编辑</button>` : "—"]
@@ -94,7 +106,7 @@ function openCreate(root, roles) {
     { k: "name", l: "姓名", req: 1 },
     { k: "role", l: "角色", t: "select", req: 1, opts: roles.filter((r) => state.demo || !r.super).map((r) => ({ v: r.key, l: r.name })) },
     
-    { k: "dept", l: "部门", t: "select", opts: state.meta.depts },
+    { k: "dept", l: "部门", t: "select", req: 1, opts: departmentOptions() },
     { k: "phone", l: state.demo ? "电话" : "白名单手机号（11 位）", req: !state.demo, ph: "13800138000" },
     ...(state.demo ? [{ k: "password", l: "初始密码", req: 1, ph: "至少 8 位，含字母和数字" }] : [])
   ];
@@ -174,7 +186,7 @@ function openEdit(root, u, roles) {
     { k: "name", l: "姓名", req: 1 },
     { k: "role", l: "角色", t: "select", req: 1, opts: roles.map((r) => ({ v: r.key, l: r.name })) },
     
-    { k: "dept", l: "部门", t: "select", opts: state.meta.depts },
+    { k: "dept", l: "部门", t: "select", opts: departmentOptions(u.dept) },
     { k: "phone", l: state.demo ? "电话" : "白名单手机号", req: !state.demo },
     { k: "active", l: "账号状态", t: "select", opts: [{ v: "1", l: "启用" }, { v: "0", l: "停用" }] },
     ...(state.demo ? [{ k: "password", l: "重置密码（留空不改）", ph: "留空不改；至少 8 位，含字母和数字" }] :
