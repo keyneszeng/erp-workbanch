@@ -202,6 +202,9 @@ test("工作流：非法流转被拒", async () => {
 });
 
 test("核销：不按步骤顺序也可独立判定，全部完成前仍不允许核销通过", async () => {
+  const lastFirst = await finance("POST", `/api/projects/${pid}/verify/steps/6`, { result: "通过" });
+  assert.equal(lastFirst.status,200,"第6项允许最先核验");
+  assert.equal(lastFirst.data.verification.steps.find(s=>s.no===6).result,"通过");
   const r = await finance("POST", `/api/projects/${pid}/verify/steps/3`, { result: "通过" });
   assert.equal(r.status, 200, JSON.stringify(r.data));
   assert.equal(r.data.verification.steps.find(s=>s.no===3).result,"通过");
