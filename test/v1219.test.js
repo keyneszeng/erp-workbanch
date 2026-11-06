@@ -32,7 +32,7 @@ before(async()=>{
   fs.rmSync(UP,{recursive:true,force:true});
   proc=spawn(process.execPath,["--experimental-sqlite","server/index.js"],{
     cwd:path.join(__dirname,".."),
-    env:{...process.env,ERP_DEMO_MODE:"0",ERP_DEPLOY_TARGET:"aliyun-ecs-test",ERP_SMS_PROVIDER:"console",ERP_PORT:String(PORT),ERP_DB:DB,ERP_UPLOAD_DIR:UP},
+    env:{...process.env,ERP_DEMO_MODE:"0",NODE_ENV:"test",ERP_SMS_PROVIDER:"test",ERP_SMS_TEST_MODE:"1",ERP_BOOTSTRAP_ADMIN_PHONE:"13800138000",ERP_PORT:String(PORT),ERP_DB:DB,ERP_UPLOAD_DIR:UP},
     stdio:["ignore","pipe","pipe"]
   });
   proc.stderr.on("data",b=>{if(!String(b).includes("ExperimentalWarning"))process.stderr.write(String(b));});
