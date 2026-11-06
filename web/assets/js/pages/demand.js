@@ -198,11 +198,15 @@ function wireRow(root,tr) {
     }
     tr.remove();
     refreshHead(root);
+    if(root.dataset.demandValidationMode)
+      validateDemand(root,root.dataset.demandValidationMode);
   });
   tr.querySelectorAll("input,select").forEach(el=>{
     const update=()=>{
       if(el.dataset.f==="quantity" || el.dataset.f==="unit_price")updateRowTotal(tr);
       refreshHead(root);
+      if(root.dataset.demandValidationMode)
+        validateDemand(root,root.dataset.demandValidationMode);
     };
     el.addEventListener("input",update);
     el.addEventListener("change",update);
@@ -224,6 +228,8 @@ function wireSheet(root, pid, d) {
       tbody.insertBefore(tr, tbody.querySelector(".addrow"));
       wireRow(root, tr);
       refreshHead(root);
+      if(root.dataset.demandValidationMode)
+        validateDemand(root,root.dataset.demandValidationMode);
       tr.querySelector('[data-f="item"]')?.focus();
     };
   });
@@ -299,25 +305,36 @@ function renderSheet(root, pid) {
     <div id="demand-errors" class="demand-error-summary" role="alert" hidden></div>
     ${d.groups.map((g) => groupPanel(g, d.items[g], locked)).join("")}`;
 
+    root.dataset.demandRequireCompletion = d.requireCompletion ? "1" : "0";
+    root.dataset.demandValidationMode = "";
     wireSheet(root, pid, d);
     if (!locked) refreshHead(root); // 归档态是纯文本，没有可统计的输入框
 
     const save = root.querySelector("#save");
     if (save) save.onclick = () => {
-      const { items, blank } = collect(root);
+      root.dataset.demandValidationMode="save";
+      if(!validateDemand(root,"save",{focus:true}))
+        return toast("填写有误：请按标红位置修改后再保存","warn");
+      const { items } = collect(root);
       if (!items.length) return toast("至少要有一条需求", "warn");
       save.disabled = true;
       api.patch(`/api/demand/${pid}`, { items })
         .then(() => {
-          toast(blank ? `已保存（${blank} 条未填名称已跳过）` : "会务需求已保存", "ok");
+          toast("会务需求已保存", "ok");
           return renderSheet(root, pid);
         })
-        .catch((e) => { save.disabled = false; toast(e.message, "warn"); });
+        .catch((e) => {
+          save.disabled = false;
+          displayServerDemandError(root,e);
+          toast(e.message,"warn");
+        });
     };
     const cfm = root.querySelector("#confirm");
     if (cfm) cfm.onclick = async () => {
-      const { items, blank } = collect(root);
-      if (blank) return toast(`有 ${blank} 条未填名称，请先补上再归档`, "warn");
+      root.dataset.demandValidationMode="confirm";
+      if(!validateDemand(root,"confirm",{focus:true}))
+        return toast("存在填写错误或必填项未完成，请修改标红栏目后再归档","warn");
+      const { items } = collect(root);
       if (!items.length) return toast("至少要有一条需求", "warn");
       if (!(await confirmBox("确认并归档后需求单将锁定，不能再修改（可撤销归档）。确认继续？", { ok: "确认归档" }))) return;
       try {
@@ -325,7 +342,10 @@ function renderSheet(root, pid) {
         await api.post(`/api/demand/${pid}/confirm`);
         toast("已确认并归档，后续核销以此为依据", "ok");
         await renderSheet(root, pid);
-      } catch (e) { toast(e.message, "warn"); }
+      } catch (e) {
+        displayServerDemandError(root,e);
+        toast(e.message, "warn");
+      }
     };
     const un = root.querySelector("#unarchive");
     if (un) un.onclick = async () => {
