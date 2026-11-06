@@ -106,7 +106,7 @@ test("production: association member IDs, approved contract signing and pay-afte
   const reset=await request("POST","/api/demand/"+pid+"/reset",{},cookie);
   assert.equal(reset.status,200);
 
-  for (const kind of [...new Set([...MATERIAL_KINDS,"会议通知","劳务收集表","劳务协议","串场"])]) {
+  for (const kind of [...new Set([...MATERIAL_KINDS,"会议通知","劳务收集表","串场"])]) {
     const attachment = kind === "发票" ? uploadBody : await (async () => {
       const response = await fetch(root + "/api/uploads?pid=" + pid, {
         method:"POST",
@@ -172,10 +172,10 @@ test("production: association member IDs, approved contract signing and pay-afte
     1:{documentKind:"会议通知",meetingName:base.name,meetingDate:base.date,organizer:base.assoc,
       hostMeetingName:base.name,hostMeetingDate:base.date,hostOrganizer:base.assoc,
       stamped:true,final:true},
-    2:{agendaSpeakers:["测试讲者"],collectionSpeakers:["测试讲者"],agreementSpeakers:["测试讲者"],attendanceSpeakers:["测试讲者"],photoSpeakers:["测试讲者"],noOmissions:true},
+    2:{agendaSpeakers:["测试讲者"],collectionSpeakers:["测试讲者"],attendanceSpeakers:["测试讲者"],photoSpeakers:["测试讲者"],noOmissions:true},
     3:{signedAttendance:true},
     4:{agendaTopics:["课题甲","课题乙"],courseTopics:["课题甲"]},
-    5:{collectionRecords:[record],agreementRecords:[record]},
+    5:{collectionRecords:[record]},
     6:{draftAmount:8000,meetingName:base.name,meetingDate:base.date}
   };
   // 真实例外单闭环：审批并不等于核销，必须登记整改和关联材料后再回原步骤。
