@@ -86,16 +86,19 @@ export function openMaterialRegistration(root, projects, kinds, defaultPid="", o
   // 终版议程只需上传一个文件，名称自动取文件名，版本自动确认为终版。
   const syncAgendaForm=()=>{
     const final=kindSelect.value==="终版议程";
+    const photo=kindSelect.value==="讲者照片";
     for(const field of ["name","version"]){
       const el=m.querySelector('[name="'+field+'"]');
       if(el?.closest(".fld"))el.closest(".fld").style.display=final?"none":"";
     }
-    picker.multiple=!final;
+    picker.multiple=!final&&!photo;
+    picker.accept=photo?".jpg,.jpeg,.png,.webp":UPLOAD_ACCEPT;
     if(saveButton)saveButton.textContent=final?"确定终版议程":"保存";
     const tip=m.querySelector(".upload")?.closest(".fld")?.querySelector(".tip");
     if(tip)tip.textContent=final
       ? "上传一份终版议程原件，点击「确定终版议程」即完成；无需额外的讲者、课题或待办流程。"
-      : UPLOAD_TIP+" 讲者照片请在名称栏填写讲者姓名。";
+      : photo ? "每次登记一位讲者的 JPG/PNG/WebP 照片，材料名称必须填写对应讲者姓名，供核销第2步逐人核对。"
+        : UPLOAD_TIP+" 讲者照片请在名称栏填写讲者姓名。";
   };
   kindSelect.addEventListener("change",syncAgendaForm);
   syncAgendaForm();
@@ -105,6 +108,10 @@ export function openMaterialRegistration(root, projects, kinds, defaultPid="", o
     const error=files.map(checkFile).find(Boolean);
     if(error){toast(error,"warn");picker.value="";picked=[];return;}
     if(kindSelect.value==="终版议程"&&files.length!==1){toast("终版议程只能上传一份文件","warn");picker.value="";picked=[];return;}
+    if(kindSelect.value==="讲者照片"&&(files.length!==1||!/^image\/(jpeg|png|webp)$/.test(files[0].type||"") &&
+      !/\.(jpg|jpeg|png|webp)$/i.test(files[0].name||""))){
+      toast("讲者照片每次只能上传一张 JPG/PNG/WebP 图片","warn");picker.value="";picked=[];return;
+    }
     picked=files;
     const count=m.querySelector(".upload .fn");
     if(count)count.textContent=files.length?files.length+" 份文件已选择":"未选择";
@@ -118,6 +125,9 @@ export function openMaterialRegistration(root, projects, kinds, defaultPid="", o
     const isFinalAgenda=kindSelect.value==="终版议程";
     if(!validate(m,isFinalAgenda?fields.filter(f=>f.k!=="name"):fields))return;
     if(isFinalAgenda&&picked.length!==1){toast("请先选择一份终版议程文件","warn");return;}
+    if(kindSelect.value==="讲者照片"&&picked.length!==1){
+      toast("讲者照片请一次选择一位讲者的一张图片","warn");return;
+    }
     const v=readForm(m);
     if(isFinalAgenda){
       v.name=picked[0].name;
