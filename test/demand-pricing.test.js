@@ -1,0 +1,144 @@
+"use strict";
+/** 数量×单价自动汇算、默认不需要、跨页金额口径与历史兼容测试。 */
+const {test,before,after}=require("node:test");
+const assert=require("node:assert/strict");
+const path=require("node:path"),fs=require("node:fs");
+const {spawn}=require("node:child_process");
+const PORT=8973,BASE="http://127.0.0.1:"+PORT;
+const DB=path.join(__dirname,"..","data","demand-pricing-test.db");
+const PID="MP-2026-002";
+let server,admin,finance;
+async function healthy(){
+  for(let i=0;i<180;i++){
+    try{if((await fetch(BASE+"/api/health")).ok)return}catch{}
+    await new Promise(r=>setTimeout(r,150));
+  }
+  throw Error("ERP not ready");
+}
+async function login(name){
+  const r=await fetch(BASE+"/api/auth/login",{method:"POST",
+    headers:{"content-type":"application/json"},body:JSON.stringify({username:name,password:"123456"})});
+  assert.equal(r.status,200,name+" login");
+  return r.headers.get("set-cookie").split(";")[0];
+}
+function client(cookie){
+  return async(method,url,body)=>{
+    const r=await fetch(BASE+url,{
+      method,headers:{"content-type":"application/json",cookie},
+      body:body===undefined?undefined:JSON.stringify(body)
+    });
+    const raw=await r.text();
+    let data;try{data=JSON.parse(raw)}catch{data=raw}
+    return {status:r.status,data};
+  };
+}
+before(async()=>{
+  for(const suffix of ["","-wal","-shm"])fs.rmSync(DB+suffix,{force:true});
+  server=spawn(process.execPath,["--experimental-sqlite","server/index.js"],{
+    cwd:path.join(__dirname,".."),env:{...process.env,ERP_DB:DB,ERP_PORT:String(PORT)},
+    stdio:["ignore","pipe","pipe"]
+  });
+  server.stderr.on("data",b=>{const s=String(b);if(!s.includes("ExperimentalWarning"))process.stderr.write(s)});
+  await healthy();
+  admin=client(await login("admin"));finance=client(await login("finance"));
+});
+after(()=>server?.kill("SIGTERM"));
+
+test("新需求表四组共23项默认全部不需要，数量与单价及总价均为空",async()=>{
+  const r=await admin("GET","/api/demand/"+PID);
+  assert.equal(r.status,200);
+  assert.equal(r.data.isTemplate,true);
+  const items=Object.values(r.data.items).flat();
+  assert.equal(items.length,23);
+  assert.ok(items.every(i=>i.need==="不需要"));
+  assert.ok(items.every(i=>i.quantity===""&&i.unit_price===""&&i.budget===""));
+  assert.equal(r.data.needCount,0);
+  assert.equal(r.data.budgetTotal,0);
+});
+
+test("后端按数量×单价计算总价，拒绝客户端伪造金额，合计仅统计需要项",async()=>{
+  const items=[
+    {grp:"设计",item:"主背景板",need:"需要",quantity:"3",unit_price:"12.50",budget:"999999"},
+    {grp:"制作",item:"小数数量",need:"需要",quantity:"1.25",unit_price:"0.10",budget:"1000"},
+    {grp:"其他",item:"不需要但保留询价",need:"不需要",quantity:"999",unit_price:"9",budget:"0"}
+  ];
+  const r=await admin("PATCH","/api/demand/"+PID,{items});
+  assert.equal(r.status,200,JSON.stringify(r.data));
+  assert.equal(r.data.sheet.budgetTotal,37.63);
+  assert.equal(r.data.sheet.needCount,2);
+  const a=r.data.sheet.items["设计"][0],b=r.data.sheet.items["制作"][0],c=r.data.sheet.items["其他"][0];
+  assert.equal(a.quantity,"3");
+  assert.equal(a.unit_price,"12.50");
+  assert.equal(a.budget,"37.50");
+  assert.equal(b.budget,"0.13","采用分精度四舍五入 1.25×0.10=0.125 → 0.13");
+  assert.equal(c.budget,"8991.00");
+  const list=await admin("GET","/api/demand");
+  assert.equal(list.data.projects.find(p=>p.id===PID).budgetTotal,37.63);
+  const detail=await admin("GET","/api/projects/"+PID);
+  assert.equal(detail.data.demand.budgetTotal,37.63);
+  assert.deepEqual(detail.data.demand.items.map(x=>x.quantity),["3","1.25"]);
+  assert.equal((await finance("PATCH","/api/demand/"+PID,{items})).status,403);
+});
+
+test("非法数量、单价精度及超额总价全部被拒，不能破坏已保存单据",async()=>{
+  for(const item of [
+    {quantity:"-1",unit_price:"2"},
+    {quantity:"1.00001",unit_price:"2"},
+    {quantity:"1000001",unit_price:"2"},
+    {quantity:"2",unit_price:"1.234"},
+    {quantity:"1000000",unit_price:"1000000"},
+    {quantity:"1e2",unit_price:"2"}
+  ]){
+    const r=await admin("PATCH","/api/demand/"+PID,{items:[
+      {grp:"设计",item:"错误数值",need:"需要",...item}
+    ]});
+    assert.equal(r.status,400,JSON.stringify(item)+" should be rejected: "+JSON.stringify(r.data));
+  }
+  const current=await admin("GET","/api/demand/"+PID);
+  assert.equal(current.data.budgetTotal,37.63);
+});
+
+test("空数量/单价无法伪造总价；仍兼容无定价字段的历史数据",async()=>{
+  const legacy=await admin("PATCH","/api/demand/"+PID,{items:[
+    {grp:"设计",item:"旧需求",need:"需要",budget:"88.50"}
+  ]});
+  assert.equal(legacy.status,200);
+  assert.equal(legacy.data.sheet.items["设计"][0].budget,"88.50");
+  const keep=await admin("PATCH","/api/demand/"+PID,{items:[
+    {grp:"设计",item:"旧需求",need:"需要",quantity:"",unit_price:"",budget:"88.50"},
+    {grp:"设计",item:"新增项目",need:"需要",quantity:"",unit_price:"",budget:"800"}
+  ]});
+  assert.equal(keep.status,200,JSON.stringify(keep.data));
+  const detail=keep.data.sheet;
+  assert.equal(detail.items["设计"][0].budget,"88.50","只保留未变更的历史录入金额");
+  assert.equal(detail.items["设计"][1].budget,"","新版输入不能写假总价");
+  const repriced=await admin("PATCH","/api/demand/"+PID,{items:[
+    {grp:"设计",item:"旧需求",need:"需要",quantity:"3",unit_price:"10.10",budget:"88.50"}
+  ]});
+  assert.equal(repriced.status,200);
+  assert.equal(repriced.data.sheet.items["设计"][0].budget,"30.30");
+});
+
+test("CSV 含数量、单价、总价及需要项合计",async()=>{
+  const r=await fetch(BASE+"/api/demand/"+PID+"/export",{
+    headers:{cookie:await login("admin")}
+  });
+  assert.equal(r.status,200);
+  const bytes=Buffer.from(await r.arrayBuffer()),csv=bytes.toString("utf8");
+  assert.deepEqual([...bytes.subarray(0,3)],[0xef,0xbb,0xbf]);
+  assert.match(csv,/数量,单价,总价/);
+  assert.match(csv,/30\.30/);
+  assert.match(csv,/需要项总价合计/);
+});
+
+test("重置恢复默认全不需要；零需求也可明确确认归档",async()=>{
+  const reset=await admin("POST","/api/demand/"+PID+"/reset",{});
+  assert.equal(reset.status,200);
+  assert.equal(reset.data.sheet.isTemplate,true);
+  assert.ok(Object.values(reset.data.sheet.items).flat().every(i=>i.need==="不需要"));
+  const confirm=await admin("POST","/api/demand/"+PID+"/confirm",{});
+  assert.equal(confirm.status,200,JSON.stringify(confirm.data));
+  assert.equal(confirm.data.sheet.needCount,0);
+  assert.equal(confirm.data.sheet.budgetTotal,0);
+  assert.equal(confirm.data.sheet.archived,true);
+});
