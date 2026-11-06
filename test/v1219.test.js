@@ -39,7 +39,7 @@ test("只登记文字、不上传文件，无法推进（不是随意填名称�
   assert.equal(st.count,1);
   assert.equal(st.uploadedCount,0);
   assert.equal(st.ok,false);
-  assert.match(GUARDS.request_verify(project),/至少上传/);
+  assert.match(GUARDS.request_verify(project),/上传至少一份/);
 });
 
 test("上传任意一种权益照片附件即可进入下一阶段，原先其余类别全部缺席也不会挡",()=>{
