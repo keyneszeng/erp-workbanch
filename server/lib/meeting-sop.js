@@ -103,7 +103,7 @@ function validateSopEvidence(no, evidence, project, db, invoiceAmount) {
       const agendaTopics=list(e.agendaTopics),courseTopics=list(e.courseTopics);
       if(!agendaTopics.length || !courseTopics.length)
         throw bad("请从终版议程及已上传课件原件分别录入主题");
-      const normalize=topic=>topic.replace(/\\s+/g,"");
+      const normalize=topic=>topic.replace(/\s+/g,"");
       const allowed=new Set(agendaTopics.map(normalize));
       if(courseTopics.some(topic=>!allowed.has(normalize(topic))))
         fail("课件主题不在当前终版议程中，请核对课件与终版议程原件");
