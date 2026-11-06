@@ -78,7 +78,7 @@ function demandSummary(pid) {
   const sheet = db.prepare("SELECT * FROM demand_sheets WHERE pid = ?").get(pid);
   if (!sheet) return null;
   const items = db.prepare(
-    "SELECT grp,item,need,budget FROM demand_items WHERE pid = ? ORDER BY ordering, id"
+    "SELECT grp,item,need,budget,quantity,unit_price FROM demand_items WHERE pid = ? ORDER BY ordering, id"
   ).all(pid);
   if (!items.length) return null;
   const need = items.filter((x) => x.need === "需要");
@@ -90,7 +90,8 @@ function demandSummary(pid) {
     needCount: need.length,
     // 逐条累加会留浮点尾巴，收敛到「分」
     budgetTotal: yuan(need.reduce((s, x) => s + (Number(x.budget) || 0), 0)),
-    items: need.map((x) => ({ grp: x.grp, item: x.item, budget: x.budget || "" }))
+    items: need.map((x) => ({ grp: x.grp, item: x.item, budget: x.budget || "",
+      quantity: x.quantity || "", unit_price: x.unit_price || "" }))
   };
 }
 
