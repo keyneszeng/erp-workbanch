@@ -14,7 +14,7 @@ const PAYABLE = ["已核销"];
  * 页签顺序 = 作业顺序。
  *
  * 「材料 → 核销 → 付款」这一段是硬顺序，不是排版偏好：
- *   · 材料 8 类齐备才开启核销（V1.2.19）；
+ *   · 任意类别上传至少一份材料附件后即可进入核销；
  *   · 核销通过（已核销）是付款的唯一前置门（V1.2.20 把付款挪到核销后面）。
  * 页签顺序跟流程反着放，人会先去点后面那个、被拦、再回头找前一个 —— 顺序本身就是提示。
  */
@@ -372,20 +372,12 @@ function tabVerify(d, p) {
   const v = d.verification;
   const frozen = !!d.settlement;
   const ms = d.materialsStatus;
-  // V1.2.19：材料 8 类齐备才开启核销，缺料时判定按钮一律禁用
+  // 核销入口只要求项目上传至少一份任意类别的材料附件。
   const materialReady = ms.ok;
-  /**
-   * 文案要分状态：已经核销完的项目说「核销未开启」是错的 —— 它早就核销了，
-   * 缺料只影响归档。历史数据（门禁上线前就核销完、材料没齐）会走到这一支。
-   */
-  const doneVerify = ["已核销", "已结算", "已归档"].includes(p.status);
-  const banner = materialReady ? "" : (doneVerify
-    ? `<div class="gate" style="margin-bottom:12px"><b>材料还缺 ${ms.missing.length} 类</b>
-        核销已完成，缺料只影响归档（归档要求 8/8）：${esc(ms.missing.join("、"))}。
-        <button class="link" data-goto-tab="materials">去登记材料 →</button></div>`
-    : `<div class="gate" style="margin-bottom:12px"><b>核销未开启：材料还缺 ${ms.missing.length} 类</b>
-        必须先完成材料 8 项录入才能判定（缺：${esc(ms.missing.join("、"))}）。
-        <button class="link" data-goto-tab="materials">去登记材料 →</button></div>`);
+  const banner = materialReady ? "" :
+    `<div class="gate" style="margin-bottom:12px"><b>尚未上传材料原件</b>
+      任意材料类别上传至少一份附件后即可继续，无需固定类别齐全。
+      <button class="link" data-goto-tab="materials">去上传材料 →</button></div>`;
   return `${banner}
   ${panel("核销 6 步 SOP", `已通过 ${v.passed}/6 · ${v.openExceptions ? v.openExceptions + " 张例外单待审批" : "无未决例外"}`,
     `<div class="vsteps">${v.steps.map((s) => {
