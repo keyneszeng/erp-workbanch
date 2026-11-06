@@ -58,8 +58,8 @@ test("新需求表四组共23项默认全部不需要，数量与单价及总价
 
 test("后端按数量×单价计算总价，拒绝客户端伪造金额，合计仅统计需要项",async()=>{
   const items=[
-    {grp:"设计",item:"主背景板",need:"需要",quantity:"3",unit_price:"12.50",budget:"999999"},
-    {grp:"制作",item:"小数数量",need:"需要",quantity:"1.25",unit_price:"0.10",budget:"1000"},
+    {grp:"设计",item:"主背景板",note:"需核对设计稿",need:"需要",spec:"三米宽",owner:"外部负责人甲",due:"2026-12-10",quantity:"3",unit_price:"12.50",budget:"999999"},
+    {grp:"制作",item:"小数数量",need:"需要",spec:"克重",owner:"负责人乙",due:"2026-12-11",quantity:"1.25",unit_price:"0.10",budget:"1000"},
     {grp:"其他",item:"不需要但保留询价",need:"不需要",quantity:"999",unit_price:"9",budget:"0"}
   ];
   const r=await admin("PATCH","/api/demand/"+PID,{items});
@@ -77,6 +77,20 @@ test("后端按数量×单价计算总价，拒绝客户端伪造金额，合计
   const detail=await admin("GET","/api/projects/"+PID);
   assert.equal(detail.data.demand.budgetTotal,37.63);
   assert.deepEqual(detail.data.demand.items.map(x=>x.quantity),["3","1.25"]);
+  assert.equal(detail.data.demand.items.length,2,"项目详情的清单只包含标记为需要的条目");
+  assert.equal(detail.data.demand.needCount,2);
+  assert.equal(detail.data.demand.total,3,"原始需求条目总数不受隐藏规则影响");
+  assert.ok(!detail.data.demand.items.some(x=>x.item==="不需要但保留询价"),"不需要项不应出现在详情清单");
+  assert.deepEqual(
+    ["grp","item","note","spec","quantity","unit_price","budget","owner","due"].map(k=>detail.data.demand.items[0][k]),
+    ["设计","主背景板","需核对设计稿","三米宽","3","12.50","37.50","外部负责人甲","2026-12-10"],
+    "项目详情应包含全部需要项字段");
+  const verify=await admin("GET","/api/projects/"+PID+"/verify");
+  assert.equal(verify.status,200);
+  assert.deepEqual(verify.data.demand.items,detail.data.demand.items,"核销与项目清单必须共用同一明细数据");
+  const original=await admin("GET","/api/demand/"+PID);
+  assert.ok(original.data.items["其他"].some(x=>x.item==="不需要但保留询价"),
+    "隐藏只是项目详情的展示规则，不能删除原始需求单条目");
   assert.equal((await finance("PATCH","/api/demand/"+PID,{items})).status,403);
 });
 
