@@ -3,7 +3,6 @@ import { esc, badge, toast, confirmBox, money } from "../lib/ui.js";
 
 const yuan = (n) => `¥${money(Number(n) || 0)}`;
 const blankItem = { item: "", note: "", need: "不需要", spec: "", quantity: "", unit_price: "", owner: "", owner_id: "", due: "", budget: "", budget_owner: "", attach: "", status: "未开始" };
-let memberOptions = [];
 
 function optHtml(opts, val) {
   return opts.map((o) => `<option value="${esc(o)}"${o === val ? " selected" : ""}>${esc(o)}</option>`).join("");
@@ -40,10 +39,7 @@ function cells(it, locked) {
     <td>${locked ? plain(it.quantity) : `<input class="mini" type="number" data-f="quantity" min="0" max="1000000" step="any" inputmode="decimal" value="${esc(it.quantity || "")}" placeholder="数量">`}</td>
     <td>${locked ? plain(it.unit_price, true) : `<input class="mini" type="number" data-f="unit_price" min="0" step="0.01" inputmode="decimal" value="${esc(it.unit_price || "")}" placeholder="单价">`}</td>
     <td>${locked ? plain(it.budget, true) : `<input class="mini" data-f="budget" value="${esc(it.budget || "")}" readonly tabindex="-1" title="总价根据数量与单价自动计算；历史金额保持原值" placeholder="自动计算">`}</td>
-    <td>${locked ? plain(it.owner) : `<select class="mini" data-f="owner_id">
-          <option value="">请选择成员</option>
-          ${memberOptions.map((u) => `<option value="${esc(String(u.id))}"${Number(it.owner_id) === Number(u.id) ? " selected" : ""}>${esc(u.name)}</option>`).join("")}
-        </select>`}</td>
+    <td>${locked ? plain(it.owner) : `<input class="mini" data-f="owner" value="${esc(it.owner || "")}" placeholder="填写负责人姓名" aria-label="需求负责人姓名，可自定义填写">`}</td>
     <td>${locked ? plain(it.due) : `<input class="mini" type="date" data-f="due" value="${esc(it.due || "")}">`}</td>
     <td style="width:34px;text-align:center">${locked ? "" : '<button class="link del" data-del="1" title="删除该条">×</button>'}</td>`;
 }
@@ -186,8 +182,7 @@ function renderList(root) {
 
 function renderSheet(root, pid) {
   return api.get(`/api/demand/${pid}`).then(async (d) => {
-    memberOptions = can("demand:write") ? (await api.get("/api/users/assignable?assoc=" + encodeURIComponent(d.projectAssoc))).rows || [] : [];
-    const writable = can("demand:write");
+     const writable = can("demand:write");
     const locked = !!d.archived || !writable;
     const total = d.groups.reduce((s, g) => s + d.items[g].length, 0);
     const need = d.groups.reduce((s, g) => s + d.items[g].filter((i) => i.need === "需要").length, 0);
@@ -213,6 +208,7 @@ function renderSheet(root, pid) {
     ${d.archived ? `<div class="banner ok">✓ 该会议会务需求已由 <b>${esc(d.confirmed_by || "")}</b> 于 ${esc(d.confirmed_at || "")} 确认并归档
       —— 已封存，后续核销以这份清单的总价为依据。${writable ? "如需修改，先「撤销归档」。" : ""}</div>` : ""}
     <div class="hint" style="padding:8px 12px">新建与重置模板默认全部“不需要”。总价 = 数量 × 单价，仅“需要”的项目进入合计；历史单据未录入数量和单价时保留原金额。</div>
+    <div id="demand-errors" class="demand-error-summary" role="alert" hidden></div>
     ${d.groups.map((g) => groupPanel(g, d.items[g], locked)).join("")}`;
 
     wireSheet(root, pid, d);
