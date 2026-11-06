@@ -198,8 +198,8 @@ function register(router) {
     if (no === 0) {
       if (!label) throw bad("选「其他」时必须填写具体事项");
       if (label.length > 60) throw bad(`具体事项不能超过 60 字（当前 ${label.length} 字）`);
-    } else if (!(no >= 1 && no <= 6)) {
-      throw bad("例外步骤应为第 1~6 步，或选「其他」自行填写具体事项");
+    } else if (!(no >= 1 && no <= 7)) {
+      throw bad("例外步骤应为第 1~7 步，或选「其他」自行填写具体事项");
     }
     if (!String(reason || "").trim()) throw bad("必须说明例外原因");
     if (String(reason).trim().length > 500) throw bad(`例外原因不能超过 500 字（当前 ${String(reason).trim().length} 字）`);
