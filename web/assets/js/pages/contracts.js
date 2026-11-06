@@ -75,7 +75,13 @@ export async function render(root) {
   };
   const nb = root.querySelector("#newC");
   if (nb) nb.onclick = () => openCreate(root, proj.rows);
-  root.querySelectorAll("[data-cflow]").forEach((b) => b.onclick = () => contractFlow(root, b.dataset.cflow, b.dataset.caction));
+  root.querySelectorAll("[data-cflow]").forEach((b) => b.onclick = () => {
+    if(b.dataset.caction==="sign") {
+      const row=rows.find(c=>c.id===b.dataset.cflow);
+      if(row){openContractDetail(row,{startConfirm:true,onDone:()=>render(root)});return;}
+    }
+    return contractFlow(root,b.dataset.cflow,b.dataset.caction);
+  });
   // 详情弹窗：从当前过滤后的 rows 里取，避免为了看一眼原件再打一次接口
   root.querySelectorAll("[data-cdet]").forEach((b) => {
     b.onclick = () => {
