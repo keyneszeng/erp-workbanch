@@ -1,7 +1,7 @@
 import { badge, esc, modal, money, table } from "./ui.js";
 
 /**
- * 核销 6 步 SOP 的「详情」面板。
+ * 核销 7 步 SOP 的「详情」面板。
  *
  * 判定人必须能当场看到这一步要核的原始数据——议程、签到表、票据、合同、付款金额，
  * 而不是凭印象点「通过」，否则核销就退化成橡皮图章。
@@ -81,7 +81,7 @@ export function stepBody(d,no){
   const names={
     1:["会议通知","招商函","串场"],2:["终版议程","签到表","讲者照片"],
     3:["签到表"],4:["终版议程","课件"],
-    5:["劳务表","劳务收集表","合同"],6:["终版议程","会务协议","合同","发票","会务发票"]
+    5:["劳务表","劳务收集表","合同"],6:["终版议程","会务协议","合同","发票","会务发票"],7:["权益照片"]
   };
   const note={
     1:"盖章函件已盖章且为终版；核对函件与串场的会议名称、日期及主办方一致。",
@@ -89,7 +89,8 @@ export function stepBody(d,no){
     3:"线上有效讲者在线时长 >30 分钟；线下有签到原件；混合两项都需要。",
     4:"材料库中已有课件原件，每个课件主题均能在当前已确认的终版议程中找到；不再核验串场、主办方或药企 Logo。",
     5:"仅有劳务表原件时必核姓名/时间/角色/金额/银行账号完整、无重复；合同查看现有合同台账，账号不进入核销证据。",
-    6:"仅有实际会务需求才核：终版议程与终版会务协议的会议主题/时间/形式一致、会务协议甲方与协会主体一致；会务需求总预算＝已签会务合同总额＝会务发票总金额。"
+    6:"仅有实际会务需求才核：终版议程与终版会务协议的会议主题/时间/形式一致、会务协议甲方与协会主体一致；会务需求总预算＝已签会务合同总额＝会务发票总金额。",
+    7:"仅有已签署赞助合同才核：对照合同权益清单及二级类目逐项核对对应照片的实际交付内容。自动识别只推荐权益类目，照片内容必须人工确认。"
   };
   const selected=(d.materials||[]).filter(m=>(names[no]||[]).includes(m.kind));
   const step=d.verification.steps.find(x=>x.no===no);
@@ -100,6 +101,12 @@ export function stepBody(d,no){
   const evidence=step?.evidence;
   return `<div class="dsec"><h4>业务核验规则</h4><div class="dchk">${esc(note[no]||"请核对资料")}</div></div>
     <div class="dsec"><h4>已登记的关联材料</h4>${matList(selected,"请在材料中心补充对应原件")}</div>
+    ${no===7?'<div class="dsec"><h4>赞助合同权益逐项关联</h4>'+
+      (d.sponsorRights?.requiredRights||[]).map(r=>{
+        const sponsor=(d.sponsorRights?.contracts||[]).find(x=>x.id===r.sponsor_id);
+        const photos=(d.sponsorRights?.photos||[]).filter(x=>Number(x.sponsor_right_id)===Number(r.id)&&x.file_key);
+        return '<div class="dchk"><b>'+esc(sponsor?.enterprise||r.sponsor_id)+' · '+esc(r.category)+'</b> · '+(r.confirmed?'权益已确认':'待校正')+' · '+photos.length+' 张照片'+matList(photos,'请按权益二级类目上传照片')+'</div>';
+      }).join("")+'</div>':""}
     ${no===6?`<div class="dgrid">${cell("会务需求总预算",fmt(meetingDemandTotal))}${cell("已签会务合同总额",fmt(contractTotal))}${cell("会务发票核验金额",step?.invoiceAmount==null?"未核对":fmt(step.invoiceAmount))}</div>${!d.demand?.archived?"<div class=\"dhint\">会务需求尚未归档，不能完成第6项通过判定。</div>":""}`:""}
     ${no===5?`<div class="dsec"><h4>劳务 / 专家类合同（合同分类）</h4>
       ${laborContracts.length?table([{t:"合同名称"},{t:"合同收款方"},{t:"金额"},{t:"原件"}],
@@ -114,7 +121,7 @@ export function stepBody(d,no){
 /**
  * 打开某一步的详情弹窗。
  * @param {object} d    核销/项目详情数据
- * @param {number} no   步骤号 1~6
+ * @param {number} no   步骤号 1~7
  * @param {object} opt  { canJudge:boolean, onJudge:Function } —— 看完数据可直接判定
  */
 export function openStepDetail(d, no, opt = {}) {
