@@ -35,9 +35,10 @@ test("singleton administrator can be selected as project owner, but cannot bypas
 });
 
 test("department choices retire meeting department and include supplier / non-supplier",()=>{
- const {DEPTS}=require("../server/lib/constants");
- assert.equal(DEPTS.includes("会务部"),false);
- assert.ok(DEPTS.includes("供应商"));
- assert.ok(DEPTS.includes("非供应商"));
- assert.equal(new Set(DEPTS).size,DEPTS.length,"部门分类不可重复");
+ const {DEPTS,USER_DEPTS}=require("../server/lib/constants");
+ assert.equal(USER_DEPTS.includes("会务部"),false);
+ assert.ok(USER_DEPTS.includes("供应商"));
+ assert.ok(USER_DEPTS.includes("非供应商"));
+ assert.equal(new Set(USER_DEPTS).size,USER_DEPTS.length,"部门分类不可重复");
+ assert.ok(DEPTS.includes("会务部"),"项目承办部门保持独立，不影响原有工作流");
 });
