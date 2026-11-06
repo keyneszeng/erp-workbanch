@@ -128,12 +128,20 @@ function tabDemand(d, p) {
     </div>`);
   }
 
-  const rows = dm.items.map((it) => ({
+
+  // 本页只展示标记为「需要」的项目；原始需求表仍保留「不需要」记录。
+  // 旧摘要缺少 need 字段时仍兼容：此前的 items 只有「需要」项。
+  const rows = (dm.items || []).filter((it) => it.need !== "不需要").map((it) => ({
     c: [
-      esc(it.grp), esc(it.item),
+      esc(it.grp),
+      '<b class="demand-view-name">' + esc(it.item) + '</b>' +
+        (it.note ? '<div class="demand-view-note">业务提示：' + esc(it.note) + '</div>' : ""),
+      it.spec ? '<span class="demand-view-detail">' + esc(it.spec) + '</span>' : "—",
       esc(it.quantity || "—"),
-      it.unit_price ? `¥${money(it.unit_price)}` : "—",
-      it.budget ? `<b class="num">¥${money(it.budget)}</b>` : '<span style="color:var(--mute)">—</span>'
+      it.unit_price ? "¥" + money(it.unit_price) : "—",
+      it.budget ? '<b class="num">¥' + money(it.budget) + '</b>' : "—",
+      esc(it.owner || "—"),
+      esc(it.due || "—")
     ]
   }));
 
@@ -144,13 +152,17 @@ function tabDemand(d, p) {
 
   return `${banner}
     ${panel("会务需求清单",
-      `需要 ${dm.needCount} 项 / 共 ${dm.total} 项 · 预算合计 ¥${money(dm.budgetTotal)}`,
-      table([{ t: "分组", w: "96px" }, { t: "条目" }, { t: "数量", w: "72px" }, { t: "单价", w: "94px", cls: "num" }, { t: "总价", w: "120px", cls: "num" }], rows,
-        { empty: "这份需求单里没有标「需要」的条目" }),
+      `需要 ${dm.needCount} 项 · 总价合计 ¥${money(dm.budgetTotal)}`,
+      table([{ t: "分组", w: "84px" }, { t: "项目 / 业务提示", w: "220px" },
+        { t: "规格", w: "160px" },
+        { t: "数量", w: "66px", nw: true }, { t: "单价", w: "90px", cls: "num", nw: true },
+        { t: "总价", w: "100px", cls: "num", nw: true }, { t: "负责人", w: "100px" },
+        { t: "交付时间", w: "114px", nw: true }], rows,
+        { empty: "暂无标记为「需要」的条目", minw: 1060 }),
       inPhase && writable
         ? `<button class="btn btn-o" data-go="demand/${esc(p.id)}">${dm.archived ? "查看 / 撤销归档" : "去填写"}</button>`
-        : `<button class="btn btn-o" data-go="demand/${esc(p.id)}">查看需求单</button>`)}
-    <div class="hint" style="padding:6px 14px">只列「需要」的条目：标了不需要的不花钱，不进预算合计，也不作为核销对照。</div>`;
+        : writable ? `<button class="btn btn-o" data-go="demand/${esc(p.id)}">查看完整需求单</button>` : "")}
+    <div class="hint" style="padding:6px 14px">只显示标记为「需要」的条目，包含规格、业务提示、数量、单价、总价、负责人及交付时间。「不需要」项在本清单隐藏，也不计入合计；原始需求表记录不受影响。</div>`;
 }
 
 /* ---------------- 概览 ---------------- */
