@@ -81,29 +81,30 @@ export function stepBody(d,no){
   const names={
     1:["会议通知","招商函","串场"],2:["终版议程","劳务表","劳务收集表","签到表","讲者照片"],
     3:["签到表"],4:["终版议程","课件"],
-    5:["劳务表","劳务收集表","合同"],6:["合同","发票"]
+    5:["劳务表","劳务收集表"],6:["合同","发票"]
   };
   const note={
     1:"盖章函件已盖章且为终版；核对函件与串场的会议名称、日期及主办方一致。",
-    2:"终版议程、签到表、讲者照片逐人比对；有劳务表时再核对其中讲者名单。合同在合同台账查看，无需单独协议。",
+    2:"终版议程、签到表、讲者照片逐人比对；有劳务表时再核对其中讲者名单。合同按人员姓名从材料库关联，不设单独协议。",
     3:"线上有效讲者在线时长 >30 分钟；线下有签到原件；混合两项都需要。",
     4:"材料库中已有课件原件，每个课件主题均能在当前已确认的终版议程中找到；不再核验串场、主办方或药企 Logo。",
-    5:"仅有劳务表原件时必核姓名/时间/角色/金额/银行账号完整、无重复；合同查看现有合同台账，账号不进入核销证据。",
+    5:"有劳务表时核验五字段，并将每名人员按姓名关联到当前项目材料库中上传的同名合同文件，缺失或重复不得通过。",
     6:"已签合同总额须等于拟请款总额，发票金额须等于需开票合同总额；专家劳务按已签署合同分类处理。"
   };
-  const selected=(d.materials||[]).filter(m=>(names[no]||[]).includes(m.kind));
   const step=d.verification.steps.find(x=>x.no===no);
+  const linkedIds=new Set(step?.evidence?.matchedContractMaterialIds||[]);
+  const selected=(d.materials||[]).filter(m=>(names[no]||[]).includes(m.kind) || (no===5 && m.kind==="合同" && linkedIds.has(Number(m.id))));
   const contractTotal=(d.contracts||[]).filter(x=>x.status==="已签署").reduce((sum,x)=>sum+Number(x.amount||0),0);
-  const laborContracts=(d.contracts||[]).filter(x=>x.category==="劳务专家");
+  const linkedContracts=(d.materials||[]).filter(x=>x.kind==="合同" && linkedIds.has(Number(x.id)) && x.file_key && !x.deleted_at);
   const expertPayments=(d.payments||[]).filter(x=>["专家费","个人报销"].includes(x.type));
   const evidence=step?.evidence;
   return `<div class="dsec"><h4>业务核验规则</h4><div class="dchk">${esc(note[no]||"请核对资料")}</div></div>
     <div class="dsec"><h4>已登记的关联材料</h4>${matList(selected,"请在材料中心补充对应原件")}</div>
     ${no===6?`<div class="dgrid">${cell("已签合同总额",fmt(contractTotal))}${cell("核销发票总金额",step?.invoiceAmount==null?"未核对":fmt(step.invoiceAmount))}</div>`:""}
-    ${no===5?`<div class="dsec"><h4>劳务 / 专家类合同（合同分类）</h4>
-      ${laborContracts.length?table([{t:"合同名称"},{t:"合同收款方"},{t:"金额"},{t:"原件"}],
-      laborContracts.map(x=>({c:[esc(x.name),esc(x.vendor),fmt(x.amount),x.file_key?`<a class="link" href="/api/uploads/${encodeURIComponent(x.file_key)}" target="_blank" rel="noopener">点击合同原件查看</a>`:"未上传"]}))):'<div class="dhint">暂无劳务专家类合同，请先到合同台账核验分类</div>'}
-      <h4>专家费 / 个人报销（付款类别，需核销后申请）</h4>
+    ${no===5?`<div class="dsec"><h4>按姓名自动关联的个人合同（材料库）</h4>
+      ${linkedContracts.length?matList(linkedContracts,""):'<div class="dhint">尚未关联。提交第5项前逐人填写姓名，自动匹配材料库中的同名合同附件。</div>'}
+      <div class="hint">此处只展示同名文件关联，不代表已自动核对合同正文内容。</div>
+      <h4>专家费 / 个人报销（付款类别，核销通过后申请）</h4>
       ${payRows(expertPayments)}</div>`:""}
     <div class="dsec"><h4>结构化核验结果</h4>
       ${evidence?`<pre class="hint" style="white-space:pre-wrap">${esc(JSON.stringify(evidence,null,2))}</pre>`:

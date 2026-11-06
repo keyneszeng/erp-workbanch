@@ -30,7 +30,8 @@ export function sopEvidenceForm(no,p,hasLaborSheet=false){
        +area("courseTopics","已上传课件的主题（逗号或换行）","主题甲")
        +`<div class="hint">只核对两点：材料库已有课件原件；所填每个课件主题都能在已确认的终版议程中找到。终版议程可以包含其他未上传课件的主题。无需核对串场、Logo 或赞助商展示页面。请从原件人工摘录主题。</div>`,
     5:area("collectionRecords","劳务表（每行：姓名|时间|角色|金额|银行账号|开户行（可选））","张老师|2026-11-01|讲者|1000|6222...")
-       +`<div class="hint">仅材料库上传劳务表原件时需要判定。合同在现有合同台账核对，协议不重复上传或录入。银行账号不写入核销证据，专用密钥启用时才加密保存已核验收款信息。</div>`,
+       +`<div class="hint">有劳务表时，第5项逐人到本项目材料库搜索以本人姓名命名的「合同」附件（如：张老师.pdf、张老师合同.pdf）。缺少或多份同名合同均不得通过；不读取合同台账总合同。文件名匹配不等于自动识别合同正文。</div>`
+       +`<div data-labor-contract-preview class="dsec"><div class="hint">输入劳务表姓名后显示合同关联预览。</div></div>`,
     6:input("meetingName","拟结算单会议名称",p.name)+input("meetingDate","拟结算单会议日期",p.date)
        +input("draftAmount","拟请款总金额（元，须等于所有已签合同总额；专家费可免发票）")
   };
