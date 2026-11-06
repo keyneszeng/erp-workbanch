@@ -2,11 +2,24 @@ import { api, can } from "../lib/api.js";
 import { esc, badge, toast, confirmBox, money } from "../lib/ui.js";
 
 const yuan = (n) => `¥${money(Number(n) || 0)}`;
-const blankItem = { item: "", note: "", need: "需要", spec: "", owner: "", owner_id: "", due: "", budget: "", budget_owner: "", attach: "", status: "未开始" };
+const blankItem = { item: "", note: "", need: "不需要", spec: "", quantity: "", unit_price: "", owner: "", owner_id: "", due: "", budget: "", budget_owner: "", attach: "", status: "未开始" };
 let memberOptions = [];
 
 function optHtml(opts, val) {
   return opts.map((o) => `<option value="${esc(o)}"${o === val ? " selected" : ""}>${esc(o)}</option>`).join("");
+}
+
+/** 数量最多 4 位小数、单价到分；整数乘法防止 0.1+0.2 产生金额误差。 */
+function lineTotal(quantity, unitPrice) {
+  const q=String(quantity??"").trim(), p=String(unitPrice??"").trim();
+  if(!/^\d+(\.\d{1,4})?$/.test(q) || !/^\d+(\.\d{1,2})?$/.test(p))return "";
+  if(Number(q)>1000000 || Number(p)>1000000000)return "";
+  const [q0,q1=""]=q.split("."), [p0,p1=""]=p.split(".");
+  const q4=BigInt(q0)*10000n+BigInt(q1.padEnd(4,"0"));
+  const pc=BigInt(p0)*100n+BigInt(p1.padEnd(2,"0"));
+  const cents=(q4*pc+5000n)/10000n;
+  if(cents>100000000000n)return "";
+  return (Number(cents)/100).toFixed(2);
 }
 
 /** 一行需求的单元格。条目名做成无边框输入框：模板条目能改，新增条目能填，看着还像表格 */
@@ -23,13 +36,15 @@ function cells(it, locked) {
       <input type="hidden" data-f="note" value="${esc(it.note || "")}">
     </td>
     <td><select class="mini" data-f="need"${dis}>${optHtml(["需要", "不需要"], it.need)}</select></td>
-    <td>${locked ? plain(it.spec) : `<input class="mini" data-f="spec" value="${esc(it.spec || "")}" placeholder="规格 / 数量">`}</td>
+    <td>${locked ? plain(it.spec) : `<input class="mini" data-f="spec" value="${esc(it.spec || "")}" placeholder="规格说明">`}</td>
+    <td>${locked ? plain(it.quantity) : `<input class="mini" type="number" data-f="quantity" min="0" max="1000000" step="any" inputmode="decimal" value="${esc(it.quantity || "")}" placeholder="数量">`}</td>
+    <td>${locked ? plain(it.unit_price, true) : `<input class="mini" type="number" data-f="unit_price" min="0" step="0.01" inputmode="decimal" value="${esc(it.unit_price || "")}" placeholder="单价">`}</td>
+    <td>${locked ? plain(it.budget, true) : `<input class="mini" data-f="budget" value="${esc(it.budget || "")}" readonly tabindex="-1" title="总价根据数量与单价自动计算；历史金额保持原值" placeholder="自动计算">`}</td>
     <td>${locked ? plain(it.owner) : `<select class="mini" data-f="owner_id">
           <option value="">请选择成员</option>
           ${memberOptions.map((u) => `<option value="${esc(String(u.id))}"${Number(it.owner_id) === Number(u.id) ? " selected" : ""}>${esc(u.name)}</option>`).join("")}
         </select>`}</td>
     <td>${locked ? plain(it.due) : `<input class="mini" type="date" data-f="due" value="${esc(it.due || "")}">`}</td>
-    <td>${locked ? plain(it.budget, true) : `<input class="mini" data-f="budget" inputmode="decimal" value="${esc(it.budget || "")}" placeholder="0.00">`}</td>
     <td style="width:34px;text-align:center">${locked ? "" : '<button class="link del" data-del="1" title="删除该条">×</button>'}</td>`;
 }
 
@@ -38,15 +53,16 @@ function groupPanel(grp, items, locked) {
   const sum = need.reduce((s, i) => s + (Number(i.budget) || 0), 0);
   return `<div class="panel mt" data-panel="${esc(grp)}">
     <div class="panel-h"><h2>⭐ ${esc(grp)}</h2>
-      <div><span class="hint">需要 ${need.length} 项 · 预算 ${yuan(sum)}</span></div></div>
+      <div><span class="hint" data-group-total>需要 ${need.length} 项 · 总价 ${yuan(sum)}</span></div></div>
     <div class="tw"><table>
       <thead><tr>
-        <th>项目 / 业务提示</th><th style="width:84px">是否需要</th><th>规格数量</th>
+        <th>项目 / 业务提示</th><th style="width:84px">是否需要</th><th>规格</th>
+        <th style="width:88px">数量</th><th style="width:100px">单价</th><th style="width:105px">总价</th>
         <th style="width:96px">负责人</th><th style="width:130px">交付时间</th>
-        <th style="width:110px">预算金额</th><th style="width:34px"></th>
+        <th style="width:34px"></th>
       </tr></thead>
       <tbody>${items.map((it) => `<tr data-grp="${esc(grp)}">${cells(it, locked)}</tr>`).join("")}
-        ${locked ? "" : `<tr class="addrow"><td colspan="7">
+        ${locked ? "" : `<tr class="addrow"><td colspan="9">
           <button class="link" data-add="${esc(grp)}">+ 新增一行</button></td></tr>`}
       </tbody>
     </table></div>
@@ -69,25 +85,43 @@ function collect(root) {
 }
 
 function refreshHead(root) {
-  const rows = [...root.querySelectorAll("tr[data-grp]")];
-  const need = rows.filter((tr) => tr.querySelector('[data-f="need"]').value === "需要");
-  const sum = need.reduce((s, tr) => s + (Number(tr.querySelector('[data-f="budget"]').value) || 0), 0);
-  const el = root.querySelector("#dstat");
-  if (el) el.textContent = `共 ${rows.length} 项（需要 ${need.length} 项）· 预算合计 ${yuan(sum)}`;
+  const rows=[...root.querySelectorAll("tr[data-grp]")];
+  const needed=rows.filter(tr=>tr.querySelector('[data-f="need"]').value==="需要");
+  const totalCents=needed.reduce((c,tr)=>c+Math.round(Number(tr.querySelector('[data-f="budget"]').value||0)*100),0);
+  const el=root.querySelector("#dstat");
+  if(el)el.textContent="共 "+rows.length+" 项（需要 "+needed.length+" 项）· 总价合计 "+yuan(totalCents/100);
+  root.querySelectorAll("[data-panel]").forEach(panel=>{
+    const rs=rows.filter(tr=>tr.dataset.grp===panel.dataset.panel);
+    const nd=rs.filter(tr=>tr.querySelector('[data-f="need"]').value==="需要");
+    const sum=nd.reduce((c,tr)=>c+Math.round(Number(tr.querySelector('[data-f="budget"]').value||0)*100),0);
+    const label=panel.querySelector("[data-group-total]");
+    if(label)label.textContent="需要 "+nd.length+" 项 · 总价 "+yuan(sum/100);
+  });
 }
 
-function wireRow(root, tr) {
-  tr.querySelector("[data-del]")?.addEventListener("click", async () => {
-    if (!tr.dataset.added) {
-      const name = tr.querySelector('[data-f="item"]').value || "该条";
-      if (!(await confirmBox(`删除「${name}」？保存后生效，可用「重置」恢复模板。`, { ok: "删除" }))) return;
+function updateRowTotal(tr) {
+  const q=tr.querySelector('[data-f="quantity"]')?.value||"";
+  const p=tr.querySelector('[data-f="unit_price"]')?.value||"";
+  const total=tr.querySelector('[data-f="budget"]');
+  if(total)total.value=lineTotal(q,p);
+}
+
+function wireRow(root,tr) {
+  tr.querySelector("[data-del]")?.addEventListener("click",async()=>{
+    if(!tr.dataset.added) {
+      const name=tr.querySelector('[data-f="item"]').value||"该条";
+      if(!(await confirmBox("删除「"+name+"」？保存后生效，可用「重置」恢复模板。",{ok:"删除"})))return;
     }
     tr.remove();
     refreshHead(root);
   });
-  tr.querySelectorAll("input,select").forEach((el) => {
-    el.addEventListener("input", () => refreshHead(root));
-    el.addEventListener("change", () => refreshHead(root));
+  tr.querySelectorAll("input,select").forEach(el=>{
+    const update=()=>{
+      if(el.dataset.f==="quantity" || el.dataset.f==="unit_price")updateRowTotal(tr);
+      refreshHead(root);
+    };
+    el.addEventListener("input",update);
+    el.addEventListener("change",update);
   });
 }
 
@@ -119,7 +153,7 @@ function renderList(root) {
     const needAll = d.projects.reduce((s, p) => s + (p.needCount || 0), 0);
 
     root.innerHTML = `<div class="phead">
-      <div><h2>会务需求确认</h2><p>设计 / 制作 / 现场执行 / 其他 · 按需填写规格数量、负责人、交付时间和预算金额。确认后变更必须撤销并重新确认，留存前后快照。</p></div>
+      <div><h2>会务需求确认</h2><p>设计 / 制作 / 现场执行 / 其他 · 新需求默认全部“不需要”，按需填写规格、数量、单价，系统自动计算总价。确认后变更必须撤销并重新确认，留存前后快照。</p></div>
       <div class="acts"></div>
     </div>
     <div class="grid g4">
@@ -160,7 +194,7 @@ function renderSheet(root, pid) {
 
     root.innerHTML = `<div class="phead">
       <div><h2>会务需求确认 · ${esc(d.projectName)}</h2>
-        <p id="dstat">共 ${total} 项（需要 ${need} 项）· 预算合计 ${yuan(d.budgetTotal)}</p></div>
+        <p id="dstat">共 ${total} 项（需要 ${need} 项）· 总价合计 ${yuan(d.budgetTotal)}</p></div>
       <div class="acts">
         <button class="btn btn-o" data-go="demand">← 返回</button>
         ${writable && !d.archived ? '<button class="btn btn-p" id="save">保存</button>' : ""}
@@ -177,7 +211,8 @@ function renderSheet(root, pid) {
           需求单仍可补确认 —— 核销第 3 步要拿这份清单做费用对照，缺了它核销会少一项依据。</div>`
       : ""}
     ${d.archived ? `<div class="banner ok">✓ 该会议会务需求已由 <b>${esc(d.confirmed_by || "")}</b> 于 ${esc(d.confirmed_at || "")} 确认并归档
-      —— 已封存，后续核销以这份清单和预算金额为依据。${writable ? "如需修改，先「撤销归档」。" : ""}</div>` : ""}
+      —— 已封存，后续核销以这份清单的总价为依据。${writable ? "如需修改，先「撤销归档」。" : ""}</div>` : ""}
+    <div class="hint" style="padding:8px 12px">新建与重置模板默认全部“不需要”。总价 = 数量 × 单价，仅“需要”的项目进入合计；历史单据未录入数量和单价时保留原金额。</div>
     ${d.groups.map((g) => groupPanel(g, d.items[g], locked)).join("")}`;
 
     wireSheet(root, pid, d);

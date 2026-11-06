@@ -138,12 +138,13 @@ async function seedArchivedDemand() {
     await page.goto(`${BASE}/#/demand/${PID}`, { waitUntil: "networkidle" });
     await page.waitForTimeout(1600);
     const heads = await page.$$eval("[data-panel] th", (els) => els.map((e) => e.textContent.trim()));
-    check("有「预算金额」列", heads.includes("预算金额"), JSON.stringify(heads));
+    check("数量、单价、总价均有独立列", ["数量","单价","总价"].every(h=>heads.includes(h)), JSON.stringify(heads));
+    check("总价只读字段存在", !!(await page.$('[data-f="budget"][readonly]')), "");
     check("没有「附件」列", !heads.includes("附件"), JSON.stringify(heads));
     check("没有「执行状态」列", !heads.includes("执行状态"), JSON.stringify(heads));
     check("没有「预算归属」列", !heads.includes("预算归属"), JSON.stringify(heads));
     const stat0 = await page.textContent("#dstat");
-    check("页头显示预算合计", /预算合计\s*¥/.test(stat0), stat0);
+    check("页头显示总价合计", /总价合计\s*¥/.test(stat0), stat0);
     check("种子数据合计 90,900", /90,900/.test(stat0), stat0);
 
     console.log("\n[4] 新增一行：加一条模板里没有的");
@@ -157,10 +158,14 @@ async function seedArchivedDemand() {
     const last = rows[rows.length - 1];
     check("新行条目名可编辑", !!(await last.$('[data-f="item"]')), "");
     await (await last.$('[data-f="item"]')).fill("临时加：指引牌");
-    await (await last.$('[data-f="budget"]')).fill("260");
+    check("新行默认不需要", (await (await last.$('[data-f="need"]')).inputValue()) === "不需要", "");
+    await (await last.$('[data-f="need"]')).selectOption("需要");
+    await (await last.$('[data-f="quantity"]')).fill("2");
+    await (await last.$('[data-f="unit_price"]')).fill("130");
+    check("2 × 130 自动得出只读总价 260.00", (await (await last.$('[data-f="budget"]')).inputValue()) === "260.00", "");
     await page.waitForTimeout(300);
     const stat1 = await page.textContent("#dstat");
-    check("预算合计随输入实时更新", /91,160/.test(stat1), stat1);
+    check("总价合计随输入实时更新", /91,160/.test(stat1), stat1);
 
     await page.click("#save");
     await page.waitForTimeout(1800);
@@ -168,7 +173,9 @@ async function seedArchivedDemand() {
     check("保存后自定义条目还在", names.includes("临时加：指引牌"), JSON.stringify(names));
     const saved = await api("GET", `/api/demand/${PID}`);
     check("后端已存下自定义条目", saved.data.items["其他"].some((x) => x.item === "临时加：指引牌"), "");
-    check("后端预算合计 91160", Number(saved.data.budgetTotal) === 91160, String(saved.data.budgetTotal));
+    check("后端总价合计 91160", Number(saved.data.budgetTotal) === 91160, String(saved.data.budgetTotal));
+    const newRow=saved.data.items["其他"].find(x=>x.item==="临时加：指引牌");
+    check("保存数量/单价/总价",newRow.quantity==="2" && newRow.unit_price==="130" && newRow.budget==="260.00",JSON.stringify(newRow));
 
     console.log("\n[5] 确认并归档：整单锁定");
     await page.click("#confirm");
@@ -195,7 +202,7 @@ async function seedArchivedDemand() {
     check("PATCH 返回 409", rej.status === 409, String(rej.status));
     check("错误码 DEMAND_ARCHIVED", rej.data?.error?.code === "DEMAND_ARCHIVED", JSON.stringify(rej.data?.error));
 
-    console.log("\n[7] 核销第 3 步：拿归档需求单当费用对照");
+    console.log("\n[7] 核销第 3 步按新版 SOP 查参会数据；需求总价通过核销接口独立核对");
     await page.goto(`${BASE}/#/verify/${PID2}`, { waitUntil: "networkidle" });
     await page.waitForTimeout(1800);
     const d3 = await page.$('[data-detail="3"]');
@@ -203,17 +210,23 @@ async function seedArchivedDemand() {
     await d3.click();
     await page.waitForTimeout(700);
     const body = await page.textContent("#modal .mb");
-    check("出现「会务需求预算对照」", /会务需求预算对照/.test(body), "");
-    check("显示归档预算合计", /需求单预算合计（归档）/.test(body), "");
-    check("显示已申请费用与其中已付款", /已申请费用（不含已驳回）/.test(body) && /其中已付款/.test(body), "");
-    check("显示归档人与时间", /确认归档/.test(body), "");
-    check("列出需要的条目", /串场/.test(body) && /横幅/.test(body), "");
-    check("标了不需要的条目不在核对清单", !/9999/.test(body), "");
-    check("核对要点提到归档预算", /归档预算/.test(body), "");
+    check("第3步依据新版SOP核验参会数据与时长",
+      /线上有效讲者在线时长/.test(body) && /线下有签到原件/.test(body),body.slice(0,120));
+    check("第3步提供关联签到材料入口",/已登记的关联材料/.test(body),"");
+    // 费用核对通过独立 demand 字段提供，不属于第3步「参会数据与时长」。
+    const verify=await api("GET","/api/projects/"+PID2+"/verify");
+    check("核销接口包含已归档需求",verify.data.demand?.archived===true,JSON.stringify(verify.data.demand));
+    check("核销预算合计与归档一致",Number(verify.data.demand?.budgetTotal)===8000,
+      String(verify.data.demand?.budgetTotal));
+    check("只呈现需要项，排除不需要的酒水",
+      verify.data.demand?.items?.length===2 &&
+      verify.data.demand.items.some(i=>i.item==="串场") &&
+      verify.data.demand.items.some(i=>i.item==="横幅") &&
+      !verify.data.demand.items.some(i=>i.item==="代购酒水"),"");
     await page.click('#modal [data-x="0"]');
     await page.waitForTimeout(300);
 
-    console.log("\n[7b] 项目详情页的核销页签：同一个第 3 步，同样的对照");
+    console.log("\n[7b] 项目详情页的核销页签：同一个参会时长核验");
     await page.goto(`${BASE}/#/projects/${PID2}`, { waitUntil: "networkidle" });
     await page.waitForTimeout(1600);
     const vtab = await page.$('button[data-tab="verify"]');
@@ -227,10 +240,9 @@ async function seedArchivedDemand() {
         await d3b.click();
         await page.waitForTimeout(700);
         const body2 = await page.textContent("#modal .mb");
-        check("页签里也有「会务需求预算对照」", /会务需求预算对照/.test(body2), "");
-        check("页签里也显示归档预算", /需求单预算合计（归档）/.test(body2), "");
-        check("口径已拆开：申请费用 + 其中已付款",
-          /已申请费用（不含已驳回）/.test(body2) && /其中已付款/.test(body2), "");
+        check("项目详情第3步同样遵循参会数据与时长SOP",
+          /线上有效讲者在线时长/.test(body2) && /线下有签到原件/.test(body2),"");
+        check("项目详情第3步展示关联材料入口",/已登记的关联材料/.test(body2),"");
         check("不再出现误导性的「已发生费用」", !/已发生费用/.test(body2), "");
         await page.click('#modal [data-x="0"]');
         await page.waitForTimeout(300);

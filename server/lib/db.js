@@ -400,11 +400,13 @@ CREATE TABLE IF NOT EXISTS demand_items (
   grp         TEXT NOT NULL,
   item        TEXT NOT NULL,
   note        TEXT,
-  need        TEXT NOT NULL DEFAULT '需要',
+  need        TEXT NOT NULL DEFAULT '不需要',
   spec        TEXT,
   owner       TEXT,
   due         TEXT,
   budget      TEXT,
+  quantity    TEXT NOT NULL DEFAULT '',
+  unit_price  TEXT NOT NULL DEFAULT '',
   attach      TEXT,
   status      TEXT NOT NULL DEFAULT '未开始',
   ordering    INTEGER NOT NULL DEFAULT 0,
@@ -644,6 +646,9 @@ function migrate() {
   addColumn("materials", "deleted_by", "deleted_by TEXT");
   addColumn("demand_items", "owner_id", "owner_id INTEGER");
   addColumn("demand_items", "budget_owner", "budget_owner TEXT");
+  // 旧单的 budget 属历史手填金额，不作破坏性重算；新输入按数量×单价自动更新。
+  addColumn("demand_items", "quantity", "quantity TEXT NOT NULL DEFAULT ''");
+  addColumn("demand_items", "unit_price", "unit_price TEXT NOT NULL DEFAULT ''");
   // 生产白名单：所有新用户初次登录必须通过短信验证并修改默认密码。
   addColumn("users", "must_change_password", "must_change_password INTEGER NOT NULL DEFAULT 0");
   addColumn("users", "phone_verified_at", "phone_verified_at TEXT");
