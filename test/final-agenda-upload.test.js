@@ -45,6 +45,17 @@ after(()=>{
   proc?.kill("SIGTERM");
   fs.rmSync(DIR,{force:true,recursive:true});
 });
+test("归档材料旧终版议程模块已移除，登记表单保留一键确认入口",()=>{
+  const source=fs.readFileSync(path.join(__dirname,"..","web","assets","js","pages","materials.js"),"utf8");
+  const app=fs.readFileSync(path.join(__dirname,"..","web","assets","js","app.js"),"utf8");
+  assert.ok(source.includes('"终版议程"'),"终版议程应存在于登记材料类别列表");
+  assert.ok(source.includes('确定终版议程'),"选择类别后按钮应改为明确确认");
+  assert.ok(source.includes("picker.multiple=!final"),"终版议程每次仅允许一份附件");
+  assert.ok(!fs.existsSync(path.join(__dirname,"..","web","assets","js","lib","material-workbench.js")),
+    "旧的终版议程材料模块及待办板块应从前端移除");
+  assert.ok(!app.includes("归档必备 8 类材料"),"路由不能再出现旧强制文案");
+});
+
 test("终版议程必须上传原件；不能仅用文字假确认",async()=>{
   const invalid=await api("POST","/api/projects/"+PID+"/materials",
     {kind:"终版议程",name:"没有附件的终版议程",version:"终版"});
