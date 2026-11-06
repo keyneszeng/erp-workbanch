@@ -251,9 +251,9 @@ async function seedArchivedDemand() {
     if(demandTab) {
       await demandTab.click();
       await page.waitForTimeout(850);
-      const heads=await page.$eval("#tabbody th",els=>els.map(el=>el.textContent.trim()));
+      const heads=await page.$$eval("#tabbody th",els=>els.map(el=>el.textContent.trim()));
       check("项目需求清单包含详细字段",["项目 / 业务提示","规格","数量","单价","总价","负责人","交付时间"].every(h=>heads.includes(h)),JSON.stringify(heads));
-      const items=await page.$eval("#tabbody tbody tr",els=>els.map(el=>el.textContent));
+      const items=await page.$$eval("#tabbody tbody tr",els=>els.map(el=>el.textContent));
       check("只展示需要项，隐藏不需要的酒水",items.length===2 && items.some(t=>t.includes("串场")) &&
         items.some(t=>t.includes("横幅")) && !items.some(t=>t.includes("代购酒水")),JSON.stringify(items));
       const full=await page.textContent("#tabbody");
