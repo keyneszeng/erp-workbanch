@@ -19,7 +19,7 @@ async function ready(){
 async function api(method,route,body){
   const r=await fetch(BASE+route,{method,headers:{cookie,"content-type":"application/json"},
     body:body===undefined?undefined:JSON.stringify(body)});
-  return {status:r.status,data:await r.json()};
+  return {status:r.status,data:await r.json(),session:(r.headers.get("set-cookie")||"").split(";")[0]};
 }
 async function upload(name){
   const r=await fetch(BASE+"/api/uploads?pid="+encodeURIComponent(pid),{
