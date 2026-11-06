@@ -8,7 +8,7 @@ const {assertUploadAttachable}=require("../lib/upload-ownership");
 const {logAudit}=require("../lib/audit");
 const {isDemoMode}=require("../lib/runtime");
 
-const KEY=/^[a-f0-9]{32}\.(jpg|png|webp|gif|pdf|ppt|docx|pptx|xlsx)$/;
+const KEY=/^[a-f0-9]{32}\.(jpg|png|webp|gif|pdf|ppt|doc|docx|xls|xlsx|pptx|csv|txt)$/;
 function amount(v) {
   const n=Number(v);
   if(!Number.isFinite(n)||n<=0||n>1e9||Math.round(n*100)/100!==n)
