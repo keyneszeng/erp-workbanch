@@ -174,7 +174,7 @@ test("production: association member IDs, approved contract signing and pay-afte
       stamped:true,final:true},
     2:{agendaSpeakers:["测试讲者"],collectionSpeakers:["测试讲者"],agreementSpeakers:["测试讲者"],attendanceSpeakers:["测试讲者"],photoSpeakers:["测试讲者"],noOmissions:true},
     3:{signedAttendance:true},
-    4:{agendaTopics:["课题甲"],courseTopics:["课题甲"],hostTitleMatches:true,hostNameLogoMatches:true,sponsorLogoPages:[]},
+    4:{agendaTopics:["课题甲","课题乙"],courseTopics:["课题甲"]},
     5:{collectionRecords:[record],agreementRecords:[record]},
     6:{draftAmount:8000,meetingName:base.name,meetingDate:base.date}
   };
