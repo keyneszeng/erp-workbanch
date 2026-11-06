@@ -1,5 +1,6 @@
 "use strict";
 const {laborSheetInfo}=require("./labor-sop");
+const {contractPool}=require("./labor-contracts");
 const { db } = require("./db");
 const { now, nextId, conflict, forbidden, notFound, bad, cents, yuan, parseBankAccount, parseBankName } = require("./util");
 const { can, isSuper, ROLES } = require("./rbac");
@@ -23,7 +24,9 @@ function verification(pid) {
     const required=def.no!==5 || labor.required;
     const evidence=r?.evidence_json?JSON.parse(r.evidence_json):null;
     const stale=required && r?.result==="通过" && (
-      (def.no===5 && evidence?.laborSourceSignature!==labor.signature) ||
+      (def.no===5 && (evidence?.laborSourceSignature!==labor.signature ||
+        !evidence?.contractPoolSignature ||
+        evidence.contractPoolSignature!==contractPool(db,pid).signature)) ||
       (def.no===2 && !isDemoMode() && evidence?.laborSourceSignature!==(labor.required?labor.signature:null))
     );
     return {...def,required,
