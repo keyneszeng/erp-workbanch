@@ -112,6 +112,24 @@ test("需求负责人可自定义填写：不在协会用户目录的姓名也�
   assert.equal(read.data.items["设计"][0].owner,name);
 });
 
+test("原有成员绑定不被自由输入误清除，改为自定义姓名时解绑而不授予账号权限",async()=>{
+  const list=await admin("GET","/api/users/assignable?assoc="+encodeURIComponent("护理协会"));
+  assert.equal(list.status,200);
+  const member=list.data.rows.find(x=>x.name==="周涛");
+  assert.ok(member,"测试数据应有护理协会会务执行负责人");
+  const item={grp:"设计",item:"本会人员接洽",need:"需要",quantity:"1",unit_price:"12"};
+  const linked=await admin("PATCH","/api/demand/"+PID,{items:[{...item,owner_id:member.id}]});
+  assert.equal(linked.status,200,JSON.stringify(linked.data));
+  assert.equal(Number(linked.data.sheet.items["设计"][0].owner_id),Number(member.id));
+  const unchanged=await admin("PATCH","/api/demand/"+PID,{items:[{...item,owner:member.name}]});
+  assert.equal(unchanged.status,200);
+  assert.equal(Number(unchanged.data.sheet.items["设计"][0].owner_id),Number(member.id));
+  const custom=await admin("PATCH","/api/demand/"+PID,{items:[{...item,owner:"外部顾问"}]});
+  assert.equal(custom.status,200);
+  assert.equal(custom.data.sheet.items["设计"][0].owner,"外部顾问");
+  assert.equal(custom.data.sheet.items["设计"][0].owner_id,"");
+});
+
 test("字段错误返回精确定位信息：负责人、数量、日期、重复行",async()=>{
   const cases=[
     [{grp:"设计",item:"长度超限",need:"需要",owner:"张".repeat(21)},"owner"],
