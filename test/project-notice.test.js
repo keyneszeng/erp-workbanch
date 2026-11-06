@@ -121,7 +121,7 @@ test("审批前拒绝正式通知函；审批通过自动锁定内容与模板�
   assert.equal(detail.data.projectNotice.templateVersion,1);
   assert.equal((await request("assoc","PATCH",url+"/initiation-letter",
     {title:"事后篡改",body:"恶意替换"})).status,409);
-  const doc=await request("exec","GET",url+"/notice.docx");
+  const doc=await request("assoc","GET",url+"/notice.docx");
   assert.equal(doc.status,200,JSON.stringify(doc.data));
   assert.equal(doc.headers.get("cache-control"),"no-store");
   assert.match(doc.headers.get("content-disposition"),/attachment/);
@@ -164,6 +164,7 @@ test("历史已立项项目补发明确留痕且不重复发文",async()=>{
   const doc=await request("assoc","GET",old+"/notice.docx");
   assert.equal(doc.status,200);
   assert.match(textOfDocx(doc.buf),/历史项目补发/);
+  assert.equal((await request("exec","GET",old+"/notice.docx")).status,200,"可访问项目的执行人员可下载待盖章 Word");
 });
 
 test("审计中包含函件修改、模板设定及正式下载记录",async()=>{
