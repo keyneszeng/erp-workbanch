@@ -11,7 +11,7 @@ const {
 const { sendJson, cookieHeader } = require("../lib/http");
 const { logAudit } = require("../lib/audit");
 const { ROLES, MODULES, STATUSES, isSuper, can, PERMS } = require("../lib/rbac");
-const { VERIFY_STEPS, MATERIAL_KINDS, CONTRACT_CATEGORIES, DEMAND_STATUSES, ASSOCS, FORMS, DEPTS, PAYMENT_TYPES, FLOW, STATUS_DESC } = require("../lib/constants");
+const { VERIFY_STEPS, MATERIAL_KINDS, CONTRACT_CATEGORIES, DEMAND_STATUSES, ASSOCS, FORMS, DEPTS, USER_DEPTS, PAYMENT_TYPES, FLOW, STATUS_DESC } = require("../lib/constants");
 const { bad, HttpError } = require("../lib/util");
 
 function register(router) {
@@ -185,7 +185,8 @@ function register(router) {
       demandStatuses: DEMAND_STATUSES,
       assocs: require("../lib/associations").list(),
       forms: FORMS,
-      depts: DEPTS,
+      depts: USER_DEPTS,
+      projectDepts: DEPTS,
       paymentTypes: PAYMENT_TYPES
     };
   });
