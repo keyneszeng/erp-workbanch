@@ -51,6 +51,14 @@ const assert=require("node:assert/strict");
   await page.goto(origin+"/#/materials");
   await page.locator("#materialWorkbench .panel").waitFor({timeout:12000});
   await page.locator("#materialWorkbench #wbProject").waitFor();
+  assert.ok((await page.locator("body").innerText()).includes("项目材料上传情况"),
+    "material center should show flexible upload status instead of 8/8 mandatory categories");
+  await page.locator("#add").click();
+  const options=await page.locator('#modal [name="kind"] option').allTextContents();
+  assert.ok(options.some(x=>x.includes("权益照片")),"rights photos must be available in material category options");
+  assert.doesNotMatch((await page.locator("#modal").innerText()),/必备.?8|8.?类.*必备/,
+    "material form must not claim eight categories are mandatory");
+  await page.locator('#modal [data-x="0"]').click();
   await page.goto(origin+"/#/finance");
   await page.locator(".ux-finance-tabs").waitFor({timeout:12000});
   await page.locator('[data-finance-jump="fin-settlements"]').click();
