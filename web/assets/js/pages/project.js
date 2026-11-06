@@ -129,15 +129,13 @@ function tabDemand(d, p) {
   }
 
 
-  // 全部已保存需求项均可在项目详情查看；保留旧版本只有 items 的兼容读取。
-  const detailed = Array.isArray(dm.allItems) ? dm.allItems : dm.items;
-  const rows = detailed.map((it) => ({
-    attrs: it.need === "不需要" ? ' class="demand-view-unused"' : "",
+  // 本页只展示标记为「需要」的项目；原始需求表仍保留「不需要」记录。
+  // 旧摘要缺少 need 字段时仍兼容：此前的 items 只有「需要」项。
+  const rows = (dm.items || []).filter((it) => it.need !== "不需要").map((it) => ({
     c: [
       esc(it.grp),
       '<b class="demand-view-name">' + esc(it.item) + '</b>' +
         (it.note ? '<div class="demand-view-note">业务提示：' + esc(it.note) + '</div>' : ""),
-      it.need === "不需要" ? '<span class="badge b-gray">不需要</span>' : '<span class="badge b-green">需要</span>',
       it.spec ? '<span class="demand-view-detail">' + esc(it.spec) + '</span>' : "—",
       esc(it.quantity || "—"),
       it.unit_price ? "¥" + money(it.unit_price) : "—",
@@ -154,17 +152,17 @@ function tabDemand(d, p) {
 
   return `${banner}
     ${panel("会务需求清单",
-      `需要 ${dm.needCount} 项 · 不需要 ${dm.total - dm.needCount} 项 / 共 ${dm.total} 项 · 需要项总价合计 ¥${money(dm.budgetTotal)}`,
+      `需要 ${dm.needCount} 项 · 总价合计 ¥${money(dm.budgetTotal)}`,
       table([{ t: "分组", w: "84px" }, { t: "项目 / 业务提示", w: "220px" },
-        { t: "是否需要", w: "78px" }, { t: "规格", w: "160px" },
+        { t: "规格", w: "160px" },
         { t: "数量", w: "66px", nw: true }, { t: "单价", w: "90px", cls: "num", nw: true },
         { t: "总价", w: "100px", cls: "num", nw: true }, { t: "负责人", w: "100px" },
         { t: "交付时间", w: "114px", nw: true }], rows,
-        { empty: "该需求单暂无保存条目", minw: 1150 }),
+        { empty: "暂无标记为「需要」的条目", minw: 1060 }),
       inPhase && writable
         ? `<button class="btn btn-o" data-go="demand/${esc(p.id)}">${dm.archived ? "查看 / 撤销归档" : "去填写"}</button>`
         : writable ? `<button class="btn btn-o" data-go="demand/${esc(p.id)}">查看完整需求单</button>` : "")}
-    <div class="hint" style="padding:6px 14px">这里展示完整的会务需求清单，包含「需要」和「不需要」条目、规格、业务提示、数量、单价、总价、负责人及交付时间。灰色「不需要」条目仅留作记录，不计入合计及核销费用对照；窄屏可横向滚动。</div>`;
+    <div class="hint" style="padding:6px 14px">只显示标记为「需要」的条目，包含规格、业务提示、数量、单价、总价、负责人及交付时间。「不需要」项在本清单隐藏，也不计入合计；原始需求表记录不受影响。</div>`;
 }
 
 /* ---------------- 概览 ---------------- */
