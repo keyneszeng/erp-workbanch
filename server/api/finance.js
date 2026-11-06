@@ -1,5 +1,5 @@
 "use strict";
-const { db } = require("../lib/db");
+const { db, transaction } = require("../lib/db");
 const { now, today, nextId, bad, notFound, conflict, forbidden, cents, yuan, parseBankAccount, parseBankName } = require("../lib/util");
 const { assertCan, assertModule, assertProjectVisible, scopeFilter, can, isSuper } = require("../lib/rbac");
 const { logAudit } = require("../lib/audit");
@@ -9,6 +9,7 @@ const { readPaging, countOf } = require("../lib/paginate");
 const { transition } = require("../lib/workflow");
 const { assertUploadAttachable } = require("../lib/upload-ownership");
 const { isDemoMode } = require("../lib/runtime");
+const { storage, sniffMime, safeName, ALLOWED_MIME, MAX_BYTES } = require("../lib/storage");
 
 // 只有「已核销」可新增付款：结算后账目已封账，归档后卷宗已封存，均不得再挂账
 const PAYABLE_STATUS = ["已核销"];
@@ -21,7 +22,7 @@ const PAYABLE_STATUS = ["已核销"];
 const EX_DECIDED = { 已通过: "已通过", 已驳回: "已驳回", 已撤销: "已撤销" };
 
 /** 与 server/api/files.js 生成的 key 格式保持一致，避免任意字符串被写进 file_key */
-const FILE_KEY_RE = /^[a-f0-9]{32}\.(jpg|png|webp|gif|pdf|ppt|pptx|xlsx)$/;
+const FILE_KEY_RE = /^[a-f0-9]{32}\.(jpg|png|webp|gif|pdf|ppt|pptx|xlsx|docx)$/;
 
 /**
  * 合同状态白名单。
@@ -171,6 +172,101 @@ function register(router) {
       message: `合同 ${id} 已保存${!isDemoMode() && st === "待签署" ? "并提交协会管理员或总管理员审批签署" : ""}`,
       warning
     };
+  });
+
+  /**
+   * 「确认签署」复核窗口里的更新合同：替换原件，不改变合同编号、金额和审批状态。
+   *
+   * 合同创建时同一份原件还会同步关联归档「合同」材料。因此需要在一个同步事务里
+   * 更新合同 + 归档材料两处，只有没有任何业务引用时，才删旧文件的登记和存储字节。
+   * 不删审计，审计只记录操作证据，不是旧合同原件本身。
+   */
+  router.post("/api/contracts/:id/replace-file", async (ctx) => {
+    const c = db.prepare("SELECT * FROM contracts WHERE id=?").get(ctx.params.id);
+    if(!c)throw notFound("合同不存在");
+    const p = getProject(c.pid);
+    assertProjectVisible(ctx.user,p);
+    assertCan(ctx.user,"contract:approve","只有协会管理员或总管理员可以在确认签署前更新合同");
+    if(["已归档","已结算"].includes(p.status))
+      throw conflict("项目已封存或结算，不可替换合同原件","FROZEN");
+    if(!isDemoMode() && (p.status==="已核销" ||
+      db.prepare("SELECT 1 FROM verify_steps WHERE pid=? AND step_no=6 AND result='通过'").get(p.id)))
+      throw conflict("合同已完成核票或核销，不能替换合同原件","CONTRACT_VERIFIED");
+    if(c.status!=="待签署")throw conflict("仅待签署合同可以在确认签署前更新原件","ILLEGAL_TRANSITION");
+
+    const b=ctx.body||{};
+    const newKey=String(b.file_key||"");
+    if(!FILE_KEY_RE.test(newKey))throw bad("请先上传合法的 PDF、图片或 Office 合同文件");
+    if(newKey===c.file_key)throw conflict("新合同与原文件相同，请重新上传","SAME_CONTRACT_FILE");
+    assertUploadAttachable(newKey,p.id,ctx.user);
+    const obj=await storage().get(newKey);
+    if(!obj || !obj.buffer?.length)throw notFound("新合同上传文件不存在，请重新上传");
+    if(obj.buffer.length>MAX_BYTES)throw bad("新合同文件大小超出 20 MB 限制");
+    const mime=sniffMime(obj.buffer);
+    if(!mime || ALLOWED_MIME[mime]!==newKey.split(".").pop())
+      throw bad("新合同文件类型与上传标识不符");
+    const fileName=safeName(b.file_name||newKey);
+    const fileSize=obj.buffer.length;
+    const at=now();
+    const oldKey=c.file_key || "";
+    // Cloudflare DO 的 SQL 同步事务与 Node SQLite 均支持此入口。
+    const cleanup=transaction(()=>{
+      // 并发更新的最后一道校验：不能拿过期页面覆盖另一位管理员刚上传的合同。
+      const current=db.prepare("SELECT status,file_key FROM contracts WHERE id=?").get(c.id);
+      if(current?.status!=="待签署" || (current.file_key||"")!==oldKey)
+        throw conflict("合同在上传期间已被其他人更新或签署，请刷新后重新操作","CONTRACT_CHANGED");
+      assertUploadAttachable(newKey,p.id,ctx.user);
+      db.prepare("UPDATE contracts SET file_key=?,file_name=?,file_size=?,file_mime=? WHERE id=?")
+        .run(newKey,fileName,fileSize,mime,c.id);
+      // 原合同自动归档时登记的材料，需要一起换成新原件；不能留下旧合同副本。
+      const material=db.prepare(
+        "SELECT id FROM materials WHERE pid=? AND kind='合同' AND file_key=?"
+      ).get(p.id,oldKey);
+      if(material) {
+        db.prepare(
+          "UPDATE materials SET file_key=?,file_name=?,file_size=?,file_mime=?,version=?,uploader=?,created_at=? "+
+          "WHERE pid=? AND kind='合同' AND file_key=?"
+        ).run(newKey,fileName,fileSize,mime,"待签署",ctx.user.name,at,p.id,oldKey);
+      } else {
+        db.prepare("INSERT INTO materials(pid,kind,name,version,uploader,created_at,file_key,file_name,file_size,file_mime) "+
+          "VALUES (?,?,?,?,?,?,?,?,?,?)")
+          .run(p.id,"合同",c.id+" · "+c.name,"待签署",ctx.user.name,at,
+            newKey,fileName,fileSize,mime);
+      }
+      if(!oldKey)return {oldKey:"",canDelete:false,shared:false};
+      // 先从所有业务记录解除引用；旧文件若仍服务其他单据，禁止物理误删。
+      const refs=db.prepare(
+        "SELECT 1 FROM contracts WHERE file_key=? "+
+        "UNION SELECT 1 FROM materials WHERE file_key=? "+
+        "UNION SELECT 1 FROM meeting_sponsor_contracts WHERE file_key=? "+
+        "UNION SELECT 1 FROM meeting_sponsor_receipts WHERE file_key=? "+
+        "UNION SELECT 1 FROM meeting_sponsor_invoices WHERE file_key=? "+
+        "UNION SELECT 1 FROM project_notice_templates WHERE file_key=? "+
+        "UNION SELECT 1 FROM project_notices WHERE template_key=?"
+      ).get(oldKey,oldKey,oldKey,oldKey,oldKey,oldKey,oldKey);
+      if(!refs) db.prepare("DELETE FROM uploaded_files WHERE file_key=?").run(oldKey);
+      return {oldKey,canDelete:!refs,shared:!!refs};
+    });
+
+    let oldDeleted=!oldKey, warning="";
+    if(cleanup.canDelete) {
+      try {
+        await storage().del(oldKey);
+        oldDeleted=!(await storage().stat(oldKey));
+        if(!oldDeleted)warning="新合同已生效，但旧文件在存储层清理未完成，请联系管理员处理";
+      } catch {
+        warning="新合同已生效，但旧文件物理删除未完成，请联系管理员处理";
+      }
+    } else if(cleanup.shared) {
+      warning="新合同已替换；旧文件仍被其他业务记录引用，为防止误删已保留共享原件";
+    }
+    logAudit({user:ctx.user,module:"合同审批",action:"更新合同原件",target:p.id,
+      detail:c.id+" "+c.name+"，新原件："+fileName+
+        "；旧附件："+(oldKey||"无")+"；物理清理："+(oldDeleted?"成功":cleanup.shared?"因其他业务引用而保留":"待处理"),
+      ip:ctx.ip});
+    return {contract:db.prepare("SELECT * FROM contracts WHERE id=?").get(c.id),
+      replaced:true,oldDeleted,warning,
+      message:"合同原件已更新，旧版归档材料已同步替换；请核对新文件后再确认签署"};
   });
 
   /**
