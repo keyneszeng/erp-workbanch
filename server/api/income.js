@@ -101,7 +101,7 @@ function register(router){
     const extracted=manual!==null?{status:"已人工确认",note:"权益清单由录入人员逐项确认",categories:manual}:
       await scanRights(key);
     const id=nextId(db,"meeting_sponsor_contracts","id","SC");
-    db.prepare("INSERT INTO meeting_sponsor_contracts(id,pid,enterprise,contract_no,amount,status,file_key,file_name,created_by,created_at,rights_scan_status,rights_scan_note) VALUES (?,?,?,?,?,'待确认',?,?,?,?,?,?,?)")
+    db.prepare("INSERT INTO meeting_sponsor_contracts(id,pid,enterprise,contract_no,amount,status,file_key,file_name,created_by,created_at,rights_scan_status,rights_scan_note) VALUES (?,?,?,?,?,'待确认',?,?,?,?,?,?)")
       .run(id,p.id,enterprise,contractNo,total,key,String(b.file_name||"").slice(0,120),ctx.user.id,now(),
         extracted.status,extracted.note);
     saveRights(p.id,id,extracted.categories,manual!==null?"manual":"ocr",manual!==null);
@@ -120,7 +120,7 @@ function register(router){
     return {contracts:data.contracts,rights:data.rights,photos:data.photos};
   });
   // OCR suggestions are never final until this explicit, audited review.
-  router.put("/api/projects/:id/income/contracts/:cid/rights",async ctx=>{
+  router.patch("/api/projects/:id/income/contracts/:cid/rights",async ctx=>{
     const p=getProject(ctx.params.id);writable(ctx,p,"contract:write");
     const contract=sponsor(p.id,ctx.params.cid);
     if(contract.status==="已驳回")throw conflict("已驳回的赞助合同不可修改权益","SPONSOR_CONTRACT_REJECTED");
