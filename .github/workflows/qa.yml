@@ -55,6 +55,9 @@ jobs:
           node --input-type=module --check < web/assets/js/lib/contract-detail.js
           node --input-type=module --check < web/assets/js/pages/contracts.js
           node --check server/api/verify.js
+          node --check server/lib/meeting-sop.js
+          node --input-type=module --check < web/assets/js/lib/sop-fields.js
+          node --input-type=module --check < web/assets/js/lib/verify-detail.js
           node --check server/api/system.js
           node --check server/api/files.js
           node --check server/lib/legacy-office.js
@@ -92,6 +95,8 @@ jobs:
         run: ERP_DEMO_MODE=1 node --experimental-sqlite --test test/v1219.test.js
       - name: Verify final agenda confirms on upload with no manual task or speaker form
         run: ERP_DEMO_MODE=1 node --experimental-sqlite --test test/final-agenda-upload.test.js
+      - name: Verify first-step stamped document versus host script without sponsor field
+        run: ERP_DEMO_MODE=1 node --experimental-sqlite --test test/meeting-sop.test.js
       - name: Install offline OCR runtime (Tesseract Chinese/English + Poppler)
         run: |
           sudo apt-get update -qq
