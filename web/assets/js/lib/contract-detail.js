@@ -169,6 +169,51 @@ export function openContractDetail(c, opt = {}) {
   if(opt.startConfirm && flow.action==="sign")askSign();
 }
 
+/** 待签署合同的原件更新；旧附件会从合同与归档材料中解除并按引用安全删除。 */
+function openContractReplace(c,opt={}) {
+  const body='<div class="gate" style="margin-bottom:14px">' +
+    '<b>上传新合同后，原合同附件将被替换</b>' +
+    '同步更新合同台账与归档材料。如旧文件没有其他业务引用，其存储文件将自动删除；' +
+    '原合同编号、金额和审批流程保持不变。更新后仍须重新核对并点击「确认签署」。</div>' +
+    '<div class="fld"><label for="contractReplaceFile">选择新合同原件</label>' +
+    '<input type="file" id="contractReplaceFile" accept=".pdf,.jpg,.jpeg,.png,.webp,.gif,.ppt,.pptx,.docx,.xlsx,application/pdf,image/*">' +
+    '<div class="hint" style="margin-top:8px">仅支持 PDF、图片或 Office 文件，单个不超过 20 MB。</div></div>';
+  const m=modal({
+    title:"更新合同 · "+esc(c.id),
+    width:"620px",body,
+    footer:'<button class="btn btn-o" data-x="0">返回确认签署</button>'+
+      '<button class="btn btn-p" data-x="1">上传并替换旧合同</button>'
+  });
+  m.querySelector('[data-x="0"]').onclick=()=>openContractDetail(c,{...opt,startConfirm:true});
+  const btn=m.querySelector('[data-x="1"]');
+  btn.onclick=async()=>{
+    const file=m.querySelector("#contractReplaceFile")?.files?.[0];
+    if(!file){toast("请先选择新合同文件","warn");return;}
+    const error=checkFile(file);
+    if(error){toast(error,"warn");return;}
+    btn.disabled=true;
+    try {
+      const compressed=await compressImage(file);
+      btn.textContent="上传中 0%";
+      const up=await api.upload(compressed,{
+        pid:c.pid,onProgress:value=>{btn.textContent="上传中 "+Math.round(value*100)+"%";}
+      });
+      btn.textContent="更新合同并清理旧文件…";
+      const r=await api.post("/api/contracts/"+encodeURIComponent(c.id)+"/replace-file",{
+        file_key:up.key,file_name:up.name
+      });
+      toast(r.warning ? r.message+"；"+r.warning : r.message,r.warning?"warn":"ok");
+      if(typeof opt.onDone==="function")await opt.onDone();
+      // 替换不等于批准，重新进入复核窗口并展示新原件。
+      openContractDetail(r.contract,{...opt,startConfirm:true});
+    }catch(e){
+      toast(e.message,"warn");
+      btn.disabled=false;
+      btn.textContent="上传并替换旧合同";
+    }
+  };
+}
+
 /** 今天，YYYY-MM-DD —— 与后端 transition 的默认签署日期同口径 */
 function todayStr() {
   const d = new Date();
