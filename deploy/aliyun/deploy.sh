@@ -179,13 +179,42 @@ if [ "$MODE" = "prod" ]; then
   run apt-get install -y -qq certbot python3-certbot-nginx
 fi
 
-# 材料/议程离线 OCR（PR #21）依赖原生二进制：tesseract 负责识别，poppler 负责 PDF 拆页取字。
-# 缺任何一个，上传 PDF/图片后识别都会报 "Missing OCR executable"。
-log "安装 OCR 依赖（tesseract + 中文语言包 + poppler）"
-run apt-get install -y -qq tesseract-ocr tesseract-ocr-chi-sim tesseract-ocr-eng poppler-utils
+# 材料/议程 OCR：RapidOCR 负责识别，poppler 负责 PDF 拆页与文本层提取。
+# RapidOCR 本身装在独立 venv 里（见 install-rapidocr.sh），不在这里装。
+log "安装 OCR 依赖（poppler-utils）"
+run apt-get install -y -qq poppler-utils
+
+# Office 原件在线预览（课件 / 串场 PPT、劳务表 Excel）。
+# 浏览器没有 Office 渲染能力，预览时由 LibreOffice 无头模式转成 PDF，再用 poppler 拆成图片。
+# 只装 writer/calc/impress 三个组件，不装全套（省 ~300MB）；中文字体必须装，
+# 否则转出来的 PDF 里中文全是方框。
+log "安装 Office 预览依赖（LibreOffice + 中文字体）"
+if [ "$DRY_RUN" = "0" ] && command -v soffice >/dev/null 2>&1; then
+  log "  LibreOffice 已安装，跳过"
+else
+  run apt-get install -y -qq --no-install-recommends \
+    libreoffice-writer libreoffice-calc libreoffice-impress fonts-wqy-zenhei
+fi
 if [ "$DRY_RUN" = "0" ]; then
-  tesseract --list-langs 2>/dev/null | grep -qx "chi_sim" \
-    || warn "tesseract 中文语言包 chi_sim 未就绪，中文材料识别会退化"
+  command -v soffice >/dev/null 2>&1 \
+    || warn "LibreOffice 未就绪，Office 原件只能下载查看"
+  fc-list 2>/dev/null | grep -qi "wqy\|noto.*cjk" \
+    || warn "未检测到中文字体，Office 转 PDF 后中文可能显示为方框"
+fi
+
+# 超大附件自动瘦身：PDF 用 Ghostscript 降采样，图片用 ImageMagick 限长边。
+# 缺这两个工具时，>20MB 的扫描件会直接被拒（提示用户本地压缩），不会静默丢数据。
+log "安装附件压缩依赖（Ghostscript + ImageMagick + zip/unzip）"
+if [ "$DRY_RUN" = "0" ] && command -v gs >/dev/null 2>&1 && command -v convert >/dev/null 2>&1 \
+   && command -v zip >/dev/null 2>&1 && command -v unzip >/dev/null 2>&1; then
+  log "  压缩工具已安装，跳过"
+else
+  run apt-get install -y -qq --no-install-recommends ghostscript imagemagick zip unzip
+fi
+if [ "$DRY_RUN" = "0" ]; then
+  command -v gs >/dev/null 2>&1 || warn "Ghostscript 未就绪，超大 PDF 无法自动压缩"
+  command -v convert >/dev/null 2>&1 || warn "ImageMagick 未就绪，超大图片无法自动压缩"
+  command -v zip >/dev/null 2>&1 || warn "zip 未就绪，超大 PPTX/DOCX/XLSX 无法自动压缩"
 fi
 
 # ---------- 服务账户与目录 ----------
@@ -198,6 +227,9 @@ log "准备目录（$DATA_ROOT）"
 run install -d -m 0755 "$APP_ROOT" "$APP_ROOT/releases"
 run install -d -m 0700 -o "$SERVICE_USER" -g "$SERVICE_USER" "$DATA_ROOT"
 run install -d -m 0700 -o "$SERVICE_USER" -g "$SERVICE_USER" "$DATA_ROOT/uploads"
+# Office 转 PDF 的缓存目录：key 一次上传一个、永不改写，所以转换结果可以长期复用，
+# 否则每次翻页都要重跑一遍 LibreOffice（1~3 秒）。
+run install -d -m 0700 -o "$SERVICE_USER" -g "$SERVICE_USER" "$DATA_ROOT/preview-cache"
 run install -d -m 0700 "$DATA_ROOT/backup"
 run install -d -m 0750 -o root -g "$SERVICE_USER" "$CONF_DIR"
 
@@ -260,6 +292,9 @@ else
       printf 'ERP_BOOTSTRAP_ADMIN_PHONE=%s\n' "$ADMIN_PHONE"
       printf 'ERP_DB=%s/erp.db\n' "$DATA_ROOT"
       printf 'ERP_UPLOAD_DIR=%s/uploads\n' "$DATA_ROOT"
+      printf 'ERP_PREVIEW_CACHE_DIR=%s/preview-cache\n' "$DATA_ROOT"
+      printf 'ERP_MAX_UPLOAD_MB=%s\n' "${ERP_MAX_UPLOAD_MB:-200}"
+      printf 'ERP_MAX_FILE_MB=%s\n' "${ERP_MAX_FILE_MB:-50}"
       printf 'ERP_HOST=127.0.0.1\n'
       printf 'ERP_PORT=%s\n' "$APP_PORT"
       printf 'ERP_TRUST_PROXY=1\n'
@@ -354,7 +389,7 @@ server {
     listen 80;
     listen [::]:80;
     server_name ${DOMAIN};
-    client_max_body_size 25m;
+    client_max_body_size 210m;
 
     location / {
         proxy_pass http://127.0.0.1:${APP_PORT};
@@ -364,7 +399,7 @@ server {
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto \$scheme;
         proxy_connect_timeout 10s;
-        proxy_read_timeout 90s;
+        proxy_read_timeout 300s;
     }
 }
 NGINX
@@ -441,6 +476,12 @@ WantedBy=timers.target
 UNIT
   systemctl daemon-reload
   systemctl enable --now "${BACKUP_UNIT}.timer" >/dev/null
+fi
+
+# ---------- RapidOCR 引擎检查 ----------
+# RapidOCR 装在独立 venv（约 450 MB），不进代码仓库；首次使用需单独安装。
+if [ "$DRY_RUN" = "0" ] && [ ! -x "${ERP_RAPIDOCR_VENV:-/opt/rapidocr-venv}/bin/python" ]; then
+  warn "RapidOCR 未安装，OCR 不可用；请执行 bash deploy/aliyun/install-rapidocr.sh"
 fi
 
 # ---------- 完成 ----------
