@@ -40,6 +40,9 @@ jobs:
           node --input-type=module --check < web/assets/js/pages/materials.js
           node --input-type=module --check < web/assets/js/pages/demand.js
           node --check server/api/projects.js
+          node --check server/lib/settlement-breakdown.js
+          node --check test/settlement-breakdown.test.js
+          node --input-type=module --check < web/assets/js/lib/settlement-breakdown.js
           node --check server/lib/budget-fee.js
           node --input-type=module --check < web/assets/js/pages/projects.js
           node --input-type=module --check < web/assets/js/lib/budget-fee.js
@@ -94,6 +97,8 @@ jobs:
           node --check miniprogram/pages/invite/index.js
       - name: Install PDF and Word generation dependencies
         run: npm install --no-audit --no-fund
+      - name: Verify settlement classifications, totals and scoped detail access
+        run: ERP_DEMO_MODE=1 node --experimental-sqlite --test test/settlement-breakdown.test.js
       - name: Verify initiation budget tax-fee and available budget before heavy OCR setup
         run: ERP_DEMO_MODE=1 node --experimental-sqlite --test test/project-tax-fee.test.js
       - name: Verify Word initiation notice workflow before heavy OCR setup
@@ -122,6 +127,8 @@ jobs:
         run: npm run test:cf
       - name: Install headless browser test harness
         run: npm install --no-save --no-package-lock --no-audit --no-fund playwright
+      - name: "Black-box settlement summary and clickable category detail"
+        run: ERP_DEMO_MODE=1 node test/ui/settlement-breakdown.js
       - name: "Black-box initiation form tax-fee preview"
         run: ERP_DEMO_MODE=1 node test/ui/budget-fee.js
       - name: "Black-box legacy XLS upload from material register"

@@ -11,6 +11,7 @@ import { sopEvidenceForm, collectSopEvidence } from "../lib/sop-fields.js";
 import { bindLaborContractPreview } from "../lib/labor-contract-preview.js";
 import { openContractMaterialReplace } from "../lib/contract-material-replace.js";
 import { flowHint, flowOf, openContractDetail } from "../lib/contract-detail.js";
+import {renderSettlementBreakdown} from "../lib/settlement-breakdown.js";
 
 const ORDER = ["草稿", "待审批", "已立项", "筹备中", "执行中", "待核销", "已核销", "已结算", "已归档"];
 const PAYABLE = ["已核销"];
@@ -355,6 +356,7 @@ function tabPayments(d, p) {
       : `<div class="gate" style="margin-bottom:12px"><b>付款门禁锁定</b>
       项目状态「${p.status}」，按制度必须完成全部适用核销项并通过（已核销）才可付款。当前核销进度 ${d.verification.passed}/${d.verification.total}。</div>`;
   return `${gate}
+  ${d.settlementBreakdown ? panel("结算单", esc(d.settlement.id), renderSettlementBreakdown(d.settlementBreakdown)) : ""}
   ${panel("付款记录", `已付款 ¥${money(d.paidTotal)}`, table(
     [{ t: "付款单号", w: "112px" }, { t: "类型", w: "86px" }, { t: "收款方" }, { t: "金额", w: "100px", cls: "num" },
      { t: "发票号", w: "96px" }, { t: "申请人", w: "72px" }, { t: "状态", w: "80px" }, { t: "操作", w: "120px" }],

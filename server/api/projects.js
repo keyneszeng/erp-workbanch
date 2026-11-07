@@ -8,6 +8,7 @@ const { ASSOCS, FORMS, DEPTS } = require("../lib/constants");
 const { readPaging, countOf } = require("../lib/paginate");
 const { isDemoMode } = require("../lib/runtime");
 const {parseTaxFeeRate,availableBudget,withBudgetFee}=require("../lib/budget-fee");
+const {buildSettlementBreakdown}=require("../lib/settlement-breakdown");
 const { assignedMember } = require("../lib/member-directory");
 
 const EDITABLE = ["name", "assoc", "form", "date", "days", "budget", "tax_fee_rate", "people", "owner", "owner_id", "phone", "dept", "agenda"];
@@ -175,6 +176,7 @@ function detail(project, user) {
     "SELECT c.*, u.name AS created_by_name FROM contracts c LEFT JOIN users u ON u.id = c.created_by WHERE c.pid = ? ORDER BY c.id"
   ).all(pid);
   const payments = db.prepare("SELECT * FROM payments WHERE pid = ? ORDER BY created_at DESC, id DESC").all(pid);
+  const settlement = settlementOf(pid);
   const guests = db.prepare("SELECT * FROM guests WHERE pid = ? ORDER BY id").all(pid);
   const tasks = db.prepare("SELECT * FROM tasks WHERE pid = ? ORDER BY id").all(pid);
   const issues = db.prepare("SELECT * FROM issues WHERE pid = ? ORDER BY id").all(pid);
@@ -196,7 +198,8 @@ function detail(project, user) {
     verification: verification(pid),
     sponsorRights:require("../lib/sponsor-rights").sponsorRights(db,pid),
     materialsStatus: materialsStatus(pid),
-    settlement: settlementOf(pid),
+    settlement,
+    settlementBreakdown: settlement ? buildSettlementBreakdown(settlement,project,payments) : null,
     // 核销第 3 步的费用对照基准。项目详情页的核销页签读的是这个接口，
     // 之前只在 /verify 里返回，导致同一个第 3 步在两个页面给出不同答案。
     demand: demandSummary(pid),
