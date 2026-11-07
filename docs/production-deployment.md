@@ -136,13 +136,21 @@ sudo systemctl restart erp.service
 
 ### 可选：切换 OCR 引擎（2026-11-06）
 
-`ERP_OCR_PROVIDER` 三选一，默认 `tesseract`，现网行为不变：
+`ERP_OCR_PROVIDER` 四选一，默认 `tesseract`：
 
 | provider | 依赖 | 数据边界 | 适用 |
 |---|---|---|---|
 | `tesseract` | 本机 tesseract + poppler，纯 CPU | 原件不出服务器 | 默认；简单扫描件够用 |
+| `rapidocr` | 本地 PP-OCR（ONNXRuntime），纯 CPU，约 450 MB | 原件不出服务器 | **推荐**：中文表格明显优于 tesseract，单页 2~4 秒 |
 | `unlimited` | 自建 Unlimited-OCR（vLLM / SGLang，NVIDIA GPU） | 原件不出内网 | 表格/长文档要求高，且有 GPU |
 | `baidu` | 百度云「文档解析（Unlimited-OCR）」异步 API | **原件会上传百度云** | 无 GPU、能接受第三方处理 |
+
+RapidOCR 安装（只装一次）：
+
+```bash
+bash deploy/aliyun/install-rapidocr.sh
+# 之后在环境文件里设 ERP_OCR_PROVIDER=rapidocr 并重启服务
+```
 
 自建示例：
 

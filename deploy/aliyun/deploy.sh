@@ -482,6 +482,14 @@ UNIT
   systemctl enable --now "${BACKUP_UNIT}.timer" >/dev/null
 fi
 
+# ---------- RapidOCR 引擎检查 ----------
+# RapidOCR 装在独立 venv（约 450 MB），不进代码仓库；首次使用需单独安装。
+if [ "$DRY_RUN" = "0" ] && [ -f "$ENV_FILE" ] && grep -q '^ERP_OCR_PROVIDER=rapidocr' "$ENV_FILE"; then
+  if [ ! -x "${ERP_RAPIDOCR_VENV:-/opt/rapidocr-venv}/bin/python" ]; then
+    warn "ERP_OCR_PROVIDER=rapidocr，但 RapidOCR 未安装；请执行 bash deploy/aliyun/install-rapidocr.sh"
+  fi
+fi
+
 # ---------- 完成 ----------
 PUBLIC_HINT="https://${DOMAIN}"
 [ "$MODE" = "test" ] && PUBLIC_HINT="http://<ECS公网IP>:${NGINX_PORT}（安全组需放通 ${NGINX_PORT}）"
