@@ -9,7 +9,7 @@
 const { test, before, after } = require("node:test");
 const assert = require("node:assert/strict");
 const http = require("node:http");
-const { recognize, stripDet, providerMatches, psmFor, _resetBaiduToken } = require("../server/lib/ocr-engine");
+const { recognize, stripDet, providerMatches, psmFor, rapidItemsToText, _resetBaiduToken } = require("../server/lib/ocr-engine");
 
 // 1×1 透明 PNG：只要能过 MIME 嗅探即可
 const PNG = Buffer.from(
@@ -157,6 +157,42 @@ test("PSM 按材料类型选择：劳务/名单用 6，议程/合同用 3", () =
     assert.equal(psmFor(kind), "6", kind + " 应走 PSM 6");
   for (const kind of ["议程", "终版议程", "合同", "发票", "课件", "串场", ""])
     assert.equal(psmFor(kind), "3", kind + " 应走 PSM 3");
+});
+
+test("RapidOCR：按坐标还原表格列，中文不拆字", () => {
+  const items = [
+    { text: "时间", x: 55, y: 224, w: 60, h: 30, score: 1 },
+    { text: "课题", x: 253, y: 222, w: 60, h: 30, score: 1 },
+    { text: "讲者", x: 974, y: 222, w: 60, h: 30, score: 1 },
+    { text: "单位", x: 1175, y: 222, w: 60, h: 30, score: 1 },
+    { text: "19:00-19:10", x: 58, y: 304, w: 150, h: 30, score: 1 },
+    { text: "开场致辞", x: 257, y: 303, w: 120, h: 30, score: 1 },
+    { text: "李建国", x: 976, y: 304, w: 90, h: 30, score: 1 },
+    { text: "南方医科大学南方医院", x: 1179, y: 304, w: 300, h: 30, score: 1 }
+  ];
+  const text = rapidItemsToText(items);
+  assert.match(text, /时间\t课题\t讲者\t单位/);
+  assert.match(text, /19:00-19:10\t开场致辞\t李建国\t南方医科大学南方医院/);
+  assert.ok(!/时 间/.test(text), "同一格内的中文不能被空格拆开");
+});
+
+test("RapidOCR provider：调用 Python 脚本并解析 JSON", async () => {
+  resetEnv();
+  process.env.ERP_OCR_PROVIDER = "rapidocr";
+  process.env.ERP_RAPIDOCR_PYTHON = "/fake/python";
+  const calls = [];
+  const fakeExec = async (bin, args) => {
+    calls.push({ bin, args });
+    return JSON.stringify({ items: [
+      { text: "讲者", x: 10, y: 10, w: 40, h: 20, score: 1 },
+      { text: "张三", x: 200, y: 10, w: 40, h: 20, score: 1 }
+    ], ms: 10 });
+  };
+  const r = await recognize(PNG, "png", { exec: fakeExec });
+  assert.match(r.engine, /RapidOCR/);
+  assert.match(r.text, /讲者\t张三/);
+  assert.equal(calls[0].bin, "/fake/python");
+  assert.match(calls[0].args[0], /rapid-ocr\.py$/);
 });
 
 test("引擎切换后旧缓存不再命中，避免「换了引擎却没生效」", () => {

@@ -7,7 +7,7 @@ async function execNative(program,args,opts={}){
   const child=process.getBuiltinModule?.("node:child_process");
   if(!child)throw fail("OCR_UNAVAILABLE","当前部署不支持本地 OCR");
   return new Promise((resolve,reject)=>child.execFile(program,args,{
-    encoding:"utf8",timeout:opts.timeout||20000,maxBuffer:2*1024*1024,
+    encoding:"utf8",timeout:opts.timeout||20000,maxBuffer:opts.maxBuffer||2*1024*1024,
     windowsHide:true,shell:false,env:{...process.env,OMP_THREAD_LIMIT:"1"}
   },(e,stdout)=>{
     if(!e)return resolve(String(stdout||""));
@@ -89,10 +89,10 @@ function stripDet(raw){
  * 2400px 次之，3200px 反而因为缩放插值出现波动。
  * 三个 provider 共用同一套渲染参数。
  */
-async function renderPdf(dir,file,pages,exec){
+async function renderPdf(dir,file,pages,exec,scale=3600){
   const fs=process.getBuiltinModule("node:fs/promises");
   const prefix=path.join(dir,"page");
-  await exec("pdftoppm",["-f","1","-l",String(pages),"-scale-to","3600","-gray","-png","-r","300",file,prefix],{timeout:90000});
+  await exec("pdftoppm",["-f","1","-l",String(pages),"-scale-to",String(scale),"-gray","-png","-r","300",file,prefix],{timeout:90000});
   const files=(await fs.readdir(dir)).filter(s=>/^page-\d+\.png$/.test(s)).sort((a,b)=>
     Number(a.match(/\d+/)[0])-Number(b.match(/\d+/)[0]));
   if(!files.length)throw fail("OCR_RENDER_FAILED","未能转换 PDF 扫描页",422);
@@ -124,6 +124,68 @@ async function recognizeTesseract(file,dir,ext,pages,exec,kind){
     return {text:cleanText(chunks.join("\n")),mode:"pdf-ocr",engine};
   }
   return {text:await runOCRImage(await preprocessImage(file,dir,exec),exec,{psm}),mode:"ocr",engine};
+}
+/**
+ * RapidOCR：PP-OCR 的 ONNXRuntime 版，纯 CPU，不用 GPU。
+ *
+ * 相比 tesseract 的三个优势（同一张议程表实测）：
+ *   1) 中文错字少：东莞市不会被读成「莞市」，讲者「徐一劲」不再变噪声
+ *   2) 每个文本框带坐标，按 x 间距还原表格列，不依赖空格数量
+ *   3) 快：单页 2~4 秒，tesseract 要 10 秒
+ * 代价是多一个 Python 进程，峰值内存约 560 MB。
+ *
+ * 这里只做「坐标 → 带列分隔的文本」，下游 parseAgendaRows 等一行不用改。
+ */
+function rapidItemsToText(items){
+  const words=(items||[])
+    .filter(x=>x&&String(x.text||"").trim()&&Number(x.score??1)>=0.3)
+    .map(x=>({...x,text:String(x.text).trim()}));
+  if(!words.length)return "";
+  words.sort((a,b)=>a.y-b.y||a.x-b.x);
+  const lines=[];let cur=null;
+  for(const w of words){
+    const h=Math.max(Number(w.h)||0,1);
+    if(!cur||Math.abs(w.y-cur.y)>h*0.6){
+      cur={y:w.y,h,words:[w]};
+      lines.push(cur);
+    }else{
+      cur.words.push(w);
+      cur.y=(cur.y*(cur.words.length-1)+w.y)/cur.words.length;
+      cur.h=Math.max(cur.h,h);
+    }
+  }
+  return lines.map(l=>{
+    l.words.sort((a,b)=>a.x-b.x);
+    let s="",prev=null;
+    for(const w of l.words){
+      if(prev){
+        const gap=w.x-(prev.x+(Number(prev.w)||0));
+        // 列间距明显大于行高才断列；同一格内的字直接拼，避免「消 化 疾 病」
+        if(gap>l.h*1.2)s+="\t";
+        else if(/[A-Za-z0-9]$/.test(prev.text)&&/^[A-Za-z0-9]/.test(w.text))s+=" ";
+      }
+      s+=w.text;prev=w;
+    }
+    return s;
+  }).filter(Boolean).join("\n");
+}
+async function recognizeRapid(file,dir,ext,pages,exec){
+  const py=String(process.env.ERP_RAPIDOCR_PYTHON||"/opt/rapidocr-venv/bin/python");
+  const script=path.join(__dirname,"rapid-ocr.py");
+  const runOne=async(img)=>{
+    const out=await exec(py,[script,img],{timeout:120000,maxBuffer:8*1024*1024});
+    let data;
+    try{data=JSON.parse(out);}catch{throw fail("OCR_PROVIDER_FAILED","RapidOCR 返回了无法解析的结果",503);}
+    if(data.error)throw fail("OCR_PROVIDER_FAILED","RapidOCR 失败："+data.error,503);
+    return rapidItemsToText(data.items);
+  };
+  if(ext==="pdf"){
+    const chunks=[];
+    // RapidOCR 检测模型会把长边缩到 ~960px，渲染 2400px 足够，再大只是白等
+    for(const img of await renderPdf(dir,file,pages,exec,2400))chunks.push(await runOne(img));
+    return {text:cleanText(chunks.join("\n")),mode:"pdf-ocr",engine:"RapidOCR (PP-OCR)"};
+  }
+  return {text:cleanText(await runOne(file)),mode:"ocr",engine:"RapidOCR (PP-OCR)"};
 }
 /** 自建 Unlimited-OCR：vLLM / SGLang 的 /v1/chat/completions，图片走 base64。 */
 async function recognizeUnlimited(buffer,ext,file,dir,pages){
@@ -278,8 +340,9 @@ async function recognize(buffer,ext,opts={}){
     try{
       if(provider==="unlimited")out=await recognizeUnlimited(buffer,ext,file,dir,pages);
       else if(provider==="baidu")out=await callBaidu(buffer,ext,pages,totalPages);
+      else if(provider==="rapidocr")out=await recognizeRapid(file,dir,ext,pages,exec);
       else if(provider==="tesseract")out=await recognizeTesseract(file,dir,ext,pages,exec,opts.kind);
-      else throw fail("OCR_PROVIDER_UNKNOWN",`未知的 OCR 引擎：${provider}（可选 tesseract / unlimited / baidu）`,503);
+      else throw fail("OCR_PROVIDER_UNKNOWN",`未知的 OCR 引擎：${provider}（可选 tesseract / rapidocr / unlimited / baidu）`,503);
     }catch(e){
       if(provider!=="tesseract"&&fallbackEnabled()){
         const t=await recognizeTesseract(file,dir,ext,pages,exec,opts.kind);
@@ -512,6 +575,6 @@ function parseAgenda(raw){
   return out;
 }
 module.exports={enabled,recognize,parseAgenda,parseAgendaRows,extractNames,extractTopics,cleanText,runOCRImage,MAX_PAGES,
-  stripDet,providerName,providerMatches,psmFor,
+  stripDet,providerName,providerMatches,psmFor,rapidItemsToText,
   /** 仅供测试：清掉百度 token 缓存，避免用例之间互相污染 */
   _resetBaiduToken:()=>{baiduToken={value:"",expiresAt:0};}};
