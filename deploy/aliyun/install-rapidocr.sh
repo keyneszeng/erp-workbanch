@@ -1,33 +1,33 @@
 #!/bin/bash
-# 安装 RapidOCR（纯 CPU 的 PP-OCR ONNXRuntime 版），供材料/议程 OCR 使用。
-#
-# 只装到独立 venv（/opt/rapidocr-venv），不污染系统 Python。
-# 磁盘约 450 MB，运行峰值内存约 560 MB。
-# 可用 ERP_PIP_INDEX 覆盖 pip 源（默认清华镜像）。
-set -e
+# Install the actively maintained RapidOCR Python package + ONNX Runtime CPU.
+# Isolated venv: no system Python or application npm dependencies are changed.
+set -Eeuo pipefail
 
 VENV="${ERP_RAPIDOCR_VENV:-/opt/rapidocr-venv}"
 PIP_INDEX="${ERP_PIP_INDEX:-https://pypi.tuna.tsinghua.edu.cn/simple}"
 
-echo "==> 安装系统依赖（python3-venv / libgl1）"
+if [[ "$VENV" != /* || "$VENV" == "/" ]]; then
+  echo "ERP_RAPIDOCR_VENV must be an absolute non-root path" >&2
+  exit 2
+fi
+
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
-apt-get install -y -qq python3-venv libgl1 libglib2.0-0
+apt-get install -y -qq python3-venv poppler-utils libglib2.0-0
 
-echo "==> 创建虚拟环境 $VENV"
-rm -rf "$VENV"
+# Keep the venv and upgrade in place: avoid deleting a live Python interpreter.
 python3 -m venv "$VENV"
+"$VENV/bin/python" -m pip install -q --upgrade pip -i "$PIP_INDEX"
+"$VENV/bin/python" -m pip uninstall -q -y rapidocr_onnxruntime rapidocr_openvino rapidocr_paddle || true
+"$VENV/bin/python" -m pip install -q --upgrade -i "$PIP_INDEX" 'rapidocr>=3.10,<4' onnxruntime
 
-echo "==> 安装 rapidocr_onnxruntime（源：$PIP_INDEX）"
-"$VENV/bin/pip" install -q --upgrade pip -i "$PIP_INDEX"
-"$VENV/bin/pip" install -q -i "$PIP_INDEX" rapidocr_onnxruntime
-
-echo "==> 验证"
+echo "==> Checking RapidOCR Python package and inference engine"
 "$VENV/bin/python" - <<'PY'
-from rapidocr_onnxruntime import RapidOCR
-import onnxruntime, cv2
-print("RapidOCR 就绪 | onnxruntime", onnxruntime.__version__, "| opencv", cv2.__version__)
+from importlib.metadata import version
+from rapidocr import RapidOCR
+import onnxruntime
+assert RapidOCR
+print("RapidOCR", version("rapidocr"), "| onnxruntime", onnxruntime.__version__)
 PY
-
-du -sh "$VENV"
-echo "==> 完成。设置 ERP_OCR_ENABLED=1 后重启服务即可。"
+"$VENV/bin/rapidocr" check
+echo "==> Ready: set ERP_OCR_ENABLED=1 and restart the ERP service."
