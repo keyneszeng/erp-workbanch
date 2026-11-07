@@ -160,8 +160,9 @@ function rapidItemsToText(items){
     for(const w of l.words){
       if(prev){
         const gap=w.x-(prev.x+(Number(prev.w)||0));
-        // 列间距明显大于行高才断列；同一格内的字直接拼，避免「消 化 疾 病」
-        if(gap>l.h*1.2)s+="\t";
+        // 列间距约 42~138px、行高 30~37px，列内字间距接近 0。
+        // 阈值取 1.0 倍行高：42>35 断列，列内 10<30 不断。
+        if(gap>l.h*1.0)s+="\t";
         else if(/[A-Za-z0-9]$/.test(prev.text)&&/^[A-Za-z0-9]/.test(w.text))s+=" ";
       }
       s+=w.text;prev=w;
@@ -361,7 +362,10 @@ async function recognize(buffer,ext,opts={}){
  * 是每行最稳定的锚点 —— 认准它，后面跟着的几行就属于同一场次。
  */
 function parseAgendaRows(raw){
-  const lines=cleanText(raw).split("\n").map(x=>x.replace(/[\t　]+/g," ").replace(/\s{2,}/g,"  ").trim())
+  const lines=cleanText(raw).split("\n")
+    // \t 是 RapidOCR 的列分隔符，必须转成「两个空格」留给下面的分列正则，
+    // 直接换成单空格会把整行糊成一列。
+    .map(x=>x.replace(/[\t　]+/g,"  ").replace(/\s{2,}/g,"  ").trim())
     .filter(Boolean)
     // 页脚、页码、纯英文噪声行（OCR 对表格线常吐出「ARE」「HATE」这类碎片）
     .filter(x=>!/^(注\s*[，,:：]|备注|最终日程|第\s*\d+\s*页)/.test(x))
@@ -384,7 +388,9 @@ function parseAgendaRows(raw){
     }else{
       // 还没有时间行时先留一行，等下一个时间行归给它；
       // 但标题/日程说明不是内容，别当成课题
-      orphan=/(议程|日程|会议名称|标题|邀请函|安排)$/.test(line)||line.length>40?"":line;
+      // 表头行（时间/课题/讲者/单位）不是场次内容，别拼进第一条场次
+      orphan=/^(时间|课题|讲者|单位|序号|姓名|身份证|手机|银行卡|金额|备注)(\s|$)/.test(line)
+        ||/(议程|日程|会议名称|标题|邀请函|安排)$/.test(line)||line.length>40?"":line;
     }
   }
   if(cur)rows.push(cur);
@@ -542,7 +548,7 @@ function parseAgenda(raw){
    *   2) 按时间行还原的表格行 —— 覆盖「时间 | 内容 | 讲者 | 单位」这类议程表。
    * 先收 1 再补 2，同一组讲者+课题只留一条。
    */
-  const lines=cleanText(raw).split("\n").map(s=>s.replace(/[\t　]+/g," ").trim()).filter(Boolean);
+  const lines=cleanText(raw).split("\n").map(s=>s.replace(/[\t　]+/g,"  ").trim()).filter(Boolean);
   const out=[],seen=new Set();let pending="";
   function add(a,b){
     const clean=(s)=>String(s||"").replace(/^[，,。;；:：、“”"'‘’\s]+/,"").replace(/[，,。;；:：]+$/,"").trim();
