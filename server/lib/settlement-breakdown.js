@@ -13,7 +13,8 @@ const moneyFromCents=x=>Math.round(x)/100;
 
 /** 账单分类只能由已付款记录构建；审批、拒绝与未付绝不能混入。 */
 function buildSettlementBreakdown(settlement,project,payments){
-  const paid=(payments||[]).filter(x=>x.status==="已付款");
+  const paid=(payments||[]).filter(x=>x.status==="已付款").sort((a,b)=>
+    String(b.paid_at||"").localeCompare(String(a.paid_at||"")) || String(b.id||"").localeCompare(String(a.id||"")));
   const sections=GROUPS.map(x=>({key:x.key,label:x.label,amount:0,count:0,items:[]}));
   const byKey=Object.fromEntries(sections.map(x=>[x.key,x]));
   let totalCents=0;
@@ -34,7 +35,8 @@ function buildSettlementBreakdown(settlement,project,payments){
   }
   // 已生成结算单的原预算使用结算时冻结的 income，而非可被强制纠错的项目预算。
   const budget=moneyFromCents(cents(settlement.income));
-  const rate=Number(project.tax_fee_rate)||0;
+  // 新单使用生成时锁定的费率；历史NULL单使用项目兼容值。
+  const rate=Number(settlement.tax_fee_rate ?? project.tax_fee_rate)||0;
   const usable=availableBudget(budget,rate);
   const paidTotal=moneyFromCents(totalCents);
   const legacyExpenseMismatch=cents(settlement.expense)!==totalCents;
