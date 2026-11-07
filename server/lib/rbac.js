@@ -40,6 +40,8 @@ const PERMS = {
   "project:approve": [],
   "project:transition": [],
   "project:change": [],
+  "project:edit": [],
+  "mini:apply": [],
   "change:execute": [],
   "project:member": [],
   "contract:write": [],
@@ -106,7 +108,7 @@ function canVisitNav(user, nav) {
   if (!hasModule(user,need)) return false;
   if (nav === "project-ledger") return can(user,"ledger:read");
   if (nav === "prep-invitations") return can(user, "invite:manage");
-  if (nav === "users") return isSuper(user);
+  if (nav === "users") return isSuper(user) || can(user,"user:manage");
   if (nav === "approvals") {
     return can(user, "project:approve") || can(user, "verify:exception_approve") || can(user, "payment:approve");
   }

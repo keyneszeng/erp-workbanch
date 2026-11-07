@@ -1,4 +1,4 @@
-import {api,state} from "../lib/api.js";
+import {api,can} from "../lib/api.js";
 import {esc,money,table,pager,bindPager,toast,badge} from "../lib/ui.js";
 
 /**
@@ -14,7 +14,7 @@ const file=(row)=>row.file_key ?
   '<a class="link" href="/api/uploads/'+encodeURIComponent(row.file_key)+'" target="_blank" rel="noopener noreferrer">'+esc(row.file_name||"查看原件")+'</a>':"未关联文件";
 
 export async function render(root,params=[]){
-  if(!state.super){
+  if(!can("ledger:read")){
     root.innerHTML='<div class="panel">项目台账仅总管理员可以查看。</div>';return;
   }
   selected=params[0]||selected;

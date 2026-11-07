@@ -222,7 +222,7 @@ function seed({ reset = false } = {}) {
   // 正式环境/新增账号/已存在的普通账号均默认无授权。
   const demoAccess={
     assoc:{modules:["dashboard","projects","prep","demand","exec","materials","verify","finance","archive","audit"],
-      permissions:["project:create","project:approve","project:transition","project:change","change:execute","project:member","contract:write","invite:manage","contract:approve","demand:write","payment:create","payment:approve","verify:check","verify:exception","archive:write","material:write","audit:read","export:any","archive:download"]},
+      permissions:["project:create","project:approve","project:transition","project:change","project:edit","change:execute","project:member","contract:write","invite:manage","contract:approve","demand:write","payment:create","payment:approve","verify:check","verify:exception","archive:write","material:write","audit:read","export:any","archive:download"]},
     exec:{modules:["dashboard","projects","prep","demand","exec","materials","verify"],
       permissions:["project:create","project:transition","project:change","change:execute","contract:write","invite:manage","demand:write","payment:create","verify:check","verify:exception","material:write","export:any"]},
     finance:{modules:["dashboard","projects","prep","exec","materials","verify","finance","archive"],

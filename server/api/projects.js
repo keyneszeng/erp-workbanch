@@ -160,7 +160,7 @@ function listProjects(user, { status, q, assoc, stage, page, size } = {}) {
 function detail(project, user) {
   // 普通用户/嘉宾只可查看会议公开信息；项目成员资格不等于财务、合同和审计权限。
   // 必须在 API 层裁剪，不能仅隐藏前端页签（直接请求仍会读取原始 JSON）。
-  if (user.role === "user" && !["project:create","project:transition","verify:check","payment:create","material:write","project:change"].some(k=>can(user,k))) {
+  if (user.role === "user" && !["project:create","project:transition","verify:check","payment:create","material:write","project:change","project:edit"].some(k=>can(user,k))) {
     const { id, name, assoc, form, date, days, people, owner, agenda, status } = project;
     return { project: { id, name, assoc, form, date, days, people, owner, agenda, status },
       actions: [], visibility: "participant" };
@@ -217,7 +217,7 @@ function register(router) {
     assertModule(ctx.user,"projects");
     const r = listProjects(ctx.user, ctx.query);
     // 参会者只能看到会议信息，不能通过列表取得预算、电话或已付款统计。
-    if (ctx.user.role === "user" && !["project:create","project:transition","verify:check","payment:create","material:write","project:change"].some(k=>can(ctx.user,k))) {
+    if (ctx.user.role === "user" && !["project:create","project:transition","verify:check","payment:create","material:write","project:change","project:edit"].some(k=>can(ctx.user,k))) {
       const participantRow = ({ id, name, assoc, form, date, days, people, owner, status }) =>
         ({ id, name, assoc, form, date, days, people, owner, status });
       if (Array.isArray(r)) return { rows: r.map(participantRow), total: r.length };
@@ -270,7 +270,7 @@ function register(router) {
     assertProjectVisible(ctx.user, p);
     // 资料修改：总管理员恒可；其余需协会管理员及以上，且已结算 / 已归档项目不可改
     if (!isSuper(ctx.user)) {
-      assertCan(ctx.user,"project:change","当前账号未获项目资料修改权限");
+      assertCan(ctx.user,"project:edit","当前账号未获项目资料修改权限");
       if (p.status === "已归档") throw conflict("已归档项目资料已封存，不可修改");
       // 已结算 = 账目封账，结算单已按当时的预算与合同算完。
       // 此处若不拦，改完预算就和结算单永久对不上了（原来只拦了「已归档」）。

@@ -5,12 +5,12 @@
  * 此页是读时对账视图，不更改已核销/已结算/已归档原始记录。
  */
 const { db }=require("../lib/db");
-const { assertCan }=require("../lib/rbac");
+const { assertCan,scopeFilter,assertProjectVisible }=require("../lib/rbac");
 const { getProject }=require("../lib/workflow");
 const { bad, yuan, cents }=require("../lib/util");
 
 function requireAdmin(ctx) {
-  assertCan(ctx.user,"ledger:read","项目台账仅总管理员可以查看和导出");
+  assertCan(ctx.user,"ledger:read","当前账号未获项目台账权限");
 }
 const addCents=(rows,condition=()=>true)=>rows.filter(condition).reduce((sum,row)=>sum+cents(row.amount),0);
 const total=(rows,condition)=>yuan(addCents(rows,condition)/100);
@@ -76,7 +76,9 @@ function summarize(x){
     warnings
   };
 }
-function buildDetail(pid){
+function buildDetail(pid,user){
+  const visible=getProject(pid);
+  if(user)assertProjectVisible(user,visible);
   const data=raw(pid);
   return {
     ...summarize(data),
@@ -119,7 +121,8 @@ function register(router){
     const page=Number(ctx.query.page||1), size=Number(ctx.query.size||30);
     if(!Number.isInteger(page)||page<1||page>100000 || !Number.isInteger(size)||size<1||size>100)
       throw bad("分页参数无效");
-    const all=db.prepare("SELECT id,name,assoc,status,date FROM projects ORDER BY date DESC,id DESC").all();
+    const scope=scopeFilter(ctx.user);
+    const all=db.prepare("SELECT id,name,assoc,status,date FROM projects p WHERE "+scope.sql+" ORDER BY date DESC,id DESC").all(...scope.params);
     const filtered=keyword?all.filter(p=>[p.id,p.name,p.assoc].some(v=>String(v||"").includes(keyword))):all;
     const rows=filtered.slice((page-1)*size,page*size).map(p=>summarize(raw(p.id)));
     return {rows,total:filtered.length,page,size,pages:Math.max(1,Math.ceil(filtered.length/size)),
@@ -127,11 +130,11 @@ function register(router){
   });
   router.get("/api/project-ledger/:meetingNo",async ctx=>{
     requireAdmin(ctx);
-    return buildDetail(ctx.params.meetingNo);
+    return buildDetail(ctx.params.meetingNo,ctx.user);
   });
   router.get("/api/project-ledger/:meetingNo/export",async ctx=>{
     requireAdmin(ctx);
-    const detail=buildDetail(ctx.params.meetingNo);
+    const detail=buildDetail(ctx.params.meetingNo,ctx.user);
     return {__csv:exportCsv(detail),__filename:detail.meeting_no+"-项目台账.csv"};
   });
 }

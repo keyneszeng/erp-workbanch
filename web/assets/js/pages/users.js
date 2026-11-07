@@ -216,7 +216,7 @@ async function openAccessEditor(root,user){
  const mods=new Set(d.access.modules),perms=new Set(d.access.permissions);
  const names={
  "project:create":"创建立项","project:approve":"项目审批","project:transition":"推进项目阶段",
- "project:change":"修改项目/变更申请","change:execute":"执行预算变更",
+ "project:change":"项目变更申请","project:edit":"编辑项目资料","mini:apply":"小程序立项申请","change:execute":"执行预算变更",
  "project:member":"管理项目成员","contract:write":"录入及修改合同",
  "contract:approve":"合同审批","invite:manage":"企业/嘉宾邀请",
  "demand:write":"会务需求确认","payment:create":"付款申请",

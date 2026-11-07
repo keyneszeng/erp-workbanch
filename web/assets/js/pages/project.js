@@ -33,11 +33,11 @@ let tab = "overview";
 export async function render(root, [pid]) {
   const d = await api.get(`/api/projects/${pid}`);
   const p = d.project;
-  const participant = state.user.role === "user" && !["project:create","project:transition","verify:check","payment:create","material:write","project:change"].some(can);
+  const participant = state.user.role === "user" && !["project:create","project:transition","verify:check","payment:create","material:write","project:change","project:edit"].some(can);
   if (participant) tab = "overview";
   const visibleTabs = participant ? [["overview", "会议概览"]] : TABS;
   if (!visibleTabs.some(([k])=>k===tab)) tab="overview";
-  const canEdit = can("project:change") && (p.status !== "已归档" || state.super);
+  const canEdit = can("project:edit") && (p.status !== "已归档" || state.super);
 
   root.innerHTML = `
   <div class="crumb"><a data-go="projects">会议项目</a> / 会议编号：<span class="mono">${esc(p.id)}</span></div>
