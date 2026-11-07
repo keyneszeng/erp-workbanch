@@ -311,14 +311,18 @@ function contractFlowBtn(c, locked) {
 function tabContracts(d, p) {
   const locked = CONTRACT_LOCKED.includes(p.status);
   return panel("合同台账", `${d.contracts.length} 份${locked ? " · 已封存" : ""}`, table(
-    [{ t: "合同编号", w: "112px" }, { t: "合同名称" }, { t: "签约方", w: "150px" }, { t: "金额", w: "100px", cls: "num" }, { t: "签署日期", w: "100px" }, { t: "状态", w: "80px" }, { t: "原件", w: "104px" }, { t: "操作", w: "96px" }],
+    [{ t: "合同编号", w: "112px" }, { t: "合同名称" }, { t: "签约方", w: "150px" }, { t: "金额", w: "100px", cls: "num" }, { t: "签署日期", w: "100px" }, { t: "状态", w: "80px" }, { t: "原件", w: "104px" }, { t: "操作", w: "150px" }],
     d.contracts.map((c) => ({
       c: [`<span class="mono">${c.id}</span>`,
         `${esc(c.name)}<span class="cat">${esc(c.category || "未分类")}</span>`,
         esc(c.vendor), `¥${money(c.amount)}`,
         `<span class="mono">${esc(c.sign_date || "—")}</span>`, badge(c.status),
         contractFileCell(c),
-        contractFlowBtn(c, locked)]
+        contractFlowBtn(c, locked)+
+          (can("material:file:replace") && c.file_key && !d.settlement &&
+            !["已核销","已结算","已归档"].includes(p.status) &&
+            d.materials.some(m=>m.kind==="合同" && !m.deleted_at && m.file_key===c.file_key)
+            ? ` <button class="link" data-replace-material="${d.materials.find(m=>m.kind==="合同" && !m.deleted_at && m.file_key===c.file_key).id}">修改</button>` : "")]
     })),
     { empty: "暂无合同" }),
     locked ? `<span class="foot-note">项目${p.status === "已归档" ? "已归档，卷宗封存" : "已结算，台账封账"}，不可再录入合同</span>`

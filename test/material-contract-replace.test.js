@@ -140,6 +140,7 @@ test("台账合同关联材料的替换必须同步并撤销旧签署状态",asy
  const list=await request("admin","GET","/api/contracts?pid="+PID);
  const contract=list.body.rows.find(x=>x.id===cid);
  assert.equal(contract.file_key,update.body.key);
+ assert.equal(Number(contract.material_id),Number(linked.id),"合同台账须定位同一个材料文件供逐文件修改");
  assert.equal(contract.status,"草稿","替换后禁止沿用旧签署审批");
  assert.ok(await materialByKey(update.body.key));
  const approvals=await request("admin","GET","/api/approvals?type="+encodeURIComponent("合同审批"));
