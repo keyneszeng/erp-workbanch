@@ -12,7 +12,7 @@ async function health(){
 }
 async function run(){
  server=spawn(process.execPath,["--experimental-sqlite","server/index.js"],{
- cwd:path.join(__dirname,".."),env:{...process.env,ERP_DEMO_MODE:"1",
+ cwd:path.join(__dirname,"..",".."),env:{...process.env,ERP_DEMO_MODE:"1",
  ERP_DB:path.join(dir,"erp.db"),ERP_PORT:String(port),ERP_UPLOAD_DIR:path.join(dir,"uploads")},
  stdio:["ignore","pipe","pipe"]});
  server.stderr.on("data",c=>{if(!String(c).includes("ExperimentalWarning"))process.stderr.write(c)});
