@@ -1,6 +1,6 @@
 "use strict";
 const { getProject }=require("../lib/workflow");
-const { assertProjectVisible }=require("../lib/rbac");
+const { assertProjectVisible,hasModule,can }=require("../lib/rbac");
 const { logAudit }=require("../lib/audit");
 const { now, forbidden, conflict, notFound }=require("../lib/util");
 const { storage, safeName }=require("../lib/storage");
@@ -9,7 +9,7 @@ const notices=require("../lib/project-notice");
 function scoped(ctx) {
   const project=getProject(ctx.params.id);
   assertProjectVisible(ctx.user,project);
-  if(ctx.user.role==="user")throw forbidden("普通参与者不能访问内部立项函或项目通知函");
+  if(!hasModule(ctx.user,"projects")&&!can(ctx.user,"project:approve"))throw forbidden("当前账号未获内部项目函件查看权限");
   return project;
 }
 function manager(ctx,project) {

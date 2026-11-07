@@ -687,7 +687,13 @@ function migrate() {
   // 显式按用户授权；迁移时不会将旧角色权限自动转为用户授权。
   db.exec("CREATE TABLE IF NOT EXISTS user_module_grants (user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,module TEXT NOT NULL,PRIMARY KEY(user_id,module))");
   db.exec("CREATE TABLE IF NOT EXISTS user_permission_grants (user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,permission TEXT NOT NULL,PRIMARY KEY(user_id,permission))");
-  // 旧 material_file_replace 只作为兼容字段，新权限以独立表为准。
+  // 仅迁移旧版由总管理员逐账号授予的材料替换权，不继承任何角色固定权限。
+  // 标记只执行一次，后续人工撤销的权限不会在下一次启动时复活。
+  if(!db.prepare("SELECT 1 FROM settings WHERE k=?").get("explicit_grants_migration_v1")){
+    db.exec("INSERT OR IGNORE INTO user_permission_grants (user_id,permission) SELECT id,'material:file:replace' FROM users WHERE material_file_replace=1 AND role<>'admin'");
+    db.prepare("INSERT OR REPLACE INTO settings(k,v) VALUES (?,?)").run("explicit_grants_migration_v1","done");
+  }
+  // 旧 material_file_replace 只作为兼容字段，新权限以独立表为准.
   // 合同材料替换为总管理员按账号单独授予，历史账号默认无此权限。
   addColumn("users", "material_file_replace", "material_file_replace INTEGER NOT NULL DEFAULT 0");
   // 立项税费管理费按百分比保存。历史项目默认0%，不改变既有可用额度。

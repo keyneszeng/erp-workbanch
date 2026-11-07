@@ -1,7 +1,7 @@
 "use strict";
 const { db } = require("../lib/db");
 const { now, nextId, bad, notFound, conflict, forbidden, cents, yuan } = require("../lib/util");
-const { assertCan, assertProjectVisible, can, isSuper, scopeFilter, ROLES } = require("../lib/rbac");
+const { assertCan, assertModule, assertProjectVisible, can, isSuper, scopeFilter, ROLES } = require("../lib/rbac");
 const { logAudit } = require("../lib/audit");
 const { getProject, verification, materialsStatus, settlementOf, demandSummary, assertNotFrozen, committed, availableActions, transition } = require("../lib/workflow");
 const { ASSOCS, FORMS, DEPTS } = require("../lib/constants");
@@ -214,6 +214,7 @@ function detail(project, user) {
 
 function register(router) {
   router.get("/api/projects", async (ctx) => {
+    assertModule(ctx.user,"projects");
     const r = listProjects(ctx.user, ctx.query);
     // 参会者只能看到会议信息，不能通过列表取得预算、电话或已付款统计。
     if (ctx.user.role === "user" && !["project:create","project:transition","verify:check","payment:create","material:write","project:change"].some(k=>can(ctx.user,k))) {
@@ -235,7 +236,7 @@ function register(router) {
     if (!isDemoMode() && !member) throw bad("生产立项必须从本协会在册成员选择项目负责人（owner_id）");
     if (member) b.owner = member.name;
     validate(b);
-    if (["assoc", "exec"].includes(ctx.user.role) && !require("../lib/user-associations").listForUser(ctx.user.id,ctx.user.assoc).includes(b.assoc)) {
+    if (!isSuper(ctx.user) && !require("../lib/user-associations").listForUser(ctx.user.id,ctx.user.assoc).includes(b.assoc)) {
       throw forbidden("只能为本人所属协会发起立项");
     }
     const at = now();
@@ -258,6 +259,7 @@ function register(router) {
   });
 
   router.get("/api/projects/:id", async (ctx) => {
+    assertModule(ctx.user,"projects");
     const p = getProject(ctx.params.id);
     assertProjectVisible(ctx.user, p);
     return detail(p, ctx.user);
@@ -268,7 +270,7 @@ function register(router) {
     assertProjectVisible(ctx.user, p);
     // 资料修改：总管理员恒可；其余需协会管理员及以上，且已结算 / 已归档项目不可改
     if (!isSuper(ctx.user)) {
-      if (!["assoc"].includes(ctx.user.role)) throw forbidden("资料修改需要协会管理员或总管理员权限");
+      assertCan(ctx.user,"project:change","当前账号未获项目资料修改权限");
       if (p.status === "已归档") throw conflict("已归档项目资料已封存，不可修改");
       // 已结算 = 账目封账，结算单已按当时的预算与合同算完。
       // 此处若不拦，改完预算就和结算单永久对不上了（原来只拦了「已归档」）。

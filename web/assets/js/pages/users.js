@@ -102,7 +102,7 @@ function openCreate(root, roles) {
   const fields = [
     ...(state.demo ? [{ k: "username", l: "登录账号", req: 1, ph: "3~20 位字母/数字" }] : []),
     { k: "name", l: "姓名", req: 1 },
-    { k: "role", l: "角色", t: "select", req: 1, opts: roles.filter((r) => state.demo || !r.super).map((r) => ({ v: r.key, l: r.name })) },
+    { k: "role", l: "角色", t: "select", req: 1, opts: roles.filter((r) => !r.super).map((r) => ({ v: r.key, l: r.name })) },
     
     { k: "dept", l: "部门", t: "select", req: 1, opts: departmentOptions() },
     { k: "phone", l: state.demo ? "电话" : "白名单手机号（11 位）", req: !state.demo, ph: "13800138000" },
