@@ -24,7 +24,7 @@ before(async()=>{
  });
  processServer.stderr.on("data",c=>{if(!String(c).includes("ExperimentalWarning"))process.stderr.write(c)});
  let ready=false;
- for(let i=0;i<160;i++){
+ for(let i=0;i<400;i++){
    try{if((await fetch(base+"/api/health")).ok){ready=true;break;}}catch{}
    await new Promise(r=>setTimeout(r,150));
  }

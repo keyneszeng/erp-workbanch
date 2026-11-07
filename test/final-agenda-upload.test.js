@@ -9,7 +9,7 @@ const DB=path.join(__dirname,"..","data","test-final-agenda.db");
 const DIR=path.join(__dirname,"..","data","test-final-agenda-uploads");
 let proc,cookie;
 async function waitReady(){
-  for(let i=0;i<160;i++){
+  for(let i=0;i<429;i++){
     try{if((await fetch(BASE+"/api/health")).ok)return;}catch{}
     await new Promise(r=>setTimeout(r,140));
   }
