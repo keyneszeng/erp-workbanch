@@ -9,6 +9,7 @@ const { readPaging, countOf } = require("../lib/paginate");
 const { transition } = require("../lib/workflow");
 const { assertUploadAttachable } = require("../lib/upload-ownership");
 const { isDemoMode } = require("../lib/runtime");
+const {availableBudget}=require("../lib/budget-fee");
 const { storage, sniffMime, safeName, ALLOWED_MIME, MAX_BYTES } = require("../lib/storage");
 
 /**
@@ -516,13 +517,13 @@ function register(router) {
     // 比较走「分」，否则 2789.69 + 2600.09 = 5389.780000000001 > 预算 5389.78，
     // 明明正好用尽却报「超预算 ¥0.0000000000000009」。
     const used = committed(p.id);
-    const budget = yuan(p.budget);
+    const budget = availableBudget(p);
     const force = !!b.force && isSuper(ctx.user);
     const overCents = cents(used) + cents(amount) - cents(budget);
     if (!force && overCents > 0) {
       const over = overCents / 100;
       throw conflict(
-        `付款被拦截：项目预算 ¥${budget.toLocaleString("zh-CN")}，已占用 ¥${used.toLocaleString("zh-CN")}，` +
+        `付款被拦截：项目可用预算 ¥${budget.toLocaleString("zh-CN")}（立项预算扣除税费管理费），已占用 ¥${used.toLocaleString("zh-CN")}，` +
         `本笔 ¥${amount.toLocaleString("zh-CN")} 将超预算 ¥${over.toLocaleString("zh-CN")}；` +
         `如需特批请由总管理员携带 force 标记提交`,
         "OVER_BUDGET",

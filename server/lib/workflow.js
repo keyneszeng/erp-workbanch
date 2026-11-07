@@ -4,6 +4,7 @@ const {contractPool}=require("./labor-contracts");
 const {demandSopState}=require("./meeting-demand-sop");
 const {sponsorRights}=require("./sponsor-rights");
 const { db } = require("./db");
+const {withBudgetFee}=require("./budget-fee");
 const { now, nextId, conflict, forbidden, notFound, bad, cents, yuan, parseBankAccount, parseBankName } = require("./util");
 const { can, isSuper, ROLES } = require("./rbac");
 const { logAudit } = require("./audit");
@@ -13,7 +14,7 @@ const { isDemoMode } = require("./runtime");
 function getProject(id) {
   const p = db.prepare("SELECT * FROM projects WHERE id = ?").get(id);
   if (!p) throw notFound(`项目 ${id} 不存在`);
-  return p;
+  return withBudgetFee(p);
 }
 
 /** 核销进度 */

@@ -1,4 +1,5 @@
 import { api, can, state } from "../lib/api.js";
+import {bindBudgetFeePreview} from "../lib/budget-fee.js";
 import {bindPayeePicker} from "../lib/payee-picker.js";
 import { canDownloadArchivePdf, downloadArchivePdf } from "../lib/archive-pdf.js";
 import {
@@ -188,13 +189,16 @@ function tabOverview(d, p) {
       ["负责人", `${esc(p.owner || "—")} · ${esc(p.phone || "")}`],
       ["承办部门", esc(p.dept || "—")],
       ["预算", `<b class="num">¥${money(p.budget)}</b>`],
+      ["税费管理费率", `${money(Number(p.tax_fee_rate)||0)}%`],
+      ["可用预算", `<b class="num">¥${money(p.available_budget ?? p.budget)}</b>`],
       ["初版议程", `<span style="white-space:pre-wrap">${esc(p.agenda || "—")}</span>`]
     ]))}</div>
     <div>
-      ${panel("财务概览", "", `<div class="grid g3">
-        <div class="kpi"><div class="t">预算</div><div class="v" style="font-size:18px">¥${money(p.budget)}</div></div>
-        <div class="kpi k2"><div class="t">已付款</div><div class="v" style="font-size:18px">¥${money(paid)}</div></div>
-        <div class="kpi k4"><div class="t">结余</div><div class="v" style="font-size:18px">¥${money(p.budget - paid)}</div></div>
+      ${panel("财务概览", "", `<div class="grid g4">
+        <div class="kpi"><div class="t">立项预算</div><div class="v" style="font-size:18px">¥${money(p.budget)}</div></div>
+        <div class="kpi k2"><div class="t">可用预算</div><div class="v" style="font-size:18px">¥${money(p.available_budget ?? p.budget)}</div></div>
+        <div class="kpi k3"><div class="t">已付款</div><div class="v" style="font-size:18px">¥${money(paid)}</div></div>
+        <div class="kpi k4"><div class="t">可用结余</div><div class="v" style="font-size:18px">¥${money((p.available_budget ?? p.budget) - paid)}</div></div>
       </div>
       <div style="margin-top:12px">${settle
         ? `<div class="gate ok"><b>结算单 ${settle.id} 已生成</b>
@@ -931,7 +935,9 @@ async function openEdit(root, pid, p) {
     { k: "form", l: "会议形式", t: "select", req: 1, opts: state.meta.forms },
     { k: "date", l: "会议日期", t: "date", req: 1 },
     { k: "days", l: "会期（天）", t: "number" },
-    { k: "budget", l: "预算（元）", t: "number", req: 1 },
+    { k: "budget", l: "预算（元）", t: "number", req: 1, full: 1 },
+    { k: "tax_fee_rate", l: "税费管理费率（%）", t: "number", full: 1,
+      tip: "自定义输入 0～100，最多两位小数；可用预算实时重新计算。" },
     { k: "people", l: "预计人数", t: "number" },
     { k: "owner_id", l: "负责人（协会成员）", t: "select", req: 1, opts: members.map((u) => ({v:String(u.id),l:u.name+"（"+u.role_name+"）"})) },
     { k: "phone", l: "联系电话" },
@@ -940,6 +946,7 @@ async function openEdit(root, pid, p) {
   ];
   const m = modal({ title: "编辑项目资料", width: "640px", body: formHtml(fields, p),
     footer: `<button class="btn btn-o" data-x="0">取消</button><button class="btn btn-p" data-x="1">保存</button>` });
+  const validateFee=bindBudgetFeePreview(m);
   const assocSelect = m.querySelector('[name="assoc"]');
   const ownerSelect = m.querySelector('[name="owner_id"]');
   if (assocSelect && ownerSelect) assocSelect.addEventListener("change", async () => {
@@ -951,7 +958,7 @@ async function openEdit(root, pid, p) {
   });
   m.querySelector('[data-x="0"]').onclick = () => m.classList.remove("open");
   m.querySelector('[data-x="1"]').onclick = async () => {
-    if (!validate(m, fields)) return;
+    if (!validate(m, fields) || !validateFee()) return;
     try {
       const r = await api.patch(`/api/projects/${pid}`, readForm(m));
       toast(r.message, "ok");
