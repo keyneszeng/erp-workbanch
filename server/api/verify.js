@@ -102,7 +102,8 @@ function register(router) {
       const cached = db.prepare(
         "SELECT * FROM material_ocr_results WHERE material_id=? AND file_key=?"
       ).get(material.id, material.file_key);
-      if (cached) {
+      // 换了 OCR 引擎（tesseract → Unlimited-OCR）时旧结果不再命中，自动重识别
+      if (cached && ocr.providerMatches(cached.engine)) {
         items.push({ materialId: material.id, kind: material.kind, name: material.name,
           text: cached.recognized_text, engine: cached.engine, cached: true,
           ...(wantNames ? { names: namesOf(cached.recognized_text, material.kind) } : {}),
@@ -120,7 +121,7 @@ function register(router) {
           buffer = await toPdf(buffer, ext, material.file_key.replace(/\.[^.]+$/, ""));
           ext = "pdf";
         }
-        const processed = await ocr.recognize(buffer, ext);
+        const processed = await ocr.recognize(buffer, ext, { kind: material.kind });
         db.prepare(`INSERT INTO material_ocr_results
           (material_id,pid,file_key,recognized_text,suggestions_json,engine,mode,pages,total_pages,truncated,updated_at,updated_by)
           VALUES (?,?,?,?,?,?,?,?,?,?,?,?)

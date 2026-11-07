@@ -17,8 +17,233 @@ async function execNative(program,args,opts={}){
   }));
 }
 function cleanText(x){return String(x||"").replace(/\0/g,"").replace(/\r\n?/g,"\n").replace(/[\x01-\x08\x0b\x0c\x0e-\x1f]/g,"").trim().slice(0,30000);}
-async function runOCRImage(file,exec=execNative){
-  return cleanText(await exec("tesseract",[file,"stdout","-l","chi_sim+eng","--psm","3","quiet"],{timeout:25000}));
+async function runOCRImage(file,exec=execNative,opts={}){
+  const psm=String(opts.psm||"3");
+  return cleanText(await exec("tesseract",[file,"stdout","-l","chi_sim+eng","--psm",psm,"quiet"],{timeout:45000}));
+}
+/* ───────────────────────── OCR 引擎（可插拔） ─────────────────────────
+ * 三个 provider，用 ERP_OCR_PROVIDER 切换，默认 tesseract（现网行为不变）：
+ *   tesseract  本机 tesseract + poppler，纯 CPU，无需额外服务
+ *   unlimited  自建 Unlimited-OCR（vLLM / SGLang 的 OpenAI 兼容接口）
+ *   baidu      百度云「文档解析（Unlimited-OCR）」异步 API，无需 GPU
+ *
+ * 只替换「原件 → 文本」这一段。下游 parseAgendaRows / extractNames /
+ * extractTopics 一行不改，所以换引擎不会改变核销判定口径。
+ * PDF 有文本层时始终走 pdftotext：又快又准，没必要烧 GPU / 调云 API。
+ */
+function providerName(opts={}){
+  return String(opts.provider||process.env.ERP_OCR_PROVIDER||"tesseract").trim().toLowerCase();
+}
+/** 远端引擎失败时是否退回 tesseract。默认开，避免一次网络抖动把核销卡死。 */
+function fallbackEnabled(){return process.env.ERP_OCR_FALLBACK!=="0";}
+/**
+ * 缓存里的识别结果是不是当前引擎产出的。
+ *
+ * 切到 Unlimited-OCR 之后，旧 tesseract 结果如果还命中缓存，
+ * 用户会以为「换了引擎但一点没变」。所以按 engine 标签判断：
+ * 引擎变了就重识别并覆盖，降级产生的 tesseract 结果下次也会自动重试远端。
+ */
+function providerMatches(engine,provider=providerName()){
+  const e=String(engine||"");
+  if(provider==="unlimited")return e.includes("Unlimited-OCR（自建）")&&!e.includes("已降级");
+  if(provider==="baidu")return e.includes("百度云 Unlimited-OCR")&&!e.includes("已降级");
+  return /^(Tesseract|Poppler)/.test(e)&&!e.includes("已降级");
+}
+/** 清掉模型可能残留的特殊 token（<|end▁of▁sentence|>、<|ref|> 等）。 */
+function cleanSpecial(raw){
+  return String(raw||"")
+    .replace(/<\|[^|>]{0,40}\|>/g,"")
+    .replace(/<｜[^｜>]{0,40}｜>/g,"")
+    .replace(/\uFFFD/g,"");
+}
+/**
+ * Unlimited-OCR 输出带版面标记：<|det|>title [x,y,w,h]<|/det|>正文。
+ * 下游解析器认的是纯文本行，所以按官方 remove_det 的思路还原：
+ * 同块内换行、块之间空行；image 块不是文字，直接丢弃。
+ */
+function stripDet(raw){
+  const DET=/<\|det\|>([^<\s]+)(?:\s*\[[^\]]*\])?\s*<\|<\/det\|>(.*)/;
+  const blocks=[];let cur=null;
+  for(const line0 of String(raw||"").split(/\r?\n/)){
+    const line=line0.replace(/\s+$/,"");
+    if(!line)continue;
+    const m=DET.exec(line);
+    if(m){
+      const category=String(m[1]||"").trim().toLowerCase();
+      const content=String(m[2]||"").trim();
+      if(category==="image")continue;
+      if(cur)blocks.push(cur);
+      cur=content?[content]:[];
+      continue;
+    }
+    if(!cur)cur=[];
+    cur.push(line);
+  }
+  if(cur)blocks.push(cur);
+  return cleanText(cleanSpecial(blocks.map(b=>b.join("\n")).join("\n\n")));
+}
+/**
+ * PDF 扫描页渲染成 PNG。
+ * 议程多为表格，字号小、列多：1800px 时同一行的「时间/内容/讲者/单位」会被糊成一块。
+ * 实测 3600px + 灰度对议程表的字段命中率最高（8/11 → 10/11），
+ * 2400px 次之，3200px 反而因为缩放插值出现波动。
+ * 三个 provider 共用同一套渲染参数。
+ */
+async function renderPdf(dir,file,pages,exec){
+  const fs=process.getBuiltinModule("node:fs/promises");
+  const prefix=path.join(dir,"page");
+  await exec("pdftoppm",["-f","1","-l",String(pages),"-scale-to","3600","-gray","-png","-r","300",file,prefix],{timeout:90000});
+  const files=(await fs.readdir(dir)).filter(s=>/^page-\d+\.png$/.test(s)).sort((a,b)=>
+    Number(a.match(/\d+/)[0])-Number(b.match(/\d+/)[0]));
+  if(!files.length)throw fail("OCR_RENDER_FAILED","未能转换 PDF 扫描页",422);
+  return files.slice(0,MAX_PAGES).map(n=>path.join(dir,n));
+}
+/**
+ * 按材料类型选 PSM。
+ *   劳务表 / 名单 / 签到表是规整表格，PSM 6（统一文本块）列对齐最好，数字串也最稳；
+ *   议程表有横线分隔，PSM 6 会把横线当块边界只读到前几行，必须用 PSM 3。
+ * 这个判断错了会直接丢内容，所以只认明确的表格类关键词，其余一律 PSM 3。
+ */
+function psmFor(kind){
+  return /劳务|工资|发放|名单|签到|参会|专家|人员|明细/.test(String(kind||""))?"6":"3";
+}
+/** 图片材料先放大到 3600px 宽并转灰度；没有 ImageMagick 就原样识别。 */
+async function preprocessImage(file,dir,exec){
+  const out=path.join(dir,"pre.png");
+  try{
+    await exec("convert",[file,"-resize","3600x","-colorspace","gray","-quality","92",out],{timeout:30000});
+    return out;
+  }catch{return file;}
+}
+async function recognizeTesseract(file,dir,ext,pages,exec,kind){
+  const psm=psmFor(kind);
+  const engine=`Tesseract chi_sim+eng（PSM ${psm}）`;
+  if(ext==="pdf"){
+    const chunks=[];
+    for(const img of await renderPdf(dir,file,pages,exec))chunks.push(await runOCRImage(img,exec,{psm}));
+    return {text:cleanText(chunks.join("\n")),mode:"pdf-ocr",engine};
+  }
+  return {text:await runOCRImage(await preprocessImage(file,dir,exec),exec,{psm}),mode:"ocr",engine};
+}
+/** 自建 Unlimited-OCR：vLLM / SGLang 的 /v1/chat/completions，图片走 base64。 */
+async function recognizeUnlimited(buffer,ext,file,dir,pages){
+  const cfg={
+    url:String(process.env.ERP_OCR_HTTP_URL||"").replace(/\/+$/,""),
+    key:String(process.env.ERP_OCR_HTTP_KEY||""),
+    model:String(process.env.ERP_OCR_HTTP_MODEL||"Unlimited-OCR"),
+    timeout:Math.max(5000,Number(process.env.ERP_OCR_HTTP_TIMEOUT_MS||120000))
+  };
+  if(!cfg.url)throw fail("OCR_PROVIDER_MISCONFIGURED","未配置 ERP_OCR_HTTP_URL（Unlimited-OCR 服务地址）",503);
+  const fs=process.getBuiltinModule("node:fs/promises");
+  const multi=ext==="pdf";
+  let images;
+  if(multi){
+    const files=await renderPdf(dir,file,pages,execNative);
+    images=await Promise.all(files.map(async p=>({mime:"image/png",b64:(await fs.readFile(p)).toString("base64")})));
+  }else{
+    images=[{mime:ext==="png"?"image/png":"image/jpeg",b64:buffer.toString("base64")}];
+  }
+  const content=[{type:"text",text:multi?"Multi page parsing.":"document parsing."}];
+  for(const img of images)content.push({type:"image_url",image_url:{url:`data:${img.mime};base64,${img.b64}`}});
+  let res;
+  try{
+    res=await fetch(cfg.url+"/v1/chat/completions",{
+      method:"POST",
+      headers:{"content-type":"application/json",...(cfg.key?{authorization:"Bearer "+cfg.key}:{})},
+      body:JSON.stringify({
+        model:cfg.model,
+        messages:[{role:"user",content}],
+        temperature:0,max_tokens:32768,stream:false,
+        // SGLang 认这个字段选 gundam（单图）/ base（多页）；vLLM 会忽略未知字段
+        images_config:{image_mode:multi?"base":"gundam"}
+      }),
+      signal:AbortSignal.timeout(cfg.timeout)
+    });
+  }catch(e){
+    if(e?.name==="TimeoutError"||e?.name==="AbortError")
+      throw fail("OCR_TIMEOUT",`Unlimited-OCR 超时（${Math.round(cfg.timeout/1000)} 秒），请缩小文件或检查推理服务`,422);
+    throw fail("OCR_PROVIDER_FAILED","无法连接 Unlimited-OCR 服务："+(e.message||"网络错误"),503);
+  }
+  if(!res.ok){
+    const detail=cleanText(await res.text().catch(()=>"")).slice(0,200);
+    throw fail("OCR_PROVIDER_FAILED",`Unlimited-OCR 返回 ${res.status}${detail?"："+detail:""}`,503);
+  }
+  const data=await res.json().catch(()=>null);
+  const text=stripDet(data?.choices?.[0]?.message?.content||"");
+  if(!text)throw fail("OCR_EMPTY","没有识别到文字，请检查扫描清晰度或人工填写",422);
+  return {text,mode:multi?"pdf-ocr":"ocr",engine:"Unlimited-OCR（自建）"};
+}
+/**
+ * 百度云 Unlimited-OCR：异步提交 → 轮询 → 下载 markdown。
+ * 不需要 GPU，也不需要本地渲染 PDF，原始 PDF 直接上传（最大 500 页 / 50 MB）。
+ */
+let baiduToken={value:"",expiresAt:0};
+function baiduBase(){
+  return String(process.env.ERP_BAIDU_OCR_BASE||"https://aip.baidubce.com").replace(/\/+$/,"");
+}
+async function baiduAccessToken(){
+  if(baiduToken.value&&Date.now()<baiduToken.expiresAt)return baiduToken.value;
+  const ak=String(process.env.ERP_BAIDU_OCR_API_KEY||"").trim();
+  const sk=String(process.env.ERP_BAIDU_OCR_SECRET_KEY||"").trim();
+  if(!ak||!sk)
+    throw fail("OCR_PROVIDER_MISCONFIGURED","未配置百度云 OCR 的 ERP_BAIDU_OCR_API_KEY / ERP_BAIDU_OCR_SECRET_KEY",503);
+  const res=await fetch(`${baiduBase()}/oauth/2.0/token?grant_type=client_credentials&client_id=${encodeURIComponent(ak)}&client_secret=${encodeURIComponent(sk)}`,{
+    method:"POST",signal:AbortSignal.timeout(20000)
+  });
+  const data=await res.json().catch(()=>null);
+  if(!res.ok||!data?.access_token)
+    throw fail("OCR_PROVIDER_FAILED","百度云鉴权失败："+(data?.error_description||data?.error||res.status),503);
+  // 官方 token 有效期 30 天，提前 5 分钟换新的
+  baiduToken={value:data.access_token,expiresAt:Date.now()+Math.max(60,Number(data.expires_in||2592000)-300)*1000};
+  return baiduToken.value;
+}
+async function callBaidu(buffer,ext,pages,totalPages){
+  const token=await baiduAccessToken();
+  const form=new URLSearchParams();
+  form.set("file_data",buffer.toString("base64"));
+  form.set("file_name","original."+ext);
+  // 只解析前 MAX_PAGES 页：业务材料通常是议程/签到表前几页，全解析既慢又费额度
+  if(totalPages>pages)form.set("page_filter",JSON.stringify(Array.from({length:pages},(_,i)=>i)));
+  const submit=await fetch(`${baiduBase()}/rest/2.0/brain/online/v2/unlimited-ocr-parser/task?access_token=${encodeURIComponent(token)}`,{
+    method:"POST",headers:{"content-type":"application/x-www-form-urlencoded"},
+    body:form,signal:AbortSignal.timeout(60000)
+  });
+  const sj=await submit.json().catch(()=>null);
+  if(!submit.ok||sj?.error_code)
+    throw fail("OCR_PROVIDER_FAILED","百度云提交失败："+(sj?.error_msg||submit.status),503);
+  const taskId=sj?.result?.task_id;
+  if(!taskId)throw fail("OCR_PROVIDER_FAILED","百度云未返回 task_id",503);
+
+  const budget=Math.max(10000,Number(process.env.ERP_BAIDU_OCR_TIMEOUT_MS||120000));
+  const deadline=Date.now()+budget;
+  while(Date.now()<deadline){
+    await new Promise(r=>setTimeout(r,2000));
+    const q=await fetch(`${baiduBase()}/rest/2.0/brain/online/v2/unlimited-ocr-parser/task/query?access_token=${encodeURIComponent(token)}`,{
+      method:"POST",headers:{"content-type":"application/x-www-form-urlencoded"},
+      body:new URLSearchParams({task_id:taskId}),signal:AbortSignal.timeout(30000)
+    });
+    const qj=await q.json().catch(()=>null);
+    if(qj?.error_code)throw fail("OCR_PROVIDER_FAILED","百度云查询失败："+(qj.error_msg||qj.error_code),503);
+    const r=qj?.result||null;
+    if(r?.status==="success"){
+      let text="";
+      if(r.markdown_url){
+        const md=await fetch(r.markdown_url,{signal:AbortSignal.timeout(30000)});
+        if(md.ok)text=await md.text();
+      }
+      if(!text&&r.parse_result_url){
+        const pr=await fetch(r.parse_result_url,{signal:AbortSignal.timeout(30000)});
+        const pj=await pr.json().catch(()=>null);
+        text=(pj?.pages||[]).map(p=>p.markdown||p.text||"").filter(Boolean).join("\n\n");
+      }
+      text=cleanText(cleanSpecial(text));
+      if(!text)throw fail("OCR_EMPTY","没有识别到文字，请检查扫描清晰度或人工填写",422);
+      return {text,mode:"ocr",engine:"百度云 Unlimited-OCR",pages:Number(r.cost_page_num||pages)};
+    }
+    if(r?.status==="failed")
+      throw fail("OCR_PROVIDER_FAILED","百度云解析失败："+(r.task_error||"未知原因"),422);
+  }
+  throw fail("OCR_TIMEOUT",`百度云解析超时（${Math.round(budget/1000)} 秒），可稍后重试，任务不会重复计费`,422);
 }
 async function recognize(buffer,ext,opts={}){
   if(!enabled())throw fail("OCR_DISABLED","OCR 尚未启用，请在 ECS 设置 ERP_OCR_ENABLED=1");
@@ -35,29 +260,34 @@ async function recognize(buffer,ext,opts={}){
     if(sniffMime(buffer)!=={png:"image/png",jpg:"image/jpeg",pdf:"application/pdf"}[ext])
       throw fail("OCR_MIME_MISMATCH","原件内容与扩展名不符",400);
     await fs.writeFile(file,buffer,{mode:0o600});
-    let text="",mode="ocr",pages=1,totalPages=1,truncated=false;
+
+    let pages=1,totalPages=1,truncated=false;
     if(ext==="pdf"){
       const info=await exec("pdfinfo",[file],{timeout:10000});
       const match=/^Pages:\s+(\d+)/im.exec(info);
       if(!match||!(+match[1]>0))throw fail("OCR_INVALID_PDF","PDF 页数无效或文件已加密",422);
       totalPages=+match[1];pages=Math.min(totalPages,MAX_PAGES);truncated=totalPages>MAX_PAGES;
       const layer=cleanText(await exec("pdftotext",["-f","1","-l",String(pages),"-layout",file,"-"],{timeout:10000}));
-      if(layer.length>=40){text=layer;mode="pdf-text";}
-      else{
-        const prefix=path.join(dir,"page");
-        // 议程多为表格，字号小、列多。1800px 时同一行的「时间/内容/讲者/单位」会被糊成一块，
-        // 实测 2400px + 200dpi 才能把一行的四个格子基本读开。
-        await exec("pdftoppm",["-f","1","-l",String(pages),"-scale-to","2400","-png","-r","200",file,prefix],{timeout:60000});
-        const files=(await fs.readdir(dir)).filter(s=>/^page-\d+\.png$/.test(s)).sort((a,b)=>
-          Number(a.match(/\d+/)[0])-Number(b.match(/\d+/)[0]));
-        if(!files.length)throw fail("OCR_RENDER_FAILED","未能转换 PDF 扫描页",422);
-        const chunks=[];
-        for(const name of files.slice(0,MAX_PAGES))chunks.push(await runOCRImage(path.join(dir,name),exec));
-        text=cleanText(chunks.join("\n"));mode="pdf-ocr";
+      // 有文本层就用文本层：比任何视觉模型都准，而且不花钱
+      if(layer.length>=40)
+        return {text:layer,mode:"pdf-text",engine:"Poppler pdftotext",pages,totalPages,truncated};
+    }
+
+    const provider=providerName(opts);
+    let out;
+    try{
+      if(provider==="unlimited")out=await recognizeUnlimited(buffer,ext,file,dir,pages);
+      else if(provider==="baidu")out=await callBaidu(buffer,ext,pages,totalPages);
+      else if(provider==="tesseract")out=await recognizeTesseract(file,dir,ext,pages,exec,opts.kind);
+      else throw fail("OCR_PROVIDER_UNKNOWN",`未知的 OCR 引擎：${provider}（可选 tesseract / unlimited / baidu）`,503);
+    }catch(e){
+      if(provider!=="tesseract"&&fallbackEnabled()){
+        const t=await recognizeTesseract(file,dir,ext,pages,exec,opts.kind);
+        return {...t,engine:`${t.engine}（${provider} 失败已降级）`,degraded:true,providerError:e.message};
       }
-    }else text=await runOCRImage(file,exec);
-    if(!text)throw fail("OCR_EMPTY","没有识别到文字，请检查扫描清晰度或人工填写",422);
-    return {text,mode,engine:mode==="pdf-text"?"Poppler pdftotext":"Tesseract chi_sim+eng",pages,totalPages,truncated};
+      throw e;
+    }
+    return {...out,pages:out.pages??pages,totalPages,truncated};
   }finally{await fs.rm(dir,{recursive:true,force:true}).catch(()=>{});}
 }
 /**
@@ -276,4 +506,7 @@ function parseAgenda(raw){
     if(r.speaker&&r.topic)add(r.speaker,r.topic);
   return out;
 }
-module.exports={enabled,recognize,parseAgenda,parseAgendaRows,extractNames,extractTopics,cleanText,runOCRImage,MAX_PAGES};
+module.exports={enabled,recognize,parseAgenda,parseAgendaRows,extractNames,extractTopics,cleanText,runOCRImage,MAX_PAGES,
+  stripDet,providerName,providerMatches,psmFor,
+  /** 仅供测试：清掉百度 token 缓存，避免用例之间互相污染 */
+  _resetBaiduToken:()=>{baiduToken={value:"",expiresAt:0};}};

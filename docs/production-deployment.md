@@ -115,7 +115,7 @@ ECS 的 `production.env` 默认 `ERP_MINIPROGRAM_ENABLED=0`；上线小程序前
 
 ## 离线 OCR 与终版议程自动提取（2026-11-01）
 
-本功能使用本地 Tesseract (chi_sim+eng) 和 Poppler，不将材料原件发送到第三方识别服务。**仅在阿里云 ECS Linux + Node 22 环境启用**，Cloudflare 演示版仍使用人工录入，且禁用 OCR 原生子进程。
+本功能默认使用本地 Tesseract (chi_sim+eng) 和 Poppler，**不将材料原件发送到第三方识别服务**。**仅在阿里云 ECS Linux + Node 22 环境启用**，Cloudflare 演示版仍使用人工录入，且禁用 OCR 原生子进程。
 
 ```bash
 sudo apt-get update
@@ -133,3 +133,30 @@ sudo systemctl restart erp.service
 - 图片支持 JPG/PNG；PDF 有文字层时用 `pdftotext`，无可用文字层时用 `pdftoppm` 转图后 Tesseract 识别。WebP/GIF/Office 文件须转换格式。
 - 此时 OCR 仅用于生成材料待办的**可修改建议**，不是对盖章、药企 Logo 位置、参会时长、银行卡等高风险字段的自动审定。OCR 数据随项目和材料原件访问权限隔离；审计只记录操作与结果计数，不记录识别出的个人信息。
 - ECS 实际部署后仍需在真实中文扫描件、图像旋转、低清晰度和大文件上进行业务验收。运行进程资源和 OCR 失败率应纳入监控；不应在未审阅真实识别效果前宣称识别准确率。
+
+### 可选：切换 OCR 引擎（2026-11-06）
+
+`ERP_OCR_PROVIDER` 三选一，默认 `tesseract`，现网行为不变：
+
+| provider | 依赖 | 数据边界 | 适用 |
+|---|---|---|---|
+| `tesseract` | 本机 tesseract + poppler，纯 CPU | 原件不出服务器 | 默认；简单扫描件够用 |
+| `unlimited` | 自建 Unlimited-OCR（vLLM / SGLang，NVIDIA GPU） | 原件不出内网 | 表格/长文档要求高，且有 GPU |
+| `baidu` | 百度云「文档解析（Unlimited-OCR）」异步 API | **原件会上传百度云** | 无 GPU、能接受第三方处理 |
+
+自建示例：
+
+```bash
+# GPU 机器上（3B 模型，BF16，建议 ≥16 GB 显存）
+vllm serve baidu/Unlimited-OCR --served-model-name Unlimited-OCR --port 8000
+# ERP 侧
+ERP_OCR_PROVIDER=unlimited
+ERP_OCR_HTTP_URL=http://127.0.0.1:8000
+ERP_OCR_HTTP_TIMEOUT_MS=120000
+```
+
+**隐私边界**：材料里可能有专家身份证号、银行卡号、手机号和劳务金额。`tesseract` 与自建 `unlimited` 都在自己的机器/内网内完成；`baidu` 会把原件上传到第三方。启用 `baidu` 前须完成个人信息合规确认，不能因为「只是测试」就默认打开。
+
+**切换后旧缓存会自动失效**：`material_ocr_results` 按 engine 标签判断，换了引擎第一次识别会重跑并覆盖，不需要手工清库。远端引擎失败时默认退回 tesseract，结果标「已降级」，下次调用会重新尝试远端（`ERP_OCR_FALLBACK=0` 可关闭降级）。
+
+**超时**：百度云是异步任务（提交 → 每 2 秒轮询），默认最多等 120 秒。反向代理的 `proxy_read_timeout` 必须大于这个值，否则请求会先被 Nginx 断开。

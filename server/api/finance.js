@@ -551,7 +551,7 @@ function register(router) {
             buf = await toPdf(buf, ext, c.file_key.replace(/\.[^.]+$/, ""));
             e2 = "pdf";
           }
-          text = (await ocr.recognize(buf, e2)).text;
+          text = (await ocr.recognize(buf, e2, { kind: "合同" })).text;
         }
 
         const { bank, account } = extractBankInfo(text);
