@@ -9,13 +9,10 @@ server {
     listen [::]:8080;
     server_name _;
 
-    # 落库上限 20MB（storage.js MAX_BYTES），但允许上传 200MB 的原始扫描件，
-    # 由服务端压缩到 20MB 内再入库。这里按压缩前上限 + 头部余量放行，
+    # 与生产一致的 12m，保证附件上传行为可被真实验证
+    # 单文件上限 20MB（server/lib/storage.js MAX_BYTES），这里留 5MB 余量给头部与编码。
     # 设小了会在 nginx 层直接 413，应用层根本没机会给出友好提示。
-    client_max_body_size 210m;
-    # 200MB 在慢速网络上要传几分钟，压缩 100MB 的 PDF 也可能跑一分钟以上
-    client_body_timeout 300s;
-    send_timeout 300s;
+    client_max_body_size 25m;
 
     location / {
         proxy_pass http://127.0.0.1:8788;
@@ -25,6 +22,6 @@ server {
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_connect_timeout 10s;
-        proxy_read_timeout 300s;
+        proxy_read_timeout 90s;
     }
 }

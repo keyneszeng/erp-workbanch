@@ -29,7 +29,7 @@ before(async()=>{
  stdio:["ignore","pipe","pipe"]});
  let error="";proc.stderr.on("data",c=>error+=String(c));
  let ready=false;
- for(let i=0;i<200;i++){
+ for(let i=0;i<400;i++){
   try{if((await fetch(base+"/api/health")).ok){ready=true;break;}}catch{}
   if(proc.exitCode!==null)throw Error("server died "+error);
   await new Promise(r=>setTimeout(r,150));

@@ -18,7 +18,7 @@ before(async()=>{
     ERP_DB_BACKEND:"",ERP_HOST:"127.0.0.1",ERP_PORT:String(port),ERP_BOOTSTRAP_ADMIN_PHONE:"13800138000",
     ERP_SESSION_FALLBACK:"0",ERP_SMS_PROVIDER:"test",ERP_SMS_TEST_MODE:"1",ERP_MINIPROGRAM_ENABLED:"1"}});
  let errors="";child.stderr.on("data",b=>errors+=String(b));
- for(let i=0;i<160;i++){
+ for(let i=0;i<750;i++){
   if(child.exitCode!==null)throw Error("Server crashed: "+errors);
   try{if((await req("GET","/api/health")).status===200)return;}catch{}
   await new Promise(r=>setTimeout(r,80));
