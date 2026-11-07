@@ -14,6 +14,7 @@ const { validateSopEvidence } = require("../lib/meeting-sop");
 const {sponsorRights}=require("../lib/sponsor-rights");
 const {buildSettlementBreakdown}=require("../lib/settlement-breakdown");
 const verifyOcr=require("../lib/verify-ocr-compare");
+const {sponsorRights:currentSponsorRights,validateRightsEvidence}=require("../lib/sponsor-rights");
 let scanningVerification=false;
 
 function register(router) {
@@ -135,6 +136,11 @@ function register(router) {
     const pending = db.prepare("SELECT COUNT(*) AS n FROM exceptions WHERE pid=? AND step_no=? AND status='待审批'").get(p.id,no).n;
     if (!isDemoMode() && result==="通过" && pending)
       throw conflict("此步骤存在未处理例外单，请先完成例外处理，再返回原步骤复核", "EXCEPTION_NOT_HANDLED");
+    // 第7项仍要求确认完整权益目录，并关联每项照片；OCR不能替代真实照片的人工审核。
+    if(isAuto && no===7 && result==="通过"){
+      const snap=currentSponsorRights(db,p.id);
+      validateRightsEvidence(db,p.id,{verifiedRights:snap.requiredRights.map(r=>r.id)});
+    }
     const validated=isAuto ? ocrReport.evidence : (!isDemoMode() && result==="通过"
       ? validateSopEvidence(no,ctx.body?.evidence,p,db,invoiceAmount) : null);
     const at = now();

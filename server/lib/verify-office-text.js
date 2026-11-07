@@ -1,7 +1,7 @@
 "use strict";
 /** 兼容本地 Office 现代文档：优先提取 DOCX/PPTX/XLSX 内嵌文字，不把文件名当证据。 */
 const PizZip=require("pizzip");
-const {detectOoxml}=require("./ooxml");
+const {detectOoxml,MIME}=require("./ooxml");
 const SUPPORTED=new Set(["docx","pptx","xlsx","txt","csv"]);
 function entities(text){
  return String(text||"").replace(/&#x([0-9a-f]+);/gi,(_,n)=>String.fromCodePoint(parseInt(n,16)))
@@ -22,7 +22,7 @@ function extract(buffer,ext){
   let text=buffer.toString("utf8").replace(/\0/g,"");
   return {text:text.slice(0,30000),mode:"native-text",engine:"UTF-8原始文档",pages:0,totalPages:0,truncated:text.length>30000};
  }
- if(detectOoxml(buffer)!==ext)
+ if(detectOoxml(buffer)!==MIME[ext])
   throw Object.assign(new Error("Office文件内部格式不符合扩展名，无法自动提取"),{status:422,code:"OFFICE_INVALID"});
  const zip=new PizZip(buffer);
  const names=Object.keys(zip.files);

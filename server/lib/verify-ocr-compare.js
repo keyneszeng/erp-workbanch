@@ -5,6 +5,7 @@ const {now,conflict}=require("./util"),{isDemoMode}=require("./runtime");
 const ocr=require("./ocr-engine"),{laborSheetInfo}=require("./labor-sop");
 const {contractPool}=require("./labor-contracts"),{demandSopState}=require("./meeting-demand-sop");
 const {sponsorRights}=require("./sponsor-rights");
+const office=require("./verify-office-text");
 const OCR_TYPES=new Set(["jpg","png","pdf"]),MAX_FILES=32;
 const KINDS={
  1:["会议通知","招商函","串场"],2:["终版议程","签到表","讲者照片"],
@@ -41,10 +42,10 @@ async function scan(pid,no,operator){
  for(const m of materials(pid,no)){
   if(cache(m,pid))continue;
   const ext=m.file_key.split(".").pop().toLowerCase();
-  if(!OCR_TYPES.has(ext)||isDemoMode())continue; // 测试环境只读取真实预置缓存，绝不捏造OCR。
+  if((!OCR_TYPES.has(ext)&&!office.SUPPORTED.has(ext))||isDemoMode())continue; // 测试环境不捏造OCR。
   const file=await storage().get(m.file_key);
   if(!file)continue;
-  try{persist(m,pid,await ocr.recognize(file.buffer,ext),operator);processed++;}
+  try{persist(m,pid,OCR_TYPES.has(ext)?await ocr.recognize(file.buffer,ext):office.extract(file.buffer,ext),operator);processed++;}
   catch(e){
    if(["OCR_DISABLED","OCR_ENGINE_MISSING","OCR_UNAVAILABLE","OCR_TIMEOUT"].includes(e.code))throw e;
    // 损坏原件在报告里明确标为“无法确认”，其余原件仍可正常识别。
@@ -66,7 +67,7 @@ function report(pid,no){
   const r=cache(m,pid),ext=m.file_key.split(".").pop().toLowerCase();
   return {materialId:m.id,kind:m.kind,name:m.name,fileName:m.file_name,fileKey:m.file_key,
    version:m.version,mode:r?.mode||null,pages:r?.pages||0,totalPages:r?.total_pages||0,
-   truncated:!!r?.truncated,state:r?"recognized":OCR_TYPES.has(ext)?"not-recognized":"unsupported",
+   truncated:!!r?.truncated,state:r?"recognized":OCR_TYPES.has(ext)||office.SUPPORTED.has(ext)?"not-recognized":"unsupported",
    text:r?.recognized_text||""};
  });
  const by=k=>docs.filter(x=>x.kind===k),txt=k=>by(k).map(x=>x.text).filter(Boolean).join("\n");
@@ -110,14 +111,17 @@ function report(pid,no){
   if(!courses.length)add("课件原件",null,"缺少已上传课件");
  }else if(no===5){
   const labor=[...by("劳务表"),...by("劳务收集表")],contracts=by("合同");
+  const names=[...new Set(labor.flatMap(x=>[...x.text.matchAll(/(?:姓名|讲者|专家)\s*[:：]?\s*([\u4e00-\u9fa5]{2,5})/g)].map(m=>m[1])))];
   add("劳务原件",labor.some(x=>x.text)?true:null,"劳务表OCR只用于核验；银行账号不显示或保存到核销证据",ids(labor));
   add("个人合同原件",contracts.length?true:null,"合同"+contracts.length+"份；须人工核对姓名、费用及银行账号",ids(contracts));
+  add("劳务姓名与个人合同",names.length?names.every(name=>contracts.some(x=>contains(x.name,name)||contains(x.fileName,name))):null,
+    names.length?"提取"+names.length+"位姓名并比对已上传个人合同登记":"未可靠提取劳务名单，需人工核查",ids([...labor,...contracts]));
  }else if(no===6){
   const d=demandSopState(db,pid);
   const agreements=[...by("会务协议"),...by("合同")].filter(x=>x.kind==="会务协议"||/会务协议|会务合同|会议服务合同/.test(x.name));
   const invoices=[...by("发票"),...by("会务发票")];
-  const numbers=invoices.flatMap(x=>amounts(x.text));
-  invoiceAmount=numbers.length===1?numbers[0]:null;
+  const extracted=invoices.map(x=>amounts(x.text));
+  invoiceAmount=extracted.length&&extracted.every(x=>x.length===1)?extracted.reduce((n,x)=>n+Math.round(x[0]*100),0)/100:null;
   add("会议主题",agenda&&agreements.some(x=>x.text)?contains(agenda,p.name)&&agreements.some(x=>contains(x.text,p.name)):null,
     "以议程和会务协议OCR原文比较",ids([...agendaDocs,...agreements]));
   add("会议日期",agenda&&agreements.some(x=>x.text)?dateContains(agenda,p.date)&&agreements.some(x=>dateContains(x.text,p.date)):null,
@@ -145,7 +149,7 @@ function report(pid,no){
   add("超出扫描页数："+file.name,null,"共"+file.totalPages+"页，仅识别前"+file.pages+"页，需人工核对剩余页面",[file.materialId]);
  if(!docs.length)add("原件",null,"没有本步骤可以扫描的有效文件");
  const fingerprint={
-  docs:docs.map(x=>[x.materialId,x.fileKey,x.version,x.state,x.text?sha(x.text):null]),
+  docs:docs.map(x=>[x.materialId,x.fileKey,x.version,x.state,x.mode,x.text?sha(x.text):null]),
   project:[p.name,p.assoc,p.date,p.form],
   demand:no===6?demandSopState(db,pid).signature:null,
   rights:no===7?sponsorRights(db,pid).signature:null
