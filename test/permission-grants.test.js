@@ -194,6 +194,50 @@ test("只授权项目浏览模块的账号不能读取预算、合同、付款�
  assert.equal((await call("qa_viewonly","GET","/api/contracts")).status,403);
  assert.equal((await call("qa_viewonly","GET","/api/payments")).status,403);
 });
+test("财务岗位仅有工作台权限时不得读取付款统计、预算明细或审计记录",async()=>{
+ const account=await call("admin","POST","/api/users",{
+  username:"qa_boardonly",name:"工作台财务只读验证",role:"finance",
+  assoc:"华东医学会",assocs:["华东医学会"],dept:"财务部",
+  phone:"13800009612",password:"NoFinance2026!"
+ });
+ assert.equal(account.status,200,JSON.stringify(account.body));
+ const id=account.body.user.id;
+ const basic=await call("admin","PATCH","/api/users/"+id+"/access",{
+  modules:["dashboard"],permissions:[]
+ });
+ assert.equal(basic.status,200,JSON.stringify(basic.body));
+ await login("qa_boardonly","NoFinance2026!");
+ const res=await call("qa_boardonly","GET","/api/dashboard");
+ assert.equal(res.status,200,JSON.stringify(res.body));
+ assert.equal(res.body.budget,null,"仅有工作台权限不能查看项目预算");
+ assert.equal(res.body.paid,null,"仅有工作台权限不能查看已付款额");
+ assert.ok(res.body.statusRows.every(x=>x.budget===undefined),
+  "不能通过状态分组行的 budget 字段绕过看板金额权限");
+ assert.ok(res.body.upcoming.every(x=>x.budget===undefined&&x.phone===undefined),
+  "不能从本周会议列表获得项目原始行内部字段");
+ assert.deepEqual(res.body.recent,[],"缺少审计权不能读取最近审计日志");
+ // 仅显式新增财务模块后可读取对应财务统计。
+ const enabled=await call("admin","PATCH","/api/users/"+id+"/access",{
+  modules:["dashboard","finance"],permissions:[]
+ });
+ assert.equal(enabled.status,200,JSON.stringify(enabled.body));
+ await login("qa_boardonly","NoFinance2026!");
+ const withFinance=await call("qa_boardonly","GET","/api/dashboard");
+ assert.equal(withFinance.status,200,JSON.stringify(withFinance.body));
+ assert.ok(withFinance.body.budget>0,"经总管理员授权财务模块后应看到本范围预算");
+ assert.ok(withFinance.body.statusRows.some(x=>typeof x.budget==="number"));
+});
+test("已获功能授权的财务和执行账号不再因角色名称被遗漏工作台待办",async()=>{
+ await login("finance");
+ const finance=await call("finance","GET","/api/dashboard");
+ assert.equal(finance.status,200,JSON.stringify(finance.body));
+ assert.ok(finance.body.todos.some(x=>x.kind==="筹备"&&x.pid==="MP-2026-009"),
+  "陈静作为立项负责人且有project:transition权限，应看到待筹备项目");
+ const exec=await call("exec","GET","/api/dashboard");
+ assert.equal(exec.status,200,JSON.stringify(exec.body));
+ assert.ok(exec.body.todos.some(x=>x.kind==="待核销"&&x.pid==="MP-2026-003"),
+  "张伟有verify:check权限且为待核销项目负责人，应看到核销任务");
+});
 test("撤销后立即失效；重新登录也不能访问已经撤销的模块",async()=>{
  const revoke=await call("admin","PATCH","/api/users/"+userId+"/access",{
   modules:[],permissions:[]
