@@ -7,8 +7,7 @@ import {
 } from "../lib/ui.js";
 import { bindFilePicker, fileUrl, UPLOAD_ACCEPT, UPLOAD_TIP } from "../lib/upload.js";
 import { exStepLabel, openStepDetail } from "../lib/verify-detail.js";
-import { sopEvidenceForm, collectSopEvidence } from "../lib/sop-fields.js";
-import { bindLaborContractPreview } from "../lib/labor-contract-preview.js";
+import {openOcrJudge} from "../lib/verify-ocr-judge.js";
 import { openContractMaterialReplace } from "../lib/contract-material-replace.js";
 import { flowHint, flowOf, openContractDetail } from "../lib/contract-detail.js";
 import {renderSettlementBreakdown} from "../lib/settlement-breakdown.js";
@@ -675,33 +674,7 @@ function openSettle(root, pid, p) {
   };
 }
 
-function openJudge(root, pid, no, d) {
-  const step = d.verification.steps.find((s) => s.no === no);
-  const m = modal({
-    title: `第 ${no} 步 · ${step.name}`,
-    body: `<div class="hint" style="margin-bottom:12px">${esc(step.desc)}</div>
-      <div class="fld"><label>判定结果<span class="req">*</span></label>
-        <select name="result"><option value="通过">通过</option><option value="不通过">不通过（自动生成例外单）</option></select></div>
-      <div class="fld" style="margin-top:12px"><label>问题描述 / 备注</label>
-        <textarea name="remark" rows="3" placeholder="判定不通过时必填，如：课件「XX」不在议程课题内"></textarea></div>
-      ${no===6?`<div class="fld"><label>会务发票总金额（元，须与会务需求预算、已签会务合同金额相同）</label><input type="number" name="invoiceAmount" step="0.01" min="0"></div>`:""}
-      ${sopEvidenceForm(no,d.project,d.sponsorRights)}`,
-    footer: `<button class="btn btn-o" data-x="0">取消</button><button class="btn btn-p" data-x="1">提交判定</button>`
-  });
-  if(no===5) bindLaborContractPreview(m,d.materials||[]);
-  m.querySelector('[data-x="0"]').onclick = () => m.classList.remove("open");
-  m.querySelector('[data-x="1"]').onclick = async () => {
-    const v = readForm(m);
-    v.evidence=collectSopEvidence(no,m);
-    if (v.result === "不通过" && !v.remark.trim()) { toast("判定不通过必须填写问题描述", "warn"); return; }
-    try {
-      const r = await api.post(`/api/projects/${pid}/verify/steps/${no}`, v);
-      toast(r.message, "ok");
-      m.classList.remove("open");
-      await refresh(root, pid);
-    } catch (e) { toast(e.message, "warn"); }
-  };
-}
+function openJudge(root,pid,no,d){return openOcrJudge(pid,no,d,()=>refresh(root,pid));}
 
 async function exDecide(root, pid, id, ok) {
   const comment = await promptBox({ title: ok ? "通过例外单" : "驳回例外单", label: "审批意见", required: false, ph: ok ? "同意，补录议程后归档" : "请说明驳回理由" });
