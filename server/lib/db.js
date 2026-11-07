@@ -279,6 +279,7 @@ CREATE TABLE IF NOT EXISTS settlements (
   income      REAL NOT NULL DEFAULT 0,
   expense     REAL NOT NULL DEFAULT 0,
   profit      REAL NOT NULL DEFAULT 0,
+  tax_fee_rate REAL,
   payee       TEXT,
   payee_bank  TEXT,
   payee_account TEXT,
@@ -720,6 +721,8 @@ function migrate() {
    */
   addColumn("payments", "payee_bank", "payee_bank TEXT");
   addColumn("payments", "payee_account", "payee_account TEXT");
+  // 结算时锁定税费管理费率；旧单NULL按历史项目现存税率兼容展示。
+  addColumn("settlements", "tax_fee_rate", "tax_fee_rate REAL");
   addColumn("settlements", "payee", "payee TEXT");
   addColumn("settlements", "payee_bank", "payee_bank TEXT");
   addColumn("settlements", "payee_account", "payee_account TEXT");

@@ -1,6 +1,7 @@
 import { api, can, state } from "../lib/api.js";
 import {bindPayeePicker} from "../lib/payee-picker.js";
 import {renderIncomeWorkbench} from "../lib/income-workbench.js";
+import {renderSettlementBreakdown} from "../lib/settlement-breakdown.js";
 import { badge, bindPager, confirmBox, esc, formHtml, modal, money, pager, panel, readForm, table, toast, validate } from "../lib/ui.js";
 
 const PAGE_SIZE = 50;
@@ -101,7 +102,7 @@ export async function render(root, params = []) {
         [{ t: "结算单号", w: "112px" }, { t: "项目" }, { t: "收入", w: "96px", cls: "num" },
          { t: "支出", w: "96px", cls: "num" }, { t: "结余", w: "96px", cls: "num" },
          { t: "收款方 / 收款账户", w: "230px" },
-         { t: "生成人", w: "70px" }, { t: "时间", w: "120px" }],
+         { t: "生成人", w: "70px" }, { t: "时间", w: "120px" },{ t:"操作",w:"100px" }],
         st.rows.map((x) => ({
           c: [`<span class="mono">${x.id}</span>`, `<a class="link" data-go="projects/${x.pid}">${esc(x.name)}</a>`,
             `¥${money(x.income)}`, `¥${money(x.expense)}`,
@@ -112,8 +113,10 @@ export async function render(root, params = []) {
                 ? `${esc(x.payee_bank || "")} · <span class="mono">${esc(x.payee_account)}</span>`
                 : "未登记收款账户"}
             </div>`,
-            esc(x.created_by || ""), `<span class="mono">${esc(x.created_at)}</span>`]
+            esc(x.created_by || ""), `<span class="mono">${esc(x.created_at)}</span>`,
+            `<button type="button" class="link" aria-expanded="false" data-settlement-detail="${esc(x.id)}">查看结算单</button>`]
         })), { empty: "暂无结算单" })}
+      <div id="settlementDetail" aria-live="polite"></div>
     </div>
 
     <div class="foot-note">门禁说明：未通过 6 步核销的项目，付款接口会返回 <code>VERIFY_GATE</code> 并记录审计；
@@ -131,6 +134,30 @@ export async function render(root, params = []) {
   root.querySelectorAll("[data-no]").forEach((b) => b.onclick = () => act(root, b.dataset.no, "reject"));
   root.querySelectorAll("[data-pay]").forEach((b) => b.onclick = () => act(root, b.dataset.pay, "pay"));
   root.querySelectorAll("[data-acct]").forEach((b) => b.onclick = () => openAccount(root, b.dataset.acct));
+  const settleSlot=root.querySelector("#settlementDetail");
+  root.querySelectorAll("[data-settlement-detail]").forEach(button=>button.onclick=async()=>{
+    const id=button.dataset.settlementDetail;
+    if(settleSlot.dataset.active===id){
+      settleSlot.replaceChildren();
+      delete settleSlot.dataset.active;
+      button.setAttribute("aria-expanded","false");
+      return;
+    }
+    root.querySelectorAll("[data-settlement-detail]").forEach(x=>x.setAttribute("aria-expanded","false"));
+    settleSlot.dataset.active=id;
+    button.setAttribute("aria-expanded","true");
+    settleSlot.innerHTML='<div class="hint" style="padding:16px">正在读取结算单明细…</div>';
+    try{
+      const detail=await api.get("/api/settlements/"+encodeURIComponent(id)+"/breakdown");
+      if(settleSlot.dataset.active!==id)return;
+      settleSlot.innerHTML=renderSettlementBreakdown(detail);
+      settleSlot.scrollIntoView({block:"nearest",behavior:"smooth"});
+    }catch(err){
+      if(settleSlot.dataset.active!==id)return;
+      settleSlot.innerHTML='<div class="empty">结算单明细读取失败，请稍后重试</div>';
+      toast(err.message,"warn");
+    }
+  });
   const ep = root.querySelector("#expPay");
   if (ep) ep.onclick = () => dl("/api/export/payments");
   const es = root.querySelector("#expSt");

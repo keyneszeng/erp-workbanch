@@ -338,3 +338,31 @@ tr.row-focus td .mono{font-weight:600}
 .tw td .demand-field-error{display:block;margin-top:4px;color:#aa2839;
   font-size:11px;line-height:1.45;max-width:180px;overflow-wrap:anywhere}
 .tw td:has(.demand-invalid) {vertical-align:top}
+
+/* 结算单四个财务指标与四类可点击付款明细 */
+.settlement-detail{margin:14px 0 20px}
+.settlement-detail-head{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px;margin-bottom:12px}
+.settlement-detail-head b{font-size:15px;color:var(--navy)}
+.settlement-summary{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+.settlement-summary .kpi{min-width:0;padding:14px}
+.settlement-summary .kpi .v{font-size:20px;overflow-wrap:anywhere}
+.settlement-section-label{font-size:13px;font-weight:700;margin:20px 0 10px;color:var(--navy)}
+.settlement-groups{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;align-items:start}
+.settlement-group{background:var(--card);border:1px solid var(--line);border-radius:9px;min-width:0}
+.settlement-group[open]{border-color:#adc7e9;box-shadow:0 4px 16px rgba(24,58,104,.08)}
+.settlement-group summary{list-style:none;cursor:pointer;padding:14px;position:relative;min-height:94px}
+.settlement-group summary::-webkit-details-marker{display:none}
+.settlement-group summary:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
+.settlement-group summary:hover{background:#f5f8fe}
+.settlement-group summary .sg-name{display:block;font-weight:700;padding-right:17px}
+.settlement-group summary .sg-amount{display:block;font-size:18px;font-weight:700;margin:3px 0}
+.settlement-group summary .sg-count{font-size:12px;color:var(--sub)}
+.settlement-group summary:after{content:"⌄";position:absolute;right:13px;top:12px;font-size:18px;color:var(--sub)}
+.settlement-group[open] summary:after{transform:rotate(180deg)}
+.settlement-group[open] .sg-rows{padding:0 12px 12px}
+.settlement-group[open]{grid-column:span 4}
+.settlement-group[open] summary{min-height:0;border-bottom:1px solid var(--line);margin-bottom:10px}
+.settlement-group[open] summary .sg-name,.settlement-group[open] summary .sg-amount,.settlement-group[open] summary .sg-count{display:inline;margin:0 12px 0 0}
+.settlement-detail .sg-reconcile{margin-top:12px;padding:10px 12px;border:1px solid #ead09f;border-radius:8px;background:#fffaf0;color:#88581a;font-size:12px}
+@media(max-width:1000px){.settlement-summary,.settlement-groups{grid-template-columns:repeat(2,minmax(0,1fr))}.settlement-group[open]{grid-column:span 2}}
+@media(max-width:560px){.settlement-summary,.settlement-groups{grid-template-columns:1fr}.settlement-group[open]{grid-column:span 1}}

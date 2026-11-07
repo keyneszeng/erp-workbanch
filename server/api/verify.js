@@ -12,6 +12,7 @@ const { sniffMime, safeName, ALLOWED_MIME, MAX_BYTES } = require("../lib/storage
 const { assertUploadAttachable } = require("../lib/upload-ownership");
 const { validateSopEvidence } = require("../lib/meeting-sop");
 const {sponsorRights}=require("../lib/sponsor-rights");
+const {buildSettlementBreakdown}=require("../lib/settlement-breakdown");
 
 function register(router) {
   /**
@@ -552,6 +553,17 @@ function register(router) {
 
     logAudit({ user: ctx.user, module: "材料中心", action: "软删冻结", target: p.id, detail: `历史保留 ${m.kind}：${m.name}`, ip: ctx.ip });
     return { materialsStatus: materialsStatus(p.id), message: "已软删并保留历史记录" };
+  });
+
+  /** 已生成结算单的四项汇总和四类已付款明细，必须先财务授权再校验项目范围。 */
+  router.get("/api/settlements/:id/breakdown", async (ctx) => {
+    assertModule(ctx.user,"finance","settle:create");
+    const settlement=db.prepare("SELECT * FROM settlements WHERE id=?").get(ctx.params.id);
+    if(!settlement)throw notFound("结算单不存在");
+    const project=getProject(settlement.pid);
+    assertProjectVisible(ctx.user,project);
+    const payments=db.prepare("SELECT * FROM payments WHERE pid=? AND status='已付款' ORDER BY paid_at DESC, id DESC").all(project.id);
+    return buildSettlementBreakdown(settlement,project,payments);
   });
 
   router.get("/api/settlements", async (ctx) => {
