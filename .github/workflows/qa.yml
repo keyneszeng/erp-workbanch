@@ -63,6 +63,11 @@ jobs:
           node --input-type=module --check < web/assets/js/lib/contract-detail.js
           node --input-type=module --check < web/assets/js/pages/contracts.js
           node --check server/api/verify.js
+          node --check server/lib/verify-ocr-compare.js
+          node --check server/lib/verify-office-text.js
+          node --input-type=module --check < web/assets/js/lib/verify-ocr-judge.js
+          node --input-type=module --check < web/assets/js/pages/verify.js
+          node --check test/verify-ocr-auto.test.js
           node --input-type=module --check < web/assets/js/lib/contract-material-replace.js
           node --input-type=module --check < web/assets/js/pages/materials.js
           node --input-type=module --check < web/assets/js/pages/users.js
@@ -104,6 +109,8 @@ jobs:
           node --check miniprogram/pages/invite/index.js
       - name: Install PDF and Word generation dependencies
         run: npm install --no-audit --no-fund
+      - name: Verify OCR-driven human verification with source freshness, no re-entry, and native Office extraction
+        run: ERP_DEMO_MODE=1 node --experimental-sqlite --test test/verify-ocr-auto.test.js
       - name: Verify per-account grants and zero-rights default before OCR setup
         run: ERP_DEMO_MODE=1 node --experimental-sqlite --test test/permission-grants.test.js
       - name: Verify material selection and mandatory PDF watermarks before heavy OCR setup
