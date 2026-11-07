@@ -366,3 +366,20 @@ tr.row-focus td .mono{font-weight:600}
 .settlement-detail .sg-reconcile{margin-top:12px;padding:10px 12px;border:1px solid #ead09f;border-radius:8px;background:#fffaf0;color:#88581a;font-size:12px}
 @media(max-width:1000px){.settlement-summary,.settlement-groups{grid-template-columns:repeat(2,minmax(0,1fr))}.settlement-group[open]{grid-column:span 2}}
 @media(max-width:560px){.settlement-summary,.settlement-groups{grid-template-columns:1fr}.settlement-group[open]{grid-column:span 1}}
+
+/* 自选材料导出：类目分组复选框与管理员专属水印选项 */
+.material-export-tools{display:flex;align-items:center;gap:14px;padding:4px 0 10px}
+.material-export-tools b{margin-right:auto;color:var(--txt)}
+.material-export-options{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;
+ max-height:280px;overflow-y:auto;padding:6px 2px}
+.material-export-choice{display:flex;gap:10px;align-items:flex-start;border:1px solid var(--line);
+ border-radius:8px;background:white;padding:10px;cursor:pointer;min-width:0}
+.material-export-choice:hover{background:#f6f9fd}
+.material-export-choice:has(input:checked){border-color:#8fb0df;background:#f3f8ff}
+.material-export-choice:has(input:disabled){opacity:.56;cursor:not-allowed}
+.material-export-choice input{margin-top:4px;flex:none}
+.material-export-choice span{min-width:0}
+.material-export-choice b{display:block;color:var(--txt);overflow-wrap:anywhere}
+.material-export-choice small{display:block;margin-top:3px;color:var(--sub);font-size:11px}
+[data-custom-watermark][hidden]{display:none!important}
+@media(max-width:580px){.material-export-options{grid-template-columns:1fr}}

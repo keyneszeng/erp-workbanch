@@ -43,7 +43,7 @@ export async function render(root, [pid]) {
   <div class="crumb"><a data-go="projects">会议项目</a> / 会议编号：<span class="mono">${esc(p.id)}</span></div>
   <div class="phead">
     <div>
-      <h2>${esc(p.name)} ${badge(p.status)}${canDownloadArchivePdf(p) ? ` <button class="btn btn-o btn-sm" id="downloadArchivePdf">资料下载</button>` : ""}</h2>
+      <h2>${esc(p.name)} ${badge(p.status)}${canDownloadArchivePdf(p) ? ` <button class="btn btn-o btn-sm" id="downloadArchivePdf">材料下载</button>` : ""}</h2>
       <p>${esc(p.assoc)} · ${esc(p.form)} · ${esc(p.date)} 起 ${p.days} 天 · 负责人 ${esc(p.owner || "—")}</p>
     </div>
     <div class="acts">

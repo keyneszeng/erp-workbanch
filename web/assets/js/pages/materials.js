@@ -1,4 +1,5 @@
 import { api, can } from "../lib/api.js";
+import {canDownloadArchivePdf,bindArchivePdfButtons} from "../lib/archive-pdf.js";
 import { bindPager, esc, formHtml, modal, pager, panel, readForm, table, toast, validate } from "../lib/ui.js";
 import { checkFile, compressImage, fileUrl, UPLOAD_ACCEPT, UPLOAD_TIP } from "../lib/upload.js";
 import { openContractMaterialReplace } from "../lib/contract-material-replace.js";
@@ -45,8 +46,10 @@ export async function render(root) {
                   : `<a href="${fileUrl(m.file_key)}" target="_blank" rel="noopener"><img class="thumb" src="${fileUrl(m.file_key)}" alt=""></a>`)
               : '<span style="color:var(--mute)">—</span>',
             esc(m.version || ""), esc(m.uploader || ""), `<span class="mono">${esc(m.created_at)}</span>`,
-            can("material:file:replace") && m.file_key && !["已核销","已结算","已归档"].includes(m.pstatus)
-              ? `<button class="link" data-replace-material="${Number(m.id)}">修改</button>` : "—"]
+            (can("material:file:replace") && m.file_key && !["已核销","已结算","已归档"].includes(m.pstatus)
+              ? `<button class="link" data-replace-material="${Number(m.id)}">修改</button>` : "") +
+            (canDownloadArchivePdf({status:m.pstatus,assoc:m.passoc})
+              ? ` <button class="link" data-archive-pdf="${esc(m.pid)}">材料下载</button>` : "") || "—"]
         })),
         { empty: "暂无材料" })}
       ${pager(d, { unit: "条" })}
@@ -54,6 +57,7 @@ export async function render(root) {
 `;
 
   bindPager(root, (n) => { curPage = n; render(root); });
+  bindArchivePdfButtons(root);
 
   const add = root.querySelector("#add");
   if (add) add.onclick = () => openMaterialRegistration(root, d.projects, d.kinds);

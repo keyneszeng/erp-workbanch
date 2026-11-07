@@ -92,7 +92,7 @@ async function load(root) {
         `<b style="font-size:12.8px">${esc(p.name)}</b>`,
         esc(p.assoc), esc(p.form), `<span class="mono">${esc(p.date)}</span>`,
         state.user.role === "user" ? "—" : `¥${money(p.budget)}<div class="hint">可用 ¥${money(p.available_budget ?? p.budget)}</div>`, esc(p.owner || "—"),
-        badge(p.status) + (canDownloadArchivePdf(p) ? ` <button class="link" data-archive-pdf="${p.id}">资料下载</button>` : ""),
+        badge(p.status) + (canDownloadArchivePdf(p) ? ` <button class="link" data-archive-pdf="${p.id}">材料下载</button>` : ""),
         `<div class="tacts"><button class="link" data-go="projects/${p.id}">详情</button>
          ${p.status === "待核销" && can("verify:check") ? `<button class="link" data-go="verify/${p.id}">核销</button>` : ""}</div>`
       ]
