@@ -7,17 +7,18 @@ const { getProject, verification, materialsStatus, settlementOf, demandSummary, 
 const { ASSOCS, FORMS, DEPTS } = require("../lib/constants");
 const { readPaging, countOf } = require("../lib/paginate");
 const { isDemoMode } = require("../lib/runtime");
+const {parseTaxFeeRate,availableBudget,withBudgetFee}=require("../lib/budget-fee");
 const { assignedMember } = require("../lib/member-directory");
 
-const EDITABLE = ["name", "assoc", "form", "date", "days", "budget", "people", "owner", "owner_id", "phone", "dept", "agenda"];
+const EDITABLE = ["name", "assoc", "form", "date", "days", "budget", "tax_fee_rate", "people", "owner", "owner_id", "phone", "dept", "agenda"];
 
 /**
  * 账目基准字段：结算单的 income 直接取 projects.budget，
  * 结算后改预算会让 settlements.income 与 projects.budget 永久对不上。
  * 只列真正进结算的字段，别把 days / people 也算进来（它们不影响金额）。
  */
-const MONEY_FIELDS = ["budget"];
-const MONEY_LABEL = { budget: "预算" };
+const MONEY_FIELDS = ["budget","tax_fee_rate"];
+const MONEY_LABEL = { budget: "预算", tax_fee_rate:"税费管理费率" };
 
 /** 字段长度上限（字符数），防止超长文本撑爆列表 / 导出 / 前端渲染 */
 const MAX_LEN = { name: 80, assoc: 40, owner: 20, phone: 20, dept: 40, agenda: 2000 };
@@ -61,6 +62,7 @@ function validate(body, partial = false) {
     if (n > 1e9) throw bad("预算不能超过 10 亿元");
     if (Number(n.toFixed(2)) !== n) throw bad("预算最多保留两位小数");
   }
+  if ("tax_fee_rate" in body)parseTaxFeeRate(body.tax_fee_rate);
   if ("people" in body && body.people !== "" && body.people !== null && body.people !== undefined) {
     const n = Number(body.people);
     if (!Number.isInteger(n) || n < 0) throw bad("预计参会人数必须是非负整数");
@@ -116,7 +118,7 @@ function listProjects(user, { status, q, assoc, stage, page, size } = {}) {
               (SELECT COUNT(*) FROM exceptions e WHERE e.pid = p.id AND e.status='待审批') AS ex_open,
               (SELECT id FROM settlements s WHERE s.pid = p.id) AS st_id
        FROM projects p WHERE ${whereSql} ORDER BY p.date DESC, p.id`
-    ).all(...args);
+    ).all(...args).map(withBudgetFee);
   }
 
   // COUNT 只数主表，四个相关子查询不影响行数
@@ -141,7 +143,7 @@ function listProjects(user, { status, q, assoc, stage, page, size } = {}) {
             (SELECT COUNT(*) FROM exceptions e WHERE e.pid = p.id AND e.status='待审批') AS ex_open,
             (SELECT id FROM settlements s WHERE s.pid = p.id) AS st_id
      FROM projects p WHERE ${whereSql} ORDER BY p.date DESC, p.id LIMIT ? OFFSET ?`
-  ).all(...args, paging.size, paging.offset);
+  ).all(...args, paging.size, paging.offset).map(withBudgetFee);
 
   return {
     rows,
@@ -237,9 +239,9 @@ function register(router) {
     const id = nextId(db, "projects", "id", "MP");
     const ownerId = member ? member.id : resolveOwnerId(b.owner, ctx.user);
     db.prepare(
-      `INSERT INTO projects (id,name,assoc,form,date,days,budget,people,owner,owner_id,phone,dept,agenda,status,status_at,created_by,created_at,updated_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
-    ).run(id, b.name, b.assoc, b.form, b.date, Number(b.days) || 1, Number(b.budget), Number(b.people) || 0,
+      `INSERT INTO projects (id,name,assoc,form,date,days,budget,tax_fee_rate,people,owner,owner_id,phone,dept,agenda,status,status_at,created_by,created_at,updated_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+    ).run(id, b.name, b.assoc, b.form, b.date, Number(b.days) || 1, Number(b.budget), parseTaxFeeRate(b.tax_fee_rate), Number(b.people) || 0,
       b.owner, ownerId, b.phone || "", b.dept || "会务部", b.agenda, "草稿", at, ctx.user.id, at, at);
     db.prepare("INSERT OR IGNORE INTO project_members (project_id,user_id,role) VALUES (?,?,?)").run(id, ctx.user.id, "创建人");
     // 注意：不要在这里把负责人自动写进 project_members。
@@ -247,7 +249,7 @@ function register(router) {
     // （test/scope-owner.test.js 覆盖此场景）。工作台待办本来就走 owner_id，不需要成员行。
     logAudit({
       user: ctx.user, module: "项目管理", action: "立项申请", target: id,
-      detail: `新建「${b.name}」，预算 ¥${Number(b.budget).toLocaleString("zh-CN")}，状态：草稿`, ip: ctx.ip
+      detail: `新建「${b.name}」，预算 ¥${Number(b.budget).toLocaleString("zh-CN")}，税费管理费率 ${parseTaxFeeRate(b.tax_fee_rate)}%，可用预算 ¥${availableBudget(b.budget,b.tax_fee_rate).toLocaleString("zh-CN")}，状态：草稿`, ip: ctx.ip
     });
     return { project: getProject(id), message: `已创建 ${id}，可提交立项审批` };
   });
@@ -308,17 +310,18 @@ function register(router) {
     if (!Object.keys(patch).length) return { project: p, message: "没有需要修改的字段" };
     validate({ ...p, ...patch }, true);
 
+    // 预算/税费管理费变更后必须确保「可用预算」仍覆盖已占用支出。
     // 预算下调到低于已占用金额（待审批 + 已审批 + 已付款）会让账实直接打架：
     // 结算单 income 取 projects.budget、expense 取已付款，income < expense 就是负结余。
     // 上调不拦（只会更宽松），只有下调且低于已占用才卡；超管可 force 纠错。
-    if ("budget" in patch) {
-      const next = yuan(patch.budget);
+    if ("budget" in patch || "tax_fee_rate" in patch) {
+      const next = availableBudget({...p,...patch});
       const used = committed(p.id);
       // 比较走「分」：3580.23 与 3580.2300000000005 在浮点里是「小于」，会误判成下调过低
       if (cents(next) < cents(used)) {
         if (!(b.force && isSuper(ctx.user))) {
           throw conflict(
-            `新预算 ¥${next.toLocaleString("zh-CN")} 低于该项目已占用金额 ¥${used.toLocaleString("zh-CN")}` +
+            `调整后可用预算 ¥${next.toLocaleString("zh-CN")} 低于该项目已占用金额 ¥${used.toLocaleString("zh-CN")}` +
             `（含待审批 / 已审批 / 已付款），下调后会与已挂账的付款冲突；` +
             `如确需纠错，请由总管理员携带 force 标记提交`,
             "BUDGET_BELOW_COMMITTED", { budget: next, used }
@@ -334,7 +337,7 @@ function register(router) {
     db.prepare(`UPDATE projects SET ${sets}, updated_at = ? WHERE id = ?`)
       .run(...Object.values(patch).map((v, i) => {
         const k = Object.keys(patch)[i];
-        return ["days", "budget", "people"].includes(k) ? Number(v) || 0 : v;
+        return ["days", "budget", "tax_fee_rate", "people"].includes(k) ? Number(v) || 0 : v;
       }), now(), p.id);
     logAudit({
       user: ctx.user, module: "项目管理", action: forced ? "资料修改（强制纠错）" : "资料修改", target: p.id,

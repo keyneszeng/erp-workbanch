@@ -98,6 +98,7 @@ CREATE TABLE IF NOT EXISTS projects (
   date        TEXT NOT NULL,
   days        INTEGER NOT NULL DEFAULT 1,
   budget      REAL NOT NULL DEFAULT 0,
+  tax_fee_rate REAL NOT NULL DEFAULT 0,
   people      INTEGER NOT NULL DEFAULT 0,
   owner       TEXT,
   phone       TEXT,
@@ -674,6 +675,8 @@ function migrate() {
   addColumn("users", "token_ver", "token_ver INTEGER NOT NULL DEFAULT 0");
   // 合同材料替换为总管理员按账号单独授予，历史账号默认无此权限。
   addColumn("users", "material_file_replace", "material_file_replace INTEGER NOT NULL DEFAULT 0");
+  // 立项税费管理费按百分比保存。历史项目默认0%，不改变既有可用额度。
+  addColumn("projects", "tax_fee_rate", "tax_fee_rate REAL NOT NULL DEFAULT 0");
   // 付款申请去重：旧付款行保持不变，新付款受唯一索引保护。
   addColumn("payments", "dedupe_key", "dedupe_key TEXT");
   db.exec("CREATE UNIQUE INDEX IF NOT EXISTS ux_payments_active_dedupe ON payments(pid,dedupe_key) WHERE dedupe_key IS NOT NULL AND status <> '已驳回'");
