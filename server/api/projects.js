@@ -1,7 +1,7 @@
 "use strict";
 const { db } = require("../lib/db");
 const { now, nextId, bad, notFound, conflict, forbidden, cents, yuan } = require("../lib/util");
-const { assertCan, assertModule, assertProjectVisible, can, isSuper, scopeFilter, ROLES } = require("../lib/rbac");
+const { assertCan, assertModule, assertProjectVisible, can, isSuper, hasModule, scopeFilter, ROLES } = require("../lib/rbac");
 const { logAudit } = require("../lib/audit");
 const { getProject, verification, materialsStatus, settlementOf, demandSummary, assertNotFrozen, committed, availableActions, transition } = require("../lib/workflow");
 const { ASSOCS, FORMS, DEPTS } = require("../lib/constants");
@@ -160,7 +160,14 @@ function listProjects(user, { status, q, assoc, stage, page, size } = {}) {
 function detail(project, user) {
   // 普通用户/嘉宾只可查看会议公开信息；项目成员资格不等于财务、合同和审计权限。
   // 必须在 API 层裁剪，不能仅隐藏前端页签（直接请求仍会读取原始 JSON）。
-  if (user.role === "user" && !["project:create","project:transition","verify:check","payment:create","material:write","project:change","project:edit"].some(k=>can(user,k))) {
+  // 仅有项目列表浏览权并不意味着可读取合同、付款、人员或操作审计。
+  // 与岗位名称无关，任何角色均要显式获得内部业务模块或具体操作授权。
+  if (!isSuper(user) && !["project:transition","project:approve","project:edit","project:change",
+    "contract:write","contract:approve","demand:write",
+    "payment:create","payment:approve","payment:pay","settle:create",
+    "verify:check","verify:exception","verify:exception_approve","verify:conclude",
+    "material:write","archive:write","audit:read","ledger:read"].some(k=>can(user,k)) &&
+      !["prep","demand","exec","materials","verify","finance","archive","audit"].some(k=>hasModule(user,k))) {
     const { id, name, assoc, form, date, days, people, owner, agenda, status } = project;
     return { project: { id, name, assoc, form, date, days, people, owner, agenda, status },
       actions: [], visibility: "participant" };
@@ -217,7 +224,12 @@ function register(router) {
     assertModule(ctx.user,"projects");
     const r = listProjects(ctx.user, ctx.query);
     // 参会者只能看到会议信息，不能通过列表取得预算、电话或已付款统计。
-    if (ctx.user.role === "user" && !["project:create","project:transition","verify:check","payment:create","material:write","project:change","project:edit"].some(k=>can(ctx.user,k))) {
+    if (!isSuper(ctx.user) && !["project:transition","project:approve","project:edit","project:change",
+    "contract:write","contract:approve","demand:write",
+    "payment:create","payment:approve","payment:pay","settle:create",
+    "verify:check","verify:exception","verify:exception_approve","verify:conclude",
+    "material:write","archive:write","audit:read","ledger:read"].some(k=>can(ctx.user,k)) &&
+        !["prep","demand","exec","materials","verify","finance","archive","audit"].some(k=>hasModule(ctx.user,k))) {
       const participantRow = ({ id, name, assoc, form, date, days, people, owner, status }) =>
         ({ id, name, assoc, form, date, days, people, owner, status });
       if (Array.isArray(r)) return { rows: r.map(participantRow), total: r.length };
