@@ -211,11 +211,12 @@ async function openPay(root, projects) {
     { k: "amount", l: "付款金额（元）", t: "number", req: 1 },
     { k: "remark", l: "备注", t: "textarea", full: 1, rows: 2 }
   ];
-  const m = modal({ title: "付款申请", body: `<div class="gate ok" style="margin-bottom:12px"><b>核销门禁</b>仅列出「已核销」项目：未核销项目不可付款，已结算项目账目已封账，已归档项目卷宗已封存。<br><b>预算门禁</b>已占用（待审批 + 已审批 + 已付款）加本笔金额超过预算时，接口返回 <code>OVER_BUDGET</code>，需总管理员特批。</div>${formHtml(fields)}`,
+  const m = modal({ title: "付款申请", body: `<div class="gate ok" style="margin-bottom:12px"><b>核销门禁</b>仅列出「已核销」项目：未核销项目不可付款，已结算项目账目已封账，已归档项目卷宗已封存。<br><b>预算门禁</b>已占用（待审批 + 已审批 + 已付款）加本笔金额超过预算时，接口返回 <code>OVER_BUDGET</code>，需总管理员特批。</div><div class="hint" style="margin-bottom:10px">同项目、同付款类型、同收款方、同金额的有效付款单只允许申请一次；待审批、已审批及已付款均不可重复，已驳回可重新提交。</div>${formHtml(fields)}`,
     footer: `<button class="btn btn-o" data-x="0">取消</button><button class="btn btn-p" data-x="1">提交申请</button>` });
   await bindPayeePicker(m,projects[0].id,true);
   m.querySelector('[data-x="0"]').onclick = () => m.classList.remove("open");
-  m.querySelector('[data-x="1"]').onclick = async () => {
+  const submitButton=m.querySelector('[data-x="1"]');
+  submitButton.onclick = async () => {
     const selected=m.querySelector('[name="payee_option_id"]')?.value;
     const acct=m.querySelector('[name="payee_account"]')?.value.trim();
     const bank=m.querySelector('[name="payee_bank"]')?.value.trim();
@@ -224,11 +225,19 @@ async function openPay(root, projects) {
     if((!source||!source.bank)&&!bank){toast("请填写收款方开户行","warn");return;}
     if((!source||source.source!=="labor")&&!acct){toast("请填写银行账号；合同仅提供收款方名称","warn");return;}
     if (!validate(m, fields)) return;
+    if(submitButton.disabled)return;
+    submitButton.disabled=true;
+    submitButton.textContent="提交中…";
     try {
       const r = await api.post("/api/payments", readForm(m));
       toast(r.message, "ok");
       m.classList.remove("open");
       await render(root);
-    } catch (e) { toast(e.message, "warn"); }
+    } catch (e) {
+      toast(e.code==="DUPLICATE_PAYMENT"?"付款申请重复："+e.message:e.message,"warn");
+    } finally {
+      submitButton.disabled=false;
+      submitButton.textContent="提交申请";
+    }
   };
 }
