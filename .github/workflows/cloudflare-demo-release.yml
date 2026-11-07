@@ -1,14 +1,10 @@
 name: Release ERP Cloudflare demo (never production)
 
 # Release marker 2026-11-01: fix super-admin new-account button label in Cloudflare demo only.
-# One-time release when this dedicated workflow is introduced on main.
-# Further releases require manually dispatching this workflow.
+# Live demo releases require an explicit manual dispatch after CI passes.
+# Updating business code or this workflow must never silently deploy live demo data.
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - '.github/workflows/cloudflare-demo-release.yml'
 
 permissions:
   contents: read
