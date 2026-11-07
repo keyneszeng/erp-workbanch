@@ -102,7 +102,7 @@ function register(router) {
       const cached = db.prepare(
         "SELECT * FROM material_ocr_results WHERE material_id=? AND file_key=?"
       ).get(material.id, material.file_key);
-      // 换了 OCR 引擎（tesseract → Unlimited-OCR）时旧结果不再命中，自动重识别
+      // 换了 OCR 引擎（旧 tesseract → RapidOCR）时旧结果不再命中，自动重识别
       if (cached && ocr.providerMatches(cached.engine)) {
         items.push({ materialId: material.id, kind: material.kind, name: material.name,
           text: cached.recognized_text, engine: cached.engine, cached: true,

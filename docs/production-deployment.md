@@ -113,15 +113,16 @@ ECS 的 `production.env` 默认 `ERP_MINIPROGRAM_ENABLED=0`；上线小程序前
 该版本的 `已付款` 表示系统内财务人员确认付款完成，**不代表已集成银行回执或自动支付**。如要求资金到账证明，需要后续对接银行回单/付款流水对账系统。生产上线前须执行 `npm test`、`npm run test:cf`（仅兼容性测试）、微信端和浏览器业务全流程黑盒验收；不能以 PR 存在代替通过。
 
 
-## 离线 OCR 与终版议程自动提取（2026-11-01）
+## 离线 OCR 与终版议程自动提取（RapidOCR）
 
-本功能默认使用本地 Tesseract (chi_sim+eng) 和 Poppler，**不将材料原件发送到第三方识别服务**。**仅在阿里云 ECS Linux + Node 22 环境启用**，Cloudflare 演示版仍使用人工录入，且禁用 OCR 原生子进程。
+本功能使用 **RapidOCR**（PP-OCR 的 ONNXRuntime 版）和 Poppler，纯 CPU、离线运行，**不将材料原件发送到第三方识别服务**。**仅在阿里云 ECS Linux + Node 22 环境启用**，Cloudflare 演示版仍使用人工录入，且禁用 OCR 原生子进程。
 
 ```bash
 sudo apt-get update
-sudo apt-get install -y tesseract-ocr tesseract-ocr-chi-sim tesseract-ocr-eng poppler-utils
-tesseract --list-langs
-# 需看到 chi_sim 和 eng；再在 /etc/erp-workbanch/production.env 设置 ERP_OCR_ENABLED=1
+sudo apt-get install -y poppler-utils
+# RapidOCR 装在独立 venv（约 450 MB），只装一次
+bash deploy/aliyun/install-rapidocr.sh
+# 再在 /etc/erp-workbanch/production.env 设置 ERP_OCR_ENABLED=1
 sudo systemctl restart erp.service
 ```
 
@@ -130,41 +131,22 @@ sudo systemctl restart erp.service
 - `POST /api/projects/:id/material-workbench/ocr` `{materialId,force?:true}`：校验项目与权限，读取**该项目登记的原件**后识别，结果按材料 ID 入库存档，可重复查询，禁止并行超负载请求。
 - `GET /api/projects/:id/material-workbench/ocr/:materialId`：查询上次识别文本和候选（需要材料中心权限）。
 - 限制：文件最多 8 MB；PDF 只处理前三页并明确标记 `truncated`；每次请求有进程超时和独立权限为 0700 的临时目录，完成后清理。OCR 文本最多 30,000 字。
-- 图片支持 JPG/PNG；PDF 有文字层时用 `pdftotext`，无可用文字层时用 `pdftoppm` 转图后 Tesseract 识别。WebP/GIF/Office 文件须转换格式。
+- 图片支持 JPG/PNG；PDF 有文字层时用 `pdftotext`，无可用文字层时用 `pdftoppm` 转图后 RapidOCR 识别。WebP/GIF/Office 文件须转换格式。
 - 此时 OCR 仅用于生成材料待办的**可修改建议**，不是对盖章、药企 Logo 位置、参会时长、银行卡等高风险字段的自动审定。OCR 数据随项目和材料原件访问权限隔离；审计只记录操作与结果计数，不记录识别出的个人信息。
 - ECS 实际部署后仍需在真实中文扫描件、图像旋转、低清晰度和大文件上进行业务验收。运行进程资源和 OCR 失败率应纳入监控；不应在未审阅真实识别效果前宣称识别准确率。
 
-### 可选：切换 OCR 引擎（2026-11-06）
+### 识别参数与限制
 
-`ERP_OCR_PROVIDER` 四选一，默认 `tesseract`：
+| 项 | 值 |
+|---|---|
+| 引擎 | RapidOCR（PP-OCR，ONNXRuntime） |
+| 依赖 | `/opt/rapidocr-venv`（约 450 MB）+ poppler-utils |
+| 资源 | 单页 2~4 秒，峰值内存约 560 MB，纯 CPU |
+| PDF | 渲染 2400px 灰度；只处理前 3 页并标记 `truncated` |
+| 列还原 | 按文本框坐标还原表格列，不依赖空格数量 |
 
-| provider | 依赖 | 数据边界 | 适用 |
-|---|---|---|---|
-| `tesseract` | 本机 tesseract + poppler，纯 CPU | 原件不出服务器 | 默认；简单扫描件够用 |
-| `rapidocr` | 本地 PP-OCR（ONNXRuntime），纯 CPU，约 450 MB | 原件不出服务器 | **推荐**：中文表格明显优于 tesseract，单页 2~4 秒 |
-| `unlimited` | 自建 Unlimited-OCR（vLLM / SGLang，NVIDIA GPU） | 原件不出内网 | 表格/长文档要求高，且有 GPU |
-| `baidu` | 百度云「文档解析（Unlimited-OCR）」异步 API | **原件会上传百度云** | 无 GPU、能接受第三方处理 |
+**旧缓存会自动失效**：`material_ocr_results` 按 engine 标签判断，历史 tesseract 结果不会命中；切到 RapidOCR 后第一次识别会重跑并覆盖，不需要手工清库。
 
-RapidOCR 安装（只装一次）：
+**未安装时**：`recognize()` 返回 `OCR_PROVIDER_MISCONFIGURED`，提示运行 `install-rapidocr.sh`，不会静默失败。
 
-```bash
-bash deploy/aliyun/install-rapidocr.sh
-# 之后在环境文件里设 ERP_OCR_PROVIDER=rapidocr 并重启服务
-```
-
-自建示例：
-
-```bash
-# GPU 机器上（3B 模型，BF16，建议 ≥16 GB 显存）
-vllm serve baidu/Unlimited-OCR --served-model-name Unlimited-OCR --port 8000
-# ERP 侧
-ERP_OCR_PROVIDER=unlimited
-ERP_OCR_HTTP_URL=http://127.0.0.1:8000
-ERP_OCR_HTTP_TIMEOUT_MS=120000
-```
-
-**隐私边界**：材料里可能有专家身份证号、银行卡号、手机号和劳务金额。`tesseract` 与自建 `unlimited` 都在自己的机器/内网内完成；`baidu` 会把原件上传到第三方。启用 `baidu` 前须完成个人信息合规确认，不能因为「只是测试」就默认打开。
-
-**切换后旧缓存会自动失效**：`material_ocr_results` 按 engine 标签判断，换了引擎第一次识别会重跑并覆盖，不需要手工清库。远端引擎失败时默认退回 tesseract，结果标「已降级」，下次调用会重新尝试远端（`ERP_OCR_FALLBACK=0` 可关闭降级）。
-
-**超时**：百度云是异步任务（提交 → 每 2 秒轮询），默认最多等 120 秒。反向代理的 `proxy_read_timeout` 必须大于这个值，否则请求会先被 Nginx 断开。
+**超时**：单页识别上限 120 秒；反向代理的 `proxy_read_timeout` 应大于单次请求的最长耗时。

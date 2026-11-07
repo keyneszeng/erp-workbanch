@@ -179,14 +179,10 @@ if [ "$MODE" = "prod" ]; then
   run apt-get install -y -qq certbot python3-certbot-nginx
 fi
 
-# 材料/议程离线 OCR（PR #21）依赖原生二进制：tesseract 负责识别，poppler 负责 PDF 拆页取字。
-# 缺任何一个，上传 PDF/图片后识别都会报 "Missing OCR executable"。
-log "安装 OCR 依赖（tesseract + 中文语言包 + poppler）"
-run apt-get install -y -qq tesseract-ocr tesseract-ocr-chi-sim tesseract-ocr-eng poppler-utils
-if [ "$DRY_RUN" = "0" ]; then
-  tesseract --list-langs 2>/dev/null | grep -qx "chi_sim" \
-    || warn "tesseract 中文语言包 chi_sim 未就绪，中文材料识别会退化"
-fi
+# 材料/议程 OCR：RapidOCR 负责识别，poppler 负责 PDF 拆页与文本层提取。
+# RapidOCR 本身装在独立 venv 里（见 install-rapidocr.sh），不在这里装。
+log "安装 OCR 依赖（poppler-utils）"
+run apt-get install -y -qq poppler-utils
 
 # Office 原件在线预览（课件 / 串场 PPT、劳务表 Excel）。
 # 浏览器没有 Office 渲染能力，预览时由 LibreOffice 无头模式转成 PDF，再用 poppler 拆成图片。
@@ -484,10 +480,8 @@ fi
 
 # ---------- RapidOCR 引擎检查 ----------
 # RapidOCR 装在独立 venv（约 450 MB），不进代码仓库；首次使用需单独安装。
-if [ "$DRY_RUN" = "0" ] && [ -f "$ENV_FILE" ] && grep -q '^ERP_OCR_PROVIDER=rapidocr' "$ENV_FILE"; then
-  if [ ! -x "${ERP_RAPIDOCR_VENV:-/opt/rapidocr-venv}/bin/python" ]; then
-    warn "ERP_OCR_PROVIDER=rapidocr，但 RapidOCR 未安装；请执行 bash deploy/aliyun/install-rapidocr.sh"
-  fi
+if [ "$DRY_RUN" = "0" ] && [ ! -x "${ERP_RAPIDOCR_VENV:-/opt/rapidocr-venv}/bin/python" ]; then
+  warn "RapidOCR 未安装，OCR 不可用；请执行 bash deploy/aliyun/install-rapidocr.sh"
 fi
 
 # ---------- 完成 ----------

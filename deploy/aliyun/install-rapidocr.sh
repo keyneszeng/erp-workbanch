@@ -1,5 +1,5 @@
 #!/bin/bash
-# 安装 RapidOCR（纯 CPU 的 PP-OCR ONNXRuntime 版），供 ERP_OCR_PROVIDER=rapidocr 使用。
+# 安装 RapidOCR（纯 CPU 的 PP-OCR ONNXRuntime 版），供材料/议程 OCR 使用。
 #
 # 只装到独立 venv（/opt/rapidocr-venv），不污染系统 Python。
 # 磁盘约 450 MB，运行峰值内存约 560 MB。
@@ -30,4 +30,4 @@ print("RapidOCR 就绪 | onnxruntime", onnxruntime.__version__, "| opencv", cv2.
 PY
 
 du -sh "$VENV"
-echo "==> 完成。设置 ERP_OCR_PROVIDER=rapidocr 后重启服务即可。"
+echo "==> 完成。设置 ERP_OCR_ENABLED=1 后重启服务即可。"
