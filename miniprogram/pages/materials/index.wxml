@@ -7,8 +7,8 @@
  <view wx:if="{{locked}}" class="error">当前项目已结算或归档，材料被冻结，无法继续上传。</view>
  </view>
  <view class="card">
-  <view class="section-caption">01 · 固定材料模块</view>
-  <view class="muted">已停用的模块不在上传列表中，但保留历史原件。</view>
+  <view class="section-caption">01 · 材料类别（自由选择）</view>
+  <view class="muted">请选择需要归档的材料类别，也可以自定义名称。不要求固定类别齐全，上传任意一份附件后即可继续后续业务流程。</view>
   <view class="chip-list">
    <view wx:for="{{activeKinds}}" wx:key="*this" data-kind="{{item}}" bindtap="chooseKind"
      class="select-chip {{!custom&&kind===item?'chip-selected':''}}">{{item}}</view>
@@ -16,11 +16,12 @@
   </view>
   <input wx:if="{{custom}}" class="field" value="{{customKind}}" data-key="customKind" bindinput="input" placeholder="请输入自定义材料类别"/>
   <view class="section-caption space">02 · 材料记录</view>
-  <input class="field" placeholder="材料名称，例如：张老师课件／签到照片" data-key="name" value="{{name}}" bindinput="input"/>
+  <input wx:if="{{custom||kind!=='终版议程'}}" class="field" placeholder="材料名称，例如：张老师课件／签到照片" data-key="name" value="{{name}}" bindinput="input"/>
+  <view wx:if="{{!custom&&kind==='终版议程'}}" class="muted">只需选择一个终版议程文件上传，即自动确认为终版；无需填写名称或生成待办。</view>
   <view wx:if="{{error}}" class="error">{{error}}</view>
   <view wx:if="{{uploaded}}" class="success-note">{{uploaded}}</view>
   <button class="btn primary" loading="{{busy}}" disabled="{{busy||locked||!pid}}" bindtap="addPhoto">拍照或从相册选择并归档</button>
-  <button class="btn ghost" loading="{{busy}}" disabled="{{busy||locked||!pid}}" bindtap="addFile">选择 PPT / PPTX / XLSX / PDF / DOCX 附件</button>
-  <view class="muted">每次上传 1 个附件、最多 8 MB。旧 PPT 作为附件下载，不在小程序内运行；OCR 识别不等于核销通过。</view>
+  <button class="btn ghost" loading="{{busy}}" disabled="{{busy||locked||!pid}}" bindtap="addFile">选择 Excel XLS / XLSX、Word、PPT、PDF、CSV / TXT 附件</button>
+  <view class="muted">每次上传 1 个附件、最多 20 MB。支持旧版 Excel XLS、Word DOC；Office 文件作为附件存储下载，不在小程序内执行宏，OCR 识别不等于核销通过。</view>
  </view>
 </view>

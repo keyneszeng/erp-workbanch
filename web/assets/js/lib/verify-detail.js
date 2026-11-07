@@ -1,10 +1,7 @@
-import { badge, esc, modal, money, table, toast, readForm } from "./ui.js";
-import { fileLink } from "./file-preview.js";
-import { api } from "./api.js";
-import { sopEvidenceForm, collectSopEvidence } from "./sop-fields.js";
+import { badge, esc, modal, money, table } from "./ui.js";
 
 /**
- * 核销 6 步 SOP 的「详情」面板。
+ * 核销 7 步 SOP 的「详情」面板。
  *
  * 判定人必须能当场看到这一步要核的原始数据——议程、签到表、票据、合同、付款金额，
  * 而不是凭印象点「通过」，否则核销就退化成橡皮图章。
@@ -51,7 +48,7 @@ function matList(list, emptyText) {
       ${m.file_name ? `<span class="dtag">${esc(m.file_name)}</span>` : ""}
       <span class="dm">${esc(m.uploader || "—")} · ${esc(dt(m.created_at))}</span>
       ${m.file_key
-        ? fileLink(m.file_key, m.file_name || m.name, `${m.file_name || m.name} · 在线查看原件`)
+        ? `<a class="link" href="/api/uploads/${encodeURIComponent(m.file_key)}" target="_blank" rel="noopener" title="点击打开原件">${esc(m.file_name || m.name)} · 点击原件查看</a>`
         : `<span class="dm" style="margin-left:0">无附件</span>`}
     </li>`).join("")}</ul>`;
 }
@@ -75,231 +72,63 @@ function payRows(list) {
 /** 按步骤组装「这一步到底要核什么」的原始数据 */
 export function stepBody(d,no){
   /**
-   * 关联材料直接读接口返回的 step.materials —— 与服务端 meeting-sop.js 校验用的是
-   * 同一份定义（server/lib/constants.js 的 VERIFY_STEPS）。
+   * 这里必须用**材料类别（kind）的真实取值**，且要与 server/lib/meeting-sop.js
+   * 的校验保持一致——页面上写「要核 A」，服务端却要求 B，核销人就会一直撞墙。
    *
-   * 以前这里硬编码了一份显示名（终版议程 / 参会数据 / 拟结算单），
-   * 和服务端真正校验的材料类别对不上，页面说「要核 A」、系统却要求 B，
-   * 核销人一直撞墙。现在只保留一份，前端不再自己维护。
+   * 第 1 步服务端校验盖章函件（会议通知 / 招商函）与串场两份原件；
+   * 第 4 步仅要求课件原件和当前已确认的终版议程；不需要串场或 Logo 材料。
    */
-  const step=d.verification.steps.find(x=>x.no===no);
-  const names=(step?.materials||[]).slice();
-  // 同一份材料在不同环节叫法不同（劳务表/劳务收集表、签到表/参会数据），
-  // 服务端两种都认，页面也要列出来，否则只传了其中一种的人会以为缺件。
-  for(const alt of step?.altMaterials||[]) if(!names.includes(alt)) names.push(alt);
-  const note={
-    1:"盖章函件与立项信息逐项核对：会议名称/日期/主办方/招商主体。",
-    2:"终版议程、劳务收集表、劳务协议名单三处互相覆盖，无冒领/漏发；劳务协议以已签署的劳务/专家类合同为准。",
-    3:"线上有效讲者在线时长 >30 分钟；线下有签到；混合两项都需要。",
-    4:"课件课题匹配终版议程，串场题目及主办方 logo 匹配；药企 logo 只允许首页、尾页、鸣谢页。",
-    5:"劳务收集表与劳务/专家类合同逐人比对姓名/时间/角色/金额/银行账号；银行账号不保存在核销证据中。",
-    6:"已签支出合同总额须等于拟请款总额（收入类赞助合同不计入）；专家劳务按第五步核验的协议与劳务表免票请款。"
+  const names={
+    1:["会议通知","招商函","串场"],2:["终版议程","签到表","讲者照片"],
+    3:["签到表"],4:["终版议程","课件"],
+    5:["劳务表","劳务收集表"],6:["终版议程","会务协议","合同","发票","会务发票"],7:["权益照片"]
   };
-  const selected=(d.materials||[]).filter(m=>names.includes(m.kind));
-  // 收入类（赞助）合同不参与核销：它不产生支出，算进合同总额会让拟请款永远对不上
-  const isIncome=(x)=>String(x?.category||"").trim()==="赞助收入";
-  const spendContracts=(d.contracts||[]).filter(x=>!isIncome(x));
-  /**
-   * 收入类合同的原件也不能出现在核销步骤的「关联材料」里。
-   * 自动归档会把它登记成 kind=合同、名字是「HT-xxxx · 合同名」，
-   * 按类别一过滤就混进第 6 步，看着像这份赞助也被核销了。
-   */
-  const incomeIds=(d.contracts||[]).filter(isIncome).map(x=>x.id);
-  const fromIncomeContract=(m)=>incomeIds.some(id=>String(m.name||"").includes(id));
-  const stepMaterials=selected.filter(m=>!fromIncomeContract(m));
-  const contractTotal=spendContracts.filter(x=>x.status==="已签署").reduce((sum,x)=>sum+Number(x.amount||0),0);
-  const laborContracts=spendContracts.filter(x=>x.category==="劳务专家");
+  const note={
+    1:"盖章函件已盖章且为终版；核对函件与串场的会议名称、日期及主办方一致。",
+    2:"以终版议程的讲者姓名为唯一标准，逐一核对签到表与讲者照片是否缺失、多余或重名；只核对这三项材料。",
+    3:"线上有效讲者在线时长 >30 分钟；线下有签到原件；混合两项都需要。",
+    4:"材料库中已有课件原件，每个课件主题均能在当前已确认的终版议程中找到；不再核验串场、主办方或药企 Logo。",
+    5:"劳务表原件上传后核对五字段，并按完整姓名逐人匹配材料库个人合同；缺失或多份同名不能通过，合同台账总合同不能代替。",
+    6:"仅有实际会务需求才核：终版议程与终版会务协议的会议主题/时间/形式一致、会务协议甲方与协会主体一致；会务需求总预算＝已签会务合同总额＝会务发票总金额。",
+    7:"仅有已签署赞助合同才核：对照合同权益清单及二级类目逐项核对对应照片的实际交付内容。自动识别只推荐权益类目，照片内容必须人工确认。"
+  };
+  const selected=(d.materials||[]).filter(m=>(names[no]||[]).includes(m.kind));
+  const step=d.verification.steps.find(x=>x.no===no);
+  const contractTotal=(d.contracts||[]).filter(x=>x.status==="已签署" && x.category!=="劳务专家").reduce((sum,x)=>sum+Number(x.amount||0),0);
+  const meetingDemandTotal=Number(d.demand?.budgetTotal||0);
+  const matchedContractIds=new Set(step?.evidence?.matchedContractMaterialIds||[]);
+  const linkedContracts=(d.materials||[]).filter(x=>x.kind==="合同" && x.file_key && matchedContractIds.has(Number(x.id)));
   const expertPayments=(d.payments||[]).filter(x=>["专家费","个人报销"].includes(x.type));
   const evidence=step?.evidence;
-  /**
-   * 材料中心 ≠ 合同台账。
-   *
-   * 老板 2026-11-02 把谢就坤的劳务协议传进了材料中心，以为合同就录好了，
-   * 结果第 6 步的合同总额还是旧数 —— 因为金额只认合同台账。
-   * 这里把「材料里有原件、台账里找不到对应合同」的挑出来点名，
-   * 一眼就知道是漏登记还是系统没收到。
-   */
-  const contractMaterials=(d.materials||[]).filter(m=>["合同","劳务协议"].includes(m.kind));
-  // 匹配要看「全部合同」，不能只看支出合同：收入类（赞助）合同的原件也是台账里的，
-  // 拿支出合同去比会把德镁那份赞助协议误报成「没进台账」。
-  const allContracts=d.contracts||[];
-  const orphanMaterials=contractMaterials.filter(m=>!allContracts.some(c=>
-    String(m.name||"").includes(c.id) || (c.vendor && String(m.name||"").includes(String(c.vendor)))));
-  const ledgerGap=[5,6].includes(no)&&orphanMaterials.length
-    ? `<div class="dsec"><h4>这些原件还没进合同台账</h4>
-        <div class="dchk" style="color:#a23b2b">核销的合同总额<b>只按合同台账算</b>，材料中心只存原件、不产生金额。
-        下面 ${orphanMaterials.length} 份原件在台账里找不到对应合同，金额不会计入：
-        ${orphanMaterials.map(m=>"「"+esc(m.name)+"」").join("、")}。
-        请到「合同台账 → 录入合同」补登记（原件可复用，不用再传一遍）。</div></div>`
-    : "";
   return `<div class="dsec"><h4>业务核验规则</h4><div class="dchk">${esc(note[no]||"请核对资料")}</div></div>
-    <div class="dsec"><h4>已登记的关联材料（${esc(names.join(" / ")||"—")}）</h4>${matList(stepMaterials,"请在材料中心补充对应原件")}</div>
-    ${ledgerGap}
-    ${stepMaterials.length?`<div class="dsec"><h4>文件内容 OCR</h4>
-      <div class="dhint" style="margin-bottom:8px">把本步关联的原件识别成文字，方便逐项对照；结果仅供辅助，判定仍须以原件为准。</div>
-      <button class="btn btn-o btn-sm" type="button" data-step-ocr="${no}">识别本步 ${stepMaterials.length} 份原件</button>
-      <span class="hint" data-step-ocr-hint style="margin-left:8px"></span>
-      <div data-step-ocr-out></div>
-      <div data-step-names-out></div>
-      <div data-step-topics-out></div>
-    </div>`:""}
-    ${no===6?`<div class="dgrid">${cell("已签合同总额",fmt(contractTotal))}</div>`:""}
-    ${[2,5].includes(no)?`<div class="dsec"><h4>劳务 / 专家类合同（合同分类）${no===2?"· 可代替劳务协议":""}</h4>
-      ${laborContracts.length?table([{t:"合同名称"},{t:"合同收款方"},{t:"金额"},{t:"原件"}],
-      laborContracts.map(x=>({c:[esc(x.name),esc(x.vendor),fmt(x.amount),x.file_key?fileLink(x.file_key,x.file_name||`${x.name}原件`,"在线查看合同原件"):"未上传"]}))):'<div class="dhint">暂无劳务专家类合同，请先到合同台账核验分类</div>'}
-      <h4>专家费 / 个人报销（付款类别，需核销后申请）</h4>
+    <div class="dsec"><h4>已登记的关联材料</h4>${matList(selected,"请在材料中心补充对应原件")}</div>
+    ${no===7?'<div class="dsec"><h4>赞助合同权益逐项关联</h4>'+
+      (d.sponsorRights?.requiredRights||[]).map(r=>{
+        const sponsor=(d.sponsorRights?.contracts||[]).find(x=>x.id===r.sponsor_id);
+        const photos=(d.sponsorRights?.photos||[]).filter(x=>Number(x.sponsor_right_id)===Number(r.id)&&x.file_key);
+        return '<div class="dchk"><b>'+esc(sponsor?.enterprise||r.sponsor_id)+' · '+esc(r.category)+'</b> · '+(r.confirmed?'权益已确认':'待校正')+' · '+photos.length+' 张照片'+matList(photos,'请按权益二级类目上传照片')+'</div>';
+      }).join("")+'</div>':""}
+    ${no===6?`<div class="dgrid">${cell("会务需求总预算",fmt(meetingDemandTotal))}${cell("已签会务合同总额",fmt(contractTotal))}${cell("会务发票核验金额",step?.invoiceAmount==null?"未核对":fmt(step.invoiceAmount))}</div>${!d.demand?.archived?"<div class=\"dhint\">会务需求尚未归档，不能完成第6项通过判定。</div>":""}`:""}
+    ${no===5?`<div class="dsec"><h4>已关联个人合同（材料库）</h4>
+      ${matList(linkedContracts,"尚未通过OCR比对关联个人合同，请直接检查材料库的合同原件。")}
+      <div class="hint">此处仅按姓名关联合同原件，不代表已自动核对合同正文内容。</div>
+      <h4>专家费 / 个人报销（付款类别，核销通过后申请）</h4>
       ${payRows(expertPayments)}</div>`:""}
-    <div class="dsec"><h4>结构化核验结果</h4>
+    <div class="dsec"><h4>OCR比对与人工判定留痕</h4>
       ${evidence?`<pre class="hint" style="white-space:pre-wrap">${esc(JSON.stringify(evidence,null,2))}</pre>`:
-      '<div class="dhint">尚未完成本步骤核验。结构化证据由人工录入，文件内容 OCR 尚未启用。</div>'}</div>`;
+      '<div class="dhint">尚未核销判定；点击「判定」将直接扫描文件、提取要点并智能比对，无需再次填写表格。</div>'}</div>`;
 }
 
 /**
  * 打开某一步的详情弹窗。
  * @param {object} d    核销/项目详情数据
- * @param {number} no   步骤号 1~6
+ * @param {number} no   步骤号 1~7
  * @param {object} opt  { canJudge:boolean, onJudge:Function } —— 看完数据可直接判定
  */
-/** 复制到剪贴板：优先用 Clipboard API，非 HTTPS 环境退回复制文本域 */
-async function copyText(text) {
-  try {
-    if (navigator.clipboard && window.isSecureContext) {
-      await navigator.clipboard.writeText(text);
-      return true;
-    }
-  } catch {}
-  const ta = document.createElement("textarea");
-  ta.value = text;
-  ta.style.cssText = "position:fixed;left:-9999px;top:0";
-  document.body.appendChild(ta);
-  ta.select();
-  let ok = false;
-  try { ok = document.execCommand("copy"); } catch {}
-  document.body.removeChild(ta);
-  return ok;
-}
-
-/**
- * 第 2 步的姓名面板：合并名单可直接复制，差异项单独提示。
- * 判定人要的是「三处名单一致」，所以一致的部分不用细看，差异才是重点。
- */
-function renderNames(box, names) {
-  if (!box) return;
-  if (!names || !names.union.length) { box.innerHTML = ""; return; }
-  const diff = (names.onlyIn || []).filter((x) => x.names.length);
-  box.innerHTML = `
-    <div style="margin-top:14px;padding:12px 14px;border:1px solid var(--line);border-radius:8px;background:#fbfcfe">
-      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-        <b>姓名提取</b>
-        <span class="hint">共 ${names.union.length} 人 · 来自 ${names.bySource.length} 份材料</span>
-        <span style="flex:1"></span>
-        <button class="btn btn-o btn-sm" type="button" data-copy-names>复制全部姓名</button>
-      </div>
-      <div class="dchk" style="margin-top:8px">合并名单（去重）：<b>${esc(names.union.join("、"))}</b></div>
-      <div style="margin-top:8px">
-        ${names.bySource.map((s) => `<div class="hint">· ${esc(s.kind)}（${s.names.length} 人）：${esc(s.names.join("、") || "未提取到")}</div>`).join("")}
-      </div>
-      ${names.bySource.length < 2
-        ? `<div class="hint" style="margin-top:8px">只有 1 份材料提取到姓名，无法做三处比对；请确认其余原件是否已上传。</div>`
-        : diff.length
-          ? `<div class="fp-note" style="margin-top:10px"><b>需要人工核对：以下姓名没有出现在全部材料里</b>
-               ${diff.map((x) => `${esc(x.kind)} 独有 ${esc(x.names.join("、"))}`).join("；")}</div>`
-          : `<div class="hint" style="margin-top:8px">✓ 各来源姓名完全一致（共 ${names.common.length} 人）</div>`}
-    </div>`;
-  const btn = box.querySelector("[data-copy-names]");
-  if (btn) btn.onclick = async () => {
-    const ok = await copyText(names.union.join("\n"));
-    btn.textContent = ok ? "已复制" : "复制失败";
-    setTimeout(() => { btn.textContent = "复制全部姓名"; }, 1600);
-  };
-}
-
-/**
- * 第 4 步的课题面板：议程侧与课件侧的题目各列一份，对不上的单独提示。
- * 判定人核的是「课件课题 = 终版议程课题」，一致的部分不用逐条看。
- */
-function renderTopics(box, t) {
-  if (!box) return;
-  if (!t || (!t.agenda.length && !t.course.length)) { box.innerHTML = ""; return; }
-  const diff = t.onlyAgenda.length || t.onlyCourse.length;
-  box.innerHTML = `
-    <div style="margin-top:14px;padding:12px 14px;border:1px solid var(--line);border-radius:8px;background:#fbfcfe">
-      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-        <b>课题提取</b>
-        <span class="hint">议程 ${t.agenda.length} 条 · 课件/串场 ${t.course.length} 条</span>
-        <span style="flex:1"></span>
-        <button class="btn btn-o btn-sm" type="button" data-copy-topics="course">复制课件题目</button>
-        <button class="btn btn-o btn-sm" type="button" data-copy-topics="agenda">复制议程课题</button>
-      </div>
-      <div class="dchk" style="margin-top:8px">终版议程课题：${esc(t.agenda.join("、") || "未提取到")}</div>
-      <div class="dchk" style="margin-top:4px">课件 / 串场题目：${esc(t.course.join("、") || "未提取到")}</div>
-      ${!t.agenda.length || !t.course.length
-        ? `<div class="hint" style="margin-top:8px">只有一侧提取到课题，无法做课题比对；请确认终版议程与课件是否都已上传。</div>`
-        : diff
-          ? `<div class="fp-note" style="margin-top:10px"><b>需要人工核对：两侧课题不一致</b>
-               ${t.onlyAgenda.length ? `议程独有 ${esc(t.onlyAgenda.join("、"))}` : ""}
-               ${t.onlyAgenda.length && t.onlyCourse.length ? "；" : ""}
-               ${t.onlyCourse.length ? `课件独有 ${esc(t.onlyCourse.join("、"))}` : ""}
-               <div class="hint" style="margin-top:6px">扫描件的 OCR 可能有错字或截断，看起来相近的请人工确认是否同一课题。</div></div>`
-          : `<div class="hint" style="margin-top:8px">✓ 课件课题与终版议程一致（${t.matched.length} 条）</div>`}
-    </div>`;
-  box.querySelectorAll("[data-copy-topics]").forEach((btn) => {
-    btn.onclick = async () => {
-      const list = btn.dataset.copyTopics === "course" ? t.course : t.agenda;
-      const ok = await copyText(list.join("\n"));
-      btn.textContent = ok ? "已复制" : "复制失败";
-      setTimeout(() => { btn.textContent = btn.dataset.copyTopics === "course" ? "复制课件题目" : "复制议程课题"; }, 1600);
-    };
-  });
-}
-
-/**
- * 核销判定弹窗 —— 核销看板与项目详情页共用这一份。
- *
- * 以前两个页面各写了一套：项目详情那套只有「通过/不通过 + 备注」，
- * 没有结构化核验表单，提交时服务端因缺 evidence 直接拒绝，
- * 表现就是「点判定没反应 / 做不了判定」。现在只保留这一处实现。
- */
-export function openJudgeModal(d, no, opt = {}) {
-  const step = d.verification.steps.find((x) => x.no === no);
-  if (!step) return null;
-  // 第 6 步要填「拟请款总额」= 所有已签**支出**合同之和（收入类赞助合同不算），
-  // 直接算好带进表单，免得判定人靠猜
-  const signedTotal = (d.contracts || [])
-    .filter((x) => x.status === "已签署" && String(x.category || "").trim() !== "赞助收入")
-    .reduce((a, x) => a + Number(x.amount || 0), 0);
-
-  const m = modal({
-    title: `第 ${no} 步 · ${esc(step.name)}`,
-    width: "720px",
-    body: `<div class="hint" style="margin-bottom:12px">${esc(step.desc)}</div>
-      <div class="fld"><label>判定结果<span class="req">*</span></label>
-        <select name="result"><option value="通过">通过</option><option value="不通过">不通过（自动生成例外单）</option></select></div>
-      <div class="fld" style="margin-top:12px"><label>问题描述 / 备注</label>
-        <textarea name="remark" rows="3" placeholder="判定不通过时必填"></textarea></div>
-      ${sopEvidenceForm(no, d.project, { signedTotal })}`,
-    footer: `<button class="btn btn-o" data-x="0">取消</button><button class="btn btn-p" data-x="1">提交判定</button>`
-  });
-  m.querySelector('[data-x="0"]').onclick = () => m.classList.remove("open");
-  m.querySelector('[data-x="1"]').onclick = async () => {
-    const val = readForm(m);
-    val.evidence = collectSopEvidence(no, m);
-    if (val.result === "不通过" && !String(val.remark || "").trim())
-      return toast("判定不通过必须填写问题描述", "warn");
-    try {
-      const r = await api.post(`/api/projects/${d.project.id}/verify/steps/${no}`, val);
-      toast(r.message, "ok");
-      m.classList.remove("open");
-      if (typeof opt.onDone === "function") await opt.onDone();
-    } catch (e) { toast(e.message, "warn"); }
-  };
-  return m;
-}
-
 export function openStepDetail(d, no, opt = {}) {
   const s = d.verification.steps.find((x) => x.no === no);
-  const prevUnjudged = d.verification.steps.some((x) => x.no < no && !["通过","已解例外"].includes(x.result));
-  const canJudgeThis = !!opt.canJudge && !prevUnjudged;
+  // 各项独立判定：查看任意步骤详情都可直接执行本步骤判定。
+  const canJudgeThis = !!opt.canJudge && s?.required!==false;
 
   const m = modal({
     title: `第 ${no} 步 · ${esc(s.name)}`,
@@ -314,39 +143,6 @@ export function openStepDetail(d, no, opt = {}) {
         ? `<button class="btn btn-p" data-x="1">${s.result === "待判定" ? "判定" : "重新判定"}</button>`
         : ""}`
   });
-  const ocrBtn = m.querySelector("[data-step-ocr]");
-  if (ocrBtn) {
-    const out = m.querySelector("[data-step-ocr-out]");
-    const hint = m.querySelector("[data-step-ocr-hint]");
-    const label = ocrBtn.textContent;
-    ocrBtn.onclick = async () => {
-      ocrBtn.disabled = true;
-      ocrBtn.textContent = "识别中，请稍候（首次可能要十几秒）…";
-      hint.textContent = "";
-      try {
-        const r = await api.post(`/api/projects/${d.project.id}/verify/steps/${no}/ocr`, {});
-        if (r.message) { hint.textContent = r.message; return; }
-        const ok = r.items.filter((x) => !x.error).length;
-        hint.textContent = `已识别 ${ok}/${r.items.length} 份`;
-        out.innerHTML = r.items.map((it) => it.error
-          ? `<div class="fp-note" style="margin-top:10px"><b>${esc(it.kind)} · ${esc(it.name)}</b><br>识别失败：${esc(it.error)}</div>`
-          : `<details style="margin-top:10px">
-               <summary><b>${esc(it.kind)}</b> · ${esc(it.name)}
-                 <span class="dtag">${esc(it.engine)}</span>${it.cached ? '<span class="dtag">已缓存</span>' : ""}</summary>
-               <pre style="white-space:pre-wrap;max-height:240px;overflow:auto;font-size:12px;background:#f6f8fb;padding:10px;border-radius:6px">${esc(it.text || "（未识别到文字）")}</pre>
-             </details>`).join("");
-        // 姓名提取只属于第 2 步；其他步骤即使接口带了也不渲染
-        if (no === 2) renderNames(m.querySelector("[data-step-names-out]"), r.names);
-        if (no === 4) renderTopics(m.querySelector("[data-step-topics-out]"), r.topics);
-      } catch (e) {
-        hint.textContent = e.message;
-      } finally {
-        ocrBtn.disabled = false;
-        ocrBtn.textContent = label.replace(/^识别/, "重新识别");
-      }
-    };
-  }
-
   m.querySelector('[data-x="0"]').onclick = () => m.classList.remove("open");
   if (canJudgeThis && typeof opt.onJudge === "function") {
     m.querySelector('[data-x="1"]').onclick = () => {

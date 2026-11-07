@@ -1,5 +1,4 @@
 /** 统一接口层：所有页面只通过这里访问后端 */
-import { toast } from "./ui.js";
 const jsonHeaders = { "Content-Type": "application/json" };
 
 export class ApiError extends Error {
@@ -58,15 +57,7 @@ export const api = {
       xhr.onload = () => {
         let data = null;
         try { data = JSON.parse(xhr.responseText); } catch { data = null; }
-        if (xhr.status >= 200 && xhr.status < 300) {
-          // 服务端对超过上限（默认 50 MB）的原件做了自动压缩，这里明确告诉用户，
-          // 否则他会以为传上去的还是原来那份 50 MB 的文件。
-          if (data?.compressed) {
-            const mb = (n) => (Number(n || 0) / 1024 / 1024).toFixed(1);
-            toast(`文件较大，已自动压缩：${mb(data.originalSize)} MB → ${mb(data.size)} MB`, "ok");
-          }
-          return resolve(data);
-        }
+        if (xhr.status >= 200 && xhr.status < 300) return resolve(data);
         const err = data?.error || {};
         if (xhr.status === 401) window.dispatchEvent(new CustomEvent("erp:unauthorized"));
         reject(new ApiError(xhr.status, err.code || "UPLOAD_FAILED", err.message || `上传失败（${xhr.status}）`));
@@ -76,8 +67,8 @@ export const api = {
       xhr.send(file);
     });
   },
-  async download(path) {
-    const res = await request(path, { raw: true });
+  async download(path, { method = "GET", body } = {}) {
+    const res = await request(path, { raw: true, method, body });
     if (!res.ok) {
       let msg = "导出失败";
       try { msg = (await res.json()).error?.message || msg; } catch {}

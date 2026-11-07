@@ -40,7 +40,7 @@ const ROUTES = [
   { re: /^prep-invitations$/, page: prepInvitations, nav: "prep-invitations", title: "筹备管理 · 邀请函", sub: "内置模板匹配、PDF、邮件与微信小程序分享" },
   { re: /^demand$/, page: demand, nav: "demand", title: "会务需求确认", sub: "四组清单：设计 / 制作 / 现场执行 / 其他" },
   { re: /^demand\/([\w-]+)$/, page: demand, nav: "demand", title: "需求单", sub: "逐条确认会务需求" },
-  { re: /^materials$/, page: materials, nav: "materials", title: "材料中心", sub: "归档必备 8 类材料" },
+  { re: /^materials$/, page: materials, nav: "materials", title: "材料中心", sub: "材料自由登记与终版议程上传" },
   { re: /^archive$/, page: archive, nav: "archive", title: "数字卷宗", sub: "已归档项目检索与导出" },
   { re: /^audit$/, page: audit, nav: "audit", title: "审计日志", sub: "Who / When / What / Which" },
   { re: /^users$/, page: users, nav: "users", title: "用户与权限", sub: "账号、角色与数据范围" },
@@ -54,7 +54,7 @@ function parseHash() {
 
 function navHtml(active) {
   const mods = state.role?.modules || [];
-  return NAV.filter((g) => mods.includes(g.k)).map((g) => {
+  return NAV.filter((g) => mods.includes(g.k)||g.k==="dashboard").map((g) => {
     const items = g.items.filter((it) => !it.need || it.need());
     if (!items.length) return "";
     if (items.length === 1) {
@@ -158,6 +158,11 @@ async function route() {
   // 线上接口 2~3 秒，纯文字会让人以为卡死；骨架屏先把版式占住，内容一到就替换。
   box.innerHTML = skeletonHtml();
   content.replaceChildren(box);
+  if(hit.nav==="dashboard"&&!state.role?.modules?.includes("dashboard")){
+    box.innerHTML='<div class="panel" style="max-width:570px;margin:50px auto;padding:28px;text-align:center">'+
+      '<h2>账号尚未获得功能授权</h2><p class="hint" style="margin-top:10px">请联系总管理员分配可访问模块及操作权限。此页面不会展示任何业务数据。</p></div>';
+    return;
+  }
   try {
     await hit.page.render(box, hit.params, hit);
     if (seq !== routeSeq) return;
@@ -291,14 +296,9 @@ async function boot() {
 
   document.getElementById("login").style.display = "none";
   document.getElementById("app").hidden = false;
-  // 多协会管理员：显示「主协会 等 N 个协会」，否则左侧看着像只管一个协会
-  const assocList = state.user.associations || [];
-  const assocText = assocList.length > 1
-    ? ` · ${assocList[0]} 等 ${assocList.length} 个协会`
-    : (state.user.assoc ? ` · ${state.user.assoc}` : "");
   document.getElementById("sideFoot").innerHTML = `<div class="side-user">
     <div class="av">${esc(state.user.name.slice(0, 1))}</div>
-    <div><b>${esc(state.user.name)}</b><span>${esc(state.role.name)}${esc(assocText)}</span></div>
+    <div><b>${esc(state.user.name)}</b><span>${esc(state.role.name)}${state.user.assoc ? " · " + esc(state.user.assoc) : ""}</span></div>
   </div>`;
 
   if (!location.hash) location.hash = "#/dashboard";

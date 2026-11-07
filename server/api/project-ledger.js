@@ -5,13 +5,12 @@
  * 此页是读时对账视图，不更改已核销/已结算/已归档原始记录。
  */
 const { db }=require("../lib/db");
-const { assertCan }=require("../lib/rbac");
+const { assertCan,scopeFilter,assertProjectVisible }=require("../lib/rbac");
 const { getProject }=require("../lib/workflow");
-const { isIncomeCategory }=require("../lib/constants");
 const { bad, yuan, cents }=require("../lib/util");
 
 function requireAdmin(ctx) {
-  assertCan(ctx.user,"ledger:read","项目台账仅总管理员可以查看和导出");
+  assertCan(ctx.user,"ledger:read","当前账号未获项目台账权限");
 }
 const addCents=(rows,condition=()=>true)=>rows.filter(condition).reduce((sum,row)=>sum+cents(row.amount),0);
 const total=(rows,condition)=>yuan(addCents(rows,condition)/100);
@@ -37,13 +36,8 @@ const raw=(pid)=>{
 
 function summarize(x){
   const {project:p,contracts, payments,settlement,materials}=x;
-  // 台账口径与核销一致：合同总额只算支出类，收入类（赞助）合同单列，
-  // 否则「合同总额」会把赞助款也当成要付出去的钱。
-  const expenseContracts=contracts.filter(r=>!isIncomeCategory(r.category));
-  const incomeContracts=contracts.filter(r=>isIncomeCategory(r.category));
-  const signed=total(expenseContracts,r=>r.status==="已签署");
-  const signedTotal=total(expenseContracts);
-  const incomeTotal=total(incomeContracts);
+  const signed=total(contracts,r=>r.status==="已签署");
+  const signedTotal=total(contracts);
   const paid=total(payments,r=>r.status==="已付款");
   const active=total(payments,r=>r.status!=="已驳回");
   const pending=total(payments,r=>r.status==="待审批"||r.status==="已审批");
@@ -55,20 +49,16 @@ function summarize(x){
   const invoiceNumberCount=payments.filter(r=>String(r.invoice_no||"").trim()).length;
   const invoiceFileCount=materials.filter(r=>/发票/.test(r.kind)&&!!r.file_key).length;
   const paymentVoucherFiles=materials.filter(r=>/付款凭证|厂家付款凭证/.test(r.kind)&&!!r.file_key).length;
-  const contractFileCount=expenseContracts.filter(r=>!!r.file_key).length;
+  const contractFileCount=contracts.filter(r=>!!r.file_key).length;
   const warnings=[];
   if(payments.some(r=>r.status==="待审批"||r.status==="已审批")) warnings.push("仍有待审批/待支付的付款单，未完成对账");
   if(invoiceNumberCount>0 && invoiceFileCount===0) warnings.push("存在发票号码登记，但没有关联的发票原件；仅有发票号不代表发票已归档");
   if(payments.some(r=>r.type==="厂家款")) warnings.push("现有「厂家款」属于付款类型，并不能据此判定厂家款已到账；厂家付款凭证需要独立关联");
-  // 结算单支出 = 实付 + 劳务代扣税（税也要交给税务局，是真实支出）
-  const settlementTax=settlement?val(settlement.tax_withheld||0):0;
-  if(settlement && cents(settlement.expense)!==cents(paid)+cents(settlementTax))
-    warnings.push("结算单支出与「已付款 + 代扣税」不一致，请人工核对口径与时点");
-  if(expenseContracts.some(r=>r.status==="已签署"&&!r.file_key)) warnings.push("存在已签署合同但未关联电子合同原件");
+  if(settlement && cents(settlement.expense)!==cents(paid)) warnings.push("结算单支出与已付款合计不一致，请人工核对口径与时点");
+  if(contracts.some(r=>r.status==="已签署"&&!r.file_key)) warnings.push("存在已签署合同但未关联电子合同原件");
   const sums={
     budget:val(p.budget),
     contract_total:signedTotal,signed_contracts:signed,
-    income_contract_total:incomeTotal,income_contracts:incomeContracts.length,
     payment_effective:active,payment_paid:paid,payment_pending:pending,
     budget_remaining:yuan((cents(p.budget)-cents(active))/100),
     settlement_income:settlement?val(settlement.income):null,
@@ -80,14 +70,15 @@ function summarize(x){
     meeting_no:p.id,project_name:p.name,association:p.assoc,meeting_date:p.date,
     project_status:p.status,canonical_key:"projects.id",
     financial_summary:sums,payment_types:payTypes,
-    document_coverage:{contracts:expenseContracts.length,contract_original_files:contractFileCount,
-      income_contracts:incomeContracts.length,
+    document_coverage:{contracts:contracts.length,contract_original_files:contractFileCount,
       invoice_numbers:invoiceNumberCount,invoice_original_files:invoiceFileCount,
       payment_voucher_files:paymentVoucherFiles,financial_material_records:materials.length},
     warnings
   };
 }
-function buildDetail(pid){
+function buildDetail(pid,user){
+  const visible=getProject(pid);
+  if(user)assertProjectVisible(user,visible);
   const data=raw(pid);
   return {
     ...summarize(data),
@@ -130,7 +121,8 @@ function register(router){
     const page=Number(ctx.query.page||1), size=Number(ctx.query.size||30);
     if(!Number.isInteger(page)||page<1||page>100000 || !Number.isInteger(size)||size<1||size>100)
       throw bad("分页参数无效");
-    const all=db.prepare("SELECT id,name,assoc,status,date FROM projects ORDER BY date DESC,id DESC").all();
+    const scope=scopeFilter(ctx.user);
+    const all=db.prepare("SELECT id,name,assoc,status,date FROM projects p WHERE "+scope.sql+" ORDER BY date DESC,id DESC").all(...scope.params);
     const filtered=keyword?all.filter(p=>[p.id,p.name,p.assoc].some(v=>String(v||"").includes(keyword))):all;
     const rows=filtered.slice((page-1)*size,page*size).map(p=>summarize(raw(p.id)));
     return {rows,total:filtered.length,page,size,pages:Math.max(1,Math.ceil(filtered.length/size)),
@@ -138,11 +130,11 @@ function register(router){
   });
   router.get("/api/project-ledger/:meetingNo",async ctx=>{
     requireAdmin(ctx);
-    return buildDetail(ctx.params.meetingNo);
+    return buildDetail(ctx.params.meetingNo,ctx.user);
   });
   router.get("/api/project-ledger/:meetingNo/export",async ctx=>{
     requireAdmin(ctx);
-    const detail=buildDetail(ctx.params.meetingNo);
+    const detail=buildDetail(ctx.params.meetingNo,ctx.user);
     return {__csv:exportCsv(detail),__filename:detail.meeting_no+"-项目台账.csv"};
   });
 }

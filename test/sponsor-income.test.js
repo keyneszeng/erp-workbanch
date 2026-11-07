@@ -38,6 +38,42 @@ test("赞助合同/到账凭证/开票逐笔登记、授权与预算差额",asyn
  const approved=await request("POST","/api/projects/"+pid+"/income/contracts/"+c.data.id+"/decide",{approve:true},admin);
  assert.equal(approved.status,200,JSON.stringify(approved.data));
  assert.equal(approved.data.summary.contracted,10000);
+ const rightsReview=await request("PATCH","/api/projects/"+pid+"/income/contracts/"+c.data.id+"/rights",
+   {categories:["主会场背景板LOGO露出","会议手册企业鸣谢"]},exec);
+ assert.equal(rightsReview.status,200,JSON.stringify(rightsReview.data));
+ const rights=await request("GET","/api/projects/"+pid+"/sponsor-rights",undefined,exec);
+ assert.equal(rights.status,200,JSON.stringify(rights.data));
+ const matchedRights=rights.data.rights.filter(x=>x.sponsor_id===c.data.id);
+ assert.equal(matchedRights.length,2);
+ assert.ok(matchedRights.every(x=>x.confirmed===1));
+ const rid=matchedRights[0].id;
+ const photoBytes=Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLytAAAAABJRU5ErkJggg==","base64");
+ const uploadPhoto=async targetPid=>{
+   const raw=await fetch(base+"/api/uploads?pid="+encodeURIComponent(targetPid),{
+     method:"POST",headers:{Cookie:exec,"Content-Type":"application/octet-stream","X-File-Name":"rights.png"},body:photoBytes
+   });
+   const d=await raw.json();assert.equal(raw.status,200,JSON.stringify(d));return d.key;
+ };
+ const photoKey=await uploadPhoto(pid);
+ const withoutCategory=await request("POST","/api/projects/"+pid+"/materials",
+   {kind:"权益照片",name:"背景板",file_key:photoKey,file_name:"rights.png"},exec);
+ assert.equal(withoutCategory.status,400,"权益照片不允许无二级权益类目");
+ const linkedPhoto=await request("POST","/api/projects/"+pid+"/materials",
+   {kind:"权益照片",name:"背景板Logo交付照片",file_key:photoKey,file_name:"rights.png",sponsor_right_id:rid},exec);
+ assert.equal(linkedPhoto.status,200,JSON.stringify(linkedPhoto.data));
+ const overview=await request("GET","/api/projects/"+pid+"/sponsor-rights",undefined,exec);
+ assert.ok(overview.data.photos.some(x=>x.sponsor_right_id===rid&&x.file_key===photoKey));
+ const otherProject=await request("POST","/api/projects",
+   {name:"跨项目权益附件检验",assoc:"华东医学会",form:"线上",date:"2027-11-11",
+     budget:10000,owner:"陈静",agenda:"会议议程"},exec);
+ assert.equal(otherProject.status,200,JSON.stringify(otherProject.data));
+ const otherPid=otherProject.data.project.id,otherKey=await uploadPhoto(otherPid);
+ const foreignLink=await request("POST","/api/projects/"+otherPid+"/materials",
+   {kind:"权益照片",name:"跨项目冒用",file_key:otherKey,file_name:"rights.png",sponsor_right_id:rid},exec);
+ assert.equal(foreignLink.status,409,"跨项目权益ID不可直接用于别的项目");
+ const blockedDelete=await request("PATCH","/api/projects/"+pid+"/income/contracts/"+c.data.id+"/rights",
+   {categories:["会议手册企业鸣谢"]},exec);
+ assert.equal(blockedDelete.status,409,"有权益照片的二级类目不能被静默删除");
  const another=await request("POST","/api/projects/"+pid+"/income/contracts",{enterprise:"另一赞助企业",contractNo:"SP-2027-002",amount:500,file_key:await upload(exec,pid)},exec);
  assert.equal(another.status,200);
  const excess=await request("POST","/api/projects/"+pid+"/income/contracts/"+another.data.id+"/decide",{approve:true},admin);
@@ -66,32 +102,4 @@ test("赞助合同/到账凭证/开票逐笔登记、授权与预算差额",asyn
  assert.equal(state.data.contracts.length,2);assert.equal(state.data.receipts.length,1);assert.equal(state.data.invoices.length,1);
  const dup=await request("POST","/api/projects/"+pid+"/income/invoices",{sponsorId:c.data.id,amount:1,invoiceNo:"INV20270001",issuedDate:"2027-10-21",file_key:await upload(admin,pid)},admin);
  assert.equal(dup.status,409);
-});
-
-test("合同编号由系统自动编排；重号被拒；回款与发票显示同一编号",async()=>{
- const p=await request("POST","/api/projects",{name:"合同编号测试项目",assoc:"华东医学会",form:"线下",date:"2027-12-01",budget:20000,people:30,owner:"陈静",agenda:"编号测试"},exec);
- assert.equal(p.status,200,JSON.stringify(p.data));
- const pid=p.data.project.id;
-
- // 不填合同号 → 系统编排，编号与生成的记录号一致
- const c1=await request("POST","/api/projects/"+pid+"/income/contracts",
-   {enterprise:"甲公司",amount:5000,file_key:await upload(exec,pid)},exec);
- assert.equal(c1.status,200,JSON.stringify(c1.data));
- assert.ok(c1.data.contractNo,"必须返回编排好的合同编号");
- assert.match(c1.data.contractNo,/^SC-华东-\d{4}-\d{3}$/,"编号应为 SC-协会简称-年份-序号");
-
- // 手工填重号 → 409
- const dup=await request("POST","/api/projects/"+pid+"/income/contracts",
-   {enterprise:"乙公司",contractNo:c1.data.contractNo,amount:1000,file_key:await upload(exec,pid)},exec);
- assert.equal(dup.status,409,JSON.stringify(dup.data));
- assert.equal(dup.data.error.code,"CONTRACT_NO_DUPLICATE");
-
- // 签署后登记回款，列表里回款带的是同一个合同编号
- const ok=await request("POST","/api/projects/"+pid+"/income/contracts/"+c1.data.id+"/decide",{approve:true},admin);
- assert.equal(ok.status,200,JSON.stringify(ok.data));
- const rec=await request("POST","/api/projects/"+pid+"/income/receipts",
-   {sponsorId:c1.data.id,amount:1000,paymentRef:"BANK-NO-1",receivedDate:"2027-11-20",file_key:await upload(admin,pid)},admin);
- assert.equal(rec.status,200,JSON.stringify(rec.data));
- const list=await request("GET","/api/projects/"+pid+"/income",undefined,admin);
- assert.equal(list.data.receipts[0].contract_no,c1.data.contractNo,"回款的关联合同号必须与合同一致");
 });

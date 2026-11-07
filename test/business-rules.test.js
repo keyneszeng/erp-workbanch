@@ -296,9 +296,7 @@ test("待核销项目可以提交核销例外单", async () => {
 });
 
 test("已结算项目提交例外单返回 FROZEN", async () => {
-  // 2026-11-02 起总管理员可放行冻结，所以「拦得住」必须用协会管理员来验
-  await admin("PATCH", "/api/projects/MP-2026-006", { assoc: "华东医学会" });
-  const r = await assoc("POST", "/api/projects/MP-2026-006/exceptions", { step_no: 3, reason: "事后补例外" });
+  const r = await admin("POST", "/api/projects/MP-2026-006/exceptions", { step_no: 3, reason: "事后补例外" });
   assert.equal(r.status, 409);
   assert.equal(r.code, "FROZEN");
 });
@@ -306,7 +304,7 @@ test("已结算项目提交例外单返回 FROZEN", async () => {
 test("参数错误优先于阶段错误（步骤越界先报 400）", async () => {
   const r = await admin("POST", "/api/projects/MP-2026-018/exceptions", { step_no: 9, reason: "x" });
   assert.equal(r.status, 400, "参数本身错就该 400，不该被阶段 409 盖掉");
-  assert.match(r.msg, /1~6/);
+  assert.match(r.msg, /1~7/);
 });
 
 /* ---------------- 结算单一致性基线 ---------------- */
@@ -334,68 +332,44 @@ async function demandItems(c, pid) {
   return Object.entries(d.items).flatMap(([grp, arr]) => arr.map((it) => ({ ...it, grp })));
 }
 
-/**
- * 冻结只拦非总管理员（老板 2026-11-02：总管理员必须放行）。
- * 所以这一组统一用协会管理员验证「拦得住」，并先把协会对齐 ——
- * 否则会先被数据范围挡成 403，验不到冻结逻辑本身。
- */
-async function alignToAssoc(pid) {
-  await admin("PATCH", `/api/projects/${pid}`, { assoc: "华东医学会" });
-}
-
 test("已归档项目不能修改需求单", async () => {
-  await alignToAssoc(ARCHIVED);
   const items = await demandItems(admin, ARCHIVED);
-  const r = await assoc("PATCH", `/api/demand/${ARCHIVED}`, { items });
+  const r = await admin("PATCH", `/api/demand/${ARCHIVED}`, { items });
   assert.equal(r.status, 409, JSON.stringify(r.data));
   assert.equal(r.code, "ARCHIVED");
 });
 
 test("已归档项目不能重置需求单（会 DELETE 全部条目）", async () => {
-  const r = await assoc("POST", `/api/demand/${ARCHIVED}/reset`);
+  const r = await admin("POST", `/api/demand/${ARCHIVED}/reset`);
   assert.equal(r.status, 409);
   assert.equal(r.code, "ARCHIVED");
 });
 
 test("已归档项目不能确认需求单", async () => {
-  const r = await assoc("POST", `/api/demand/${ARCHIVED}/confirm`);
+  const r = await admin("POST", `/api/demand/${ARCHIVED}/confirm`);
   assert.equal(r.status, 409);
   assert.equal(r.code, "ARCHIVED");
 });
 
 test("已归档项目不能增删成员", async () => {
-  const add = await assoc("POST", `/api/projects/${ARCHIVED}/members`, { user_id: 5 });
+  const add = await admin("POST", `/api/projects/${ARCHIVED}/members`, { user_id: 5 });
   assert.equal(add.status, 409, JSON.stringify(add.data));
   assert.equal(add.code, "ARCHIVED");
-  const del = await assoc("POST", `/api/projects/${ARCHIVED}/members`, { user_id: 7, remove: true });
+  const del = await admin("POST", `/api/projects/${ARCHIVED}/members`, { user_id: 7, remove: true });
   assert.equal(del.status, 409, "删成员同样要拦，否则可以清空封存卷宗的可见人");
 });
 
 test("已结算项目不能修改需求单", async () => {
-  await alignToAssoc(SETTLED_P);
   const items = await demandItems(admin, SETTLED_P);
-  const r = await assoc("PATCH", `/api/demand/${SETTLED_P}`, { items });
+  const r = await admin("PATCH", `/api/demand/${SETTLED_P}`, { items });
   assert.equal(r.status, 409, JSON.stringify(r.data));
   assert.equal(r.code, "FROZEN");
 });
 
 test("已结算项目不能增删成员", async () => {
-  const r = await assoc("POST", `/api/projects/${SETTLED_P}/members`, { user_id: 5 });
+  const r = await admin("POST", `/api/projects/${SETTLED_P}/members`, { user_id: 5 });
   assert.equal(r.status, 409);
   assert.equal(r.code, "FROZEN");
-});
-
-test("冻结放行：同样的封存/封账项目，总管理员可以操作", async () => {
-  const items = await demandItems(admin, ARCHIVED);
-  const r = await admin("PATCH", `/api/demand/${ARCHIVED}`, { items });
-  assert.equal(r.status, 200, "总管理员改已归档项目需求单应放行：" + JSON.stringify(r.data));
-
-  const mem = await admin("POST", `/api/projects/${SETTLED_P}/members`, { user_id: 5 });
-  assert.equal(mem.status, 200, "总管理员改已结算项目成员应放行：" + JSON.stringify(mem.data));
-
-  const audit = (await admin("GET", "/api/audit?page=1&size=300")).data;
-  const rows = Array.isArray(audit) ? audit : audit.rows || [];
-  assert.ok(rows.some((x) => x.action === "冻结放行"), "放行必须写「冻结放行」审计");
 });
 
 test("待核销项目仍可正常维护需求单（冻结只针对结算/归档）", async () => {

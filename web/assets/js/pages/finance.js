@@ -1,6 +1,7 @@
 import { api, can, state } from "../lib/api.js";
 import {bindPayeePicker} from "../lib/payee-picker.js";
 import {renderIncomeWorkbench} from "../lib/income-workbench.js";
+import {renderSettlementBreakdown} from "../lib/settlement-breakdown.js";
 import { badge, bindPager, confirmBox, esc, formHtml, modal, money, pager, panel, readForm, table, toast, validate } from "../lib/ui.js";
 
 const PAGE_SIZE = 50;
@@ -62,7 +63,7 @@ export async function render(root, params = []) {
        <button class="ux-finance-tab active" data-finance-jump="fin-payments">付款申请与执行</button>
        <button class="ux-finance-tab" data-finance-jump="fin-settlements">结算与归档</button>
      </div>
-    <div class="ux-finance-rule">核销六步全部通过 → 付款申请 → 协会审批 → 财务执行 → 金额对齐后结算；发票号随付款记录核对。</div>
+    <div class="ux-finance-rule">适用核销项全部通过 → 付款申请 → 协会审批 → 财务执行 → 金额对齐后结算；发票号随付款记录核对。</div>
     <div class="panel mt" id="fin-payments">
       <div class="panel-h"><h2>付款记录</h2><div><span class="hint">共 ${pay.total} 笔</span></div></div>
       <div class="tabs">${["", "待审批", "已审批", "已付款", "已驳回"].map((x) =>
@@ -98,22 +99,24 @@ export async function render(root, params = []) {
     <div class="panel" id="fin-settlements">
       <div class="panel-h"><h2>结算单</h2><div><span class="hint">${st.total ?? st.rows.length} 张 · 生成即冻结核销结论</span></div></div>
       ${table(
-        [{ t: "结算单号", w: "112px" }, { t: "项目" }, { t: "预算", w: "96px", cls: "num" },
-         { t: "已付款", w: "110px", cls: "num" }, { t: "结余", w: "96px", cls: "num" },
-         { t: "生成人", w: "70px" }, { t: "时间", w: "120px" }],
-        st.rows.map((x) => {
-          // 结算单的 expense 含劳务代扣税，已付款 = expense − 税；明细在项目详情的「财务结算」页签
-          const tax = Number(x.tax_withheld || 0);
-          const paid = Number(x.expense) - tax;
-          return {
-            c: [`<span class="mono">${x.id}</span>`, `<a class="link" data-go="projects/${x.pid}">${esc(x.name)}</a>`,
-              `¥${money(x.income)}`,
-              `¥${money(paid)}${tax > 0
-                ? `<div style="font-size:11px;color:var(--mute)">另代扣税 ¥${money(tax)}</div>` : ""}`,
-              `<span class="${x.profit >= 0 ? "pos" : "neg"}">¥${money(x.profit)}</span>`,
-              esc(x.created_by || ""), `<span class="mono">${esc(x.created_at)}</span>`]
-          };
-        }), { empty: "暂无结算单" })}
+        [{ t: "结算单号", w: "112px" }, { t: "项目" }, { t: "收入", w: "96px", cls: "num" },
+         { t: "支出", w: "96px", cls: "num" }, { t: "结余", w: "96px", cls: "num" },
+         { t: "收款方 / 收款账户", w: "230px" },
+         { t: "生成人", w: "70px" }, { t: "时间", w: "120px" },{ t:"操作",w:"100px" }],
+        st.rows.map((x) => ({
+          c: [`<span class="mono">${x.id}</span>`, `<a class="link" data-go="projects/${x.pid}">${esc(x.name)}</a>`,
+            `¥${money(x.income)}`, `¥${money(x.expense)}`,
+            `<span class="${x.profit >= 0 ? "pos" : "neg"}">¥${money(x.profit)}</span>`,
+            // V1.2.18：结余打给谁、打到哪个账户 —— 原来这一栏整个是空的
+            `${esc(x.payee || "—")}<div style="font-size:11px;color:var(--mute)">
+              ${x.payee_account
+                ? `${esc(x.payee_bank || "")} · <span class="mono">${esc(x.payee_account)}</span>`
+                : "未登记收款账户"}
+            </div>`,
+            esc(x.created_by || ""), `<span class="mono">${esc(x.created_at)}</span>`,
+            `<button type="button" class="link" aria-expanded="false" data-settlement-detail="${esc(x.id)}">查看结算单</button>`]
+        })), { empty: "暂无结算单" })}
+      <div id="settlementDetail" aria-live="polite"></div>
     </div>
 
     <div class="foot-note">门禁说明：未通过 6 步核销的项目，付款接口会返回 <code>VERIFY_GATE</code> 并记录审计；
@@ -131,6 +134,30 @@ export async function render(root, params = []) {
   root.querySelectorAll("[data-no]").forEach((b) => b.onclick = () => act(root, b.dataset.no, "reject"));
   root.querySelectorAll("[data-pay]").forEach((b) => b.onclick = () => act(root, b.dataset.pay, "pay"));
   root.querySelectorAll("[data-acct]").forEach((b) => b.onclick = () => openAccount(root, b.dataset.acct));
+  const settleSlot=root.querySelector("#settlementDetail");
+  root.querySelectorAll("[data-settlement-detail]").forEach(button=>button.onclick=async()=>{
+    const id=button.dataset.settlementDetail;
+    if(settleSlot.dataset.active===id){
+      settleSlot.replaceChildren();
+      delete settleSlot.dataset.active;
+      button.setAttribute("aria-expanded","false");
+      return;
+    }
+    root.querySelectorAll("[data-settlement-detail]").forEach(x=>x.setAttribute("aria-expanded","false"));
+    settleSlot.dataset.active=id;
+    button.setAttribute("aria-expanded","true");
+    settleSlot.innerHTML='<div class="hint" style="padding:16px">正在读取结算单明细…</div>';
+    try{
+      const detail=await api.get("/api/settlements/"+encodeURIComponent(id)+"/breakdown");
+      if(settleSlot.dataset.active!==id)return;
+      settleSlot.innerHTML=renderSettlementBreakdown(detail);
+      settleSlot.scrollIntoView({block:"nearest",behavior:"smooth"});
+    }catch(err){
+      if(settleSlot.dataset.active!==id)return;
+      settleSlot.innerHTML='<div class="empty">结算单明细读取失败，请稍后重试</div>';
+      toast(err.message,"warn");
+    }
+  });
   const ep = root.querySelector("#expPay");
   if (ep) ep.onclick = () => dl("/api/export/payments");
   const es = root.querySelector("#expSt");
@@ -211,51 +238,33 @@ async function openPay(root, projects) {
     { k: "amount", l: "付款金额（元）", t: "number", req: 1 },
     { k: "remark", l: "备注", t: "textarea", full: 1, rows: 2 }
   ];
-  const m = modal({ title: "付款申请", body: `<div class="gate ok" style="margin-bottom:12px"><b>核销门禁</b>仅列出「已核销」项目：未核销项目不可付款，已结算项目账目已封账，已归档项目卷宗已封存。<br><b>预算门禁</b>已占用（待审批 + 已审批 + 已付款）加本笔金额超过预算时，接口返回 <code>OVER_BUDGET</code>，需总管理员特批。</div>${formHtml(fields)}
-    <div style="margin-top:10px">
-      <button type="button" class="btn btn-o btn-sm" id="bankExtract">从合同原件识别收款账户</button>
-      <span class="hint" id="bankExtractMsg" style="margin-left:8px"></span>
-    </div>
-    <div class="hint" data-payee-tip style="color:#a23b2b"></div>`,
+  const m = modal({ title: "付款申请", body: `<div class="gate ok" style="margin-bottom:12px"><b>核销门禁</b>仅列出「已核销」项目：未核销项目不可付款，已结算项目账目已封账，已归档项目卷宗已封存。<br><b>预算门禁</b>已占用（待审批 + 已审批 + 已付款）加本笔金额超过预算时，接口返回 <code>OVER_BUDGET</code>，需总管理员特批。</div><div class="hint" style="margin-bottom:10px">同项目、同付款类型、同收款方、同金额的有效付款单只允许申请一次；待审批、已审批及已付款均不可重复，已驳回可重新提交。</div>${formHtml(fields)}`,
     footer: `<button class="btn btn-o" data-x="0">取消</button><button class="btn btn-p" data-x="1">提交申请</button>` });
   await bindPayeePicker(m,projects[0].id,true);
-  // 合同台账里没录开户行/账号时，直接从合同原件里识别一遍再重新载入选项
-  m.querySelector("#bankExtract").onclick = async () => {
-    const pid = m.querySelector('[name="pid"]').value;
-    const btn = m.querySelector("#bankExtract"), msg = m.querySelector("#bankExtractMsg");
-    btn.disabled = true; btn.textContent = "识别中，请稍候…"; msg.textContent = "";
-    try {
-      const r = await api.post(`/api/projects/${encodeURIComponent(pid)}/contracts/bank-extract`, {});
-      // 失败的要逐份点名：只说「成功 N 份」时，财务不知道剩下的是缺原件还是原件认不出来
-      const bad = (r.results || []).filter(x => x.error).map(x => `${x.id}（${x.error}）`);
-      msg.textContent = `扫描 ${r.scanned} 份合同，识别成功 ${r.updated} 份` +
-        (bad.length ? `；未识别：${bad.join("、")}` : "");
-      if (r.updated) await bindPayeePicker(m, pid, false);
-    } catch (e) { msg.textContent = e.message; }
-    finally { btn.disabled = false; btn.textContent = "从合同原件识别收款账户"; }
-  };
   m.querySelector('[data-x="0"]').onclick = () => m.classList.remove("open");
-  m.querySelector('[data-x="1"]').onclick = async () => {
+  const submitButton=m.querySelector('[data-x="1"]');
+  submitButton.onclick = async () => {
     const selected=m.querySelector('[name="payee_option_id"]')?.value;
     const acct=m.querySelector('[name="payee_account"]')?.value.trim();
     const bank=m.querySelector('[name="payee_bank"]')?.value.trim();
     const rows=m.querySelector('[name="payee_option_id"]')?.__rows||[];
     const source=rows.find(x=>x.id===selected);
-    // 选中的收款方若带着已核验账号，服务端会直接解密使用，不需要再手填
-    const hasVerifiedAccount = !!(source && source.maskedAccount && !source.accountUnavailable);
     if((!source||!source.bank)&&!bank){toast("请填写收款方开户行","warn");return;}
-    if(!hasVerifiedAccount&&!acct){toast("请填写银行账号（或选择带账号的核销收款方）","warn");return;}
+    if((!source||source.source!=="labor")&&!acct){toast("请填写银行账号；合同仅提供收款方名称","warn");return;}
     if (!validate(m, fields)) return;
+    if(submitButton.disabled)return;
+    submitButton.disabled=true;
+    submitButton.textContent="提交中…";
     try {
-      const payload = readForm(m);
-      // 自动带入的是「尾号 7946」这种展示值，不是账号本身 ——
-      // 真账号由服务端按 payee_option_id 解密，这里必须去掉，否则会被当成非法账号拒掉
-      const acctEl = m.querySelector('[name="payee_account"]');
-      if (acctEl?.dataset.auto === "1") delete payload.payee_account;
-      const r = await api.post("/api/payments", payload);
+      const r = await api.post("/api/payments", readForm(m));
       toast(r.message, "ok");
       m.classList.remove("open");
       await render(root);
-    } catch (e) { toast(e.message, "warn"); }
+    } catch (e) {
+      toast(e.code==="DUPLICATE_PAYMENT"?"付款申请重复："+e.message:e.message,"warn");
+    } finally {
+      submitButton.disabled=false;
+      submitButton.textContent="提交申请";
+    }
   };
 }

@@ -1,10 +1,10 @@
 import {api,can} from "./api.js";
 import {esc,formHtml,readForm,validate,modal,toast,confirmBox,promptBox,money} from "./ui.js";
-import {bindFilePicker} from "./upload.js";
-import {fileLink} from "./file-preview.js";
+import {bindFilePicker,UPLOAD_ACCEPT,UPLOAD_TIP} from "./upload.js";
+import {openSponsorRightsEditor} from "./sponsor-rights-editor.js";
 let chosen="";
 const yuan=n=>"¥"+money(n||0);
-const link=k=>fileLink(k,"","在线查看原件");
+const link=k=>k?`<a class="link" href="/api/uploads/${encodeURIComponent(k)}" target="_blank" rel="noopener">点击原件查看</a>`:"未上传";
 export async function renderIncomeWorkbench(root,projects,requested=""){
  if(!root)return;
  if(!projects.length){root.innerHTML='<div class="panel mt">暂无可管理会议收入的项目</div>';return;}
@@ -28,26 +28,29 @@ export async function renderIncomeWorkbench(root,projects,requested=""){
      企业赞助收入不计入会务支出合同总额。
    </div>
    <div class="panel-h"><h3>赞助合同</h3>${contractEdit?'<button id="income-add-contract" class="btn btn-p btn-sm">+ 登记企业赞助合同</button>':""}</div>
-   <div class="tw"><table><thead><tr><th>企业 / 合同号</th><th>合同金额</th><th>状态</th><th>合同原件</th><th>审批／后续</th></tr></thead>
+   <div class="tw"><table><thead><tr><th>企业 / 合同号</th><th>合同金额</th><th>状态</th><th>权益二级类目</th><th>合同原件</th><th>审批／后续</th></tr></thead>
    <tbody>${d.contracts.length?d.contracts.map(x=>`<tr><td>${esc(x.enterprise)}<div class="hint">${esc(x.contract_no)}</div></td>
-     <td>${yuan(x.amount)}</td><td>${esc(x.status)}</td><td>${link(x.file_key)}</td>
+     <td>${yuan(x.amount)}</td><td>${esc(x.status)}</td>
+     <td><b>${d.rights.filter(r=>r.sponsor_id===x.id).length} 项</b> · ${esc(x.rights_scan_status||"未识别")}
+       <div class="hint">${esc(x.rights_scan_note||"")}</div>
+       ${d.rights.filter(r=>r.sponsor_id===x.id).map(r=>`<div class="hint">${esc(r.category)} · ${r.confirmed?"已确认":"待校正"}</div>`).join("")}
+       ${contractEdit&&x.status!=="已驳回"?`<button class="link" data-rights-edit="${esc(x.id)}">校对 / 自定义权益</button>`:""}</td><td>${link(x.file_key)}</td>
      <td>${x.status==="待确认"&&approve?`<button class="link" data-sponsor-approve="${esc(x.id)}">确认合同</button>
         <button class="link danger" data-sponsor-reject="${esc(x.id)}">驳回</button>`:""}
-       ${x.status==="已签署"&&finance?`<button class="link" data-sponsor-receipt="${esc(x.id)}"
-          data-contract-no="${esc(x.contract_no)}" data-enterprise="${esc(x.enterprise)}">登记回款</button>
-        <button class="link" data-sponsor-invoice="${esc(x.id)}"
-          data-contract-no="${esc(x.contract_no)}" data-enterprise="${esc(x.enterprise)}">登记开票</button>`:""}</td></tr>`).join(""):'<tr><td colspan="5">暂无企业赞助合同</td></tr>'}</tbody></table></div>
+       ${x.status==="已签署"&&finance?`<button class="link" data-sponsor-receipt="${esc(x.id)}">登记回款</button>
+        <button class="link" data-sponsor-invoice="${esc(x.id)}">登记开票</button>`:""}</td></tr>`).join(""):'<tr><td colspan="6">暂无企业赞助合同</td></tr>'}</tbody></table></div>
    <div class="panel-h"><h3>到账凭证</h3></div>
    <div class="tw"><table><thead><tr><th>到账日期</th><th>关联合同</th><th>流水编号</th><th>到账金额</th><th>银行凭证</th></tr></thead><tbody>
-   ${d.receipts.length?d.receipts.map(x=>`<tr><td>${esc(x.received_date)}</td><td>${esc(x.contract_no||x.sponsor_id)}<div class="hint">${esc(x.enterprise||"")}</div></td><td>${esc(x.payment_ref)}</td>
+   ${d.receipts.length?d.receipts.map(x=>`<tr><td>${esc(x.received_date)}</td><td>${esc(x.sponsor_id)}</td><td>${esc(x.payment_ref)}</td>
      <td>${yuan(x.amount)}</td><td>${link(x.file_key)}</td></tr>`).join(""):'<tr><td colspan="5">暂无到账记录</td></tr>'}</tbody></table></div>
    <div class="panel-h"><h3>已开具发票</h3></div>
    <div class="tw"><table><thead><tr><th>开票日期</th><th>关联合同</th><th>发票号码</th><th>开票金额</th><th>发票原件</th></tr></thead><tbody>
-   ${d.invoices.length?d.invoices.map(x=>`<tr><td>${esc(x.issued_date)}</td><td>${esc(x.contract_no||x.sponsor_id)}<div class="hint">${esc(x.enterprise||"")}</div></td><td>${esc(x.invoice_no)}</td>
+   ${d.invoices.length?d.invoices.map(x=>`<tr><td>${esc(x.issued_date)}</td><td>${esc(x.sponsor_id)}</td><td>${esc(x.invoice_no)}</td>
      <td>${yuan(x.amount)}</td><td>${link(x.file_key)}</td></tr>`).join(""):'<tr><td colspan="5">暂无开票记录</td></tr>'}</tbody></table></div>
  </section>`;
  root.querySelector("#income-project").onchange=e=>{chosen=e.target.value;renderIncomeWorkbench(root,projects).catch(err=>toast(err.message,"warn"));};
  root.querySelector("#income-add-contract")?.addEventListener("click",()=>formIncome(root,projects,"contract"));
+ root.querySelectorAll("[data-rights-edit]").forEach(b=>b.onclick=()=>openSponsorRightsEditor(root,projects,chosen,d,b.dataset.rightsEdit,renderIncomeWorkbench));
  root.querySelectorAll("[data-sponsor-approve]").forEach(b=>b.onclick=async()=>{
    try{const id=b.dataset.sponsorApprove;const ok=await confirmBox("确认该赞助合同已完成签署且金额与会议预算计划一致？",{ok:"确认签署"});
      if(!ok)return;await api.post("/api/projects/"+chosen+"/income/contracts/"+id+"/decide",{approve:true});
@@ -60,15 +63,13 @@ export async function renderIncomeWorkbench(root,projects,requested=""){
    try{await api.post("/api/projects/"+chosen+"/income/contracts/"+id+"/decide",{approve:false,reason});
      toast("合同已驳回","ok");await renderIncomeWorkbench(root,projects);}catch(e){toast(e.message,"warn");}
  });
- root.querySelectorAll("[data-sponsor-receipt]").forEach(b=>b.onclick=()=>formIncome(root,projects,"receipt",
-   b.dataset.sponsorReceipt,b.dataset.contractNo,b.dataset.enterprise));
- root.querySelectorAll("[data-sponsor-invoice]").forEach(b=>b.onclick=()=>formIncome(root,projects,"invoice",
-   b.dataset.sponsorInvoice,b.dataset.contractNo,b.dataset.enterprise));
+ root.querySelectorAll("[data-sponsor-receipt]").forEach(b=>b.onclick=()=>formIncome(root,projects,"receipt",b.dataset.sponsorReceipt));
+ root.querySelectorAll("[data-sponsor-invoice]").forEach(b=>b.onclick=()=>formIncome(root,projects,"invoice",b.dataset.sponsorInvoice));
 }
-function formIncome(root,projects,type,sponsorId="",contractNo="",enterprise=""){
+function formIncome(root,projects,type,sponsorId=""){
  const defs={
   contract:{title:"企业赞助合同录入",url:"contracts",fields:[
-    {k:"enterprise",l:"赞助企业名称",req:1},
+    {k:"enterprise",l:"赞助企业名称",req:1},{k:"contractNo",l:"合同编号",req:1},
     {k:"amount",l:"赞助合同金额（元）",t:"number",req:1}]},
   receipt:{title:"登记到账凭证",url:"receipts",fields:[
     {k:"amount",l:"实际到账金额（元）",t:"number",req:1},{k:"paymentRef",l:"银行回款流水号",req:1},
@@ -78,13 +79,10 @@ function formIncome(root,projects,type,sponsorId="",contractNo="",enterprise="")
     {k:"issuedDate",l:"开票日期",t:"date",req:1}]}
  };
  const cfg=defs[type];
- const fields=[...cfg.fields,{k:"file",l:"佐证原件（必需）",t:"file",full:1,
-   accept:".jpg,.png,.pdf,.ppt,.pptx,.xlsx,.docx",tip:"必须上传合同原件、银行回款凭证或开票原件（单份≤50MB）"}];
- // 合同号由系统编排；回款/开票要明确显示关联的是哪份合同，避免录错
- const hint=type==="contract"
-   ? `<div class="hint" style="margin-bottom:10px">合同编号由系统自动编排（SC-协会简称-年份-序号，如 SC-内分泌-2026-001），提交后生成；回款与发票都会自动带上同一个编号。</div>`
-   : `<div class="hint" style="margin-bottom:10px">关联合同：<b>${esc(contractNo||sponsorId)}</b>${enterprise?` · ${esc(enterprise)}`:""}</div>`;
- const modalEl=modal({title:cfg.title,width:"640px",body:hint+formHtml(fields),
+ const fields=[...cfg.fields,...(type==="contract"?[{k:"rightsCategories",l:"权益二级类目（可选：每行一项；留空自动识别PDF/图片合同）",t:"textarea",rows:3,
+   ph:"主会场背景板LOGO露出；企业展位展示",full:1}]:[]),{k:"file",l:"佐证原件（必需）",t:"file",full:1,
+   accept:UPLOAD_ACCEPT,tip:UPLOAD_TIP+" 必须上传可核对的合同、回款或开票原件。"}];
+ const modalEl=modal({title:cfg.title,width:"640px",body:formHtml(fields),
     footer:'<button class="btn btn-o" data-cancel>取消</button><button class="btn btn-p" data-save>提交</button>'});
  let picked=null;
  bindFilePicker(modalEl,"file",(f,err)=>{picked=err?null:f;if(err)toast(err,"warn");});
@@ -97,10 +95,18 @@ function formIncome(root,projects,type,sponsorId="",contractNo="",enterprise="")
      const values=readForm(modalEl);
      const saved=await api.upload(picked,{pid:chosen});
      const body={...values,file_key:saved.key,file_name:saved.name,...(sponsorId?{sponsorId}:{})};
-     const r=await api.post("/api/projects/"+chosen+"/income/"+cfg.url,body);
-     toast(type==="contract"?`赞助合同已登记，合同编号 ${r.contractNo}`:"收入资料已登记","ok");
+     if(type==="contract"){
+       const manual=String(body.rightsCategories||"").split(/[\n；;]+/).map(s=>s.trim()).filter(Boolean);
+       if(manual.length)body.rightsCategories=manual;else delete body.rightsCategories;
+     }
+     const result=await api.post("/api/projects/"+chosen+"/income/"+cfg.url,body);
+     toast(type==="contract"?"合同已登记，权益识别状态："+result.rightsScanStatus:"收入资料已登记","ok");
      modalEl.classList.remove("open");
      await renderIncomeWorkbench(root,projects);
+     if(type==="contract"){
+       const data=await api.get("/api/projects/"+chosen+"/income");
+       openSponsorRightsEditor(root,projects,chosen,data,result.id,renderIncomeWorkbench);
+     }
    }catch(e){toast(e.message,"warn");btn.disabled=false;}
  };
 }

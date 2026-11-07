@@ -54,6 +54,10 @@ test("Wechat production: verified binding, mobile bearer access, RBAC, reset and
   let created=await req("POST","/api/users",{phone:STAFF,name:"小程序员工",role:"user"},{Cookie:adminCookie});
   assert.equal(created.status,200,JSON.stringify(created.body));
   const staffId=created.body.user.id;
+  // 新用户不因role=user自动获得项目模块访问；此例由总管理员显式授权。
+  const enabled=await req("PATCH","/api/users/"+staffId+"/access",
+    {modules:["projects"],permissions:[]},{Cookie:adminCookie});
+  assert.equal(enabled.status,200,JSON.stringify(enabled.body));
   const code="test_worker_123456";
   assert.equal((await req("POST","/api/mini/auth/login",{code})).body.error.code,"WECHAT_UNBOUND");
   assert.equal((await req("POST","/api/mini/auth/sms/send",{phone:STAFF,password:"incorrect"})).status,401);

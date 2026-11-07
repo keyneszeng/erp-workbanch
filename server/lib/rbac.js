@@ -1,6 +1,5 @@
 "use strict";
 const { forbidden } = require("./util");
-const { isDemoMode } = require("./runtime");
 
 /**
  * 角色定义 —— 与演示版 V1.0.2 一致
@@ -14,70 +13,58 @@ const ROLES = {
   },
   assoc: {
     name: "协会管理员", short: "协会", scope: "本协会", super: false,
-    modules: ["dashboard", "projects", "prep", "demand", "exec", "materials", "verify", "finance", "archive", "audit"],
+    modules: [],
     desc: "本协会项目全流程 + 审计查阅"
   },
   exec: {
     name: "会务执行人员", short: "执行", scope: "授权会议", super: false,
-    modules: ["dashboard", "projects", "prep", "demand", "exec", "materials", "verify"],
+    modules: [],
     desc: "被授权会议的执行、材料与核销取证"
   },
   finance: {
     name: "财务与核销", short: "财务", scope: "授权项目", super: false,
-    modules: ["dashboard", "projects", "prep", "exec", "materials", "verify", "finance", "archive"],
+    modules: [],
     desc: "核销判定、付款审批、结算与归档"
   },
   user: {
     name: "普通用户 / 嘉宾", short: "用户", scope: "本人数据", super: false,
-    modules: ["dashboard", "projects"],
+    modules: [],
     desc: "仅本人相关的会议与材料"
   }
 };
 
 /** 动作级权限：动作 -> 允许的角色（admin 恒通过） */
+/** 权限目录：各业务角色默认无权限，总管理员恒拥有全部。 */
 const PERMS = {
-  "project:create": ["assoc", "exec"],
-  "project:approve": ["assoc"],
-  /**
-   * 项目状态推进：只包含「进入筹备 / 进入执行 / 提交核销」三个动作。
-   *
-   * 财务不在其中。财务的职责是核销判定、付款、结算 —— 分别走
-   * verify:conclude / payment:pay / settle:create，与本权限无关。
-   * 原来把 finance 放在这里，等于允许财务替会务执行把会议推进到「执行中」
-   * 甚至替执行人「提交核销」，审批链上的责任人就不再是实际做事的人。
-   * 协会管理员保留该权限，用于执行人缺席时兜底。
-   */
-  "project:transition": ["assoc", "exec"],
-  "project:change": ["assoc", "exec"],
-  /**
-   * 变更落账：把已审批的变更真正写进项目（含预算）。
-   *
-   * 单独一个权限，是因为它必须能交给「申请人 / 审批人以外」的人 ——
-   * 老板要求的双人复核是「批的人不落账、提的人不落账」。
-   * 如果沿用 project:approve（只有协会 + 超管），
-   * 「协会提交 → 超管审批」这种最常见的组合就没人能落账了，流程会卡死。
-   */
-  "change:execute": ["assoc", "exec", "finance"],
-  "project:member": ["assoc"],
-  "contract:write": ["assoc", "exec"],
-  "invite:manage": ["assoc", "exec"],
-  "contract:approve": ["assoc"],
-  "demand:write": ["assoc", "exec"],
-  "payment:create": ["assoc", "exec", "finance"],
-  "payment:approve": ["assoc"],
-  "payment:pay": ["finance"],
-  "verify:check": ["assoc", "exec", "finance"],
-  "verify:exception": ["assoc", "exec"],
-  "verify:exception_approve": ["finance"],
-  "verify:conclude": ["finance"],
-  "settle:create": ["finance"],
-  "archive:write": ["assoc", "finance"],
-  "material:write": ["assoc", "exec", "finance"],
-  "audit:read": ["assoc"],
-  "export:any": ["assoc", "exec", "finance"],
+  "project:create": [],
+  "project:approve": [],
+  "project:transition": [],
+  "project:change": [],
+  "project:edit": [],
+  "mini:apply": [],
+  "change:execute": [],
+  "project:member": [],
+  "contract:write": [],
+  "invite:manage": [],
+  "contract:approve": [],
+  "demand:write": [],
+  "payment:create": [],
+  "payment:approve": [],
+  "payment:pay": [],
+  "verify:check": [],
+  "verify:exception": [],
+  "verify:exception_approve": [],
+  "verify:conclude": [],
+  "settle:create": [],
+  "archive:write": [],
+  "material:write": [],
+  "material:file:replace": [],
+  "audit:read": [],
+  "export:any": [],
   "user:manage": [],
   "setting:write": [],
-  "ledger:read": []
+  "ledger:read": [],
+  "archive:download": [],
 };
 
 const MODULES = [
@@ -117,9 +104,11 @@ function canVisitNav(user, nav) {
   if (!user || !ROLES[user.role]) return false;
   const need = NAV_MODULE[nav];
   if (!need) return false;
-  if (!ROLES[user.role].modules.includes(need)) return false;
-  if (nav === "project-ledger") return isSuper(user);
+  if (nav === "dashboard" && !hasModule(user,"dashboard")) return true; // 安全待授权页
+  if (!hasModule(user,need)) return false;
+  if (nav === "project-ledger") return can(user,"ledger:read");
   if (nav === "prep-invitations") return can(user, "invite:manage");
+  if (nav === "users") return isSuper(user) || can(user,"user:manage");
   if (nav === "approvals") {
     return can(user, "project:approve") || can(user, "verify:exception_approve") || can(user, "payment:approve");
   }
@@ -130,7 +119,8 @@ function canVisitNav(user, nav) {
 function hasModule(user, key) {
   if (!user || !ROLES[user.role]) return false;
   if (isSuper(user)) return true;
-  return ROLES[user.role].modules.includes(key);
+  if (!MODULES.some(m=>m.k===key)) return false;
+  return !!require("./db").db.prepare("SELECT 1 FROM user_module_grants WHERE user_id=? AND module=?").get(user.id,key);
 }
 
 /**
@@ -154,12 +144,12 @@ function assertModule(user, key, perm, msg) {
 const isSuper = (user) => !!(user && ROLES[user.role] && ROLES[user.role].super);
 
 function can(user, perm) {
-  if (!user) return false;
-  if (isSuper(user)) return true;
-  // Historical demo finance approvals stay available for QA; production approval belongs to association managers.
-  if (perm === "payment:approve" && isDemoMode() && user.role === "finance") return true;
-  const allow = PERMS[perm];
-  return Array.isArray(allow) && allow.includes(user.role);
+  if (!user || !ROLES[user.role] || !Object.prototype.hasOwnProperty.call(PERMS,perm))return false;
+  if (isSuper(user))return true;
+  // 后端实时查询，不能通过旧登录状态或直接访问API绕过新授权。
+  return !!require("./db").db.prepare(
+    "SELECT 1 FROM user_permission_grants WHERE user_id=? AND permission=?"
+  ).get(user.id,perm);
 }
 
 function assertCan(user, perm, msg) {

@@ -1,6 +1,7 @@
 import { api, can, state } from "../lib/api.js";
 import { badge, confirmBox, esc, modal, money, panel, readForm, table, toast } from "../lib/ui.js";
-import { exStepLabel, openStepDetail, openJudgeModal } from "../lib/verify-detail.js";
+import { exStepLabel, openStepDetail } from "../lib/verify-detail.js";
+import {openOcrJudge} from "../lib/verify-ocr-judge.js";
 
 export async function render(root, params) {
   if (params && params[0]) return renderOne(root, params[0]);
@@ -13,7 +14,7 @@ async function renderList(root) {
   const pending = rows.filter((p) => p.status === "待核销").length;
 
   root.innerHTML = `<div class="phead">
-      <div><h2>核销看板</h2><p>6 步 SOP 顺序判定 · 例外单闭环 · 核销是付款的唯一前置门</p></div>
+      <div><h2>核销看板</h2><p>核销项任意顺序办理 · 第5项按劳务表、第6项按会务需求、第7项按已签赞助合同自动决定是否必核</p></div>
       <div class="acts">${can("export:any") ? '<button class="btn btn-o" id="exp">导出核销明细</button>' : ""}</div>
     </div>
     <div class="grid g4">
@@ -28,13 +29,14 @@ async function renderList(root) {
          { t: "核销进度", w: "150px" }, { t: "例外单", w: "76px" }, { t: "结算单", w: "112px" }, { t: "操作", w: "96px" }],
         rows.map((p) => {
           const passed = p.v_passed || 0;
-          const pct = Math.round((passed / 6) * 100);
+          const total = p.v_total || 4;
+          const pct = Math.round((passed / total) * 100);
           return {
             c: [`<span class="mono">${p.id}</span>`, esc(p.name), `<span class="mono">${esc(p.date)}</span>`, badge(p.status),
               `<div style="display:flex;align-items:center;gap:8px">
                  <div style="flex:1;height:6px;background:#eef2f7;border-radius:4px;overflow:hidden">
-                   <div style="width:${pct}%;height:100%;background:${passed === 6 ? "var(--green)" : "var(--blue)"}"></div></div>
-                 <b style="font-size:12px" class="num">${passed}/6</b></div>`,
+                   <div style="width:${pct}%;height:100%;background:${passed === total ? "var(--green)" : "var(--blue)"}"></div></div>
+                 <b style="font-size:12px" class="num">${passed}/${total}</b></div>`,
               p.ex_open ? `<span class="badge b-orange">${p.ex_open} 待审批</span>` : '<span style="color:var(--mute)">—</span>',
               p.st_id ? `<span class="mono">${p.st_id}</span>` : '<span style="color:var(--mute)">未生成</span>',
               `<div class="tacts"><button class="link" data-go="verify/${p.id}">核销</button>
@@ -54,7 +56,7 @@ async function renderOne(root, pid) {
   const p = d.project;
   const v = d.verification;
   const frozen = !!d.settlement;
-  // V1.2.19：材料 8 类齐备才开启核销
+  // 任何已上传材料原件满足流程材料门槛；核销六步与财务验证仍独立进行
   const materialReady = d.materialsStatus.ok;
   const canJudge = can("verify:check") && !frozen && materialReady
     && (p.status === "待核销" || (p.status === "已核销" && state.super));
@@ -68,23 +70,18 @@ async function renderOne(root, pid) {
       <button class="btn btn-o" data-go="projects/${p.id}">项目详情</button>
       ${can("verify:conclude") && p.status === "待核销"
         ? `<button class="btn ${v.complete && materialReady ? "btn-g" : "btn-o"}" id="passBtn"
-             ${v.complete && materialReady ? "" : `disabled title="${materialReady ? "6 步未全部通过，或存在未决例外单" : "材料 8 类未齐备，核销未开启"}"`}>核销通过</button>` : ""}
+             ${v.complete && materialReady ? "" : `disabled title="${materialReady ? "适用的核销项目未全部通过，或存在未决例外单" : "请至少上传一份材料附件"}"`}>核销通过</button>` : ""}
     </div>
   </div>
 
-  ${materialReady ? "" : (["已核销", "已结算", "已归档"].includes(p.status)
-    ? `<div class="gate" style="margin-bottom:12px"><b>材料还缺 ${d.materialsStatus.missing.length} 类</b>
-        核销已完成，缺料只影响归档：${esc(d.materialsStatus.missing.join("、"))}。
-        <a class="link" data-go="projects/${p.id}">去项目详情的材料页签登记 →</a></div>`
-    : `<div class="gate" style="margin-bottom:12px"><b>核销未开启：材料还缺 ${d.materialsStatus.missing.length} 类</b>
-        必须先完成材料 8 项录入才能判定（缺：${esc(d.materialsStatus.missing.join("、"))}）。
-        <a class="link" data-go="projects/${p.id}">去项目详情的材料页签登记 →</a></div>`)}
+  ${materialReady ? "" : `<div class="gate" style="margin-bottom:12px"><b>尚无已上传材料原件</b>
+    任意类别（含「权益照片」）上传至少一份有效附件即可满足材料条件，无需凑齐固定类别。
+    <a class="link" data-go="projects/${p.id}">去项目详情的材料页签登记 →</a></div>`}
   <div class="panel">
-    <div class="panel-h"><h2>6 步核销 SOP · 严格按顺序，通过后解锁结算</h2>
-      <div><span class="hint">已通过 ${v.passed}/6${v.openExceptions ? ` · ${v.openExceptions} 张例外单待处理或待复核` : ""}</span></div></div>
+    <div class="panel-h"><h2>核销 SOP · OCR扫描原件 → 智能比对 → 人工判定（无需再次录入表单）</h2>
+      <div><span class="hint">已通过 ${v.passed}/${v.total} 项必核${v.openExceptions ? ` · ${v.openExceptions} 张例外单待处理或待复核` : ""}</span></div></div>
     <div class="vsteps">${v.steps.map((s) => {
       const cls = ["通过", "已解例外"].includes(s.result) ? "s-pass" : s.result === "不通过" ? "s-fail" : "s-wait";
-      const prevUnjudged = v.steps.some((x) => x.no < s.no && !["通过","已解例外"].includes(x.result));
       return `<div class="vstep ${cls}">
         <div class="vh"><span class="no">${s.no}</span><span class="nm">${esc(s.name)}</span><span class="who">${esc(s.who)}</span></div>
         <div class="desc">${esc(s.desc)}</div>
@@ -94,8 +91,8 @@ async function renderOne(root, pid) {
           ${s.evidence ? `<span class="hint">· 结构化核验已留痕</span>` : ""}
           <div style="flex:1"></div>
           <button class="btn btn-o btn-sm" data-detail="${s.no}">详情</button>
-          ${canJudge && s.result === "待判定" ? `<button class="btn btn-o btn-sm" data-judge="${s.no}" ${prevUnjudged ? 'disabled title="必须按顺序判定"' : ""}>判定</button>` : ""}
-          ${canJudge && s.result !== "待判定" ? `<button class="btn btn-o btn-sm" data-judge="${s.no}">重新判定</button>` : ""}
+          ${canJudge && s.required!==false && s.result === "待判定" ? `<button class="btn btn-o btn-sm" data-judge="${s.no}">判定</button>` : ""}
+          ${canJudge && s.required!==false && s.result !== "待判定" ? `<button class="btn btn-o btn-sm" data-judge="${s.no}">重新判定</button>` : ""}
         </div></div>`;
     }).join("")}</div>
     ${frozen ? '<div class="gate ok" style="margin-top:12px"><b>结论已冻结</b>结算单已生成，核销结论不可修改。</div>' : ""}
@@ -115,13 +112,12 @@ async function renderOne(root, pid) {
         ? `<span class="hint">已整改，请回第 ${e.step_no} 步复核</span>` : "—"] })),
     { empty: "无例外单" }))}
 
-  ${panel("材料齐备情况（核销前置）", `${8 - d.materialsStatus.missing.length}/8`, `<div class="chips">
-    ${d.materialsStatus.required.map((k) => `<span class="chip" style="${d.materialsStatus.have.includes(k) ? "border-color:#c9e8d4;background:#f4fbf6" : "border-color:#efdcc8;background:#fdf7f1"}">
-      <i>${d.materialsStatus.have.includes(k) ? "✅" : "⛔"}</i><b>${esc(k)}</b></span>`).join("")}</div>
-    ${d.materialsStatus.missing.length
-      ? `<div class="gate"><b>还缺 ${d.materialsStatus.missing.length} 类</b>${d.materialsStatus.missing.join("、")}
-         —— 材料 8 类齐备才开启核销；归档同样要求 8/8，这一关过了后面不用再补</div>`
-      : `<div class="gate ok"><b>材料 8/8 齐备</b>核销前置已满足。</div>`}`)}`;
+  ${panel("材料上传情况", `已上传 ${d.materialsStatus.uploadedCount || 0} 份附件`,
+    `<div class="chips">${d.materialsStatus.have.map(k=>`<span class="chip"><i>✓</i><b>${esc(k)}</b></span>`).join("")}</div>
+    ${d.materialsStatus.ok
+      ? '<div class="gate ok"><b>材料条件已满足</b>可以继续核销流程；无需固定类别齐全。</div>'
+      : '<div class="gate"><b>还没有有效上传附件</b>请先上传至少一份任意类别的材料。</div>'}`)}
+  `;
 
   root.querySelectorAll("[data-judge]").forEach((b) => b.onclick = () => openJudge(root, pid, Number(b.dataset.judge), d));
   root.querySelectorAll("[data-detail]").forEach((b) => b.onclick = () =>
@@ -140,10 +136,7 @@ async function renderOne(root, pid) {
   };
 }
 
-function openJudge(root, pid, no, d) {
-  // 与项目详情页共用同一份判定弹窗（含结构化核验表单）
-  openJudgeModal(d, no, { onDone: () => render(root, [pid]) });
-}
+function openJudge(root,pid,no,d){return openOcrJudge(pid,no,d,()=>render(root,[pid]));}
 
 async function decideEx(root, pid, id, ok) {
   const m = modal({
