@@ -107,7 +107,7 @@ test("普通协会管理员勾选一个类目，PDF仅含封面+原件2页，且
 });
 test("多类合并且Office/TXT等非可视格式保留原件附件与提示页",async()=>{
  const doc=await pdfOf(await post("admin",pid,["签到表","合同","会务说明"]));
- assert.equal(doc.getPageCount(),5,"封面1+签到2+合同2+说明1? (合同源含2页)"); 
+ assert.equal(doc.getPageCount(),6,"封面1+签到2+合同2+非可视附件说明1"); 
  const name=doc.getKeywords()||"";
  assert.match(name,/source-count:3/);
  stampOnEveryPage(doc);
