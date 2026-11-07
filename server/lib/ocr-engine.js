@@ -18,7 +18,7 @@ async function execNative(program,args,opts={}){
 }
 function cleanText(x){return String(x||"").replace(/\0/g,"").replace(/\r\n?/g,"\n").replace(/[\x01-\x08\x0b\x0c\x0e-\x1f]/g,"").trim().slice(0,30000);}
 /* ───────────────────────── OCR 引擎：RapidOCR ─────────────────────────
- * 只用 RapidOCR（PP-OCR 的 ONNXRuntime 版），纯 CPU、离线运行。
+ * 只用统一维护的 rapidocr Python 包 + ONNX Runtime CPU，离线运行。
  * 原件不出服务器，也不需要 GPU 或云 API。
  *
  * 只负责「原件 → 带列分隔的文本」。下游 parseAgendaRows / extractNames /
@@ -27,11 +27,11 @@ function cleanText(x){return String(x||"").replace(/\0/g,"").replace(/\r\n?/g,"\
  */
 /**
  * 缓存里的识别结果是不是当前引擎产出的。
- * 历史上用过 tesseract，旧缓存的 engine 是 "Tesseract ..."；
- * 切到 RapidOCR 后必须重识别，否则用户会以为「换了引擎却没生效」。
+ * 历史上用过 tesseract 和旧 rapidocr_onnxruntime；
+ * 升级 RapidOCR 后必须重识别图像；PDF 文本层可直接复用。
  */
 function providerMatches(engine){
-  return String(engine||"").includes("RapidOCR");
+  return engine==="RapidOCR (rapidocr/ONNXRuntime)" || engine==="Poppler pdftotext";
 }
 /**
  * PDF 扫描页渲染成 PNG。
@@ -48,7 +48,7 @@ async function renderPdf(dir,file,pages,exec,scale=3600){
   return files.slice(0,MAX_PAGES).map(n=>path.join(dir,n));
 }
 /**
- * RapidOCR：PP-OCR 的 ONNXRuntime 版，纯 CPU，不用 GPU。
+ * RapidOCR：统一 Python 包，ONNX Runtime CPU，不用 GPU。
  *
  * 相比 tesseract 的三个优势（同一张议程表实测）：
  *   1) 中文错字少：东莞市不会被读成「莞市」，讲者「徐一劲」不再变噪声
@@ -106,6 +106,7 @@ async function recognizeRapid(file,dir,ext,pages,exec){
     }
     let data;
     try{data=JSON.parse(out);}catch{throw fail("OCR_PROVIDER_FAILED","RapidOCR 返回了无法解析的结果",503);}
+    if(!data||!Array.isArray(data.items)&&!data.error)throw fail("OCR_PROVIDER_FAILED","RapidOCR 返回结果格式错误",503);
     if(data.error)throw fail("OCR_PROVIDER_FAILED","RapidOCR 失败："+data.error,503);
     return rapidItemsToText(data.items);
   };
@@ -113,9 +114,9 @@ async function recognizeRapid(file,dir,ext,pages,exec){
     const chunks=[];
     // RapidOCR 检测模型会把长边缩到 ~960px，渲染 2400px 足够，再大只是白等
     for(const img of await renderPdf(dir,file,pages,exec,2400))chunks.push(await runOne(img));
-    return {text:cleanText(chunks.join("\n")),mode:"pdf-ocr",engine:"RapidOCR (PP-OCR)"};
+    return {text:cleanText(chunks.join("\n")),mode:"pdf-ocr",engine:"RapidOCR (rapidocr/ONNXRuntime)"};
   }
-  return {text:cleanText(await runOne(file)),mode:"ocr",engine:"RapidOCR (PP-OCR)"};
+  return {text:cleanText(await runOne(file)),mode:"ocr",engine:"RapidOCR (rapidocr/ONNXRuntime)"};
 }
 async function recognize(buffer,ext,opts={}){
   if(!enabled())throw fail("OCR_DISABLED","OCR 尚未启用，请在 ECS 设置 ERP_OCR_ENABLED=1");
