@@ -33,7 +33,7 @@ export async function render(root) {
             s ? `<span class="${s.profit >= 0 ? "pos" : "neg"}">¥${money(s.profit)}</span>` : "—",
             `<span class="mono">${esc(p.status_at || "")}</span>`,
             `<button class="link" data-go="projects/${p.id}">查看</button>` +
-              (canDownloadArchivePdf(p) ? ` <button class="link" data-archive-pdf="${p.id}">资料下载</button>` : "")] };
+              (canDownloadArchivePdf(p) ? ` <button class="link" data-archive-pdf="${p.id}">材料下载</button>` : "")] };
         }), { empty: "暂无归档项目" })}
     </div>
 

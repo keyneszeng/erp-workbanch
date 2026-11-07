@@ -320,10 +320,10 @@ function register(router) {
     if (paging) {
       total = countOf(db.prepare(`SELECT COUNT(*) AS c ${base}`).get(...params));
       rows = db.prepare(
-        `SELECT m.*, p.name AS pname, p.status AS pstatus, sr.category AS sponsor_right_category, sc.enterprise AS sponsor_enterprise ${base} ORDER BY m.id DESC LIMIT ? OFFSET ?`
+        `SELECT m.*, p.name AS pname, p.status AS pstatus, p.assoc AS passoc, sr.category AS sponsor_right_category, sc.enterprise AS sponsor_enterprise ${base} ORDER BY m.id DESC LIMIT ? OFFSET ?`
       ).all(...params, paging.size, paging.offset);
     } else {
-      rows = db.prepare(`SELECT m.*, p.name AS pname, p.status AS pstatus, sr.category AS sponsor_right_category, sc.enterprise AS sponsor_enterprise ${base} ORDER BY m.id DESC`).all(...params);
+      rows = db.prepare(`SELECT m.*, p.name AS pname, p.status AS pstatus, p.assoc AS passoc, sr.category AS sponsor_right_category, sc.enterprise AS sponsor_enterprise ${base} ORDER BY m.id DESC`).all(...params);
       total = rows.length;
     }
 
