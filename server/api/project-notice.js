@@ -9,7 +9,8 @@ const notices=require("../lib/project-notice");
 function scoped(ctx) {
   const project=getProject(ctx.params.id);
   assertProjectVisible(ctx.user,project);
-  if(!hasModule(ctx.user,"projects")&&!can(ctx.user,"project:approve"))throw forbidden("当前账号未获内部项目函件查看权限");
+  if(!["project:create","project:transition","project:change","project:approve"].some(k=>can(ctx.user,k)))
+    throw forbidden("当前账号未获内部立项函件查看权限");
   return project;
 }
 function manager(ctx,project) {
