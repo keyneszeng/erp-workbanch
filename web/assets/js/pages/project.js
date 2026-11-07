@@ -806,12 +806,13 @@ async function openPay(root, pid, d) {
   ];
   const m = modal({
     title: "付款申请",
-    body: `<div class="gate ok" style="margin-bottom:12px"><b>核销门禁已通过</b>项目「${esc(d.project.name)}」当前状态「${d.project.status}」，允许付款。</div>${formHtml(fields)}`,
+    body: `<div class="gate ok" style="margin-bottom:12px"><b>核销门禁已通过</b>项目「${esc(d.project.name)}」当前状态「${d.project.status}」，允许付款。</div><div class="hint" style="margin-bottom:10px">同项目、同付款类型、同收款方、同金额的有效付款单只允许申请一次；待审批、已审批及已付款均不可重复，已驳回可重新提交。</div>${formHtml(fields)}`,
     footer: `<button class="btn btn-o" data-x="0">取消</button><button class="btn btn-p" data-x="1">提交申请</button>`
   });
   await bindPayeePicker(m,pid,false);
   m.querySelector('[data-x="0"]').onclick = () => m.classList.remove("open");
-  m.querySelector('[data-x="1"]').onclick = async () => {
+  const submitButton=m.querySelector('[data-x="1"]');
+  submitButton.onclick = async () => {
     const selected=m.querySelector('[name="payee_option_id"]')?.value;
     const acct=m.querySelector('[name="payee_account"]')?.value.trim();
     const bank=m.querySelector('[name="payee_bank"]')?.value.trim();
@@ -820,13 +821,21 @@ async function openPay(root, pid, d) {
     if((!source||!source.bank)&&!bank){toast("请填写收款方开户行","warn");return;}
     if((!source||source.source!=="labor")&&!acct){toast("请填写银行账号；合同仅提供收款方名称","warn");return;}
     if (!validate(m, fields)) return;
+    if(submitButton.disabled)return;
+    submitButton.disabled=true;
+    submitButton.textContent="提交中…";
     try {
       const r = await api.post("/api/payments", { ...readForm(m), pid });
       toast(r.message, "ok");
       m.classList.remove("open");
       tab = "payments";
       await refresh(root, pid);
-    } catch (e) { toast(e.message, "warn"); }
+    } catch (e) {
+      toast(e.code==="DUPLICATE_PAYMENT"?"付款申请重复："+e.message:e.message,"warn");
+    } finally {
+      submitButton.disabled=false;
+      submitButton.textContent="提交申请";
+    }
   };
 }
 

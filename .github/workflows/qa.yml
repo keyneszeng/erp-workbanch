@@ -52,6 +52,8 @@ jobs:
           node --check miniprogram/pages/materials/index.js
           node --check miniprogram/pages/account/index.js
           node --check server/api/finance.js
+          node --check server/lib/db.js
+          node --check test/payment-duplicate.test.js
           node --input-type=module --check < web/assets/js/lib/contract-detail.js
           node --input-type=module --check < web/assets/js/pages/contracts.js
           node --check server/api/verify.js
