@@ -115,13 +115,15 @@ ECS 的 `production.env` 默认 `ERP_MINIPROGRAM_ENABLED=0`；上线小程序前
 
 ## 离线 OCR 与终版议程自动提取（RapidOCR）
 
-本功能使用 **RapidOCR**（PP-OCR 的 ONNXRuntime 版）和 Poppler，纯 CPU、离线运行，**不将材料原件发送到第三方识别服务**。**仅在阿里云 ECS Linux + Node 22 环境启用**，Cloudflare 演示版仍使用人工录入，且禁用 OCR 原生子进程。
+本功能使用 **RapidOCR 统一 Python 包**（`rapidocr>=3.10,<4` + `onnxruntime`）和 Poppler，纯 CPU、离线运行，**不将材料原件发送到第三方识别服务**。**仅在阿里云 ECS Linux + Node 22 环境启用**，Cloudflare 演示版仍使用人工录入，且禁用 OCR 原生子进程。
 
 ```bash
 sudo apt-get update
 sudo apt-get install -y poppler-utils
-# RapidOCR 装在独立 venv（约 450 MB），只装一次
-bash deploy/aliyun/install-rapidocr.sh
+# RapidOCR 装在独立 venv；此命令也可升级旧 rapidocr_onnxruntime
+sudo bash deploy/aliyun/install-rapidocr.sh
+# 设置 ERP_OCR_ENABLED=1，启动前会检查 rapidocr/onnxruntime 与 Poppler
+# 可选：ERP_RAPIDOCR_PYTHON=/opt/rapidocr-venv/bin/python
 # 再在 /etc/erp-workbanch/production.env 设置 ERP_OCR_ENABLED=1
 sudo systemctl restart erp.service
 ```
@@ -139,14 +141,14 @@ sudo systemctl restart erp.service
 
 | 项 | 值 |
 |---|---|
-| 引擎 | RapidOCR（PP-OCR，ONNXRuntime） |
-| 依赖 | `/opt/rapidocr-venv`（约 450 MB）+ poppler-utils |
-| 资源 | 单页 2~4 秒，峰值内存约 560 MB，纯 CPU |
+| 引擎 | RapidOCR 统一 Python 包（ONNX Runtime CPU） |
+| 依赖 | `/opt/rapidocr-venv` 下的 `rapidocr>=3.10,<4`、`onnxruntime` + `poppler-utils` |
+| 资源 | 纯 CPU；耗时和峰值内存取决于 ECS 规格、图片质量与模型版本，需在服务器实测 |
 | PDF | 渲染 2400px 灰度；只处理前 3 页并标记 `truncated` |
 | 列还原 | 按文本框坐标还原表格列，不依赖空格数量 |
 
-**旧缓存会自动失效**：`material_ocr_results` 按 engine 标签判断，历史 tesseract 结果不会命中；切到 RapidOCR 后第一次识别会重跑并覆盖，不需要手工清库。
+**旧缓存会自动失效**：`material_ocr_results` 按 engine 标签判断，历史 tesseract、旧 `rapidocr_onnxruntime` 图像结果不会命中；升级后第一次识别会重跑，PDF 文本层（Poppler）结果继续复用，不需要手工清库。
 
-**未安装时**：`recognize()` 返回 `OCR_PROVIDER_MISCONFIGURED`，提示运行 `install-rapidocr.sh`，不会静默失败。
+**未安装时**：ECS 启动预检将拒绝启用但缺少 RapidOCR/ONNX Runtime 或 Poppler 的部署；运行中识别遇到依赖/解释器错误会返回 OCR 错误，不会静默标为通过。
 
 **超时**：单页识别上限 120 秒；反向代理的 `proxy_read_timeout` 应大于单次请求的最长耗时。
