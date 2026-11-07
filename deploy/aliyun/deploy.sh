@@ -27,7 +27,7 @@ set -Eeuo pipefail
 
 MODE="prod"
 REPO_URL="${ERP_REPO_URL:-https://github.com/keyneszeng/erp-workbanch.git}"
-REF="${ERP_REF:-main}"
+REF="${ERP_REF:-}"
 CONF_DIR="/etc/erp-workbanch"
 SERVICE_USER="erp"
 DOMAIN=""
@@ -70,6 +70,22 @@ while [ $# -gt 0 ]; do
     *) die "未知参数：$1（用 --help 查看用法）" ;;
   esac
 done
+
+# 业务功能以 ECS 测试分支为准：测试拉测试分支，正式发布拉已验收并同步的 main。
+# --ref / ERP_REF 可以显式传入，但不能跨环境误用分支。
+if [ -z "$REF" ]; then
+  if [ "$MODE" = "test" ]; then
+    REF="云服务器测试版本"
+  else
+    REF="main"
+  fi
+fi
+if [ "$MODE" = "test" ] && [ "$REF" != "云服务器测试版本" ]; then
+  die "测试部署只允许 云服务器测试版本 分支（实际：$REF）"
+fi
+if [ "$MODE" = "prod" ] && [ "$REF" != "main" ]; then
+  die "生产部署只允许已同步测试版功能的 main 分支（实际：$REF）"
+fi
 
 # ---------- 模式派生 ----------
 if [ "$MODE" = "test" ]; then
@@ -238,6 +254,17 @@ STAMP="$(date +%Y%m%d%H%M%S)"
 RELEASE_DIR="$APP_ROOT/releases/$STAMP"
 log "拉取代码：$REPO_URL @ $REF → $RELEASE_DIR"
 run git clone --quiet --depth 1 --branch "$REF" "$REPO_URL" "$RELEASE_DIR"
+# 正式部署必须与当前测试基线的业务源码一致；绕过 CI 的独立旧主线不能上线。
+if [ "$DRY_RUN" = "0" ] && [ "$MODE" = "prod" ]; then
+  log "核对生产代码与云服务器测试版本的主要业务功能"
+  git -C "$RELEASE_DIR" fetch --quiet --no-tags --depth 1 origin \
+    'refs/heads/云服务器测试版本:refs/remotes/origin/erp-test-baseline' \
+    || die "无法获取云服务器测试基准分支，已拒绝生产部署"
+  if ! git -C "$RELEASE_DIR" diff --quiet refs/remotes/origin/erp-test-baseline HEAD -- \
+      server web miniprogram worker api package.json wrangler.jsonc; then
+    die "生产源码与云服务器测试版功能不一致，先完成测试版→main 代码同步，再部署"
+  fi
+fi
 if [ "$DRY_RUN" = "0" ]; then
   git -C "$RELEASE_DIR" rev-parse --short HEAD > "$RELEASE_DIR/.revision"
   log "代码版本：$(cat "$RELEASE_DIR/.revision")"
