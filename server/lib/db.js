@@ -46,6 +46,16 @@ CREATE TABLE IF NOT EXISTS users (
   created_at  TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS user_module_grants (
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  module TEXT NOT NULL,
+  PRIMARY KEY(user_id,module)
+);
+CREATE TABLE IF NOT EXISTS user_permission_grants (
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  permission TEXT NOT NULL,
+  PRIMARY KEY(user_id,permission)
+);
 CREATE TABLE IF NOT EXISTS user_associations (
   user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   assoc TEXT NOT NULL,
@@ -674,6 +684,10 @@ function migrate() {
   addColumn("users", "phone_verified_at", "phone_verified_at TEXT");
   // V1.0.3：跨实例吊销签名令牌
   addColumn("users", "token_ver", "token_ver INTEGER NOT NULL DEFAULT 0");
+  // 显式按用户授权；迁移时不会将旧角色权限自动转为用户授权。
+  db.exec("CREATE TABLE IF NOT EXISTS user_module_grants (user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,module TEXT NOT NULL,PRIMARY KEY(user_id,module))");
+  db.exec("CREATE TABLE IF NOT EXISTS user_permission_grants (user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,permission TEXT NOT NULL,PRIMARY KEY(user_id,permission))");
+  // 旧 material_file_replace 只作为兼容字段，新权限以独立表为准。
   // 合同材料替换为总管理员按账号单独授予，历史账号默认无此权限。
   addColumn("users", "material_file_replace", "material_file_replace INTEGER NOT NULL DEFAULT 0");
   // 立项税费管理费按百分比保存。历史项目默认0%，不改变既有可用额度。

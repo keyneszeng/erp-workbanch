@@ -13,7 +13,7 @@ const PASS = "123456";
 const RESET_DATA_TABLES = ["project_notices", "project_initiation_letters", "project_notice_templates", "meeting_sponsor_invoices", "meeting_sponsor_receipts", "sponsor_rights", "meeting_sponsor_contracts", "uploaded_files", "sessions", "audit_logs", "exports", "settlements",
   "verified_labor_payees", "exceptions", "verify_steps", "payments", "contracts", "approvals", "materials",
   "guests", "tasks", "issues", "material_ocr_results", "meeting_material_tasks", "meeting_material_modules", "demand_revisions", "demand_items", "demand_sheets",
-  "project_members", "projects", "sms_challenges", "mini_bindings", "user_associations", "users", "associations", "settings"];
+  "project_members", "projects", "sms_challenges", "mini_bindings", "user_module_grants", "user_permission_grants", "user_associations", "users", "associations", "settings"];
 
 const USERS = [
   { username: "admin",   name: "李静", role: "admin",   assoc: null,        dept: "秘书处", phone: "13800000001", title: "总管理员" },
@@ -216,6 +216,27 @@ function seed({ reset = false } = {}) {
     insUser.run(u.username, u.name, u.role, u.assoc, u.dept, u.phone, salt, hash, at);
     userId[u.username] = db.prepare("SELECT id FROM users WHERE username = ?").get(u.username).id;
     userIdByName[u.name] = userId[u.username];
+  }
+
+  // 演示样本：为固定的8个演示账号一次性写入显式授权，不代表任何角色的默认权限。
+  // 正式环境/新增账号/已存在的普通账号均默认无授权。
+  const demoAccess={
+    assoc:{modules:["dashboard","projects","prep","demand","exec","materials","verify","finance","archive","audit"],
+      permissions:["project:create","project:approve","project:transition","project:change","change:execute","project:member","contract:write","invite:manage","contract:approve","demand:write","payment:create","payment:approve","verify:check","verify:exception","archive:write","material:write","audit:read","export:any","archive:download"]},
+    exec:{modules:["dashboard","projects","prep","demand","exec","materials","verify"],
+      permissions:["project:create","project:transition","project:change","change:execute","contract:write","invite:manage","demand:write","payment:create","verify:check","verify:exception","material:write","export:any"]},
+    finance:{modules:["dashboard","projects","prep","exec","materials","verify","finance","archive"],
+      permissions:["project:transition","change:execute","payment:create","payment:pay","payment:approve","verify:check","verify:exception_approve","verify:conclude","settle:create","archive:write","material:write","export:any"]},
+    guest:{modules:["dashboard","projects"],permissions:[]}
+  };
+  const insUserModule=db.prepare("INSERT OR IGNORE INTO user_module_grants (user_id,module) VALUES (?,?)");
+  const insUserPerm=db.prepare("INSERT OR IGNORE INTO user_permission_grants (user_id,permission) VALUES (?,?)");
+  for(const u of USERS){
+    if(u.role==="admin")continue;
+    const example=demoAccess[u.username]||demoAccess[u.role==="user"?"guest":u.role];
+    if(!example)continue;
+    for(const moduleKey of example.modules)insUserModule.run(userId[u.username],moduleKey);
+    for(const permission of example.permissions)insUserPerm.run(userId[u.username],permission);
   }
 
   const insProj = db.prepare(
