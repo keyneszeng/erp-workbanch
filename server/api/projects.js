@@ -173,6 +173,19 @@ function detail(project, user) {
       actions: [], visibility: "participant" };
   }
   const pid = project.id;
+  const permitted=(mods,actions)=>isSuper(user)||mods.some(m=>hasModule(user,m))||actions.some(a=>can(user,a));
+  const viewFinance=permitted(["finance"],["payment:create","payment:approve","payment:pay","settle:create","ledger:read"]);
+  const viewContracts=permitted(["prep","finance"],["contract:write","contract:approve","verify:check","verify:conclude"]);
+  const viewMaterials=permitted(["materials","verify"],["material:write","archive:write","archive:download","verify:check","verify:conclude"]);
+  const viewVerify=permitted(["verify","finance"],["verify:check","verify:exception","verify:exception_approve","verify:conclude","settle:create"]);
+  const viewDemand=permitted(["demand","verify"],["demand:write","verify:check","verify:conclude"]);
+  const viewTeam=permitted(["exec"],["project:member","user:manage","project:transition"]);
+  const viewExec=permitted(["exec"],["project:transition","invite:manage"]);
+  const viewApprovals=permitted(["audit"],["project:approve","payment:approve","verify:exception_approve","change:execute","audit:read"]);
+  const viewAudit=permitted(["audit"],["audit:read"]);
+  const viewBudget=viewFinance||["project:create","project:edit","project:change","project:approve","verify:check","verify:conclude"].some(k=>can(user,k));
+  const viewNotice=permitted(["prep"],["project:create","project:edit","project:change","project:approve"]);
+  const publicProject=()=>{const {budget,available_budget,tax_fee_rate,phone,...rest}=project;return rest;};
   const members = db.prepare(
     `SELECT u.id, u.name, u.username, u.role, m.role AS member_role FROM project_members m
      JOIN users u ON u.id = m.user_id WHERE m.project_id = ?`
@@ -193,29 +206,30 @@ function detail(project, user) {
   ).all(pid);
 
   return {
-    project,
-    members,
-    approvals,
-    contracts,
-    payments,
-    guests,
-    tasks,
-    issues,
-    materials,
-    verification: verification(pid),
-    sponsorRights:require("../lib/sponsor-rights").sponsorRights(db,pid),
-    materialsStatus: materialsStatus(pid),
-    settlement,
-    settlementBreakdown: settlement ? buildSettlementBreakdown(settlement,project,payments) : null,
+    project:viewBudget?project:publicProject(),
+    sectionAccess:{finance:viewFinance,contracts:viewContracts,materials:viewMaterials,verify:viewVerify,demand:viewDemand,team:viewTeam,exec:viewExec,approvals:viewApprovals,audit:viewAudit,budget:viewBudget,notice:viewNotice},
+    members: viewTeam?members:[],
+    approvals: viewApprovals?approvals:[],
+    contracts: viewContracts?contracts:[],
+    payments: viewFinance?payments:[],
+    guests: viewExec?guests:[],
+    tasks: viewExec?tasks:[],
+    issues: viewExec?issues:[],
+    materials: viewMaterials?materials:[],
+    verification: viewVerify?verification(pid):{passed:0,total:0,complete:false,openExceptions:0,steps:[]},
+    sponsorRights:viewContracts?require("../lib/sponsor-rights").sponsorRights(db,pid):{required:false,contracts:[],rights:[],photos:[],activeContracts:[]},
+    materialsStatus: viewMaterials?materialsStatus(pid):{uploadedCount:0,ok:false,missing:[]},
+    settlement: viewFinance?settlement:null,
+    settlementBreakdown: viewFinance&&settlement ? buildSettlementBreakdown(settlement,project,payments) : null,
     // 核销第 3 步的费用对照基准。项目详情页的核销页签读的是这个接口，
     // 之前只在 /verify 里返回，导致同一个第 3 步在两个页面给出不同答案。
-    demand: demandSummary(pid),
-    ...require("../lib/project-notice").overview(project),
+    demand: viewDemand?demandSummary(pid):null,
+    ...(viewNotice?require("../lib/project-notice").overview(project):{}),
     actions: availableActions(project, user),
-    timeline,
+    timeline: viewAudit?timeline:[],
     // 与 /verify 的 paidTotal 必须同口径：裸 reduce 会留浮点尾巴（0.1+0.2 → 0.30000000000000004），
     // 而核销页签第 3 步的「其中已付款」直接显示这个数 —— 两个页面就会给出不同金额。
-    paidTotal: yuan(payments.filter((p) => p.status === "已付款").reduce((s, p) => s + Number(p.amount), 0))
+    paidTotal: viewFinance?yuan(payments.filter((p) => p.status === "已付款").reduce((s, p) => s + Number(p.amount), 0)):null
   };
 }
 
@@ -235,9 +249,21 @@ function register(router) {
       if (Array.isArray(r)) return { rows: r.map(participantRow), total: r.length };
       return { ...r, rows: r.rows.map(participantRow), summary: null };
     }
-    // 未请求分页时 listProjects 返回数组，保持旧返回结构
-    if (Array.isArray(r)) return { rows: r, total: r.length };
-    return r;
+    // 项目编辑权不自动包含财务付款查看权；避免列表 pay_cnt/paid_amt 等字段穿透。
+    const financial=isSuper(ctx.user)||hasModule(ctx.user,"finance")||
+      ["payment:create","payment:approve","payment:pay","settle:create","ledger:read"].some(k=>can(ctx.user,k));
+    const budgetVisible=financial||
+      ["project:create","project:edit","project:change","project:approve","verify:check","verify:conclude"].some(k=>can(ctx.user,k));
+    const sanitize=row=>{
+      const {pay_cnt,paid_amt,st_id,...other}=row;
+      if(budgetVisible)return other;
+      const {budget,available_budget,tax_fee_rate,phone,...publicFields}=other;
+      return publicFields;
+    };
+    if(Array.isArray(r))return {rows:financial?r:r.map(sanitize),total:r.length};
+    if(financial)return r;
+    return {...r,rows:r.rows.map(sanitize),
+      summary:r.summary?{budget:budgetVisible?r.summary.budget:null,paid:null}:null};
   });
 
   router.post("/api/projects", async (ctx) => {

@@ -35,7 +35,10 @@ export async function render(root, [pid]) {
   const p = d.project;
   const participant = d.visibility === "participant";
   if (participant) tab = "overview";
-  const visibleTabs = participant ? [["overview", "会议概览"]] : TABS;
+  const sections=d.sectionAccess||{};
+  const visibleTabs = participant ? [["overview", "会议概览"]] :
+    TABS.filter(([key])=>key==="overview" || (key==="payments"?sections.finance:
+      key==="timeline"?sections.audit:!!sections[key]));
   if (!visibleTabs.some(([k])=>k===tab)) tab="overview";
   const canEdit = can("project:edit") && (p.status !== "已归档" || state.super);
 
@@ -50,7 +53,7 @@ export async function render(root, [pid]) {
       ${d.actions.map((a) => `<button class="btn ${a.enabled ? "btn-p" : "btn-o"}"
         data-act="${a.action}" ${a.enabled ? "" : "disabled"} title="${esc(a.reason || "")}">${a.label}</button>`).join("")}
       ${canEdit ? '<button class="btn btn-o" id="editBtn">编辑资料</button>' : ""}
-      ${!participant && ["已立项", "筹备中", "执行中"].includes(p.status) ? '<button class="btn btn-o" id="changeBtn">提交变更</button>' : ""}
+      ${!participant && can("project:change") && ["已立项", "筹备中", "执行中"].includes(p.status) ? '<button class="btn btn-o" id="changeBtn">提交变更</button>' : ""}
     </div>
   </div>
 
@@ -64,10 +67,10 @@ export async function render(root, [pid]) {
     <div class="ux-lifecycle-head"><b>项目全周期进度</b><span>${ORDER.indexOf(p.status)+1}/9 · ${esc(p.status)}</span></div>
     <div class="ux-progress"><span style="width:${Math.max(0,ORDER.indexOf(p.status))/8*100}%"></span></div>
     ${!participant ? `<div class="ux-checkpoints">
-       <button type="button" data-tab="demand"><strong>${d.demand?.archived?"已确认":"待确认"}</strong><span>会务需求</span></button>
-       <button type="button" data-tab="materials"><strong>${d.materialsStatus.uploadedCount || 0} 份</strong><span>归档材料</span></button>
-       <button type="button" data-tab="verify"><strong>${d.verification.passed}/${d.verification.total}</strong><span>七步核销</span></button>
-       <button type="button" data-tab="payments"><strong>${d.settlement?"已生成":"未生成"}</strong><span>财务结算</span></button>
+       ${sections.demand? `<button type="button" data-tab="demand"><strong>${d.demand?.archived?"已确认":"待确认"}</strong><span>会务需求</span></button>`:""}
+       ${sections.materials? `<button type="button" data-tab="materials"><strong>${d.materialsStatus.uploadedCount || 0} 份</strong><span>归档材料</span></button>`:""}
+       ${sections.verify? `<button type="button" data-tab="verify"><strong>${d.verification.passed}/${d.verification.total}</strong><span>七步核销</span></button>`:""}
+       ${sections.finance? `<button type="button" data-tab="payments"><strong>${d.settlement?"已生成":"未生成"}</strong><span>财务结算</span></button>`:""}
      </div>` : '<p class="ux-public-hint">会议审批与执行状态公开给有权查看本项目的成员；财务明细仅限授权角色。</p>'}
   </div>
   ${d.actions.some((a) => !a.enabled && a.reason) ? `<div class="gate mt"><b>当前不能推进的原因</b>
@@ -172,6 +175,17 @@ function tabDemand(d, p) {
 
 /* ---------------- 概览 ---------------- */
 function tabOverview(d, p) {
+  // 没有财务权限时只展示可看的会议资料，不能把“未授权”误当成“金额为0”。
+  if(!d.sectionAccess?.finance){
+    return panel("会议信息","",kv([
+      ["项目编号",esc(p.id)],["会议名称",esc(p.name)],["所属协会",esc(p.assoc)],
+      ["会议形式",esc(p.form)],["会议日期",esc(p.date)],
+      ["负责人",esc(p.owner||"—")],["初版议程",esc(p.agenda||"—")],
+      ...(d.sectionAccess?.budget?[["预算", "¥"+money(p.budget)],["可用预算","¥"+money(p.available_budget??p.budget)]]:[])
+    ])) +
+    (d.sectionAccess?.notice?noticePanel(d,p):"") +
+    (d.sectionAccess?.approvals?tabChanges(d,p):"");
+  }
   const paid = d.paidTotal;
   // 付款也进流程门禁（V1.2.20 把付款页签挪到核销后面，概览这一栏要跟着排）
   const payDone = (d.payments || []).filter((y) => y.status === "已付款").length;
@@ -222,7 +236,7 @@ function tabOverview(d, p) {
     </div>
   </div>
   ${tabChanges(d, p)}
-  ${noticePanel(d, p)}
+  ${d.sectionAccess?.notice?noticePanel(d,p):""}
   ${panel("立项审批记录", "", table(
     [{ t: "审批单" }, { t: "类型", w: "96px" }, { t: "金额", w: "96px" }, { t: "提交人", w: "80px" }, { t: "状态", w: "80px" }, { t: "审批人", w: "80px" }, { t: "时间", w: "130px" }],
     d.approvals.map((a) => ({ c: [a.id, a.type, `¥${money(a.amount)}`, esc(a.by_user || ""), badge(a.status), esc(a.decided_by || "—"), `<span class="mono">${esc(a.created_at)}</span>`] })),
