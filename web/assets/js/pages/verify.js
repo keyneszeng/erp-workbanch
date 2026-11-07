@@ -1,8 +1,7 @@
 import { api, can, state } from "../lib/api.js";
 import { badge, confirmBox, esc, modal, money, panel, readForm, table, toast } from "../lib/ui.js";
 import { exStepLabel, openStepDetail } from "../lib/verify-detail.js";
-import { sopEvidenceForm, collectSopEvidence } from "../lib/sop-fields.js";
-import { bindLaborContractPreview } from "../lib/labor-contract-preview.js";
+import {openOcrJudge} from "../lib/verify-ocr-judge.js";
 
 export async function render(root, params) {
   if (params && params[0]) return renderOne(root, params[0]);
@@ -79,7 +78,7 @@ async function renderOne(root, pid) {
     任意类别（含「权益照片」）上传至少一份有效附件即可满足材料条件，无需凑齐固定类别。
     <a class="link" data-go="projects/${p.id}">去项目详情的材料页签登记 →</a></div>`}
   <div class="panel">
-    <div class="panel-h"><h2>核销 SOP · 自由选择顺序 · 第5/6/7项按实际劳务、会务需求和赞助合同自动适用</h2>
+    <div class="panel-h"><h2>核销 SOP · OCR扫描原件 → 智能比对 → 人工判定（无需再次录入表单）</h2>
       <div><span class="hint">已通过 ${v.passed}/${v.total} 项必核${v.openExceptions ? ` · ${v.openExceptions} 张例外单待处理或待复核` : ""}</span></div></div>
     <div class="vsteps">${v.steps.map((s) => {
       const cls = ["通过", "已解例外"].includes(s.result) ? "s-pass" : s.result === "不通过" ? "s-fail" : "s-wait";
@@ -137,34 +136,7 @@ async function renderOne(root, pid) {
   };
 }
 
-function openJudge(root, pid, no, d) {
-  const s = d.verification.steps.find((x) => x.no === no);
-  const m = modal({
-    title: `第 ${no} 步 · ${s.name}`,
-    body: `<div class="hint" style="margin-bottom:12px">${esc(s.desc)}</div>
-      <div class="fld"><label>判定结果<span class="req">*</span></label>
-        <select name="result"><option value="通过">通过</option><option value="不通过">不通过（自动生成例外单）</option></select></div>
-      <div class="fld" style="margin-top:12px"><label>问题描述 / 备注</label>
-        <textarea name="remark" rows="3" placeholder="判定不通过时必填"></textarea></div>
-      ${no === 6 ? `<div class="fld" style="margin-top:12px"><label>会务发票总金额（元，须等于会务需求总预算和会务合同总金额）</label>
-        <input type="number" name="invoiceAmount" min="0" step="0.01" value="${esc(String(s.invoiceAmount || ""))}" placeholder="必须与会务需求预算和会务合同金额一致"></div>` : ""}
-      ${sopEvidenceForm(no, d.project, d.sponsorRights)}`,
-    footer: `<button class="btn btn-o" data-x="0">取消</button><button class="btn btn-p" data-x="1">提交判定</button>`
-  });
-  if(no===5) bindLaborContractPreview(m,d.materials||[]);
-  m.querySelector('[data-x="0"]').onclick = () => m.classList.remove("open");
-  m.querySelector('[data-x="1"]').onclick = async () => {
-    const val = readForm(m);
-    val.evidence = collectSopEvidence(no, m);
-    if (val.result === "不通过" && !val.remark.trim()) return toast("判定不通过必须填写问题描述", "warn");
-    try {
-      const r = await api.post(`/api/projects/${pid}/verify/steps/${no}`, val);
-      toast(r.message, "ok");
-      m.classList.remove("open");
-      render(root, [pid]);
-    } catch (e) { toast(e.message, "warn"); }
-  };
-}
+function openJudge(root,pid,no,d){return openOcrJudge(pid,no,d,()=>render(root,[pid]));}
 
 async function decideEx(root, pid, id, ok) {
   const m = modal({
