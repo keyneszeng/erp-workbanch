@@ -2,15 +2,15 @@ import { api } from "./api.js";
 import { esc, modal, toast } from "./ui.js";
 import { checkFile, UPLOAD_ACCEPT, UPLOAD_TIP } from "./upload.js";
 
-/** 合同材料仅上传一份新原件；不压缩、不修改原始合同字节。 */
+/** 每个材料记录只替换一份原件；不压缩合同、图片或其他证据字节。 */
 export function openContractMaterialReplace(material,onDone=()=>{}) {
-  if(material.kind!=="合同" || !material.file_key)return;
+  if(!material.file_key)return;
   const m=modal({
-    title:"修改合同材料文件",
+    title:"修改材料文件",
     width:"600px",
     body:`<p class="hint">材料：<b>${esc(material.name)}</b></p>
       <p class="hint">当前文件：${esc(material.file_name||material.file_key)}</p>
-      <div class="fld"><label>新合同文件（替换原件，20 MB 以内）</label>
+      <div class="fld"><label>新材料文件（替换原件，20 MB 以内）</label>
         <input type="file" name="replacement" accept="${UPLOAD_ACCEPT}">
         <div class="tip">${UPLOAD_TIP}</div>
       </div>
@@ -22,9 +22,12 @@ export function openContractMaterialReplace(material,onDone=()=>{}) {
   const save=m.querySelector('[data-x="1"]');
   save.onclick=async()=>{
     const file=m.querySelector('input[name="replacement"]').files?.[0];
-    if(!file){toast("请选择一个新的合同文件","warn");return;}
+    if(!file){toast("请选择一个新的材料文件","warn");return;}
     const err=checkFile(file);
     if(err){toast(err,"warn");return;}
+    if(["讲者照片","权益照片"].includes(material.kind) && !/\.(jpe?g|png|webp)$/i.test(file.name)){
+      toast("照片类材料只允许更换为 JPG/PNG/WebP 图片","warn");return;
+    }
     if(!m.querySelector('input[name="ack"]').checked){
       toast("请确认替换与重新签署要求","warn");return;
     }

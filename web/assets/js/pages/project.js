@@ -436,7 +436,7 @@ function tabMaterials(d, p) {
           esc(m.version || ""), esc(m.uploader || ""), `<span class="mono">${esc(m.created_at)}</span>`,
           (can("material:write") && p.status !== "已归档" && !m.deleted_at
             ? `<button class="link danger" data-del-mat="${m.id}">删除</button>` : "") +
-          (can("material:contract:replace") && m.kind==="合同" && m.file_key && !m.deleted_at &&
+          (can("material:file:replace") && m.file_key && !m.deleted_at &&
             !["已核销","已结算","已归档"].includes(p.status) && !d.settlement
             ? ` <button class="link" data-replace-material="${m.id}">修改</button>` : "") || "—"
         ]
@@ -493,7 +493,8 @@ function wire(root, pid, d, body) {
     }));
   body.querySelectorAll("[data-ex-ok]").forEach((b) => b.onclick = () => exDecide(root, pid, b.dataset.exOk, true));
   body.querySelectorAll("[data-ex-no]").forEach((b) => b.onclick = () => exDecide(root, pid, b.dataset.exNo, false));
-  body.querySelectorAll("[data-del-mat]").forEach((b) => b.onclick = () => delMaterial(root, pid, b.dataset.delMat));  body.querySelectorAll("[data-replace-material]").forEach(b=>b.onclick=()=>{
+  body.querySelectorAll("[data-del-mat]").forEach((b) => b.onclick = () => delMaterial(root, pid, b.dataset.delMat));
+  body.querySelectorAll("[data-replace-material]").forEach(b=>b.onclick=()=>{
     const m=d.materials.find(x=>Number(x.id)===Number(b.dataset.replaceMaterial));
     if(m)openContractMaterialReplace(m,()=>refresh(root,pid));
   });

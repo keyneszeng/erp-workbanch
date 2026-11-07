@@ -45,7 +45,7 @@ export async function render(root) {
                   : `<a href="${fileUrl(m.file_key)}" target="_blank" rel="noopener"><img class="thumb" src="${fileUrl(m.file_key)}" alt=""></a>`)
               : '<span style="color:var(--mute)">—</span>',
             esc(m.version || ""), esc(m.uploader || ""), `<span class="mono">${esc(m.created_at)}</span>`,
-            can("material:contract:replace") && m.kind==="合同" && m.file_key && !["已核销","已结算","已归档"].includes(m.pstatus)
+            can("material:file:replace") && m.file_key && !["已核销","已结算","已归档"].includes(m.pstatus)
               ? `<button class="link" data-replace-material="${Number(m.id)}">修改</button>` : "—"]
         })),
         { empty: "暂无材料" })}

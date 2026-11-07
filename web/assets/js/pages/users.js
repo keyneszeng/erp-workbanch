@@ -45,7 +45,7 @@ export async function render(root) {
           c: [esc(u.name), `<span class="mono">${esc(u.username)}</span>`,
             `<span class="role-tag ${u.role === "admin" ? "super" : ""}">${esc(u.role_name)}</span>`,
             esc(u.role==="admin" ? "全平台" : (u.assocs||[u.assoc]).filter(Boolean).join("、") || "—"), esc(u.dept === "会务部" ? "待重新分类" : (u.dept || "—")),
-            u.role==="admin" ? "默认拥有" : Number(u.material_contract_replace) ? "已授权" : "未授权",
+            u.role==="admin" ? "默认拥有" : Number(u.material_file_replace) ? "已授权" : "未授权",
             u.active ? badge("已启用") : badge("已停用"),
             `<span class="mono">${esc(u.created_at)}</span>`,
             manage ? `<button class="link" data-edit="${u.id}">编辑</button>` : "—"]
@@ -109,8 +109,8 @@ function openCreate(root, roles) {
     
     { k: "dept", l: "部门", t: "select", req: 1, opts: departmentOptions() },
     { k: "phone", l: state.demo ? "电话" : "白名单手机号（11 位）", req: !state.demo, ph: "13800138000" },
-    { k: "material_contract_replace", l: "合同材料文件修改权限（总管理员分配）", t: "select", v: "0",
-      opts:[{v:"0",l:"不授权（默认）"},{v:"1",l:"授权修改合同材料文件"}] },
+    { k: "material_file_replace", l: "合同及材料文件修改权限（总管理员分配）", t: "select", v: "0",
+      opts:[{v:"0",l:"不授权（默认）"},{v:"1",l:"授权修改材料文件"}] },
     ...(state.demo ? [{ k: "password", l: "初始密码", req: 1, ph: "至少 8 位，含字母和数字" }] : [])
   ];
   const m = modal({ title: state.demo ? "新建账号" : "录入手机白名单", width: "600px", body: formHtml(fields)+associationPicker(),
@@ -191,20 +191,20 @@ function openEdit(root, u, roles) {
     
     { k: "dept", l: "部门", t: "select", opts: departmentOptions(u.dept) },
     { k: "phone", l: state.demo ? "电话" : "白名单手机号", req: !state.demo },
-    ...(u.role==="admin"?[]:[{ k: "material_contract_replace", l: "合同材料文件修改权限（总管理员分配）", t: "select",
-      opts:[{v:"0",l:"不授权"},{v:"1",l:"授权修改合同材料文件"}] }]),
+    ...(u.role==="admin"?[]:[{ k: "material_file_replace", l: "合同及材料文件修改权限（总管理员分配）", t: "select",
+      opts:[{v:"0",l:"不授权"},{v:"1",l:"授权修改材料文件"}] }]),
     { k: "active", l: "账号状态", t: "select", opts: [{ v: "1", l: "启用" }, { v: "0", l: "停用" }] },
     ...(state.demo ? [{ k: "password", l: "重置密码（留空不改）", ph: "留空不改；至少 8 位，含字母和数字" }] :
       [{ k: "resetPassword", l: "重置为初始密码 123456（要求重新短信改密）", t: "select", opts: [{ v: "0", l: "不重置" }, { v: "1", l: "重置" }] }])
   ];
-  const m = modal({ title: `编辑账号 · ${esc(u.name)}`, width: "600px", body: formHtml(fields, { ...u, active: String(u.active),material_contract_replace:String(Number(u.material_contract_replace)||0) })+associationPicker(u.assocs||[u.assoc]),
+  const m = modal({ title: `编辑账号 · ${esc(u.name)}`, width: "600px", body: formHtml(fields, { ...u, active: String(u.active),material_file_replace:String(Number(u.material_file_replace)||0) })+associationPicker(u.assocs||[u.assoc]),
     footer: `<button class="btn btn-o" data-x="0">取消</button><button class="btn btn-p" data-x="1">保存</button>` });
   m.querySelector('[data-x="0"]').onclick = () => m.classList.remove("open");
   m.querySelector('[data-x="1"]').onclick = async () => {
     if (!validate(m, fields)) return;
     const v = readForm(m);
     const body = { name: v.name, role: v.role, assocs:selectedAssocs(m), dept: v.dept, phone: v.phone, active: Number(v.active) };
-    if(u.role!=="admin")body.material_contract_replace=Number(v.material_contract_replace);
+    if(u.role!=="admin")body.material_file_replace=Number(v.material_file_replace);
     if (state.demo && v.password) body.password = v.password;
     if (!state.demo && v.resetPassword === "1") body.resetPassword = true;
     try {

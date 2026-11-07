@@ -1,5 +1,5 @@
 "use strict";
-/** 合同材料逐条替换：真实上传、默认禁止、总管理员授权/撤销、台账重新签署、冻结与跨项目。 */
+/** 合同和普通材料逐条替换：真实上传、默认拒绝、授权/撤销、台账重签、冻结与跨项目。 */
 const {test,before,after}=require("node:test");
 const assert=require("node:assert/strict");
 const {spawn}=require("node:child_process");
@@ -63,7 +63,7 @@ test("未获授权的执行人员不可修改，即使原本拥有材料登记�
  const me=await request("exec","GET","/api/auth/me");
  assert.equal(me.status,200);
  assert.equal(me.body.perms.includes("material:write"),true);
- assert.equal(me.body.perms.includes("material:contract:replace"),false);
+ assert.equal(me.body.perms.includes("material:file:replace"),false);
  const file=await upload("exec",B,"未授权修改.pdf");
  assert.equal(file.status,200,JSON.stringify(file.body));
  const denied=await request("exec","PATCH","/api/materials/"+id+"/file",{
@@ -73,12 +73,12 @@ test("未获授权的执行人员不可修改，即使原本拥有材料登记�
 });
 test("总管理员可按账号授权；执行人员重新登录后才能替换原件",async()=>{
  const users=await request("admin","GET","/api/users");
- assert.equal(Number(users.body.rows.find(x=>x.id===execId).material_contract_replace),0);
- const grant=await request("admin","PATCH","/api/users/"+execId,{material_contract_replace:1});
+ assert.equal(Number(users.body.rows.find(x=>x.id===execId).material_file_replace),0);
+ const grant=await request("admin","PATCH","/api/users/"+execId,{material_file_replace:1});
  assert.equal(grant.status,200,JSON.stringify(grant.body));
  await login("exec");
  const me=await request("exec","GET","/api/auth/me");
- assert.equal(me.body.perms.includes("material:contract:replace"),true);
+ assert.equal(me.body.perms.includes("material:file:replace"),true);
  const u=await upload("exec",B,"修订合同.pdf");
  assert.equal(u.status,200);
  const ok=await request("exec","PATCH","/api/materials/"+id+"/file",{
@@ -92,7 +92,7 @@ test("总管理员可按账号授权；执行人员重新登录后才能替换�
  assert.equal(old.status,404,"旧文件不允许再通过下载接口访问");
  original=u.body.key;
 });
-test("拒绝过期文件版本、跨项目文件与非合同类型，原件保持不变",async()=>{
+test("拒绝过期文件版本及跨项目文件；允许普通材料独立替换",async()=>{
  const file=await upload("exec",B,"新候选.pdf");
  assert.equal(file.status,200);
  const stale=await request("exec","PATCH","/api/materials/"+id+"/file",{
@@ -109,9 +109,14 @@ test("拒绝过期文件版本、跨项目文件与非合同类型，原件保�
    kind:"其他材料",name:"非合同",file_key:photo.body.key,file_name:photo.body.name,file_mime:photo.body.mime});
  assert.equal(create.status,200);
  const row=await materialByKey(photo.body.key);
- const badKind=await request("admin","PATCH","/api/materials/"+row.id+"/file",{
-   expected_file_key:photo.body.key,file_key:file.body.key});
- assert.equal(badKind.status,409);
+ const other=await upload("admin",B,"普通材料新版本.pdf");
+ assert.equal(other.status,200);
+ const ok=await request("admin","PATCH","/api/materials/"+row.id+"/file",{
+   expected_file_key:photo.body.key,file_key:other.body.key,file_name:other.body.name});
+ assert.equal(ok.status,200,JSON.stringify(ok.body));
+ assert.equal(ok.body.linkedContract,null);
+ assert.equal((await materialByKey(other.body.key)).kind,"其他材料");
+ assert.equal(await materialByKey(photo.body.key),undefined);
  assert.ok(await materialByKey(original));
 });
 test("台账合同关联材料的替换必须同步并撤销旧签署状态",async()=>{
@@ -142,11 +147,11 @@ test("台账合同关联材料的替换必须同步并撤销旧签署状态",asy
  assert.ok(!approvals.body.rows.some(x=>x.ref_id===cid&&x.status==="待审批"));
 });
 test("总管理员撤销授权后账号不能继续替换；冻结项目强制拒绝",async()=>{
- const revoked=await request("admin","PATCH","/api/users/"+execId,{material_contract_replace:0});
+ const revoked=await request("admin","PATCH","/api/users/"+execId,{material_file_replace:0});
  assert.equal(revoked.status,200);
  await login("exec");
  const me=await request("exec","GET","/api/auth/me");
- assert.equal(me.body.perms.includes("material:contract:replace"),false);
+ assert.equal(me.body.perms.includes("material:file:replace"),false);
  const newFile=await upload("exec",B,"撤权后文件.pdf");
  assert.equal(newFile.status,200);
  const denied=await request("exec","PATCH","/api/materials/"+id+"/file",{
