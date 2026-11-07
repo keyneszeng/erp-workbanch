@@ -3,81 +3,105 @@ const {test}=require("node:test");
 const assert=require("node:assert/strict");
 const {validateSopEvidence,sameNames}=require("../server/lib/meeting-sop");
 const project={id:"MP-TEST",name:"会议甲",date:"2026-11-01",assoc:"学会甲",form:"混合"};
-const stubDb={prepare(sql){return {get(pid,kind){return {n:1,total:1000};}};}};
-// 旧用例直接引用 db，保留别名，避免为了改名去动一堆断言
-const db=stubDb;
-/**
- * 可控制「哪些材料已上传」的 db 桩。
- * 材料类校验只认 kind + file_key，合同校验只看「已签署 + 劳务专家」的条数，
- * 所以桩只要按 SQL 里的特征返回对应数字即可。
- */
-function dbWith({ kinds = [], laborContracts = 0, signedTotal = 1000 } = {}) {
-  return {
-    prepare(sql) {
-      return {
-        get(pid, kind) {
-          if (/FROM materials/i.test(sql)) return { n: kinds.includes(kind) ? 1 : 0 };
-          if (/category='劳务专家'/i.test(sql)) return { n: laborContracts, total: signedTotal };
-          return { n: 1, total: signedTotal };
-        }
-      };
-    }
-  };
-}
-function expectBlock(no,evidence,p=project,amount=1000,db=stubDb){
+const db={prepare(sql){return {get(pid,kind){return {n:1,total:1000};},all(){return [{id:1,name:"甲",file_name:"甲.pdf",file_key:"mock-a.pdf"},{id:2,name:"乙",file_name:"乙.pdf",file_key:"mock-b.pdf"}];}};}};
+function expectBlock(no,evidence,p=project,amount=1000){
   assert.throws(()=>validateSopEvidence(no,evidence,p,db,amount));
 }
 test("六步核销必须有结构化证据，缺字段无法通过",()=>{
   for(let n=1;n<=6;n++)expectBlock(n,null);
 });
-test("第一步：关联材料为立项文件 + 终版议程，且盖章函件与会议基线一致",()=>{
- const e={meetingName:project.name,meetingDate:project.date,organizer:project.assoc,sponsor:"不适用",stamped:true,final:true};
- const ok=dbWith({kinds:["立项文件","终版议程"]});
- assert.equal(validateSopEvidence(1,e,project,ok).fieldsMatched,4);
- expectBlock(1,{...e,stamped:false},project,1000,ok);
- expectBlock(1,{...e,meetingDate:"2026-11-02"},project,1000,ok);
- // 只有会议通知/招商函不再算数：第一步核的是立项文件与终版议程
- assert.throws(()=>validateSopEvidence(1,e,project,dbWith({kinds:["会议通知"]})),/立项文件/);
- assert.throws(()=>validateSopEvidence(1,e,project,dbWith({kinds:["立项文件"]})),/终版议程/);
+test("盖章函件与串场三个字段一致即可通过；不需要招商主体或对照立项",()=>{
+ const e={documentKind:"会议通知",meetingName:"会议乙",meetingDate:"2026-12-01",organizer:"学会乙",
+   hostMeetingName:"会议乙",hostMeetingDate:"2026-12-01",hostOrganizer:"学会乙",
+   stamped:true,final:true};
+ const result=validateSopEvidence(1,e,project,db);
+ assert.equal(result.fieldsMatched,3);
+ assert.equal(result.comparedWith,"串场");
+ assert.ok(!Object.hasOwn(result,"sponsor"));
+ expectBlock(1,{...e,stamped:false});
+ expectBlock(1,{...e,final:false});
+ expectBlock(1,{...e,meetingDate:"2026-11-02"});
+ expectBlock(1,{...e,hostMeetingName:"其他会议"});
+ expectBlock(1,{...e,hostOrganizer:"其他学会"});
+ expectBlock(1,{...e,hostMeetingDate:""});
+ expectBlock(1,{...e,hostMeetingName:undefined});
 });
-test("第二步：必须用终版议程，普通议程不算",()=>{
- const e={agendaSpeakers:["甲"],collectionSpeakers:["甲"],agreementSpeakers:["甲"],noOmissions:true};
- assert.equal(validateSopEvidence(2,e,project,dbWith({kinds:["终版议程","劳务收集表","劳务协议"]})).matchedPeople,1);
- assert.throws(()=>validateSopEvidence(2,e,project,dbWith({kinds:["议程","劳务收集表","劳务协议"]})),/终版议程/);
- assert.throws(()=>validateSopEvidence(2,e,project,dbWith({kinds:["终版议程","劳务收集表"]})),/劳务协议/);
+test("第1步须有盖章函件及串场两份原件，不接受无附件材料登记",()=>{
+ const e={documentKind:"会议通知",meetingName:"会议甲",meetingDate:"2026-11-01",organizer:"学会甲",
+   hostMeetingName:"会议甲",hostMeetingDate:"2026-11-01",hostOrganizer:"学会甲",
+   stamped:true,final:true};
+ const withoutHost={prepare(sql){return {get(pid,kind){return {n:kind==="会议通知"?1:0};}};}};
+ assert.throws(()=>validateSopEvidence(1,e,project,withoutHost),
+   x=>x.code==="SOP_MATERIAL_MISSING"&&/串场原件/.test(x.message));
+ const withoutNotice={prepare(sql){return {get(pid,kind){return {n:kind==="串场"?1:0};}};}};
+ assert.throws(()=>validateSopEvidence(1,e,project,withoutNotice),
+   x=>x.code==="SOP_MATERIAL_MISSING"&&/盖章/.test(x.message));
 });
-test("第三步：关联材料为参会数据，签到表同样算参会数据",()=>{
- const offline={...project,form:"线下"};
- const online={...project,form:"线上"};
- assert.equal(validateSopEvidence(3,{signedAttendance:true},offline,dbWith({kinds:["签到表"]})).format,"线下");
- assert.equal(validateSopEvidence(3,{onlineMinutes:45},online,dbWith({kinds:["参会数据"]})).format,"线上");
- // 腾讯会议的参会数据导出常被登记成「签到表」，线上会议同样认
- assert.equal(validateSopEvidence(3,{onlineMinutes:45},online,dbWith({kinds:["签到表"]})).format,"线上");
- assert.throws(()=>validateSopEvidence(3,{signedAttendance:true},offline,dbWith({kinds:[]})),/参会数据/);
+test("核销第1步页面不再有招商主体输入，需录入串场三项字段",()=>{
+ const fs=require("node:fs"),path=require("node:path");
+ const root=path.join(__dirname,"..");
+ const form=fs.readFileSync(path.join(root,"web/assets/js/lib/sop-fields.js"),"utf8");
+ const labels=fs.readFileSync(path.join(root,"server/lib/constants.js"),"utf8");
+ const detail=fs.readFileSync(path.join(root,"web/assets/js/lib/verify-detail.js"),"utf8");
+ assert.match(labels,/盖章函件与串场核验/);
+ assert.match(form,/hostMeetingName/);
+ assert.match(form,/hostMeetingDate/);
+ assert.match(form,/hostOrganizer/);
+ assert.doesNotMatch(form,/招商主体/);
+ assert.match(detail,/\["会议通知","招商函","串场"\]/);
 });
-test("第四步：关联材料为终版议程 + 课件 + 串场",()=>{
- const e={agendaTopics:["课题甲"],courseTopics:["课题甲"],hostTitleMatches:true,hostNameLogoMatches:true,sponsorLogoPages:["首页"]};
- const all=dbWith({kinds:["终版议程","课件","串场"]});
- assert.equal(validateSopEvidence(4,e,project,all).matchedTopics,1);
- for(const missing of ["终版议程","课件","串场"]){
-   const kinds=["终版议程","课件","串场"].filter(k=>k!==missing);
-   assert.throws(()=>validateSopEvidence(4,e,project,dbWith({kinds})),new RegExp(missing));
- }
-});
-test("第五步：关联劳务收集表原件与劳务/专家类合同",()=>{
- const a={name:"甲",time:"9:00",role:"讲者",amount:"100",bankAccount:"IN_MEMORY_ONLY"};
- const e={collectionRecords:[a],agreementRecords:[a]};
- const ok=dbWith({kinds:["劳务收集表"],laborContracts:1});
- assert.equal(validateSopEvidence(5,e,project,ok).laborContracts,1);
- assert.throws(()=>validateSopEvidence(5,e,project,dbWith({kinds:["劳务收集表"],laborContracts:0})),/劳务\/专家类合同/);
- assert.throws(()=>validateSopEvidence(5,e,project,dbWith({kinds:[],laborContracts:1})),/劳务收集表/);
-});
-test("讲者三份名单必须完全覆盖且不得重名",()=>{
+test("以终版议程为基准，仅核对签到表及讲者照片",()=>{
  assert.equal(sameNames(["甲","乙"],["乙","甲"]),true);
  assert.equal(sameNames(["甲","甲"],["甲","甲"]),false);
- expectBlock(2,{agendaSpeakers:["甲","乙"],collectionSpeakers:["甲"],agreementSpeakers:["甲","乙"],noOmissions:true});
- const x={agendaSpeakers:["甲","乙"],collectionSpeakers:["乙","甲"],agreementSpeakers:["甲","乙"],noOmissions:true};
- assert.equal(validateSopEvidence(2,x,project,db).matchedPeople,2);
+ const x={agendaSpeakers:["甲","乙"],collectionSpeakers:["额外人员"],
+   attendanceSpeakers:["乙","甲"],photoSpeakers:["甲","乙"],noOmissions:true};
+ const result=validateSopEvidence(2,x,project,db);
+ assert.equal(result.matchedPeople,2);
+ assert.equal(result.photoRecordsMatched,2);
+ assert.deepEqual(result.matchedSources,["终版议程","签到表","讲者照片"]);
+ assert.doesNotMatch(JSON.stringify(result),/甲|乙/,"讲者姓名不得写入核销证据摘要");
+ for(const key of ["agendaSpeakers","attendanceSpeakers","photoSpeakers"]){
+   expectBlock(2,{...x,[key]:["甲"]});
+   expectBlock(2,{...x,[key]:["甲","甲"]});
+   expectBlock(2,{...x,[key]:[]});
+ }
+ expectBlock(2,{...x,noOmissions:false});
+ const noFile={prepare(sql){return {
+   get(pid,kind){return {n:kind==="签到表"?0:1};},
+   all(){return [{name:"甲"},{name:"乙"}];}
+ };}};
+ assert.throws(()=>validateSopEvidence(2,x,project,noFile),err=>
+   err.code==="SOP_MATERIAL_MISSING"&&err.message.includes("签到表"));
+ const noCurrentAgenda={prepare(sql){return {
+   get(pid,kind){return {n:sql.includes("version='终版'")?0:1};},
+   all(){return [{name:"甲"},{name:"乙"}];}
+ };}};
+ assert.throws(()=>validateSopEvidence(2,x,project,noCurrentAgenda),err=>
+   err.code==="SOP_MATERIAL_MISSING"&&err.message.includes("当前终版议程"));
+ const wrongPhotos={prepare(sql){return {
+   get(){return {n:1};},all(){return [{name:"甲"},{name:"另一个人"}];}
+ };}};
+ assert.throws(()=>validateSopEvidence(2,x,project,wrongPhotos),err=>
+   err.code==="SOP_EVIDENCE_MISMATCH"&&err.message.includes("照片登记姓名"));
+ const duplicatePhotos={prepare(sql){return {
+   get(){return {n:1};},all(){return [{name:"甲"},{name:"甲"}];}
+ };}};
+ assert.throws(()=>validateSopEvidence(2,x,project,duplicatePhotos),/照片登记姓名/);
+});
+test("第2项仅包含终版议程、签到表、讲者照片输入与关联材料",()=>{
+ const fs=require("node:fs"),path=require("node:path");
+ const root=path.join(__dirname,"..");
+ const labels=fs.readFileSync(path.join(root,"server/lib/constants.js"),"utf8");
+ const form=fs.readFileSync(path.join(root,"web/assets/js/lib/sop-fields.js"),"utf8");
+ const detail=fs.readFileSync(path.join(root,"web/assets/js/lib/verify-detail.js"),"utf8");
+ assert.match(labels,/讲者名单信息一致/);
+ assert.match(labels,/以终版议程讲者名单为基准/);
+ assert.doesNotMatch(labels,/劳务协议/);
+ for(const key of ["agendaSpeakers","attendanceSpeakers","photoSpeakers"])
+   assert.match(form,new RegExp(key));
+ assert.match(detail,/2:\["终版议程","签到表","讲者照片"\]/);
+ assert.doesNotMatch(form,/collectionSpeakers|hasLaborSheet/);
+ assert.doesNotMatch(form,/agreementRecords|agreementSpeakers/);
 });
 test("线上时长严格大于30，混合会议同时需要签到",()=>{
  expectBlock(3,{onlineMinutes:30,signedAttendance:true});
@@ -85,64 +109,57 @@ test("线上时长严格大于30，混合会议同时需要签到",()=>{
  assert.equal(validateSopEvidence(3,{onlineMinutes:31,signedAttendance:true},project,db).format,"混合");
  assert.equal(validateSopEvidence(3,{signedAttendance:true},{...project,form:"线下"},db).format,"线下");
 });
-test("课件课题与串场、logo位置不一致不能通过",()=>{
- const e={agendaTopics:["课题甲"],courseTopics:["课题甲"],hostTitleMatches:true,hostNameLogoMatches:true,sponsorLogoPages:["首页"]};
- assert.equal(validateSopEvidence(4,e,project,db).matchedTopics,1);
- expectBlock(4,{...e,courseTopics:["另一个课题"]});
- expectBlock(4,{...e,sponsorLogoPages:["正文"]});
+test("第4步仅要求课件主题包含在终版议程内，允许议程有其他未上传课件主题",()=>{
+ const e={agendaTopics:["课题甲","课题乙","课题丙"],courseTopics:["课题乙"]};
+ const result=validateSopEvidence(4,e,project,db);
+ assert.equal(result.matchedTopics,1);
+ assert.equal(result.comparedWith,"终版议程");
+ assert.ok(!Object.hasOwn(result,"hostNameLogoMatches"));
+ assert.ok(!Object.hasOwn(result,"sponsorLogoPages"));
+ assert.doesNotMatch(JSON.stringify(result),/课题乙/,"核销摘要不应保存主题原文");
+ assert.equal(validateSopEvidence(4,{...e,courseTopics:["课题甲","课题丙"]},project,db).matchedTopics,2);
+ assert.equal(validateSopEvidence(4,{...e,courseTopics:["课 题 乙"]},project,db).matchedTopics,1,
+   "允许课题名称中多余的空格，但不使用模糊匹配");
+ expectBlock(4,{...e,courseTopics:["不在议程中的课题"]});
+ expectBlock(4,{...e,courseTopics:["课题乙","不在议程中的课题"]});
+ expectBlock(4,{...e,courseTopics:[]});
+ expectBlock(4,{...e,agendaTopics:[]});
+ expectBlock(4,{...e,agendaTopics:["课题甲"]});
+ const noLogoFields={...e,courseTopics:["课题甲"],hostTitleMatches:false,
+   hostNameLogoMatches:false,sponsorLogoPages:["正文"]};
+ assert.equal(validateSopEvidence(4,noLogoFields,project,db).matchedTopics,1,
+   "旧版串场与 Logo 字段不应再作为核验条件");
 });
-test("劳务五字段即时比对，不保留任何姓名或银行账号",()=>{
+test("核销第4步文字、关联材料与表单中不再包含串场和 Logo 必填项",()=>{
+ const fs=require("node:fs"),path=require("node:path");
+ const root=path.join(__dirname,"..");
+ const labels=fs.readFileSync(path.join(root,"server/lib/constants.js"),"utf8");
+ const form=fs.readFileSync(path.join(root,"web/assets/js/lib/sop-fields.js"),"utf8");
+ const detail=fs.readFileSync(path.join(root,"web/assets/js/lib/verify-detail.js"),"utf8");
+ assert.match(labels,/name: "课件主题在终版议程里"/);
+ assert.match(detail,/4:\["终版议程","课件"\]/);
+ assert.ok(form.includes('area("agendaTopics"'));
+ assert.ok(form.includes('area("courseTopics"'));
+ const stepFour=form.split("    4:area(")[1]?.split("    5:area(")[0]||"";
+ assert.ok(stepFour);
+ assert.doesNotMatch(stepFour,/hostTitleMatches|hostNameLogoMatches|sponsorLogoPages|logo首页|药企/);
+});
+test("第5项按劳务表五字段核验，无单独协议，且不保留任何姓名或银行账号",()=>{
  const a={name:"甲",time:"9:00",role:"讲者",amount:"100",bankAccount:"IN_MEMORY_ONLY"};
- const e={collectionRecords:[a],agreementRecords:[a]};
+ const e={collectionRecords:[a]};
  const result=validateSopEvidence(5,e,project,db);
  assert.equal(result.matchedLaborRecords,1);
+ assert.ok(result.laborSourceSignature);
+ assert.equal(result.matchedContracts,1);
+ assert.ok(result.contractPoolSignature);
  assert.doesNotMatch(JSON.stringify(result),/IN_MEMORY_ONLY|甲/);
- expectBlock(5,{...e,agreementRecords:[{...a,role:"主持"}]});
+ expectBlock(5,{collectionRecords:[{...a,role:""}]});
+ expectBlock(5,{collectionRecords:[a,{...a}]});
+ const noLabor={prepare(){return {all(){return [];}};}};
+ assert.throws(()=>validateSopEvidence(5,e,project,noLabor),x=>x.code==="SOP_NOT_APPLICABLE");
 });
-test("第五步宽松比对：人员对上即可，字段缺一侧或金额写法不同不拦",()=>{
-  const dbOk=()=>dbWith({kinds:["劳务收集表"],laborContracts:1});
-  // 收集表有开户行、协议没填 → 不比开户行，放行
-  const a1={name:"甲",bankAccount:"6222000000000001",bankName:"工商银行广州分行",amount:"1000"};
-  const b1={name:"甲",bankAccount:"6222000000000001",amount:"¥1,000.00"};
-  assert.equal(validateSopEvidence(5,{collectionRecords:[a1],agreementRecords:[b1]},project,dbOk()).lenient,true);
-  // 账号写法带空格/短横 → 归一化后相同，放行
-  const a2={name:"乙",bankAccount:"6222 0000-0000 0001",amount:"500"};
-  const b2={name:"乙",bankAccount:"6222000000000001",amount:"500.00"};
-  assert.equal(validateSopEvidence(5,{collectionRecords:[a2],agreementRecords:[b2]},project,dbOk()).matchedLaborRecords,1);
-  // 金额真的不一致 → 拦
-  assert.throws(()=>validateSopEvidence(5,{collectionRecords:[a1],agreementRecords:[{...b1,amount:"1200"}]},project,dbOk()),/金额不一致/);
-  // 人员对不上 → 拦
-  assert.throws(()=>validateSopEvidence(5,{collectionRecords:[a1],agreementRecords:[{...b1,name:"丙"}]},project,dbOk()),/姓名对不上/);
-});
-
-test("正式结算单不能提前生成；核销只校验拟结算金额与会议基线",()=>{
- const e={draftAmount:1000,meetingName:project.name,meetingDate:project.date};
- assert.equal(validateSopEvidence(6,e,project,db,1000).meetingMatched,true);
- expectBlock(6,{...e,draftAmount:999},project,1000);
- expectBlock(6,{...e,meetingName:"其他会议"},project,1000);
-});
-
-/**
- * 老板 2026-11-02：「收入类（赞助类）合同不关联到材料和核销」。
- * 第 6 步的「合同总额」只能是支出合同之和 —— 赞助是钱进来，
- * 算进去会让拟请款总额永远对不上，而且看着像是要付一笔钱给赞助商。
- */
-test("第六步：收入类（赞助）合同不计入合同总额",()=>{
-  const e={draftAmount:8000,meetingName:project.name,meetingDate:project.date};
-  const seen=[];
-  const db={
-    prepare(sql){
-      seen.push(sql);
-      return {get(){
-        if(/FROM materials/i.test(sql))return {n:1};
-        // 只有带排除条件的查询才拿得到支出合同总额；不排除时是 8000+15000
-        return {n:1,total:/赞助收入/.test(sql)?8000:23000};
-      }};
-    }
-  };
-  assert.equal(validateSopEvidence(6,e,project,db).draftAmount,8000);
-  assert.ok(seen.some(s=>/FROM contracts/i.test(s)&&/赞助收入/.test(s)),
-    "第 6 步的合同总额查询必须排除收入类合同："+JSON.stringify(seen));
-  // 判定人按支出合同总额 8000 填：如果口径没排除赞助（23000），这里会被拒
-  assert.throws(()=>validateSopEvidence(6,{...e,draftAmount:23000},project,db),/8000/);
+test("无实际会务需求，第6项不适用；不再以拟结算单金额替代会务需求预算",()=>{
+ assert.throws(()=>validateSopEvidence(6,{draftAmount:1000},project,{
+   prepare(){return {all(){return [];},get(){return null;}};}
+ },1000),err=>err.code==="SOP_NOT_APPLICABLE");
 });

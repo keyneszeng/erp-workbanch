@@ -1,16 +1,36 @@
 "use strict";
-const { db } = require("../lib/db");
+const { db, transaction } = require("../lib/db");
 const { now, today, nextId, bad, notFound, conflict, forbidden, cents, yuan, parseBankAccount, parseBankName } = require("../lib/util");
 const { assertCan, assertModule, assertProjectVisible, scopeFilter, can, isSuper } = require("../lib/rbac");
 const { logAudit } = require("../lib/audit");
-const { getProject, verification, committed, frozenGate } = require("../lib/workflow");
-const { PAYMENT_TYPES, CONTRACT_CATEGORIES, guessContractCategory, isIncomeCategory, EXPENSE_CONTRACT_SQL } = require("../lib/constants");
+const { getProject, verification, committed } = require("../lib/workflow");
+const { PAYMENT_TYPES, CONTRACT_CATEGORIES, guessContractCategory } = require("../lib/constants");
 const { readPaging, countOf } = require("../lib/paginate");
 const { transition } = require("../lib/workflow");
 const { assertUploadAttachable } = require("../lib/upload-ownership");
 const { isDemoMode } = require("../lib/runtime");
-const { storage } = require("../lib/storage");
-const { extractBankInfo, pdfTextLayer } = require("../lib/bank-extract");
+const {availableBudget}=require("../lib/budget-fee");
+const { storage, sniffMime, safeName, ALLOWED_MIME, MAX_BYTES } = require("../lib/storage");
+
+/**
+ * 同一项目、付款类型、收款方、金额（分）视为同一笔有效付款申请。
+ * 发票号、备注、银行账号变化不代表新的应付事项。
+ */
+function paymentDedupeKey(type,payee,amount) {
+  const canonical=v=>String(v||"").normalize("NFKC").replace(/\s+/g,"").toLowerCase();
+  return JSON.stringify([canonical(type),canonical(payee),cents(amount)]);
+}
+function findExistingPayment(pid,type,payee,amount) {
+  const key=paymentDedupeKey(type,payee,amount);
+  return db.prepare("SELECT id,type,payee,amount,status,dedupe_key FROM payments WHERE pid=? AND status<>'已驳回'")
+    .all(pid).find(y=>y.dedupe_key===key || paymentDedupeKey(y.type,y.payee,y.amount)===key);
+}
+function duplicatePaymentError(row) {
+  return conflict(
+    "本笔付款已存在申请 "+row.id+"（"+row.status+"），不能重复提交；请在付款记录查看原申请",
+    "DUPLICATE_PAYMENT",{payment:row.id,status:row.status}
+  );
+}
 
 // 只有「已核销」可新增付款：结算后账目已封账，归档后卷宗已封存，均不得再挂账
 const PAYABLE_STATUS = ["已核销"];
@@ -23,7 +43,7 @@ const PAYABLE_STATUS = ["已核销"];
 const EX_DECIDED = { 已通过: "已通过", 已驳回: "已驳回", 已撤销: "已撤销" };
 
 /** 与 server/api/files.js 生成的 key 格式保持一致，避免任意字符串被写进 file_key */
-const FILE_KEY_RE = /^[a-f0-9]{32}\.(jpg|png|webp|gif|pdf|ppt|pptx|xlsx)$/;
+const FILE_KEY_RE = /^[a-f0-9]{32}\.(jpg|png|webp|gif|pdf|ppt|doc|pptx|docx|xls|xlsx|csv|txt)$/;
 
 /**
  * 合同状态白名单。
@@ -67,7 +87,9 @@ function register(router) {
     // 详情里要显示所属项目状态（决定能不能流转）和录入人（责任追溯）。
     // LEFT JOIN users 不会放大行数（u.id 是主键），COUNT 那条不受影响。
     const base = `FROM contracts c JOIN projects p ON p.id = c.pid LEFT JOIN users u ON u.id = c.created_by WHERE ${whereSql}`;
-    const cols = "c.*, p.name AS pname, p.status AS pstatus, u.name AS created_by_name";
+    const cols = "c.*, p.name AS pname, p.status AS pstatus, u.name AS created_by_name, "+
+      "(SELECT m.id FROM materials m WHERE m.pid=c.pid AND m.kind='合同' AND m.file_key=c.file_key "+
+      "AND m.deleted_at IS NULL ORDER BY m.id DESC LIMIT 1) AS material_id";
     const paging = readPaging(ctx.query);
 
     if (!paging) {
@@ -86,13 +108,8 @@ function register(router) {
     const p = getProject(b.pid);
     assertProjectVisible(ctx.user, p);
     assertCan(ctx.user, "contract:write", "当前角色无合同录入权限");
-    // 冻结门禁：归档封存 / 结算封账 —— 属于「历史冻结」，总管理员可例外录入并留痕。
-    // 但「核销后金额锁定」不算历史冻结：它是核销口径本身，放行就等于让
-    // 「合同总额 = 拟请款总额」这条规则失效，所以谁都不放行，要改先走核销更正。
-    frozenGate(ctx, p, p.status === "已归档",
-      "项目已归档，合同台账已封存，不可再录入合同", "ARCHIVED", "合同录入");
-    frozenGate(ctx, p, p.status === "已结算",
-      "项目已结算，合同台账已封账，不可再录入合同", "FROZEN", "合同录入");
+    if (p.status === "已归档") throw conflict("项目已归档，合同台账已封存，不可再录入合同", "ARCHIVED", { status: p.status });
+    if (p.status === "已结算") throw conflict("项目已结算，合同台账已封账，不可再录入合同", "FROZEN", { status: p.status });
     if (!isDemoMode()) {
       if (p.status === "已核销") throw conflict("核销已通过，合同金额已锁定，不得新增合同", "CONTRACT_VERIFIED");
       const verifiedInvoice = db.prepare("SELECT 1 FROM verify_steps WHERE pid=? AND step_no=6 AND result='通过'").get(p.id);
@@ -143,33 +160,10 @@ function register(router) {
       fmime = String(b.file_mime || "").slice(0, 60) || null;
     }
 
-    /**
-     * 合同收款账户（可选）：录了以后，付款申请选这份合同时能直接带出
-     * 收款方 / 开户行 / 账号 / 金额，财务不用回头问人。
-     * 账号与劳务表一样加密存储，明文只在服务端内存里出现。
-     */
-    const payeeBank = String(b.payee_bank || "").trim();
-    if (payeeBank.length > 60) throw bad("开户行不能超过 60 字");
-    const rawAccount = String(b.payee_account || "").replace(/\s/g, "");
-    let accountCipher = null;
-    if (rawAccount) {
-      if (!/^\d{10,25}$/.test(rawAccount)) throw bad("银行账号应为 10~25 位数字");
-      const vp = require("../lib/verified-payees");
-      if (!vp.keyAvailable()) throw bad("未配置财务加密密钥，暂不能保存银行账号");
-      accountCipher = vp.sealAccount(rawAccount);
-    }
-
     const id = nextId(db, "contracts", "id", "HT");
-    db.prepare("INSERT INTO contracts (id,pid,name,vendor,amount,sign_date,status,category,remark,created_by,created_at,file_key,file_name,file_size,file_mime,payee_bank,payee_account_cipher) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
-      .run(id, p.id, b.name, b.vendor, amount, isDemoMode() ? signDate : "", st, category, remark, ctx.user.id, now(), fk, fname, fsize, fmime, payeeBank || null, accountCipher);
-    /**
-     * 收入类（赞助）合同不往材料中心同步。
-     * 「合同」是归档必备的 8 类之一，它指的是**支出**合同原件；
-     * 赞助协议塞进这一类，归档齐备度会凭空变成「已齐」，
-     * 核销第 6 步的关联材料里也会冒出一份不该参与核销的协议。
-     * 赞助合同的原件在会议收入模块里单独归档，那里才是它的去处。
-     */
-    if(fk && !isIncomeCategory(category)) {
+    db.prepare("INSERT INTO contracts (id,pid,name,vendor,amount,sign_date,status,category,remark,created_by,created_at,file_key,file_name,file_size,file_mime) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
+      .run(id, p.id, b.name, b.vendor, amount, isDemoMode() ? signDate : "", st, category, remark, ctx.user.id, now(), fk, fname, fsize, fmime);
+    if(fk) {
       // 将合同台账原件同步登记到本项目的归档“合同”类，不需要上传第二遍。
       // 关联同一上传 key 只是内部同步，不开放客户端重复挂载别的单据。
       db.prepare(`INSERT INTO materials(pid,kind,name,version,uploader,created_at,file_key,file_name,file_size,file_mime)
@@ -188,10 +182,7 @@ function register(router) {
 
     // 合同总额超预算是要预警的业务事实（不是错误，可能确需超支）。
     // 硬拦会让人没法录真实合同，所以只回一个 warning 让前端提示，不阻断。
-    // 收入类（赞助）合同不占支出预算，算进去会凭空把「超预算」预警打出来。
-    const contractSum = Number(db.prepare(
-      "SELECT COALESCE(SUM(amount),0) AS s FROM contracts WHERE pid = ? AND " + EXPENSE_CONTRACT_SQL
-    ).get(p.id).s) || 0;
+    const contractSum = Number(db.prepare("SELECT COALESCE(SUM(amount),0) AS s FROM contracts WHERE pid = ?").get(p.id).s) || 0;
     const budget = Number(p.budget) || 0;
     let warning = "";
     if (budget > 0 && contractSum > budget) {
@@ -204,6 +195,101 @@ function register(router) {
       message: `合同 ${id} 已保存${!isDemoMode() && st === "待签署" ? "并提交协会管理员或总管理员审批签署" : ""}`,
       warning
     };
+  });
+
+  /**
+   * 「确认签署」复核窗口里的更新合同：替换原件，不改变合同编号、金额和审批状态。
+   *
+   * 合同创建时同一份原件还会同步关联归档「合同」材料。因此需要在一个同步事务里
+   * 更新合同 + 归档材料两处，只有没有任何业务引用时，才删旧文件的登记和存储字节。
+   * 不删审计，审计只记录操作证据，不是旧合同原件本身。
+   */
+  router.post("/api/contracts/:id/replace-file", async (ctx) => {
+    const c = db.prepare("SELECT * FROM contracts WHERE id=?").get(ctx.params.id);
+    if(!c)throw notFound("合同不存在");
+    const p = getProject(c.pid);
+    assertProjectVisible(ctx.user,p);
+    assertCan(ctx.user,"contract:approve","只有协会管理员或总管理员可以在确认签署前更新合同");
+    if(["已归档","已结算"].includes(p.status))
+      throw conflict("项目已封存或结算，不可替换合同原件","FROZEN");
+    if(!isDemoMode() && (p.status==="已核销" ||
+      db.prepare("SELECT 1 FROM verify_steps WHERE pid=? AND step_no=6 AND result='通过'").get(p.id)))
+      throw conflict("合同已完成核票或核销，不能替换合同原件","CONTRACT_VERIFIED");
+    if(c.status!=="待签署")throw conflict("仅待签署合同可以在确认签署前更新原件","ILLEGAL_TRANSITION");
+
+    const b=ctx.body||{};
+    const newKey=String(b.file_key||"");
+    if(!FILE_KEY_RE.test(newKey))throw bad("请先上传合法的 PDF、图片或 Office 合同文件");
+    if(newKey===c.file_key)throw conflict("新合同与原文件相同，请重新上传","SAME_CONTRACT_FILE");
+    assertUploadAttachable(newKey,p.id,ctx.user);
+    const obj=await storage().get(newKey);
+    if(!obj || !obj.buffer?.length)throw notFound("新合同上传文件不存在，请重新上传");
+    if(obj.buffer.length>MAX_BYTES)throw bad("新合同文件大小超出 20 MB 限制");
+    const mime=sniffMime(obj.buffer,newKey);
+    if(!mime || ALLOWED_MIME[mime]!==newKey.split(".").pop())
+      throw bad("新合同文件类型与上传标识不符");
+    const fileName=safeName(b.file_name||newKey);
+    const fileSize=obj.buffer.length;
+    const at=now();
+    const oldKey=c.file_key || "";
+    // Cloudflare DO 的 SQL 同步事务与 Node SQLite 均支持此入口。
+    const cleanup=transaction(()=>{
+      // 并发更新的最后一道校验：不能拿过期页面覆盖另一位管理员刚上传的合同。
+      const current=db.prepare("SELECT status,file_key FROM contracts WHERE id=?").get(c.id);
+      if(current?.status!=="待签署" || (current.file_key||"")!==oldKey)
+        throw conflict("合同在上传期间已被其他人更新或签署，请刷新后重新操作","CONTRACT_CHANGED");
+      assertUploadAttachable(newKey,p.id,ctx.user);
+      db.prepare("UPDATE contracts SET file_key=?,file_name=?,file_size=?,file_mime=? WHERE id=?")
+        .run(newKey,fileName,fileSize,mime,c.id);
+      // 原合同自动归档时登记的材料，需要一起换成新原件；不能留下旧合同副本。
+      const material=db.prepare(
+        "SELECT id FROM materials WHERE pid=? AND kind='合同' AND file_key=?"
+      ).get(p.id,oldKey);
+      if(material) {
+        db.prepare(
+          "UPDATE materials SET file_key=?,file_name=?,file_size=?,file_mime=?,version=?,uploader=?,created_at=? "+
+          "WHERE pid=? AND kind='合同' AND file_key=?"
+        ).run(newKey,fileName,fileSize,mime,"待签署",ctx.user.name,at,p.id,oldKey);
+      } else {
+        db.prepare("INSERT INTO materials(pid,kind,name,version,uploader,created_at,file_key,file_name,file_size,file_mime) "+
+          "VALUES (?,?,?,?,?,?,?,?,?,?)")
+          .run(p.id,"合同",c.id+" · "+c.name,"待签署",ctx.user.name,at,
+            newKey,fileName,fileSize,mime);
+      }
+      if(!oldKey)return {oldKey:"",canDelete:false,shared:false};
+      // 先从所有业务记录解除引用；旧文件若仍服务其他单据，禁止物理误删。
+      const refs=db.prepare(
+        "SELECT 1 FROM contracts WHERE file_key=? "+
+        "UNION SELECT 1 FROM materials WHERE file_key=? "+
+        "UNION SELECT 1 FROM meeting_sponsor_contracts WHERE file_key=? "+
+        "UNION SELECT 1 FROM meeting_sponsor_receipts WHERE file_key=? "+
+        "UNION SELECT 1 FROM meeting_sponsor_invoices WHERE file_key=? "+
+        "UNION SELECT 1 FROM project_notice_templates WHERE file_key=? "+
+        "UNION SELECT 1 FROM project_notices WHERE template_key=?"
+      ).get(oldKey,oldKey,oldKey,oldKey,oldKey,oldKey,oldKey);
+      if(!refs) db.prepare("DELETE FROM uploaded_files WHERE file_key=?").run(oldKey);
+      return {oldKey,canDelete:!refs,shared:!!refs};
+    });
+
+    let oldDeleted=!oldKey, warning="";
+    if(cleanup.canDelete) {
+      try {
+        await storage().del(oldKey);
+        oldDeleted=!(await storage().stat(oldKey));
+        if(!oldDeleted)warning="新合同已生效，但旧文件在存储层清理未完成，请联系管理员处理";
+      } catch {
+        warning="新合同已生效，但旧文件物理删除未完成，请联系管理员处理";
+      }
+    } else if(cleanup.shared) {
+      warning="新合同已替换；旧文件仍被其他业务记录引用，为防止误删已保留共享原件";
+    }
+    logAudit({user:ctx.user,module:"合同审批",action:"更新合同原件",target:p.id,
+      detail:c.id+" "+c.name+"，新原件："+fileName+
+        "；旧附件："+(oldKey||"无")+"；物理清理："+(oldDeleted?"成功":cleanup.shared?"因其他业务引用而保留":"待处理"),
+      ip:ctx.ip});
+    return {contract:db.prepare("SELECT * FROM contracts WHERE id=?").get(c.id),
+      replaced:true,oldDeleted,warning,
+      message:"合同原件已更新，旧版归档材料已同步替换；请核对新文件后再确认签署"};
   });
 
   /**
@@ -228,11 +314,11 @@ function register(router) {
     if (!c) throw notFound("合同不存在");
     const p = getProject(c.pid);
     assertProjectVisible(ctx.user, p);
-    frozenGate(ctx, p, ["已结算", "已归档"].includes(p.status),
-      `项目已「${p.status}」，合同台账已封存，不可再流转状态`, "FROZEN", "合同状态流转");
+    if (["已结算", "已归档"].includes(p.status)) {
+      throw conflict(`项目已「${p.status}」，合同台账已封存，不可再流转状态`, "FROZEN", { status: p.status });
+    }
     if (!isDemoMode() && (p.status === "已核销" ||
         db.prepare("SELECT 1 FROM verify_steps WHERE pid=? AND step_no=6 AND result='通过'").get(p.id))) {
-      // 核销后锁定是核销口径，不是历史冻结：总管理员也不放行
       throw conflict("合同已完成核票或核销，签署状态已锁定", "CONTRACT_VERIFIED");
     }
 
@@ -297,162 +383,6 @@ function register(router) {
     };
   });
 
-  /**
-   * 合同台账编辑。
-   *
-   * 之前台账只能新增、不能改 —— 类别录错（把赞助协议选成「其他」）、
-   * 金额敲错、签约方写错，都没有任何补救入口，只能删库或者放着不管。
-   * 老板 2026-11-02 要求「收入类合同不关联到材料和核销」，
-   * 这条规则要能落地，就必须允许把存量合同改成「赞助收入」。
-   *
-   * 改动类别时同步处理归档材料：
-   *   改为收入类 → 撤掉当初自动同步的「合同」材料（它是支出合同原件，不该被赞助顶替）
-   *   改回支出类 → 有原件就把「合同」材料补回来
-   */
-  router.patch("/api/contracts/:id", async (ctx) => {
-    const c = db.prepare("SELECT * FROM contracts WHERE id = ?").get(ctx.params.id);
-    if (!c) throw notFound("合同不存在");
-    const p = getProject(c.pid);
-    assertProjectVisible(ctx.user, p);
-    assertCan(ctx.user, "contract:write", "当前角色无合同编辑权限");
-    frozenGate(ctx, p, ["已结算", "已归档"].includes(p.status),
-      `项目已「${p.status}」，合同台账已封存，不可修改`, "FROZEN", "合同编辑");
-
-    const b = ctx.body || {};
-    /**
-     * 核销后的锁定分三层：
-     *   · 类别 —— 「这份合同算不算支出」的分类标签。存量里把赞助协议记成「其他」的必须能改回来，
-     *     否则「收入类合同不参与核销」这条规则对老数据永远无效。改完留痕即可。
-     *   · 金额 / 名称 / 签约方 / 签署日期 —— 动了会让「合同总额 = 拟请款总额」失真。
-     *     非总管理员一律拦；总管理员可以改（纠错兜底），但改完必须把第 6 步退回重判，
-     *     项目也跟着退回「待核销」—— 否则会留下「已核销但口径已经变了」的静默错误。
-     *   · 已结算 / 已归档 —— 走上面的 frozenGate，总管理员放行但留痕。
-     */
-    const locked = !isDemoMode() && (p.status === "已核销" ||
-      !!db.prepare("SELECT 1 FROM verify_steps WHERE pid=? AND step_no=6 AND result='通过'").get(p.id));
-    const moneyTouched = ["name", "vendor", "amount", "sign_date"].filter((k) => k in b &&
-      String(b[k] ?? "") !== String(c[k] ?? ""));
-    if (locked && moneyTouched.length && !isSuper(ctx.user)) {
-      throw conflict(
-        `合同已完成核票或核销，${moneyTouched.join("、")} 已锁定；如确需更正请由总管理员操作（类别可以单独调整）`,
-        "CONTRACT_VERIFIED", { fields: moneyTouched }
-      );
-    }
-
-    const next = { ...c };
-    if ("name" in b) {
-      const v = String(b.name || "").trim();
-      if (!v) throw bad("合同名称为必填项");
-      if (v.length > CONTRACT_MAX.name) throw bad(`合同名称不能超过 ${CONTRACT_MAX.name} 字`);
-      next.name = v;
-    }
-    if ("vendor" in b) {
-      const v = String(b.vendor || "").trim();
-      if (!v) throw bad("签约方为必填项");
-      if (v.length > CONTRACT_MAX.vendor) throw bad(`签约方不能超过 ${CONTRACT_MAX.vendor} 字`);
-      next.vendor = v;
-    }
-    if ("amount" in b) {
-      const v = Number(b.amount);
-      if (!Number.isFinite(v) || !(v > 0)) throw bad("合同金额必须大于 0");
-      if (v > 1e9) throw bad("合同金额不能超过 10 亿元");
-      if (Number(v.toFixed(2)) !== v) throw bad("合同金额最多保留两位小数");
-      next.amount = v;
-    }
-    if ("category" in b) {
-      const v = String(b.category || "").trim();
-      if (v && !CONTRACT_CATEGORIES.includes(v)) throw bad(`合同类别必须是：${CONTRACT_CATEGORIES.join(" / ")}`);
-      next.category = v || guessContractCategory(next.name);
-    }
-    if ("sign_date" in b) {
-      const v = String(b.sign_date || "").trim();
-      if (v) checkDate(v, "签署日期");
-      next.sign_date = v;
-    }
-    if ("remark" in b) {
-      const v = String(b.remark || "");
-      if (v.length > CONTRACT_MAX.remark) throw bad(`备注不能超过 ${CONTRACT_MAX.remark} 字`);
-      next.remark = v;
-    }
-
-    db.prepare("UPDATE contracts SET name=?, vendor=?, amount=?, category=?, sign_date=?, remark=? WHERE id=?")
-      .run(next.name, next.vendor, next.amount, next.category, next.sign_date, next.remark, c.id);
-
-    const wasIncome = isIncomeCategory(c.category);
-    const nowIncome = isIncomeCategory(next.category);
-    let materialNote = "";
-    if (!wasIncome && nowIncome) {
-      // 撤掉自动同步的那条材料，只认「合同号 · 名称」这个固定格式，不误删人工登记的同名材料
-      const removed = db.prepare(
-        "DELETE FROM materials WHERE pid=? AND kind='合同' AND name=? AND deleted_at IS NULL"
-      ).run(p.id, c.id + " · " + c.name);
-      if (removed.changes) materialNote = `；已撤下归档「合同」类里的同名材料 ${removed.changes} 条`;
-    } else if (wasIncome && !nowIncome && c.file_key) {
-      const exists = db.prepare(
-        "SELECT 1 FROM materials WHERE pid=? AND kind='合同' AND file_key=? AND deleted_at IS NULL"
-      ).get(p.id, c.file_key);
-      if (!exists) {
-        db.prepare(`INSERT INTO materials(pid,kind,name,version,uploader,created_at,file_key,file_name,file_size,file_mime)
-          VALUES (?,?,?,?,?,?,?,?,?,?)`)
-          .run(p.id, "合同", c.id + " · " + next.name, c.status, ctx.user.name, now(),
-            c.file_key, c.file_name, c.file_size, c.file_mime);
-        materialNote = "；已把原件重新登记到归档「合同」类";
-      }
-    }
-
-    const categoryChanged = String(c.category || "") !== String(next.category || "");
-
-    /**
-     * 总管理员在核销后动了「会改变合同总额」的字段 → 第 6 步的口径已经变了，旧结论必须作废。
-     * 会改变总额的只有两种：金额本身，以及类别在「支出 / 收入」之间翻转。
-     * 这里不弹确认、不留旧值，直接把第 6 步退回「待判定」，并把项目从「已核销」
-     * 退回「待核销」—— 已核销但核销口径已经变了，比退回去更危险。
-     */
-    const affectsTotal = moneyTouched.includes("amount") || wasIncome !== nowIncome;
-    let reopenNote = "";
-    if (locked && affectsTotal && isSuper(ctx.user)) {
-      const why = moneyTouched.includes("amount")
-        ? `合同 ${c.id} 的金额由总管理员更正为 ¥${next.amount}`
-        : `合同 ${c.id} 的类别由「${c.category || "未分类"}」改为「${next.category || "未分类"}」`;
-      const hit = db.prepare(
-        "UPDATE verify_steps SET result='待判定', remark=?, checked_by=NULL, checked_at=NULL, " +
-        "evidence_json=NULL, invoice_amount=NULL WHERE pid=? AND step_no=6 AND result<>'待判定'"
-      ).run(`${why}，合同总额已变，须重新判定`, p.id);
-      if (hit.changes) {
-        if (p.status === "已核销") {
-          const at = now();
-          db.prepare("UPDATE projects SET status='待核销', status_at=?, updated_at=? WHERE id=?").run(at, at, p.id);
-          reopenNote = "；核销第 6 步已退回待判定，项目状态回到「待核销」";
-        } else {
-          reopenNote = "；核销第 6 步已退回待判定";
-        }
-        logAudit({
-          user: ctx.user, module: "会后核销", action: "核销结论作废重判", target: p.id,
-          detail: `${why}，第 6 步退回待判定${p.status === "已核销" ? "，项目状态 已核销 → 待核销" : ""}`,
-          ip: ctx.ip
-        });
-      }
-    }
-
-    if (locked && categoryChanged) {
-      // 核销后改类别会重算合同总额，必须单独留一条，别混在普通编辑里
-      logAudit({
-        user: ctx.user, module: "系统配置", action: "核销后合同类别更正", target: p.id,
-        detail: `${c.id}：${c.category || "—"} → ${next.category || "—"}；该项目的核销第 6 步合同总额口径随之变化，需判定人复核`,
-        ip: ctx.ip
-      });
-    }
-    logAudit({
-      user: ctx.user, module: "筹备管理", action: "合同编辑", target: p.id,
-      detail: `${c.id}：类别 ${c.category || "—"} → ${next.category || "—"}；金额 ${c.amount} → ${next.amount}${materialNote}`,
-      ip: ctx.ip
-    });
-    return {
-      contract: db.prepare("SELECT * FROM contracts WHERE id = ?").get(c.id),
-      message: `合同 ${c.id} 已更新${materialNote}${reopenNote}`
-    };
-  });
-
   /* ---------------- 付款 ---------------- */
   router.get("/api/payments", async (ctx) => {
     // 会务执行没有「财务结算」模块，但能提付款申请 —— 动作权限要放行
@@ -514,70 +444,6 @@ function register(router) {
     };
   });
 
-  /**
-   * 从合同原件里识别收款账户。
-   *
-   * 合同正文本来就写着开户行和账号，但录入的人不会顺手再抄进台账，
-   * 于是付款时财务只能翻 PDF。这里按项目批量识别：先读 PDF 文本层（快），
-   * 扫描件再退回 OCR；识别到就加密写进 contracts.payee_bank / payee_account_cipher。
-   * 只处理还没有账号的已签署合同，重复调用不会覆盖人工填过的值。
-   */
-  router.post("/api/projects/:id/contracts/bank-extract", async (ctx) => {
-    const p = getProject(ctx.params.id);
-    assertProjectVisible(ctx.user, p);
-    if (!can(ctx.user, "contract:write") && !can(ctx.user, "payment:pay") && !isSuper(ctx.user))
-      throw forbidden("需要合同录入或财务付款权限");
-
-    const rows = db.prepare(
-      `SELECT * FROM contracts WHERE pid=? AND status='已签署' AND file_key IS NOT NULL
-        AND (payee_account_cipher IS NULL OR payee_account_cipher='') AND ` + EXPENSE_CONTRACT_SQL + ` ORDER BY id`
-    ).all(p.id).slice(0, 12);
-
-    const results = [];
-    for (const c of rows) {
-      try {
-        const f = await storage().get(c.file_key);
-        if (!f) { results.push({ id: c.id, error: "原件已不存在" }); continue; }
-        const ext = c.file_key.split(".").pop();
-        let text = ext === "pdf" ? await pdfTextLayer(f.buffer) : "";
-
-        if (String(text).trim().length < 40) {
-          const ocr = require("../lib/ocr-engine");
-          if (!ocr.enabled()) { results.push({ id: c.id, error: "扫描件需要 OCR，服务器未启用" }); continue; }
-          let buf = f.buffer, e2 = ext;
-          if (["docx", "xlsx", "pptx"].includes(ext)) {
-            const { toPdf, hasLibreOffice } = require("../lib/office-preview");
-            if (!(await hasLibreOffice())) { results.push({ id: c.id, error: "Office 原件需要 LibreOffice" }); continue; }
-            buf = await toPdf(buf, ext, c.file_key.replace(/\.[^.]+$/, ""));
-            e2 = "pdf";
-          }
-          text = (await ocr.recognize(buf, e2, { kind: "合同" })).text;
-        }
-
-        const { bank, account } = extractBankInfo(text);
-        if (!bank && !account) { results.push({ id: c.id, vendor: c.vendor, error: "合同里没有找到开户行或账号" }); continue; }
-
-        let cipher = c.payee_account_cipher;
-        if (account) {
-          const vp = require("../lib/verified-payees");
-          if (!vp.keyAvailable()) { results.push({ id: c.id, vendor: c.vendor, error: "未配置财务加密密钥，账号无法保存" }); continue; }
-          cipher = vp.sealAccount(account);
-        }
-        db.prepare("UPDATE contracts SET payee_bank=?, payee_account_cipher=? WHERE id=?")
-          .run(bank || c.payee_bank || null, cipher, c.id);
-        results.push({ id: c.id, vendor: c.vendor, bank: bank || "",
-          accountMasked: account ? "尾号 " + account.slice(-4) : "" });
-      } catch (e) {
-        results.push({ id: c.id, vendor: c.vendor, error: e.message || "识别失败" });
-      }
-    }
-
-    const ok = results.filter((r) => !r.error).length;
-    logAudit({ user: ctx.user, module: "财务结算", action: "识别合同收款账户",
-      target: p.id, detail: `扫描 ${rows.length} 份，识别成功 ${ok} 份`, ip: ctx.ip });
-    return { project: p.id, scanned: rows.length, updated: ok, results };
-  });
-
   router.get("/api/projects/:id/payee-options", async ctx => {
     const p=getProject(ctx.params.id);assertProjectVisible(ctx.user,p);
     assertCan(ctx.user,"payment:create","无权查看收款人信息");
@@ -602,15 +468,17 @@ function register(router) {
      * 先告诉用户「这个项目现在不能付款」，再谈表单缺什么。
      * 权限（上面）与数据范围（上面）仍在最前，不存在绕过。
      */
-    frozenGate(ctx, p, p.status === "已归档",
-      "项目已归档，数字卷宗已封存，不可再新增付款", "ARCHIVED", "付款申请");
-    frozenGate(ctx, p, p.status === "已结算",
-      "项目已生成结算单，账目已封账，不可再新增付款（如需补付请走线下流程并说明）", "SETTLED", "付款申请");
+    if (p.status === "已归档") {
+      throw conflict("项目已归档，数字卷宗已封存，不可再新增付款", "ARCHIVED", { status: p.status });
+    }
+    if (p.status === "已结算") {
+      throw conflict("项目已生成结算单，账目已封账，不可再新增付款（如需补付请走线下流程并说明）", "SETTLED", { status: p.status });
+    }
     if (!PAYABLE_STATUS.includes(p.status)) {
       throw conflict(
-        `付款被拦截：项目「${p.name}」当前状态为「${p.status}」，按制度必须先完成 6 步核销并通过（已核销）才可付款`,
+        `付款被拦截：项目「${p.name}」当前状态为「${p.status}」，按制度必须完成所有适用核销项（已核销）才可付款`,
         "VERIFY_GATE",
-        { status: p.status, verify: verification(p.id).judged + "/6" }
+        { status: p.status, verify: verification(p.id).judged + "/" + verification(p.id).total }
       );
     }
     if (!PAYMENT_TYPES.includes(b.type)) throw bad(`付款类型必须是：${PAYMENT_TYPES.join(" / ")}`);
@@ -627,14 +495,11 @@ function register(router) {
     const invoiceNo=String(b.invoice_no||"").trim(); // Legacy API remains readable/deduplicated; new UI omits this field.
     if(invoiceNo.length>40)throw bad("发票号不能超过 40 字");
     if (!isDemoMode()) {
-      // 第 6 步不再记录发票金额（该规则已去掉），改为要求「会务三单核验已通过且留有依据」
-      const checked=db.prepare("SELECT result, evidence_json FROM verify_steps WHERE pid=? AND step_no=6 AND result='通过'").get(p.id);
-      if(!checked || !checked.evidence_json)
-        throw conflict("必须先完成会务三单核验（第 6 步）再请款","INVOICE_CHECK_REQUIRED");
-      // 可请款上限 = 支出类已签合同总额；收入类（赞助）合同不算可请款额度
-      const signed=db.prepare(
-        "SELECT COALESCE(SUM(amount),0) AS total FROM contracts WHERE pid=? AND status='已签署' AND " + EXPENSE_CONTRACT_SQL
-      ).get(p.id);
+      const v=verification(p.id);
+      if(v.demandRequired && (v.steps.find(s=>s.no===6)?.result!=="通过" ||
+          !Number.isFinite(v.steps.find(s=>s.no===6)?.invoiceAmount)))
+        throw conflict("存在会务需求时必须先完成第6项会务三单一致核验再请款","INVOICE_CHECK_REQUIRED");
+      const signed=db.prepare("SELECT COALESCE(SUM(amount),0) AS total FROM contracts WHERE pid=? AND status='已签署'").get(p.id);
       const allocated=db.prepare("SELECT COALESCE(SUM(amount),0) AS total FROM payments WHERE pid=? AND status IN ('待审批','已审批','已付款')").get(p.id);
       const requested=Number(b.amount);
       if(Number.isFinite(requested) && cents(allocated.total)+cents(requested)>cents(signed.total))
@@ -652,13 +517,13 @@ function register(router) {
     // 比较走「分」，否则 2789.69 + 2600.09 = 5389.780000000001 > 预算 5389.78，
     // 明明正好用尽却报「超预算 ¥0.0000000000000009」。
     const used = committed(p.id);
-    const budget = yuan(p.budget);
+    const budget = availableBudget(p);
     const force = !!b.force && isSuper(ctx.user);
     const overCents = cents(used) + cents(amount) - cents(budget);
     if (!force && overCents > 0) {
       const over = overCents / 100;
       throw conflict(
-        `付款被拦截：项目预算 ¥${budget.toLocaleString("zh-CN")}，已占用 ¥${used.toLocaleString("zh-CN")}，` +
+        `付款被拦截：项目可用预算 ¥${budget.toLocaleString("zh-CN")}（立项预算扣除税费管理费），已占用 ¥${used.toLocaleString("zh-CN")}，` +
         `本笔 ¥${amount.toLocaleString("zh-CN")} 将超预算 ¥${over.toLocaleString("zh-CN")}；` +
         `如需特批请由总管理员携带 force 标记提交`,
         "OVER_BUDGET",
@@ -681,12 +546,28 @@ function register(router) {
       }
     }
 
-    const id = nextId(db, "payments", "id", "PY");
-    db.prepare("INSERT INTO payments (id,pid,type,payee,payee_bank,payee_account,amount,invoice_no,req_user,status,remark,created_by,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)")
-      .run(id, p.id, b.type, payee, payeeBank, payeeAccount, amount, invoiceNo, ctx.user.name, "待审批", remark, ctx.user.id, at);
-    const apId = nextId(db, "approvals", "id", "AP");
-    db.prepare("INSERT INTO approvals (id,type,title,pid,ref_id,amount,by_user,sla,status,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)")
-      .run(apId, "付款审批", `${b.type} ¥${amount.toLocaleString("zh-CN")}`, p.id, id, amount, ctx.user.name, "1 个工作日", "待审批", at);
+    // 付款与审批单原子提交；数据库唯一约束确保并发请求只有一次成功。
+    const key=paymentDedupeKey(b.type,payee,amount);
+    const prior=findExistingPayment(p.id,b.type,payee,amount);
+    if(prior)throw duplicatePaymentError(prior);
+    let id;
+    try{
+      transaction(()=>{
+        const same=findExistingPayment(p.id,b.type,payee,amount);
+        if(same)throw duplicatePaymentError(same);
+        id=nextId(db,"payments","id","PY");
+        db.prepare("INSERT INTO payments (id,pid,type,payee,payee_bank,payee_account,amount,invoice_no,dedupe_key,req_user,status,remark,created_by,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
+          .run(id,p.id,b.type,payee,payeeBank,payeeAccount,amount,invoiceNo,key,ctx.user.name,"待审批",remark,ctx.user.id,at);
+        const apId=nextId(db,"approvals","id","AP");
+        db.prepare("INSERT INTO approvals (id,type,title,pid,ref_id,amount,by_user,sla,status,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)")
+          .run(apId,"付款审批",`${b.type} ¥${amount.toLocaleString("zh-CN")}`,p.id,id,amount,ctx.user.name,"1 个工作日","待审批",at);
+      });
+    }catch(err){
+      if(err.code==="DUPLICATE_PAYMENT")throw err;
+      const collided=findExistingPayment(p.id,b.type,payee,amount);
+      if(collided)throw duplicatePaymentError(collided);
+      throw err;
+    }
     logAudit({
       user: ctx.user, module: "财务结算", action: "付款申请", target: p.id,
       detail: `${id} ${b.type} ¥${amount.toLocaleString("zh-CN")} → ${b.payee}（${payeeBank} 尾号 ${payeeAccount.slice(-4)}；核销已通过${force ? "；超预算特批" : ""}）`,
@@ -1015,9 +896,10 @@ function register(router) {
       );
     }
 
-    // 已结算 / 已归档 = 账目已封，改预算会与结算单对不上；总管理员可例外落账并留痕
-    frozenGate(ctx, p, ["已结算", "已归档"].includes(p.status),
-      `项目已「${p.status}」，账目已封，变更不可再落账`, "FROZEN", "变更落账");
+    // 已结算 / 已归档 = 账目已封，改预算会与结算单对不上
+    if (["已结算", "已归档"].includes(p.status)) {
+      throw conflict(`项目已「${p.status}」，账目已封，变更不可再落账`, "FROZEN", { status: p.status });
+    }
 
     let detail = `${a.id}：${a.title}`;
     let budgetInfo = null;

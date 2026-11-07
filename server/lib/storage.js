@@ -15,6 +15,7 @@
  */
 const path = require("node:path");
 const { MIME: OFFICE_MIME, detectOoxml } = require("./ooxml");
+const { MIME: LEGACY_MIME, detectLegacyOffice } = require("./legacy-office");
 
 const HERE = typeof __dirname === "string" ? __dirname : "";
 const DATA_DIR = path.join(HERE, "..", "..", "data");
@@ -29,23 +30,17 @@ const ALLOWED_MIME = {
   "image/webp": "webp",
   "image/gif": "gif",
   "application/pdf": "pdf",
-  "application/vnd.ms-powerpoint": "ppt",
+  [LEGACY_MIME.ppt]: "ppt",
+  [LEGACY_MIME.doc]: "doc",
+  [LEGACY_MIME.xls]: "xls",
+  "text/csv": "csv",
+  "text/plain": "txt",
   [OFFICE_MIME.docx]: "docx",
   [OFFICE_MIME.pptx]: "pptx",
   [OFFICE_MIME.xlsx]: "xlsx"
 };
 
-/**
- * 落库的单份文件上限：默认 50 MB（ERP_MAX_FILE_MB 可调）。
- * 超过这个值的原件会在上传时先压缩到该值以内再存。
- */
-const MAX_BYTES = Math.max(1, Number(process.env.ERP_MAX_FILE_MB || 50)) * 1024 * 1024;
-/**
- * 允许上传的原始大小上限（压缩前）。给扫描件留出空间：
- * 300dpi 的合同扫描件动辄 40~80 MB，先收进来再压，比让用户自己找工具更现实。
- * 超过这个值的直接拒，避免拿服务器当网盘。
- */
-const MAX_UPLOAD_BYTES = Math.max(MAX_BYTES, Number(process.env.ERP_MAX_UPLOAD_MB || 200) * 1024 * 1024);
+const MAX_BYTES = 20 * 1024 * 1024; // 单文件最大 20 MB；后端始终强制验证
 const MAX_FILES_PER_MATERIAL = 1;
 
 /* ---------------------------------------------------------------- 本地磁盘 */
@@ -176,27 +171,38 @@ function newKey(mime) {
 function checkMime(mime) {
   const m = String(mime || "").split(";")[0].trim().toLowerCase();
   if (!ALLOWED_MIME[m]) {
-    throw Object.assign(new Error(`不支持的文件类型：${m || "未识别"}（仅支持 JPG / PNG / WebP / GIF / PDF / PPT / DOCX / PPTX / XLSX）`), {
+    throw Object.assign(new Error(`不支持的文件类型：${m || "未识别"}（支持图片、PDF、DOC、DOCX、PPT、PPTX、XLS、XLSX、CSV、TXT）`), {
       status: 415, code: "UNSUPPORTED_MEDIA"
     });
   }
   return m;
 }
 
-/** 从文件头判断真实类型，防止把可执行文件改名成 .jpg 上传 */
-function sniffMime(buf) {
-  if (!buf || buf.length < 4) return null;
+/** 文本格式不含二进制空字节或危险控制字符；兼容 UTF-8 / GBK 导出的 CSV。 */
+function isPlainText(buf) {
+  if (!Buffer.isBuffer(buf) || !buf.length) return false;
+  for (const byte of buf) {
+    if (byte === 0 || (byte < 32 && byte !== 9 && byte !== 10 && byte !== 13) || byte === 127) return false;
+  }
+  return true;
+}
+
+/** 通过真实文件结构识别二进制 Office；CSV/TXT 需额外校验文本内容与文件扩展名。 */
+function sniffMime(buf, filename = "") {
+  if (!Buffer.isBuffer(buf) || buf.length === 0) return null;
   if (buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return "image/jpeg";
   if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) return "image/png";
   if (buf[0] === 0x47 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x38) return "image/gif";
   if (buf.length >= 12 && buf.toString("ascii", 0, 4) === "RIFF" && buf.toString("ascii", 8, 12) === "WEBP") return "image/webp";
   if (buf.toString("ascii", 0, 4) === "%PDF") return "application/pdf";
-  // Legacy PowerPoint is a CFB/OLE document, not OOXML. Require a structurally plausible header.
-  // Store as attachment only; never execute active content or embed it in a browser preview.
-  if(buf.length>=512 && buf.subarray(0,8).equals(Buffer.from([0xd0,0xcf,0x11,0xe0,0xa1,0xb1,0x1a,0xe1])) &&
-     buf.readUInt16LE(28)===0xfffe && [3,4].includes(buf.readUInt16LE(26)) &&
-     [9,12].includes(buf.readUInt16LE(30)))return "application/vnd.ms-powerpoint";
-  return detectOoxml(buf);
+  const oldOffice = detectLegacyOffice(buf);
+  if (oldOffice) return oldOffice;
+  const newOffice = detectOoxml(buf);
+  if (newOffice) return newOffice;
+  const ext=String(filename).split(".").pop().toLowerCase();
+  if (["csv","txt"].includes(ext) && isPlainText(buf))
+    return ext === "csv" ? "text/csv" : "text/plain";
+  return null;
 }
 
 function safeName(name) {
@@ -208,5 +214,5 @@ module.exports = {
   storage, useBackend, attachR2, attachStorage, unavailableStorage,
   nodeStorage, r2Storage,
   newKey, checkMime, sniffMime, safeName,
-  ALLOWED_MIME, MAX_BYTES, MAX_UPLOAD_BYTES, MAX_FILES_PER_MATERIAL, DEFAULT_DIR
+  ALLOWED_MIME, MAX_BYTES, MAX_FILES_PER_MATERIAL, DEFAULT_DIR
 };

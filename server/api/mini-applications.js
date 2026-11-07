@@ -6,6 +6,7 @@ const {isDemoMode}=require("../lib/runtime");
 const {getProject,transition}=require("../lib/workflow");
 const {ASSOCS}=require("../lib/constants");
 const {validate}=require("./projects");
+const {assertCan}=require("../lib/rbac");
 const {logAudit}=require("../lib/audit");
 function requireMini(){
   if(isDemoMode()||process.env.ERP_MINIPROGRAM_ENABLED!=="1")
@@ -35,18 +36,21 @@ function formFor(ctx,b){
 function register(router){
   router.get("/api/mini/applications",async ctx=>{
     requireMini();
+    assertCan(ctx.user,"mini:apply","当前账号尚未获微信端立项申请权限");
     const rows=db.prepare("SELECT id,name,assoc,form,date,days,budget,people,status,created_at,updated_at FROM projects WHERE created_by=? ORDER BY created_at DESC,id DESC LIMIT 100")
       .all(ctx.user.id);
     return {rows,total:rows.length};
   });
   router.get("/api/mini/applications/:id",async ctx=>{
     requireMini();
+    assertCan(ctx.user,"mini:apply","当前账号尚未获微信端立项申请权限");
     const p=ownApplication(ctx,ctx.params.id);
     const {id,name,assoc,form,date,days,budget,people,phone,dept,agenda,status,created_at}=p;
     return {project:{id,name,assoc,form,date,days,budget,people,phone,dept,agenda,status,created_at}};
   });
   router.post("/api/mini/applications",async ctx=>{
     requireMini();
+    assertCan(ctx.user,"mini:apply","当前账号尚未获微信端立项申请权限");
     const v=formFor(ctx,ctx.body||{});
     const pending=db.prepare("SELECT COUNT(*) AS n FROM projects WHERE created_by=? AND status IN ('草稿','待审批')").get(ctx.user.id).n;
     if(pending>=5)throw conflict("你已有 5 份未审批的申请，请先处理现有申请","APPLICATION_LIMIT");
@@ -59,6 +63,7 @@ function register(router){
   });
   router.patch("/api/mini/applications/:id",async ctx=>{
     requireMini();
+    assertCan(ctx.user,"mini:apply","当前账号尚未获微信端立项申请权限");
     const p=ownApplication(ctx,ctx.params.id);
     if(p.status!=="草稿")throw conflict("申请已提交，只能编辑草稿","APPLICATION_LOCKED");
     const v=formFor(ctx,ctx.body||{});
@@ -69,6 +74,7 @@ function register(router){
   });
   router.post("/api/mini/applications/:id/submit",async ctx=>{
     requireMini();
+    assertCan(ctx.user,"mini:apply","当前账号尚未获微信端立项申请权限");
     const p=ownApplication(ctx,ctx.params.id);
     if(p.status!=="草稿")throw conflict("只有草稿可以提交审批","APPLICATION_LOCKED");
     return transition(p.id,"submit",ctx.user,{},ctx.ip);

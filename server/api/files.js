@@ -18,8 +18,7 @@ const { assertProjectVisible, can } = require("../lib/rbac");
 const { logAudit } = require("../lib/audit");
 const { getProject } = require("../lib/workflow");
 const { HttpError } = require("../lib/util");
-const { storage, newKey, checkMime, sniffMime, safeName, MAX_BYTES, MAX_UPLOAD_BYTES, ALLOWED_MIME } = require("../lib/storage");
-const { shrinkToLimit, OFFICE_HINT } = require("../lib/shrink");
+const { storage, newKey, checkMime, sniffMime, safeName, MAX_BYTES, ALLOWED_MIME } = require("../lib/storage");
 
 const EXT_MIME = {
   jpg: "image/jpeg",
@@ -28,72 +27,17 @@ const EXT_MIME = {
   gif: "image/gif",
   pdf: "application/pdf",
   ppt: "application/vnd.ms-powerpoint",
+  doc: "application/msword",
+  xls: "application/vnd.ms-excel",
+  csv: "text/csv",
+  txt: "text/plain",
   docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
   pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
   xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 };
 
 /** key 必须严格匹配自己生成的格式，避免 ../ 之类的路径穿越 */
-const KEY_RE = /^[a-f0-9]{32}\.(jpg|png|webp|gif|pdf|ppt|docx|pptx|xlsx)$/;
-
-/** 需要先转 PDF 才能预览的 Office 格式（下载路由里它们仍是 attachment） */
-const OFFICE_EXT = ["doc", "docx", "xls", "xlsx", "ppt", "pptx"];
-
-/** 在线预览渲染的 PDF 页数上限，防止超大文档把临时目录撑爆 */
-const PREVIEW_MAX_PAGES = 300;
-/** 预览渲染宽度（像素）：A4 竖版约等于 150 dpi，合同小字能看清 */
-const PREVIEW_WIDTH = 1500;
-
-/**
- * 校验「这个用户能不能读这个 key」，并返回文件归属信息。
- * 下载与在线预览必须用同一套规则，否则会出现「不能下载但能预览」的绕过。
- */
-function authorizeUpload(ctx, key) {
-  if (!KEY_RE.test(key)) throw bad("文件标识不合法");
-
-  // 已关联业务单据的文件，按单据所属项目校验数据范围。
-  // 一个 key 理论上只属于一处，但材料与合同分表存，两处都要查。
-  // 尚未关联的（刚上传、还没提交单据）只要求登录，key 本身是 32 位随机串。
-  const m = db.prepare("SELECT pid, file_name FROM materials WHERE file_key = ?").get(key);
-  const c = m ? null : db.prepare("SELECT pid, file_name FROM contracts WHERE file_key = ?").get(key);
-  const sponsor = c || m ? null : db.prepare("SELECT pid,file_name FROM meeting_sponsor_contracts WHERE file_key=?").get(key);
-  const receipt = c || m || sponsor ? null : db.prepare("SELECT pid,file_name FROM meeting_sponsor_receipts WHERE file_key=?").get(key);
-  const invoice = c || m || sponsor || receipt ? null : db.prepare("SELECT pid,file_name FROM meeting_sponsor_invoices WHERE file_key=?").get(key);
-  const owner = m || c || sponsor || receipt || invoice;
-  if (owner) {
-    assertProjectVisible(ctx.user, getProject(owner.pid));
-    // 单纯是项目成员的嘉宾并不自动获得合同和财务凭证的读取权限。
-    if (!can(ctx.user, "material:write") && !can(ctx.user, "contract:write") &&
-        !can(ctx.user, "verify:check") && !can(ctx.user, "archive:write")) {
-      throw forbidden("当前角色无权查看内部业务附件");
-    }
-  } else {
-    // 未关联单据时只允许上传者或总管理员读取，不能把随机 key 当作授权。
-    const pending = db.prepare("SELECT user_id FROM uploaded_files WHERE file_key = ?").get(key);
-    if (!pending) throw notFound("文件不存在或尚未登记");
-    if (Number(pending.user_id) !== Number(ctx.user.id) && ctx.user.role !== "admin") {
-      throw forbidden("该文件不属于当前用户");
-    }
-  }
-  return { owner, ext: key.split(".").pop() };
-}
-
-/** 跑一个本地命令（poppler 渲染用）。ENOENT 说明依赖没装，转成可读的 503。 */
-function runTool(program, args, timeout) {
-  const { execFile } = require("node:child_process");
-  return new Promise((resolve, reject) => {
-    execFile(program, args, { timeout, maxBuffer: 8 * 1024 * 1024, windowsHide: true, shell: false }, (e, stdout) => {
-      if (!e) return resolve(String(stdout || ""));
-      if (e.code === "ENOENT") {
-        return reject(new HttpError(503, "PREVIEW_UNAVAILABLE", "服务端未安装 PDF 预览依赖（poppler-utils）"));
-      }
-      if (e.killed || e.code === "ETIMEDOUT") {
-        return reject(new HttpError(422, "PREVIEW_TIMEOUT", "原件渲染超时，请下载后用本地软件查看"));
-      }
-      reject(new HttpError(422, "PREVIEW_FAILED", "原件无法渲染（可能已加密或文件损坏），请下载后查看"));
-    });
-  });
-}
+const KEY_RE = /^[a-f0-9]{32}\.(jpg|png|webp|gif|pdf|ppt|doc|docx|xls|xlsx|pptx|csv|txt)$/;
 
 function register(router) {
   router.post("/api/uploads", async (ctx) => {
@@ -105,26 +49,21 @@ function register(router) {
 
     const buf = ctx.body;
     if (!Buffer.isBuffer(buf) || buf.length === 0) throw bad("未收到文件内容");
-    const mb = (n) => (n / 1024 / 1024).toFixed(1);
-    if (buf.length > MAX_UPLOAD_BYTES) {
-      throw new HttpError(413, "PAYLOAD_TOO_LARGE",
-        `单个文件最大 ${Math.round(MAX_UPLOAD_BYTES / 1024 / 1024)} MB（压缩前），当前 ${mb(buf.length)} MB`);
+    if (buf.length > MAX_BYTES) {
+      throw new HttpError(413, "PAYLOAD_TOO_LARGE", `单个文件不能超过 ${Math.round(MAX_BYTES / 1024 / 1024)} MB`);
     }
 
-    // 以文件头为准，不信客户端声明的 Content-Type
-    const mime = sniffMime(buf);
-    if (!mime) throw bad("无法识别文件类型，仅支持 JPG / PNG / WebP / GIF / PDF / PPT / DOCX / PPTX / XLSX");
+    // 以文件头/容器结构为准。CSV/TXT 属于纯文本，还须检查原始扩展名和控制字符。
+    let declaredName=String(ctx.req.headers["x-file-name"] || "");
+    try { declaredName=decodeURIComponent(declaredName); } catch {}
+    const mime = sniffMime(buf,declaredName);
+    if (!mime) throw bad("无法识别文件类型，支持图片、PDF、DOC/DOCX、PPT/PPTX、XLS/XLSX、CSV、TXT");
     checkMime(mime);
-    // Office 附件必须与原始文件名扩展名一致，禁止把可识别的 PPTX 冒充 EXE 等格式展示。
-    const officeExt = ALLOWED_MIME[mime];
-    if (["ppt","docx", "pptx", "xlsx"].includes(officeExt)) {
-      const declared = String(ctx.req.headers["x-file-name"] || "");
-      let decoded = declared;
-      try { decoded = decodeURIComponent(declared); } catch {}
-      if (!decoded.toLowerCase().endsWith("." + officeExt)) {
-        throw bad("Office 文件扩展名与实际格式不符");
-      }
-    }
+    // 旧版/新版 Office、CSV、TXT 都必须与真实识别类型对应，防止扩展名伪造。
+    const recognizedExt=ALLOWED_MIME[mime];
+    if (["ppt","doc","xls","docx","pptx","xlsx","csv","txt"].includes(recognizedExt) &&
+        !declaredName.toLowerCase().endsWith("."+recognizedExt))
+      throw bad("文件扩展名与识别类型不符，请使用真实的 "+recognizedExt.toUpperCase()+" 文件");
 
     const rawName = ctx.req.headers["x-file-name"] || "";
     let name = "未命名文件";
@@ -136,33 +75,8 @@ function register(router) {
       if (!p) throw notFound("会议项目不存在");
       assertProjectVisible(ctx.user, p);
     }
-    /**
-     * 超过上限（默认 50 MB）的原件先压缩再落库。
-     * 扫描件体积几乎全在图片上，PDF 降采样、图片限长边都能压到十分之一左右；
-     * Office 是压缩包，压不动，明确拒绝而不是收下一个 50 MB 的 pptx。
-     */
-    let stored = buf, compressed = null;
-    if (buf.length > MAX_BYTES) {
-      const r = await shrinkToLimit(buf, mime, MAX_BYTES);
-      if (!r.ok) {
-        const reason = r.reason === "unsupported"
-          ? (officeExt === "ppt"
-              ? "旧版 .ppt 是二进制格式，无法安全改写；请另存为 .pptx 或导出 PDF 后再上传"
-              : OFFICE_HINT)
-          : r.reason === "tool-missing"
-            ? "服务器未安装压缩工具，请先在本地压缩后再上传"
-            : r.reason === "failed"
-              ? "文件可能已加密或损坏，无法自动压缩，请先在本地处理后重试"
-              : `自动压缩后仍超过 ${Math.round(MAX_BYTES / 1024 / 1024)} MB，请降低扫描分辨率或拆分文件后重试`;
-        throw new HttpError(413, "PAYLOAD_TOO_LARGE",
-          `单个文件不能超过 ${Math.round(MAX_BYTES / 1024 / 1024)} MB，当前 ${mb(buf.length)} MB。${reason}`);
-      }
-      stored = r.buffer;
-      compressed = { originalSize: r.originalSize, engine: r.engine };
-    }
-
     const key = newKey(mime);
-    await storage().put(key, stored, { mime });
+    await storage().put(key, buf, { mime });
     try {
       db.prepare("INSERT INTO uploaded_files (file_key,user_id,pid,created_at) VALUES (?,?,?,?)")
         .run(key, ctx.user.id, pid, now());
@@ -171,137 +85,58 @@ function register(router) {
       throw e;
     }
     logAudit({
-      user: ctx.user, module: "材料中心", action: compressed ? "上传文件（已自动压缩）" : "上传文件",
-      target: pid || key,
-      detail: compressed
-        ? `${name}（${mb(compressed.originalSize)} MB → ${mb(stored.length)} MB，${compressed.engine}）`
-        : `${name}（${(stored.length / 1024).toFixed(0)} KB）`,
-      ip: ctx.ip
+      user: ctx.user, module: "材料中心", action: "上传文件",
+      target: pid || key, detail: `${name}（${(buf.length / 1024).toFixed(0)} KB）`, ip: ctx.ip
     });
 
-    return { key, name, size: stored.length, mime, url: `/api/uploads/${key}`,
-      ...(compressed ? { compressed: true, originalSize: compressed.originalSize, engine: compressed.engine } : {}) };
+    return { key, name, size: buf.length, mime, url: `/api/uploads/${key}` };
   });
 
   /** 上传能力探测：前端据此决定是否显示上传按钮（R2 未绑定时 Worker 上会返回 false） */
   router.get("/api/uploads/capability", async () => {
     const st = storage();
-    return { enabled: st.name === "fs" || st.name === "r2", backend: st.name, maxBytes: MAX_BYTES, maxUploadBytes: MAX_UPLOAD_BYTES, allowedMime: Object.keys(ALLOWED_MIME) };
+    return { enabled: st.name === "fs" || st.name === "r2", backend: st.name, maxBytes: MAX_BYTES, allowedMime: Object.keys(ALLOWED_MIME) };
   });
 
   router.get("/api/uploads/:key", async (ctx) => {
     const key = String(ctx.params.key || "");
-    const { owner, ext } = authorizeUpload(ctx, key);
+    if (!KEY_RE.test(key)) throw bad("文件标识不合法");
+
+    // 已关联业务单据的文件，按单据所属项目校验数据范围。
+    // 一个 key 理论上只属于一处，但材料与合同分表存，两处都要查。
+    // 尚未关联的（刚上传、还没提交单据）只要求登录，key 本身是 32 位随机串。
+    const m = db.prepare("SELECT pid, file_name FROM materials WHERE file_key = ?").get(key);
+    const c = m ? null : db.prepare("SELECT pid, file_name FROM contracts WHERE file_key = ?").get(key);
+    const sponsor=c||m?null:db.prepare("SELECT pid,file_name FROM meeting_sponsor_contracts WHERE file_key=?").get(key);
+    const receipt=c||m||sponsor?null:db.prepare("SELECT pid,file_name FROM meeting_sponsor_receipts WHERE file_key=?").get(key);
+    const invoice=c||m||sponsor||receipt?null:db.prepare("SELECT pid,file_name FROM meeting_sponsor_invoices WHERE file_key=?").get(key);
+    const owner = m || c || sponsor || receipt || invoice;
+    if (owner) {
+      assertProjectVisible(ctx.user, getProject(owner.pid));
+      // 单纯是项目成员的嘉宾并不自动获得合同和财务凭证的读取权限。
+      if (!can(ctx.user, "material:write") && !can(ctx.user, "contract:write") &&
+          !can(ctx.user, "verify:check") && !can(ctx.user, "archive:write")) {
+        throw forbidden("当前角色无权查看内部业务附件");
+      }
+    } else {
+      // 未关联单据时只允许上传者或总管理员读取，不能把随机 key 当作授权。
+      const pending = db.prepare("SELECT user_id FROM uploaded_files WHERE file_key = ?").get(key);
+      if (!pending) throw notFound("文件不存在或尚未登记");
+      if (Number(pending.user_id) !== Number(ctx.user.id) && ctx.user.role !== "admin") {
+        throw forbidden("该文件不属于当前用户");
+      }
+    }
 
     const obj = await storage().get(key);
     if (!obj) throw notFound("文件不存在或已删除");
 
+    const ext = key.split(".").pop();
     return { __file: {
       buffer: obj.buffer,
       mime: EXT_MIME[ext] || "application/octet-stream",
       name: owner?.file_name ? safeName(owner.file_name) : key,
-      download: ["ppt","docx", "pptx", "xlsx"].includes(ext)
+      download: ["ppt","doc","xls","docx","pptx","xlsx","csv","txt"].includes(ext)
     } };
-  });
-
-  /**
-   * 在线预览：把原件变成浏览器一定能显示的东西。
-   *
-   * 为什么不能只靠 <a target="_blank">：
-   *   PDF 能不能在标签页里直接打开，取决于浏览器设置（很多国产浏览器默认下载），
-   *   Office 文件（课件、串场 PPT、劳务表 Excel）浏览器更是完全没有渲染能力。
-   *   核销时点「查看原件」是要核对内容，落到下载就是把核对动作打断了。
-   *
-   * 做法：
-   *   图片 → 原样返回；
-   *   PDF  → poppler 按页渲染成 PNG（与 OCR 同一套依赖）；
-   *   Office → LibreOffice 无头转 PDF，再走同一条 PDF 渲染链路（结果按 key 缓存）。
-   */
-  router.get("/api/uploads/:key/preview", async (ctx) => {
-    const key = String(ctx.params.key || "");
-    const { owner, ext } = authorizeUpload(ctx, key);
-
-    const obj = await storage().get(key);
-    if (!obj) throw notFound("文件不存在或已删除");
-    const name = owner?.file_name ? safeName(owner.file_name) : key;
-
-    if (["jpg", "png", "webp", "gif"].includes(ext)) {
-      return { __file: { buffer: obj.buffer, mime: EXT_MIME[ext], name, download: false } };
-    }
-
-    let pdf = obj.buffer;
-    if (OFFICE_EXT.includes(ext)) {
-      const { toPdf, hasLibreOffice } = require("../lib/office-preview");
-      if (!(await hasLibreOffice())) {
-        throw new HttpError(415, "PREVIEW_UNSUPPORTED",
-          `服务器未安装 LibreOffice，${ext.toUpperCase()} 无法在线预览，请下载后用本地软件打开`);
-      }
-      try {
-        pdf = await toPdf(obj.buffer, ext, key.replace(/\.[^.]+$/, ""));
-      } catch (e) {
-        const timeout = e.code === "SOFFICE_TIMEOUT";
-        throw new HttpError(422, timeout ? "PREVIEW_TIMEOUT" : "PREVIEW_CONVERT_FAILED",
-          timeout
-            ? "原件转换超时（文件可能过大），请下载后查看"
-            : "原件无法转换（可能已加密或损坏），请下载后查看");
-      }
-    } else if (ext !== "pdf") {
-      throw new HttpError(415, "PREVIEW_UNSUPPORTED",
-        `该格式（${ext.toUpperCase()}）无法在线预览，请下载后用本地软件打开`);
-    }
-
-    const fs = require("node:fs/promises");
-    const os = require("node:os");
-    const path = require("node:path");
-    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "erp-preview-"));
-    try {
-      await fs.chmod(dir, 0o700);
-      const file = path.join(dir, "original.pdf");
-      await fs.writeFile(file, pdf, { mode: 0o600 });
-
-      const info = await runTool("pdfinfo", [file], 10000);
-      const pages = Number((/^Pages:\s+(\d+)/im.exec(info) || [])[1] || 0);
-      if (!pages) throw new HttpError(422, "PREVIEW_FAILED", "PDF 页数无效或文件已加密，请下载后查看");
-
-      const wanted = Number(ctx.query.page) || 1;
-      const page = Math.min(Math.max(1, Math.trunc(wanted)), Math.min(pages, PREVIEW_MAX_PAGES));
-
-      // 渲染结果按「文件 + 页」缓存：一份 10 页的 PPT 首页要渲染 4 秒，
-      // 核销时来回翻页会很卡。key 一次上传永不改写，所以缓存不会过期。
-      const { CACHE_DIR } = require("../lib/office-preview");
-      const cachedPng = path.join(CACHE_DIR, `${key.replace(/\.[^.]+$/, "")}-p${page}.png`);
-      const hit = await fs.readFile(cachedPng).catch(() => null);
-      if (hit && hit.length > 8) {
-        return { __file: {
-          buffer: hit, mime: "image/png",
-          name: `${name.replace(/\.[^.]+$/, "")}-第${page}页.png`, download: false,
-          headers: { "X-Preview-Pages": String(pages), "X-Preview-Page": String(page) }
-        } };
-      }
-
-      const prefix = path.join(dir, "page");
-      await runTool("pdftoppm", [
-        "-f", String(page), "-l", String(page),
-        "-scale-to", String(PREVIEW_WIDTH), "-png", "-r", "150", file, prefix
-      ], 30000);
-
-      const produced = (await fs.readdir(dir)).filter((s) => /^page-?\d*\.png$/.test(s));
-      if (!produced.length) throw new HttpError(422, "PREVIEW_FAILED", "原件未能渲染成图片，请下载后查看");
-      const buffer = await fs.readFile(path.join(dir, produced[0]));
-      await fs.mkdir(CACHE_DIR, { recursive: true })
-        .then(() => fs.writeFile(cachedPng, buffer))
-        .catch(() => {});
-
-      return { __file: {
-        buffer,
-        mime: "image/png",
-        name: `${name.replace(/\.[^.]+$/, "")}-第${page}页.png`,
-        download: false,
-        headers: { "X-Preview-Pages": String(pages), "X-Preview-Page": String(page) }
-      } };
-    } finally {
-      await fs.rm(dir, { recursive: true, force: true }).catch(() => {});
-    }
   });
 
   return router;
