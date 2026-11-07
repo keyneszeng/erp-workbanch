@@ -286,7 +286,7 @@ test("仅授予材料模块和上传权限时项目预算、合同和付款仍�
  const list=await call("qa_viewonly","GET","/api/projects");
  assert.equal(list.status,200);
  assert.equal(list.body.rows[0].budget,undefined);
- assert.equal(list.body.summary?.budget,null);
+ assert.ok(list.body.summary?.budget==null,"无预算权不得附带预算汇总");
 });
 test("撤销后立即失效；重新登录也不能访问已经撤销的模块",async()=>{
  const revoke=await call("admin","PATCH","/api/users/"+userId+"/access",{
