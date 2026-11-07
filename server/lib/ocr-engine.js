@@ -344,7 +344,11 @@ function parseAgendaRows(raw){
       ||/(课题|主题|讲题|演讲题目|报告题目|Topic|Subject)\s*[:：]/i.test(c));
     return !labeled;
   }).map(r=>{
-    let cells=r.cells.join("  ").split(/\s{2,}|[|｜]/).map(x=>x.replace(/[，,。;；]$/,"").trim()).filter(x=>x.length>=1);
+    // OCR 常把表格线读成标点，堆在单元格开头（，”内痔的规范化治疗）。
+    // 不清理的话这些噪声会跟着进课题/讲者字段，人工核对时还得手工删。
+    let cells=r.cells.join("  ").split(/\s{2,}|[|｜]/)
+      .map(x=>x.replace(/^[，,。;；:：、“”"'‘’\s]+/,"").replace(/[，,。;；:：]+$/,"").trim())
+      .filter(x=>x.length>=1);
     // 「讲者：张三教授 课题：胃肠病诊疗新进展」这类一行写完的，先按标签拆成两块
     cells=cells.flatMap(cell=>{
       const m=cell.match(/(?:讲者|讲师|演讲人|授课人|Speaker|Presenter)\s*[:：]\s*(.+?)\s+(?:课题|主题|讲题|演讲题目|报告题目|Topic|Subject)\s*[:：]\s*(.+)$/i);
@@ -478,8 +482,9 @@ function parseAgenda(raw){
   const lines=cleanText(raw).split("\n").map(s=>s.replace(/[\t　]+/g," ").trim()).filter(Boolean);
   const out=[],seen=new Set();let pending="";
   function add(a,b){
-    const speaker=String(a||"").replace(/^(?:讲者|讲师|演讲人|授课人)\s*[:：]?/,"").trim();
-    const topic=String(b||"").replace(/^(?:课题|主题|演讲题目|报告题目|讲题)\s*[:：]?/,"").trim();
+    const clean=(s)=>String(s||"").replace(/^[，,。;；:：、“”"'‘’\s]+/,"").replace(/[，,。;；:：]+$/,"").trim();
+    const speaker=clean(String(a||"").replace(/^(?:讲者|讲师|演讲人|授课人)\s*[:：]?/,""));
+    const topic=clean(String(b||"").replace(/^(?:课题|主题|演讲题目|报告题目|讲题)\s*[:：]?/,""));
     if(speaker.length<2||speaker.length>45||topic.length<3||topic.length>160||/^(会议|时间|地点|主题|开场|结束|签到|议程|姓名|职务|主持)/.test(speaker))return;
     const key=(speaker+"|"+topic).replace(/\s+/g,"").toLowerCase();
     if(!seen.has(key)){seen.add(key);out.push({speaker,topic});}
