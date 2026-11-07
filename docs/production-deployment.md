@@ -113,15 +113,18 @@ ECS 的 `production.env` 默认 `ERP_MINIPROGRAM_ENABLED=0`；上线小程序前
 该版本的 `已付款` 表示系统内财务人员确认付款完成，**不代表已集成银行回执或自动支付**。如要求资金到账证明，需要后续对接银行回单/付款流水对账系统。生产上线前须执行 `npm test`、`npm run test:cf`（仅兼容性测试）、微信端和浏览器业务全流程黑盒验收；不能以 PR 存在代替通过。
 
 
-## 离线 OCR 与终版议程自动提取（2026-11-01）
+## 离线 OCR 与终版议程自动提取（RapidOCR）
 
-本功能使用本地 Tesseract (chi_sim+eng) 和 Poppler，不将材料原件发送到第三方识别服务。**仅在阿里云 ECS Linux + Node 22 环境启用**，Cloudflare 演示版仍使用人工录入，且禁用 OCR 原生子进程。
+本功能使用 **RapidOCR 统一 Python 包**（`rapidocr>=3.10,<4` + `onnxruntime`）和 Poppler，纯 CPU、离线运行，**不将材料原件发送到第三方识别服务**。**仅在阿里云 ECS Linux + Node 22 环境启用**，Cloudflare 演示版仍使用人工录入，且禁用 OCR 原生子进程。
 
 ```bash
 sudo apt-get update
-sudo apt-get install -y tesseract-ocr tesseract-ocr-chi-sim tesseract-ocr-eng poppler-utils
-tesseract --list-langs
-# 需看到 chi_sim 和 eng；再在 /etc/erp-workbanch/production.env 设置 ERP_OCR_ENABLED=1
+sudo apt-get install -y poppler-utils
+# RapidOCR 装在独立 venv；此命令也可升级旧 rapidocr_onnxruntime
+sudo bash deploy/aliyun/install-rapidocr.sh
+# 设置 ERP_OCR_ENABLED=1，启动前会检查 rapidocr/onnxruntime 与 Poppler
+# 可选：ERP_RAPIDOCR_PYTHON=/opt/rapidocr-venv/bin/python
+# 再在 /etc/erp-workbanch/production.env 设置 ERP_OCR_ENABLED=1
 sudo systemctl restart erp.service
 ```
 
@@ -130,6 +133,22 @@ sudo systemctl restart erp.service
 - `POST /api/projects/:id/material-workbench/ocr` `{materialId,force?:true}`：校验项目与权限，读取**该项目登记的原件**后识别，结果按材料 ID 入库存档，可重复查询，禁止并行超负载请求。
 - `GET /api/projects/:id/material-workbench/ocr/:materialId`：查询上次识别文本和候选（需要材料中心权限）。
 - 限制：文件最多 8 MB；PDF 只处理前三页并明确标记 `truncated`；每次请求有进程超时和独立权限为 0700 的临时目录，完成后清理。OCR 文本最多 30,000 字。
-- 图片支持 JPG/PNG；PDF 有文字层时用 `pdftotext`，无可用文字层时用 `pdftoppm` 转图后 Tesseract 识别。WebP/GIF/Office 文件须转换格式。
+- 图片支持 JPG/PNG；PDF 有文字层时用 `pdftotext`，无可用文字层时用 `pdftoppm` 转图后 RapidOCR 识别。WebP/GIF/Office 文件须转换格式。
 - 此时 OCR 仅用于生成材料待办的**可修改建议**，不是对盖章、药企 Logo 位置、参会时长、银行卡等高风险字段的自动审定。OCR 数据随项目和材料原件访问权限隔离；审计只记录操作与结果计数，不记录识别出的个人信息。
 - ECS 实际部署后仍需在真实中文扫描件、图像旋转、低清晰度和大文件上进行业务验收。运行进程资源和 OCR 失败率应纳入监控；不应在未审阅真实识别效果前宣称识别准确率。
+
+### 识别参数与限制
+
+| 项 | 值 |
+|---|---|
+| 引擎 | RapidOCR 统一 Python 包（ONNX Runtime CPU） |
+| 依赖 | `/opt/rapidocr-venv` 下的 `rapidocr>=3.10,<4`、`onnxruntime` + `poppler-utils` |
+| 资源 | 纯 CPU；耗时和峰值内存取决于 ECS 规格、图片质量与模型版本，需在服务器实测 |
+| PDF | 渲染 2400px 灰度；只处理前 3 页并标记 `truncated` |
+| 列还原 | 按文本框坐标还原表格列，不依赖空格数量 |
+
+**旧缓存会自动失效**：`material_ocr_results` 按 engine 标签判断，历史 tesseract、旧 `rapidocr_onnxruntime` 图像结果不会命中；升级后第一次识别会重跑，PDF 文本层（Poppler）结果继续复用，不需要手工清库。
+
+**未安装时**：ECS 启动预检将拒绝启用但缺少 RapidOCR/ONNX Runtime 或 Poppler 的部署；运行中识别遇到依赖/解释器错误会返回 OCR 错误，不会静默标为通过。
+
+**超时**：单页识别上限 120 秒；反向代理的 `proxy_read_timeout` 应大于单次请求的最长耗时。
