@@ -66,21 +66,9 @@ function check(env = process.env) {
     fail("ERP_FINANCIAL_DATA_KEY 必须为独立 32 字节随机密钥（64 位十六进制）");
   if(env.ERP_REQUIRE_VERIFIED_PAYEES==="1" && !/^[0-9a-f]{64}$/i.test(String(env.ERP_FINANCIAL_DATA_KEY||"")))
     fail("启用强制核销收款人选择必须先配置 ERP_FINANCIAL_DATA_KEY");
-  if (env.ERP_OCR_ENABLED && !["0","1"].includes(env.ERP_OCR_ENABLED))
-    fail("ERP_OCR_ENABLED 必须为 0 或 1");
-  if (env.ERP_OCR_ENABLED === "1") {
-    const { spawnSync } = require("node:child_process");
-    for(const cmd of ["tesseract","pdfinfo","pdftotext","pdftoppm"]){
-      const args = cmd === "tesseract" ? ["--list-langs"] : ["-v"];
-      const res=spawnSync(cmd,args,{encoding:"utf8",timeout:5000,maxBuffer:65536});
-      if(res.error || res.status!==0)fail("已启用 OCR 但缺少可执行依赖 "+cmd+"，请先安装 tesseract-ocr 和 poppler-utils");
-      if(cmd==="tesseract") {
-        const langs=(String(res.stdout||"")+"\n"+String(res.stderr||"")).split(/\s+/);
-        if(!langs.includes("chi_sim") || !langs.includes("eng"))
-          fail("OCR 必须安装 chi_sim 和 eng 两种语言模型");
-      }
-    }
-  }
+  // RapidOCR + Poppler 共用预检；不再依赖 Tesseract 语言包。
+  try { require("./rapidocr-preflight.cjs").checkRapidOcr(env); }
+  catch (err) { fail(err.message); }
   // Office 原件在线预览依赖 LibreOffice（缺失不阻断启动：预览会退化为下载入口）。
   {
     const { spawnSync } = require("node:child_process");

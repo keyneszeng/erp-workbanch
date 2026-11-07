@@ -51,6 +51,10 @@ jobs:
           node --check server/api/system.js
           node --check server/api/files.js
           node --check server/lib/ocr-engine.js
+          node --check scripts/rapidocr-preflight.cjs
+          node --check scripts/check-aliyun-test.cjs
+          node --check scripts/check-aliyun-production.cjs
+          python3 -m py_compile server/lib/rapid-ocr.py
           node --check server/api/material-workbench.js
           node --input-type=module --check < web/assets/js/lib/material-workbench.js
           node --check server/lib/archive-pdf.js
@@ -68,10 +72,10 @@ jobs:
           node --check miniprogram/pages/invite/index.js
       - name: Install PDF generation dependency
         run: npm install --no-audit --no-fund
-      - name: Install offline OCR runtime (Tesseract Chinese/English + Poppler)
+      - name: Install Poppler for PDF text extraction and rasterization
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq tesseract-ocr tesseract-ocr-chi-sim tesseract-ocr-eng poppler-utils
+          sudo apt-get install -y -qq poppler-utils
       - name: Run complete API regression
         run: npm test
       - name: Run Cloudflare DO-SQLite compatibility regression
