@@ -71,9 +71,19 @@ test("未安装 RapidOCR：给出可操作的错误，而不是笼统的 500", w
   );
 }));
 
-test("旧的 tesseract 缓存不再命中，避免换引擎后仍用旧结果", () => {
+test("旧识别引擎缓存失效，PDF 文本层仍可复用", () => {
   assert.equal(providerMatches("Tesseract chi_sim+eng（PSM 3）"), false);
-  assert.equal(providerMatches("Poppler pdftotext"), false);
-  assert.equal(providerMatches("RapidOCR (PP-OCR)"), true);
+  assert.equal(providerMatches("Poppler pdftotext"), true);
+  assert.equal(providerMatches("RapidOCR (PP-OCR)"), false);
+  assert.equal(providerMatches("RapidOCR (rapidocr/ONNXRuntime)"), true);
   assert.equal(providerMatches(null), false);
 });
+
+test("RapidOCR 返回结构化错误时不误报成功", withOcr(async () => {
+  await assert.rejects(recognize(PNG, "png", {
+    exec: async () => JSON.stringify({ error: "No module named rapidocr" })
+  }), { code: "OCR_PROVIDER_FAILED" });
+  await assert.rejects(recognize(PNG, "png", {
+    exec: async () => JSON.stringify({ unexpected: true })
+  }), { code: "OCR_PROVIDER_FAILED" });
+}));
