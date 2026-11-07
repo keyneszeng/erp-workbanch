@@ -211,7 +211,7 @@ function dashboard(user) {
      WHERE y.status = '已付款' AND ${sql}`
   ).get(...params).v) || 0;
 
-  if (user.role === "user") {
+  if (user.role === "user" && !["project:create","project:change","project:edit","verify:check","payment:create","payment:pay","audit:read"].some(k=>can(user,k))) {
     // 参会者只可读取本人会议安排；聚合预算、付款、审计以及项目原始行均属于内部信息。
     return {
       counts: map,
@@ -364,7 +364,7 @@ const RESET_LABEL = {
   meeting_material_tasks: "会议材料待办", meeting_material_modules: "会议固定材料模块", demand_revisions: "需求历史变更",
   material_ocr_results: "材料 OCR 识别结果",
   verified_labor_payees: "加密劳务收款方", associations: "协会目录",
-  user_associations: "用户关联协会", meeting_sponsor_contracts: "企业赞助合同",
+  user_associations: "用户关联协会", user_module_grants: "账号模块授权", user_permission_grants: "账号功能授权", meeting_sponsor_contracts: "企业赞助合同",
   sponsor_rights: "赞助合同权益二级类目",
   meeting_sponsor_receipts: "赞助到账凭证", meeting_sponsor_invoices: "企业赞助开票",
   demand_items: "需求明细", demand_sheets: "需求单", project_members: "项目成员",
@@ -379,9 +379,14 @@ function resetSnapshot() {
 }
 
 function register(router) {
-  router.get("/api/dashboard", async (ctx) => dashboard(ctx.user));
+  router.get("/api/dashboard", async (ctx) => {require("../lib/rbac").assertModule(ctx.user,"dashboard");return dashboard(ctx.user);});
 
   const {validateAssociations,listForUser,updateForUser}=require("../lib/user-associations");
+  // 老版逐人「修改材料文件」授权与新版权限表保持兼容，由总管理员独占写入权。
+  const syncMaterialGrant=(uid,flag)=>{
+    db.prepare("DELETE FROM user_permission_grants WHERE user_id=? AND permission=?").run(uid,"material:file:replace");
+    if(flag)db.prepare("INSERT INTO user_permission_grants(user_id,permission) VALUES (?,?)").run(uid,"material:file:replace");
+  };
   router.get("/api/users", async (ctx) => {
     /**
      * V1.2.17 SEC-01：整本通讯录只给能管理账号的人。
@@ -398,7 +403,8 @@ function register(router) {
     return {
       rows: rows.map((u) => ({
         id: u.id, username: u.username, name: u.name, role: u.role, assoc: u.assoc, assocs:listForUser(u.id,u.assoc), dept: u.dept,
-        phone: u.phone, active: u.active, material_file_replace: Number(u.material_file_replace||0), created_at: u.created_at, role_name: ROLES[u.role]?.name || u.role
+        phone: u.phone, active: u.active, material_file_replace: isSuper(u)?1:can(u,"material:file:replace")?1:0,
+        created_at: u.created_at, role_name: ROLES[u.role]?.name || u.role
       })),
       limited: false
     };
@@ -455,8 +461,8 @@ function register(router) {
     // 按账号授权，默认关闭；普通访客不允许被授予内部合同修改权。
     const contractReplaceGrant=b.material_file_replace===undefined?0:toFlag(b.material_file_replace);
     if(contractReplaceGrant===null)throw bad("合同材料修改权限只能设置为允许或禁止");
-    if(contractReplaceGrant && !["assoc","exec","finance"].includes(b.role))
-      throw bad("合同材料修改权限只能授予具有材料管理权限的业务账号");
+    if("material_file_replace" in b && !isSuper(ctx.user))throw forbidden("仅总管理员能授权修改材料文件");
+
     if (!isDemoMode()) {
       const phone = normalizePhone(b.phone);
       if (!String(b.name || "").trim()) throw bad("请填写姓名");
@@ -468,12 +474,13 @@ function register(router) {
         .run(phone, String(b.name).trim(), b.role, b.assoc || null, b.dept || "", phone, salt, hash, contractReplaceGrant, now());
       const u = db.prepare("SELECT id,username,name,role,assoc,phone FROM users WHERE phone = ?").get(phone);
       updateForUser(u.id,userAssocs);
+      if(contractReplaceGrant)syncMaterialGrant(u.id,1);
       logAudit({ user: ctx.user, module: "系统配置", action: "加入手机白名单", target: String(u.id), detail: `${u.name} / ${ROLES[b.role].name} / ${phone.slice(0,3)}****${phone.slice(-4)}`, ip: ctx.ip });
       return { user: u, message: "手机号已加入白名单，初始密码为 123456；首次登录须短信验证并改密" };
     }
     if (!/^[a-zA-Z0-9_.-]{3,20}$/.test(String(b.username || ""))) throw bad("账号需 3~20 位字母/数字");
     if (!String(b.name || "").trim()) throw bad("请填写姓名");
-    if (!ROLES[b.role]) throw bad("角色不合法");
+    if (!ROLES[b.role] || b.role==="admin") throw bad("总管理员由系统唯一指定，不能新增其他总管理员");
     checkUserLen(b);
     if (db.prepare("SELECT 1 FROM users WHERE username = ?").get(b.username)) throw conflict("账号已存在");
     // V1.2.17 SEC-04：不再给默认口令 123456，也不接受弱口令 —— 与自助改密同一份策略
@@ -483,6 +490,7 @@ function register(router) {
       .run(b.username, b.name, b.role, b.assoc || null, b.dept || "", b.phone || "", salt, hash, contractReplaceGrant, now());
     const u = db.prepare("SELECT id,username,name,role,assoc FROM users WHERE username = ?").get(b.username);
     updateForUser(u.id,userAssocs);
+    if(contractReplaceGrant)syncMaterialGrant(u.id,1);
     logAudit({ user: ctx.user, module: "系统配置", action: "新建用户", target: String(u.id), detail: `${b.name} / ${ROLES[b.role].name}`, ip: ctx.ip });
     return { user: u, message: `账号 ${b.username} 已创建` };
   });
@@ -497,8 +505,8 @@ function register(router) {
     const userAssocs=b.assocs===undefined ? null : validateAssociations(b.assocs,b.assoc);
     const requestedGrant="material_file_replace" in b?toFlag(b.material_file_replace):Number(u.material_file_replace||0);
     if(requestedGrant===null)throw bad("合同材料修改权限只能设置为允许或禁止");
-    if(requestedGrant && !["assoc","exec","finance"].includes(b.role||u.role))
-      throw bad("合同材料修改权限只能授予具有材料管理权限的业务账号");
+    if("material_file_replace" in b && !isSuper(ctx.user))throw forbidden("仅总管理员能授权修改材料文件");
+
     if(userAssocs!==null) {
       if(b.role==="admin" && u.role!=="admin")throw bad("不能通过协会编辑将业务用户提升为总管理员");
       if(userAssocs.length===0 && (b.role||u.role)!=="admin")throw bad("业务账号至少关联一个协会");
@@ -533,6 +541,7 @@ function register(router) {
         db.prepare(`UPDATE users SET ${Object.keys(patch).map(k => `${k} = ?`).join(", ")} WHERE id = ?`)
           .run(...Object.values(patch), u.id);
       }
+      if("material_file_replace" in b)syncMaterialGrant(u.id,requestedGrant);
       if (reset || patch.phone) {
         const { salt, hash } = hashPassword(INITIAL_PASSWORD);
         db.prepare("UPDATE users SET pass_salt = ?, pass_hash = ?, must_change_password = 1, phone_verified_at = NULL WHERE id = ?")
@@ -559,7 +568,7 @@ function register(router) {
     for (const k of ["name", "role", "assoc", "dept", "phone", "active", "material_file_replace"]) {
       if (k in b && String(b[k] ?? "") !== String(u[k] ?? "")) patch[k] = b[k];
     }
-    if (patch.role && !ROLES[patch.role]) throw bad("角色不合法");
+    if (patch.role && (!ROLES[patch.role] || patch.role==="admin" || u.role==="admin")) throw bad("不能新增、提升或修改总管理员身份");
     if ("material_file_replace" in patch)patch.material_file_replace=requestedGrant;
     if(patch.assoc && !require("../lib/associations").has(patch.assoc))throw bad("所属协会不在有效目录中");
     checkUserLen(patch);
@@ -576,6 +585,7 @@ function register(router) {
       }
       logAudit({ user: ctx.user, module: "系统配置", action: "改角色/资料", target: String(u.id), detail: Object.entries(patch).map(([k, v]) => `${k}: ${u[k] ?? "空"} → ${v}`).join("；"), ip: ctx.ip });
     }
+    if("material_file_replace" in b)syncMaterialGrant(u.id,requestedGrant);
     if(userAssocs!==null){
       updateForUser(u.id,userAssocs);
       db.prepare("UPDATE users SET token_ver=token_ver+1 WHERE id=?").run(u.id);

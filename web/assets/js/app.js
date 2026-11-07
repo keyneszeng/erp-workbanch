@@ -54,7 +54,7 @@ function parseHash() {
 
 function navHtml(active) {
   const mods = state.role?.modules || [];
-  return NAV.filter((g) => mods.includes(g.k)).map((g) => {
+  return NAV.filter((g) => mods.includes(g.k)||g.k==="dashboard").map((g) => {
     const items = g.items.filter((it) => !it.need || it.need());
     if (!items.length) return "";
     if (items.length === 1) {
@@ -158,6 +158,11 @@ async function route() {
   // 线上接口 2~3 秒，纯文字会让人以为卡死；骨架屏先把版式占住，内容一到就替换。
   box.innerHTML = skeletonHtml();
   content.replaceChildren(box);
+  if(hit.nav==="dashboard"&&!state.role?.modules?.includes("dashboard")){
+    box.innerHTML='<div class="panel" style="max-width:570px;margin:50px auto;padding:28px;text-align:center">'+
+      '<h2>账号尚未获得功能授权</h2><p class="hint" style="margin-top:10px">请联系总管理员分配可访问模块及操作权限。此页面不会展示任何业务数据。</p></div>';
+    return;
+  }
   try {
     await hit.page.render(box, hit.params, hit);
     if (seq !== routeSeq) return;

@@ -84,6 +84,10 @@ jobs:
           node --check server/api/material-workbench.js
           node --check server/lib/archive-pdf.js
           node --check server/api/archive-pdf.js
+          node --check server/api/user-access.js
+          node --check test/permission-grants.test.js
+          node --input-type=module --check < web/assets/js/pages/users.js
+          node --input-type=module --check < web/assets/js/lib/nav.js
           node --check server/lib/material-export-pdf.js
           node --input-type=module --check < web/assets/js/lib/archive-pdf.js
           node --input-type=module --check < web/assets/js/lib/api.js
@@ -100,6 +104,8 @@ jobs:
           node --check miniprogram/pages/invite/index.js
       - name: Install PDF and Word generation dependencies
         run: npm install --no-audit --no-fund
+      - name: Verify per-account grants and zero-rights default before OCR setup
+        run: ERP_DEMO_MODE=1 node --experimental-sqlite --test test/permission-grants.test.js
       - name: Verify material selection and mandatory PDF watermarks before heavy OCR setup
         run: ERP_DEMO_MODE=1 node --experimental-sqlite --test test/archive-pdf.test.js
       - name: Verify settlement classifications, totals and scoped detail access
@@ -132,6 +138,8 @@ jobs:
         run: npm run test:cf
       - name: Install headless browser test harness
         run: npm install --no-save --no-package-lock --no-audit --no-fund playwright
+      - name: "Black-box superadmin per-user access assignment editor"
+        run: ERP_DEMO_MODE=1 node test/ui/permission-grants.js
       - name: "Black-box material selection modal, operator watermark and superadmin controls"
         run: ERP_DEMO_MODE=1 node test/ui/material-export.js
       - name: "Black-box settlement summary and clickable category detail"

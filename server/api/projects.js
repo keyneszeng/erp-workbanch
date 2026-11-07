@@ -1,7 +1,7 @@
 "use strict";
 const { db } = require("../lib/db");
 const { now, nextId, bad, notFound, conflict, forbidden, cents, yuan } = require("../lib/util");
-const { assertCan, assertProjectVisible, can, isSuper, scopeFilter, ROLES } = require("../lib/rbac");
+const { assertCan, assertModule, assertProjectVisible, can, isSuper, scopeFilter, ROLES } = require("../lib/rbac");
 const { logAudit } = require("../lib/audit");
 const { getProject, verification, materialsStatus, settlementOf, demandSummary, assertNotFrozen, committed, availableActions, transition } = require("../lib/workflow");
 const { ASSOCS, FORMS, DEPTS } = require("../lib/constants");
@@ -160,7 +160,7 @@ function listProjects(user, { status, q, assoc, stage, page, size } = {}) {
 function detail(project, user) {
   // 普通用户/嘉宾只可查看会议公开信息；项目成员资格不等于财务、合同和审计权限。
   // 必须在 API 层裁剪，不能仅隐藏前端页签（直接请求仍会读取原始 JSON）。
-  if (user.role === "user") {
+  if (user.role === "user" && !["project:create","project:transition","verify:check","payment:create","material:write","project:change","project:edit"].some(k=>can(user,k))) {
     const { id, name, assoc, form, date, days, people, owner, agenda, status } = project;
     return { project: { id, name, assoc, form, date, days, people, owner, agenda, status },
       actions: [], visibility: "participant" };
@@ -214,9 +214,10 @@ function detail(project, user) {
 
 function register(router) {
   router.get("/api/projects", async (ctx) => {
+    assertModule(ctx.user,"projects");
     const r = listProjects(ctx.user, ctx.query);
     // 参会者只能看到会议信息，不能通过列表取得预算、电话或已付款统计。
-    if (ctx.user.role === "user") {
+    if (ctx.user.role === "user" && !["project:create","project:transition","verify:check","payment:create","material:write","project:change","project:edit"].some(k=>can(ctx.user,k))) {
       const participantRow = ({ id, name, assoc, form, date, days, people, owner, status }) =>
         ({ id, name, assoc, form, date, days, people, owner, status });
       if (Array.isArray(r)) return { rows: r.map(participantRow), total: r.length };
@@ -235,7 +236,7 @@ function register(router) {
     if (!isDemoMode() && !member) throw bad("生产立项必须从本协会在册成员选择项目负责人（owner_id）");
     if (member) b.owner = member.name;
     validate(b);
-    if (["assoc", "exec"].includes(ctx.user.role) && !require("../lib/user-associations").listForUser(ctx.user.id,ctx.user.assoc).includes(b.assoc)) {
+    if (!isSuper(ctx.user) && !require("../lib/user-associations").listForUser(ctx.user.id,ctx.user.assoc).includes(b.assoc)) {
       throw forbidden("只能为本人所属协会发起立项");
     }
     const at = now();
@@ -258,6 +259,7 @@ function register(router) {
   });
 
   router.get("/api/projects/:id", async (ctx) => {
+    assertModule(ctx.user,"projects");
     const p = getProject(ctx.params.id);
     assertProjectVisible(ctx.user, p);
     return detail(p, ctx.user);
@@ -268,7 +270,7 @@ function register(router) {
     assertProjectVisible(ctx.user, p);
     // 资料修改：总管理员恒可；其余需协会管理员及以上，且已结算 / 已归档项目不可改
     if (!isSuper(ctx.user)) {
-      if (!["assoc"].includes(ctx.user.role)) throw forbidden("资料修改需要协会管理员或总管理员权限");
+      assertCan(ctx.user,"project:edit","当前账号未获项目资料修改权限");
       if (p.status === "已归档") throw conflict("已归档项目资料已封存，不可修改");
       // 已结算 = 账目封账，结算单已按当时的预算与合同算完。
       // 此处若不拦，改完预算就和结算单永久对不上了（原来只拦了「已归档」）。
@@ -385,7 +387,7 @@ function register(router) {
   });
 
   router.get("/api/projects/:id/timeline", async (ctx) => {
-    if (ctx.user.role === "user") throw forbidden("普通用户无法查看内部操作留痕");
+    if (!can(ctx.user,"audit:read")) throw forbidden("未获审计查看权限，不能读取操作留痕");
     const p = getProject(ctx.params.id);
     assertProjectVisible(ctx.user, p);
     return { rows: db.prepare("SELECT * FROM audit_logs WHERE target = ? ORDER BY id DESC").all(p.id) };

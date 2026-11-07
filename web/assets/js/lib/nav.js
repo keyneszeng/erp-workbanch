@@ -22,11 +22,11 @@ export const NAV = [
   ] },
   { k: "demand", n: "会务需求", items: [{ k: "demand", n: "需求确认" }] },
   { k: "verify", n: "会后核销", items: [{ k: "verify", n: "核销看板" }] },
-  { k: "finance", n: "财务结算", items: [{ k: "finance", n: "付款与结算" }, { k: "project-ledger", n: "项目台账", need: () => state.super }] },
+  { k: "finance", n: "财务结算", items: [{ k: "finance", n: "付款与结算" }, { k: "project-ledger", n: "项目台账", need: () => can("ledger:read") }] },
   { k: "materials", n: "材料中心", items: [{ k: "materials", n: "归档材料" }] },
   { k: "archive", n: "档案中心", items: [{ k: "archive", n: "数字卷宗" }] },
   { k: "audit", n: "审计日志", items: [{ k: "audit", n: "操作留痕" }] },
-  { k: "system", n: "系统配置", items: [{ k: "users", n: "用户与权限" }, { k: "invitation-config", n: "邀请函上线配置" }] }
+  { k: "system", n: "系统配置", items: [{ k: "users", n: "用户与权限", need: () => can("user:manage") }, { k: "invitation-config", n: "邀请函上线配置", need: () => can("setting:write") }] }
 ];
 
 /**
@@ -35,6 +35,7 @@ export const NAV = [
  */
 export function canVisit(nav) {
   const mods = state.role?.modules || [];
+  if(nav==="dashboard"&&!mods.includes("dashboard"))return true; // 无功能授权时展示安全待授权提示
   for (const g of NAV) {
     if (!mods.includes(g.k)) continue;
     const it = g.items.find((x) => x.k === nav);
