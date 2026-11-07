@@ -55,6 +55,9 @@ jobs:
           node --input-type=module --check < web/assets/js/lib/contract-detail.js
           node --input-type=module --check < web/assets/js/pages/contracts.js
           node --check server/api/verify.js
+          node --input-type=module --check < web/assets/js/lib/contract-material-replace.js
+          node --input-type=module --check < web/assets/js/pages/materials.js
+          node --input-type=module --check < web/assets/js/pages/users.js
           node --check server/lib/meeting-sop.js
           node --check server/lib/labor-contracts.js
           node --input-type=module --check < web/assets/js/lib/labor-contract-preview.js

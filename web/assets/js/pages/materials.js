@@ -1,6 +1,7 @@
 import { api, can } from "../lib/api.js";
 import { bindPager, esc, formHtml, modal, pager, panel, readForm, table, toast, validate } from "../lib/ui.js";
 import { checkFile, compressImage, fileUrl, UPLOAD_ACCEPT, UPLOAD_TIP } from "../lib/upload.js";
+import { openContractMaterialReplace } from "../lib/contract-material-replace.js";
 
 const PAGE_SIZE = 50;
 let curPage = 1;
@@ -34,7 +35,7 @@ export async function render(root) {
     <div class="panel">
       <div class="panel-h"><h2>材料清单</h2><span class="hint">共 ${d.total} 条</span></div>
       ${table([{ t: "项目", w: "170px" }, { t: "类别", w: "92px" }, { t: "名称" }, { t: "附件", w: "86px" },
-        { t: "版本", w: "56px" }, { t: "上传人", w: "76px" }, { t: "时间", w: "130px" }],
+        { t: "版本", w: "56px" }, { t: "上传人", w: "76px" }, { t: "时间", w: "130px" }, { t:"操作",w:"78px" }],
         d.rows.map((m) => ({
           c: [`<a class="link" data-go="projects/${m.pid}">${esc(m.pname)}</a>`, esc(m.kind)+(m.kind==="权益照片"?`<div class="hint">${esc(m.sponsor_enterprise||"未关联赞助合同")} · ${esc(m.sponsor_right_category||"未关联权益类目")}</div>`:""),
             esc(m.name),
@@ -43,7 +44,9 @@ export async function render(root) {
                   ? `<a class="link" href="${fileUrl(m.file_key)}" target="_blank" rel="noopener">${esc(m.file_name || "下载附件")}</a>`
                   : `<a href="${fileUrl(m.file_key)}" target="_blank" rel="noopener"><img class="thumb" src="${fileUrl(m.file_key)}" alt=""></a>`)
               : '<span style="color:var(--mute)">—</span>',
-            esc(m.version || ""), esc(m.uploader || ""), `<span class="mono">${esc(m.created_at)}</span>`]
+            esc(m.version || ""), esc(m.uploader || ""), `<span class="mono">${esc(m.created_at)}</span>`,
+            can("material:file:replace") && m.file_key && !["已核销","已结算","已归档"].includes(m.pstatus)
+              ? `<button class="link" data-replace-material="${Number(m.id)}">修改</button>` : "—"]
         })),
         { empty: "暂无材料" })}
       ${pager(d, { unit: "条" })}
@@ -54,6 +57,12 @@ export async function render(root) {
 
   const add = root.querySelector("#add");
   if (add) add.onclick = () => openMaterialRegistration(root, d.projects, d.kinds);
+  root.querySelectorAll("[data-replace-material]").forEach(btn=>{
+    btn.onclick=()=>{
+      const item=d.rows.find(x=>Number(x.id)===Number(btn.dataset.replaceMaterial));
+      if(item)openContractMaterialReplace(item,()=>render(root));
+    };
+  });
 }
 
 export function openMaterialRegistration(root, projects, kinds, defaultPid="", onSaved=null) {

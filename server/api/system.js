@@ -398,7 +398,7 @@ function register(router) {
     return {
       rows: rows.map((u) => ({
         id: u.id, username: u.username, name: u.name, role: u.role, assoc: u.assoc, assocs:listForUser(u.id,u.assoc), dept: u.dept,
-        phone: u.phone, active: u.active, created_at: u.created_at, role_name: ROLES[u.role]?.name || u.role
+        phone: u.phone, active: u.active, material_file_replace: Number(u.material_file_replace||0), created_at: u.created_at, role_name: ROLES[u.role]?.name || u.role
       })),
       limited: false
     };
@@ -452,6 +452,11 @@ function register(router) {
     const userAssocs=validateAssociations(b.assocs,b.assoc);
     if(b.assocs!==undefined && b.role!=="admin" && !userAssocs.length)throw bad("请选择至少一个所属协会");
     b.assoc=userAssocs[0]||null;
+    // 按账号授权，默认关闭；普通访客不允许被授予内部合同修改权。
+    const contractReplaceGrant=b.material_file_replace===undefined?0:toFlag(b.material_file_replace);
+    if(contractReplaceGrant===null)throw bad("合同材料修改权限只能设置为允许或禁止");
+    if(contractReplaceGrant && !["assoc","exec","finance"].includes(b.role))
+      throw bad("合同材料修改权限只能授予具有材料管理权限的业务账号");
     if (!isDemoMode()) {
       const phone = normalizePhone(b.phone);
       if (!String(b.name || "").trim()) throw bad("请填写姓名");
@@ -459,8 +464,8 @@ function register(router) {
       checkUserLen(b);
       ensureAvailable(phone);
       const { salt, hash } = hashPassword(INITIAL_PASSWORD);
-      db.prepare("INSERT INTO users (username,name,role,assoc,dept,phone,pass_salt,pass_hash,active,must_change_password,created_at) VALUES (?,?,?,?,?,?,?,?,1,1,?)")
-        .run(phone, String(b.name).trim(), b.role, b.assoc || null, b.dept || "", phone, salt, hash, now());
+      db.prepare("INSERT INTO users (username,name,role,assoc,dept,phone,pass_salt,pass_hash,active,must_change_password,material_file_replace,created_at) VALUES (?,?,?,?,?,?,?,?,1,1,?,?)")
+        .run(phone, String(b.name).trim(), b.role, b.assoc || null, b.dept || "", phone, salt, hash, contractReplaceGrant, now());
       const u = db.prepare("SELECT id,username,name,role,assoc,phone FROM users WHERE phone = ?").get(phone);
       updateForUser(u.id,userAssocs);
       logAudit({ user: ctx.user, module: "系统配置", action: "加入手机白名单", target: String(u.id), detail: `${u.name} / ${ROLES[b.role].name} / ${phone.slice(0,3)}****${phone.slice(-4)}`, ip: ctx.ip });
@@ -474,8 +479,8 @@ function register(router) {
     // V1.2.17 SEC-04：不再给默认口令 123456，也不接受弱口令 —— 与自助改密同一份策略
     const pwd = validatePassword(b.password, { label: "初始密码" });
     const { salt, hash } = hashPassword(pwd);
-    db.prepare("INSERT INTO users (username,name,role,assoc,dept,phone,pass_salt,pass_hash,active,created_at) VALUES (?,?,?,?,?,?,?,?,1,?)")
-      .run(b.username, b.name, b.role, b.assoc || null, b.dept || "", b.phone || "", salt, hash, now());
+    db.prepare("INSERT INTO users (username,name,role,assoc,dept,phone,pass_salt,pass_hash,active,material_file_replace,created_at) VALUES (?,?,?,?,?,?,?,?,1,?,?)")
+      .run(b.username, b.name, b.role, b.assoc || null, b.dept || "", b.phone || "", salt, hash, contractReplaceGrant, now());
     const u = db.prepare("SELECT id,username,name,role,assoc FROM users WHERE username = ?").get(b.username);
     updateForUser(u.id,userAssocs);
     logAudit({ user: ctx.user, module: "系统配置", action: "新建用户", target: String(u.id), detail: `${b.name} / ${ROLES[b.role].name}`, ip: ctx.ip });
@@ -490,6 +495,10 @@ function register(router) {
     checkUserLen(b);
     assertDepartmentChoice(b.dept, u.dept);
     const userAssocs=b.assocs===undefined ? null : validateAssociations(b.assocs,b.assoc);
+    const requestedGrant="material_file_replace" in b?toFlag(b.material_file_replace):Number(u.material_file_replace||0);
+    if(requestedGrant===null)throw bad("合同材料修改权限只能设置为允许或禁止");
+    if(requestedGrant && !["assoc","exec","finance"].includes(b.role||u.role))
+      throw bad("合同材料修改权限只能授予具有材料管理权限的业务账号");
     if(userAssocs!==null) {
       if(b.role==="admin" && u.role!=="admin")throw bad("不能通过协会编辑将业务用户提升为总管理员");
       if(userAssocs.length===0 && (b.role||u.role)!=="admin")throw bad("业务账号至少关联一个协会");
@@ -498,7 +507,7 @@ function register(router) {
     if (!isDemoMode()) {
       if (u.role === "admin") throw bad("部署时指定的总管理员身份与手机号不可在此处变更");
       const patch = {};
-      for (const k of ["name", "role", "assoc", "dept", "active"]) {
+      for (const k of ["name", "role", "assoc", "dept", "active", "material_file_replace"]) {
         if (k in b && String(b[k] ?? "") !== String(u[k] ?? "")) patch[k] = b[k];
       }
       if ("role" in patch && (!ROLES[patch.role] || patch.role === "admin")) throw bad("不能创建或提升其他总管理员");
@@ -507,6 +516,7 @@ function register(router) {
         if (patch.active === null) throw bad("账号状态只能是启用或停用");
       }
       if ("name" in patch && !String(patch.name || "").trim()) throw bad("请填写姓名");
+      if ("material_file_replace" in patch)patch.material_file_replace=requestedGrant;
       if ("phone" in b) {
         const phone = normalizePhone(b.phone);
         if (phone !== u.phone) {
@@ -546,10 +556,11 @@ function register(router) {
       b.active = flag;
     }
     const patch = {};
-    for (const k of ["name", "role", "assoc", "dept", "phone", "active"]) {
+    for (const k of ["name", "role", "assoc", "dept", "phone", "active", "material_file_replace"]) {
       if (k in b && String(b[k] ?? "") !== String(u[k] ?? "")) patch[k] = b[k];
     }
     if (patch.role && !ROLES[patch.role]) throw bad("角色不合法");
+    if ("material_file_replace" in patch)patch.material_file_replace=requestedGrant;
     if(patch.assoc && !require("../lib/associations").has(patch.assoc))throw bad("所属协会不在有效目录中");
     checkUserLen(patch);
     if (u.id === ctx.user.id) {
@@ -559,6 +570,10 @@ function register(router) {
     if (Object.keys(patch).length) {
       db.prepare(`UPDATE users SET ${Object.keys(patch).map((k) => `${k} = ?`).join(", ")} WHERE id = ?`)
         .run(...Object.values(patch), u.id);
+      if("material_file_replace" in patch){
+        db.prepare("UPDATE users SET token_ver=token_ver+1 WHERE id=?").run(u.id);
+        db.prepare("DELETE FROM sessions WHERE user_id=?").run(u.id);
+      }
       logAudit({ user: ctx.user, module: "系统配置", action: "改角色/资料", target: String(u.id), detail: Object.entries(patch).map(([k, v]) => `${k}: ${u[k] ?? "空"} → ${v}`).join("；"), ip: ctx.ip });
     }
     if(userAssocs!==null){

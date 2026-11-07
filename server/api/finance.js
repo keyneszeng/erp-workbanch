@@ -66,7 +66,9 @@ function register(router) {
     // 详情里要显示所属项目状态（决定能不能流转）和录入人（责任追溯）。
     // LEFT JOIN users 不会放大行数（u.id 是主键），COUNT 那条不受影响。
     const base = `FROM contracts c JOIN projects p ON p.id = c.pid LEFT JOIN users u ON u.id = c.created_by WHERE ${whereSql}`;
-    const cols = "c.*, p.name AS pname, p.status AS pstatus, u.name AS created_by_name";
+    const cols = "c.*, p.name AS pname, p.status AS pstatus, u.name AS created_by_name, "+
+      "(SELECT m.id FROM materials m WHERE m.pid=c.pid AND m.kind='合同' AND m.file_key=c.file_key "+
+      "AND m.deleted_at IS NULL ORDER BY m.id DESC LIMIT 1) AS material_id";
     const paging = readPaging(ctx.query);
 
     if (!paging) {

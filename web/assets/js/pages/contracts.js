@@ -2,6 +2,7 @@ import { api, can, state } from "../lib/api.js";
 import { badge, confirmBox, promptBox, esc, formHtml, modal, money, panel, readForm, table, toast, validate } from "../lib/ui.js";
 import { bindFilePicker, UPLOAD_ACCEPT, UPLOAD_TIP } from "../lib/upload.js";
 import { flowHint, flowOf, openContractDetail } from "../lib/contract-detail.js";
+import { openContractMaterialReplace } from "../lib/contract-material-replace.js";
 
 let q = "";
 
@@ -58,12 +59,15 @@ export async function render(root) {
       ${table(
         [{ t: "合同编号", w: "112px" }, { t: "项目", w: "170px" }, { t: "合同名称" }, { t: "签约方", w: "150px" },
          { t: "金额", w: "104px", cls: "num" }, { t: "签署日期", w: "100px" }, { t: "状态", w: "80px" },
-         { t: "原件", w: "104px" }, { t: "操作", w: "96px" }],
+         { t: "原件", w: "104px" }, { t: "操作", w: "150px" }],
         rows.map((r) => ({
           c: [`<span class="mono">${r.id}</span>`, `<a class="link" data-go="projects/${r.pid}">${esc(r.pname)}</a>`,
             `${esc(r.name)}<span class="cat">${esc(r.category || "未分类")}</span>`,
             esc(r.vendor), `¥${money(r.amount)}`, `<span class="mono">${esc(r.sign_date || "—")}</span>`,
-            badge(r.status), fileCell(r), flowBtn(r)+(r.status==="待签署"&&can("contract:approve")?` <button class="link danger" data-cflow="${r.id}" data-caction="reject">驳回</button>`:"")]
+            badge(r.status), fileCell(r), flowBtn(r)+(r.status==="待签署"&&can("contract:approve")?` <button class="link danger" data-cflow="${r.id}" data-caction="reject">驳回</button>`:"")+
+            (can("material:file:replace") && r.file_key && r.material_id &&
+              !["已核销","已结算","已归档"].includes(r.pstatus)
+              ? ` <button class="link" data-replace-ledger-file="${r.material_id}">修改</button>` : "")]
         })), { empty: "暂无合同" })}
     </div>`;
 
@@ -83,6 +87,12 @@ export async function render(root) {
     return contractFlow(root,b.dataset.cflow,b.dataset.caction);
   });
   // 详情弹窗：从当前过滤后的 rows 里取，避免为了看一眼原件再打一次接口
+  root.querySelectorAll("[data-replace-ledger-file]").forEach(b=>b.onclick=()=>{
+    const row=rows.find(r=>Number(r.material_id)===Number(b.dataset.replaceLedgerFile));
+    if(!row)return;
+    openContractMaterialReplace({id:row.material_id,pid:row.pid,kind:"合同",
+      name:row.name,file_key:row.file_key,file_name:row.file_name},()=>render(root));
+  });
   root.querySelectorAll("[data-cdet]").forEach((b) => {
     b.onclick = () => {
       const row = rows.find((r) => r.id === b.dataset.cdet);

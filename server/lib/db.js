@@ -42,6 +42,7 @@ CREATE TABLE IF NOT EXISTS users (
   pass_hash   TEXT NOT NULL,
   active      INTEGER NOT NULL DEFAULT 1,
   token_ver   INTEGER NOT NULL DEFAULT 0,
+  material_file_replace INTEGER NOT NULL DEFAULT 0,
   created_at  TEXT NOT NULL
 );
 
@@ -670,6 +671,8 @@ function migrate() {
   addColumn("users", "phone_verified_at", "phone_verified_at TEXT");
   // V1.0.3：跨实例吊销签名令牌
   addColumn("users", "token_ver", "token_ver INTEGER NOT NULL DEFAULT 0");
+  // 合同材料替换为总管理员按账号单独授予，历史账号默认无此权限。
+  addColumn("users", "material_file_replace", "material_file_replace INTEGER NOT NULL DEFAULT 0");
   // V1.2.0：材料附件
   addColumn("materials", "file_key", "file_key TEXT");
   addColumn("materials", "file_name", "file_name TEXT");

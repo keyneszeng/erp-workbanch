@@ -8,6 +8,7 @@ const { getProject, verification, materialsStatus, settlementOf, demandSummary }
 const { MATERIAL_KINDS, MATERIAL_MODULE_KINDS } = require("../lib/constants");
 const { readPaging, countOf } = require("../lib/paginate");
 const { storage } = require("../lib/storage");
+const { sniffMime, safeName, ALLOWED_MIME, MAX_BYTES } = require("../lib/storage");
 const { assertUploadAttachable } = require("../lib/upload-ownership");
 const { validateSopEvidence } = require("../lib/meeting-sop");
 const {sponsorRights}=require("../lib/sponsor-rights");
@@ -430,6 +431,104 @@ function register(router) {
     return { materialsStatus: materialsStatus(p.id),
       finalAgendaConfirmed: finalAgenda,
       message: finalAgenda ? "终版议程已上传并确认，无需额外操作" : `${kind} 已登记` };
+  });
+
+  /** 合同及其他材料原件替换：总管理员按账号授权，来源变化须重核；关联合同台账必须重签。 */
+  router.patch("/api/materials/:id/file", async (ctx) => {
+    const id=Number(ctx.params.id);
+    if(!Number.isSafeInteger(id)||id<1)throw bad("材料编号不合法");
+    const m=db.prepare("SELECT * FROM materials WHERE id=?").get(id);
+    if(!m || m.deleted_at)throw notFound("材料不存在或已删除");
+    const p=getProject(m.pid);
+    assertProjectVisible(ctx.user,p);
+    assertCan(ctx.user,"material:file:replace","没有合同及材料修改授权，请联系总管理员在用户与权限中开通");
+    if(!m.file_key)throw bad("该材料尚未上传原件，请先登记文件");
+    if(["已核销","已结算","已归档"].includes(p.status)||settlementOf(p.id))
+      throw conflict("项目已核销、结算或归档，合同材料已冻结，不允许替换","FROZEN");
+    const body=ctx.body||{}, oldKey=String(m.file_key);
+    const expected=String(body.expected_file_key||"");
+    if(expected!==oldKey)throw conflict("材料文件已被其他人更新，请刷新页面后重试","MATERIAL_CHANGED");
+    const newKey=String(body.file_key||"");
+    if(!/^[a-f0-9]{32}\.(jpg|png|webp|gif|pdf|ppt|doc|docx|xls|xlsx|pptx|csv|txt)$/.test(newKey))
+      throw bad("请先上传合法的新材料文件");
+    if(newKey===oldKey)throw conflict("新旧材料文件相同，请重新上传新文件","SAME_FILE");
+    assertUploadAttachable(newKey,p.id,ctx.user);
+    const uploaded=await storage().get(newKey);
+    if(!uploaded?.buffer?.length)throw notFound("新文件不存在，请重新上传");
+    if(uploaded.buffer.length>MAX_BYTES)throw bad("新文件超出20MB限制");
+    const mime=sniffMime(uploaded.buffer,newKey);
+    if(!mime || ALLOWED_MIME[mime]!==newKey.split(".").pop())
+      throw bad("上传文件格式与实际内容不一致");
+    if(["讲者照片","权益照片"].includes(m.kind) && !["jpg","png","webp"].includes(newKey.split(".").pop()))
+      throw bad("讲者照片和权益照片仅可使用 JPG/PNG/WebP 图片替换");
+    const filename=safeName(body.file_name||newKey),fileSize=uploaded.buffer.length;
+    const at=now();
+    const cleanup=transaction(()=>{
+      const current=db.prepare("SELECT file_key,kind,deleted_at FROM materials WHERE id=?").get(id);
+      if(!current||current.deleted_at||current.kind!==m.kind||current.file_key!==oldKey)
+        throw conflict("原合同材料在上传期间已发生变化，请刷新后重试","MATERIAL_CHANGED");
+      if(settlementOf(p.id)||["已核销","已结算","已归档"].includes(getProject(p.id).status))
+        throw conflict("项目状态发生变化，合同材料不可替换","FROZEN");
+      assertUploadAttachable(newKey,p.id,ctx.user);
+      const linked=m.kind==="合同"?db.prepare("SELECT id,status FROM contracts WHERE pid=? AND file_key=?").all(p.id,oldKey):[];
+      if(linked.length>1)throw conflict("旧原件关联多个合同，必须由管理员人工处理","SHARED_CONTRACT_FILE");
+      db.prepare("UPDATE materials SET file_key=?,file_name=?,file_size=?,file_mime=? WHERE id=?")
+        .run(newKey,filename,fileSize,mime,id);
+      if(linked.length){
+        const contract=linked[0];
+        // 替换原件后必须重新提交签署、重新取得审批；旧批准绝不自动继承到新文件。
+        db.prepare("UPDATE contracts SET file_key=?,file_name=?,file_size=?,file_mime=?,status='草稿',sign_date=NULL WHERE id=? AND file_key=?")
+          .run(newKey,filename,fileSize,mime,contract.id,oldKey);
+        db.prepare("UPDATE materials SET version='草稿' WHERE id=?").run(id);
+        db.prepare("UPDATE approvals SET status='已撤销',decided_by=?,decided_at=?,comment='合同原件替换，原签署申请失效' WHERE type='合同审批' AND ref_id=? AND status='待审批'")
+          .run(ctx.user.name,at,contract.id);
+      }
+      db.prepare("DELETE FROM material_ocr_results WHERE material_id=?").run(id);
+      // 已人工确认的材料比对任务不能把旧原件的通过结论延用至新文件。
+      db.prepare("UPDATE meeting_material_tasks SET status='未提交',material_id=NULL,updated_at=?,updated_by=? WHERE material_id=?")
+        .run(at,ctx.user.name,id);
+      const stepsByKind={
+        "会议通知":[1],"招商函":[1],"串场":[1],
+        "终版议程":[2,4,6],"签到表":[2,3],"讲者照片":[2],
+        "课件":[4],"劳务表":[5],"劳务收集表":[5],
+        "合同":[5,6],"会务协议":[6],"发票":[6],"会务发票":[6],
+        "权益照片":[7]
+      };
+      const affected=stepsByKind[m.kind]||[];
+      // 不在合同签署环节以外隐式继承旧核验：只重置与当前材料关联的步骤。
+      if(affected.length){
+        const placeholders=affected.map(()=>"?").join(",");
+        db.prepare("UPDATE verify_steps SET result='待判定',remark='原始材料已替换，请重新核验', "+
+          "evidence_json=NULL,invoice_amount=NULL,checked_by=NULL,checked_at=NULL "+
+          "WHERE pid=? AND step_no IN ("+placeholders+") AND result IN ('通过','已解例外')")
+          .run(p.id,...affected);
+      }
+      const refs=db.prepare(
+        "SELECT 1 FROM contracts WHERE file_key=? UNION SELECT 1 FROM materials WHERE file_key=? "+
+        "UNION SELECT 1 FROM meeting_sponsor_contracts WHERE file_key=? "+
+        "UNION SELECT 1 FROM meeting_sponsor_receipts WHERE file_key=? "+
+        "UNION SELECT 1 FROM meeting_sponsor_invoices WHERE file_key=? "+
+        "UNION SELECT 1 FROM project_notice_templates WHERE file_key=? "+
+        "UNION SELECT 1 FROM project_notices WHERE template_key=?"
+      ).get(oldKey,oldKey,oldKey,oldKey,oldKey,oldKey,oldKey);
+      if(!refs)db.prepare("DELETE FROM uploaded_files WHERE file_key=?").run(oldKey);
+      return {linkedContract:linked[0]?.id||null,canDelete:!refs,oldKey,affected:stepsByKind[m.kind]||[]};
+    });
+    let oldDeleted=false,warning="";
+    if(cleanup.canDelete){
+      try{
+        await storage().del(oldKey);
+        oldDeleted=!(await storage().stat(oldKey));
+        if(!oldDeleted)warning="新文件已生效，但旧文件存储清理未完成，请管理员检查";
+      }catch{warning="新文件已生效，但旧文件物理删除失败，请管理员检查";}
+    }else warning="旧文件仍被其他业务记录引用，已安全保留共享文件";
+    logAudit({user:ctx.user,module:"材料中心",action:"替换材料文件",target:p.id,
+      detail:"材料#"+id+"；"+oldKey+" → "+newKey+
+        (cleanup.linkedContract?"；关联台账合同 "+cleanup.linkedContract+" 已退回草稿待重新签署":"")+
+        "；相关核销步骤需复核："+(cleanup.affected.join("、")||"无")+"；旧文件清理："+(oldDeleted?"已删除":warning||"保留"),ip:ctx.ip});
+    return {replaced:true,oldDeleted,warning,linkedContract:cleanup.linkedContract,
+      material:db.prepare("SELECT * FROM materials WHERE id=?").get(id),
+      message:cleanup.linkedContract?"材料已替换，关联合同已退回草稿，须重新走签署审批":"材料文件已替换，相关核销步骤须重新确认"};
   });
 
   router.delete("/api/materials/:id", async (ctx) => {
