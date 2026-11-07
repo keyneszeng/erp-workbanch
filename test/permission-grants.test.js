@@ -110,8 +110,9 @@ test("总管理员可独立分配模块和操作；同role的用户权限不相�
   modules:["dashboard","projects","finance"],permissions:["project:create","payment:create"]
  });
  assert.equal(changed.status,200,JSON.stringify(changed.body));
- assert.equal((await call("newstaff","GET","/api/auth/me")).status,401,
-  "保存授权后须令旧会话失效");
+ const oldSession=await call("newstaff","GET","/api/auth/me");
+ assert.equal(oldSession.status,200,"/auth/me 是公开的登录状态探测接口");
+ assert.equal(oldSession.body.user,null,"保存授权后旧会话必须视为未登录");
  await login("newstaff","SecureDemo2026!");
  const me=await call("newstaff","GET","/api/auth/me");
  assert.deepEqual(me.body.role.modules,["dashboard","projects","finance"]);
