@@ -28,7 +28,12 @@ function materials(pid,no){
  .filter(m=>(KINDS[no]||[]).includes(m.kind)&&!(m.kind==="终版议程"&&m.version==="历史版")).slice(0,MAX_FILES);
 }
 function cache(m,pid){
- return db.prepare("SELECT recognized_text,engine,mode,pages,total_pages,truncated FROM material_ocr_results WHERE material_id=? AND pid=? AND file_key=?").get(m.id,pid,m.file_key);
+ const row=db.prepare("SELECT recognized_text,engine,mode,pages,total_pages,truncated FROM material_ocr_results WHERE material_id=? AND pid=? AND file_key=?").get(m.id,pid,m.file_key);
+ if(!row)return null;
+ const ext=m.file_key.split(".").pop().toLowerCase();
+ // 原生 Office/TXT 文本并非 OCR，仍可复用；图片和扫描 PDF 必须来自 RapidOCR。
+ if(!OCR_TYPES.has(ext))return office.SUPPORTED.has(ext)?row:null;
+ return ocr.providerMatches(row.engine)?row:null;
 }
 function persist(m,pid,result,operator){
  db.prepare("INSERT INTO material_ocr_results(material_id,pid,file_key,recognized_text,suggestions_json,engine,mode,pages,total_pages,truncated,updated_at,updated_by) VALUES (?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(material_id) DO UPDATE SET file_key=excluded.file_key,recognized_text=excluded.recognized_text,suggestions_json=excluded.suggestions_json,engine=excluded.engine,mode=excluded.mode,pages=excluded.pages,total_pages=excluded.total_pages,truncated=excluded.truncated,updated_at=excluded.updated_at,updated_by=excluded.updated_by")
@@ -37,7 +42,7 @@ function persist(m,pid,result,operator){
 }
 async function scan(pid,no,operator){
  if(!isDemoMode()&&(!ocr.enabled()||storage().name!=="fs"))
-  throw Object.assign(new Error("当前部署未启用真实OCR，请在阿里云ECS配置 ERP_OCR_ENABLED=1、Tesseract 和 Poppler"),{status:503,code:"OCR_NOT_CONFIGURED"});
+  throw Object.assign(new Error("当前部署未启用 RapidOCR，请在阿里云 ECS 配置 ERP_OCR_ENABLED=1，安装 RapidOCR (ONNX Runtime CPU) 和 Poppler"),{status:503,code:"OCR_NOT_CONFIGURED"});
  let processed=0;
  for(const m of materials(pid,no)){
   if(cache(m,pid))continue;
@@ -47,7 +52,7 @@ async function scan(pid,no,operator){
   if(!file)continue;
   try{persist(m,pid,OCR_TYPES.has(ext)?await ocr.recognize(file.buffer,ext):office.extract(file.buffer,ext),operator);processed++;}
   catch(e){
-   if(["OCR_DISABLED","OCR_ENGINE_MISSING","OCR_UNAVAILABLE","OCR_TIMEOUT"].includes(e.code))throw e;
+   if(["OCR_DISABLED","OCR_ENGINE_MISSING","OCR_PROVIDER_MISCONFIGURED","OCR_UNAVAILABLE","OCR_TIMEOUT"].includes(e.code))throw e;
    // 损坏原件在报告里明确标为“无法确认”，其余原件仍可正常识别。
   }
  }
