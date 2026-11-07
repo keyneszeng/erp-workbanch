@@ -84,7 +84,7 @@ export async function render(root, params = []) {
                 ? `${esc(y.payee_bank || "")} · <span class="mono">${esc(y.payee_account)}</span>`
                 : '<span style="color:var(--warn)">未登记收款账户</span>'}
             </div>`,
-            `¥${money(y.amount)}`, `<span class="mono">${esc(y.invoice_no || "—")}</span>`,
+            `¥${money(y.amount)}${y.period ? `<div style="font-size:11px;color:var(--mute)">${esc(y.period)}</div>` : ""}`, `<span class="mono">${esc(y.invoice_no || "—")}</span>`,
             esc(y.req_user || ""), badge(y.status),
             `<div class="tacts">
               ${y.status === "待审批" && can("payment:approve") ? `<button class="link" data-ok="${y.id}">审批</button><button class="link danger" data-no="${y.id}">驳回</button>` : ""}
@@ -236,9 +236,11 @@ async function openPay(root, projects) {
     { k: "payee_bank", l: "开户行", req: 0, ph: "如：中国银行北京朝阳支行" },
     { k: "payee_account", l: "银行账号", req: 0, ph: "10~25 位数字，可含空格分隔" },
     { k: "amount", l: "付款金额（元）", t: "number", req: 1 },
+    // 分期付款两期金额常常相同，不填期次会被当成重复申请
+    { k: "period", l: "期次（可选）", req: 0, ph: "如：第1期 / 首付款 / 尾款" },
     { k: "remark", l: "备注", t: "textarea", full: 1, rows: 2 }
   ];
-  const m = modal({ title: "付款申请", body: `<div class="gate ok" style="margin-bottom:12px"><b>核销门禁</b>仅列出「已核销」项目：未核销项目不可付款，已结算项目账目已封账，已归档项目卷宗已封存。<br><b>预算门禁</b>已占用（待审批 + 已审批 + 已付款）加本笔金额超过预算时，接口返回 <code>OVER_BUDGET</code>，需总管理员特批。</div><div class="hint" style="margin-bottom:10px">同项目、同付款类型、同收款方、同金额的有效付款单只允许申请一次；待审批、已审批及已付款均不可重复，已驳回可重新提交。</div>${formHtml(fields)}`,
+  const m = modal({ title: "付款申请", body: `<div class="gate ok" style="margin-bottom:12px"><b>核销门禁</b>仅列出「已核销」项目：未核销项目不可付款，已结算项目账目已封账，已归档项目卷宗已封存。<br><b>预算门禁</b>已占用（待审批 + 已审批 + 已付款）加本笔金额超过预算时，接口返回 <code>OVER_BUDGET</code>，需总管理员特批。</div><div class="hint" style="margin-bottom:10px">同项目、同付款类型、同收款方、同金额、同期次的付款单只允许申请一次；待审批、已审批及已付款均不可重复，已驳回可重新提交。分期付款请填写不同期次（如「第1期」「第2期」），否则同额两期会被判为重复。</div>${formHtml(fields)}`,
     footer: `<button class="btn btn-o" data-x="0">取消</button><button class="btn btn-p" data-x="1">提交申请</button>` });
   await bindPayeePicker(m,projects[0].id,true);
   m.querySelector('[data-x="0"]').onclick = () => m.classList.remove("open");
