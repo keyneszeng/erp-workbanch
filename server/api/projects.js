@@ -160,7 +160,7 @@ function listProjects(user, { status, q, assoc, stage, page, size } = {}) {
 function detail(project, user) {
   // 普通用户/嘉宾只可查看会议公开信息；项目成员资格不等于财务、合同和审计权限。
   // 必须在 API 层裁剪，不能仅隐藏前端页签（直接请求仍会读取原始 JSON）。
-  if (user.role === "user") {
+  if (user.role === "user" && !["project:create","project:transition","verify:check","payment:create","material:write","project:change"].some(k=>can(user,k))) {
     const { id, name, assoc, form, date, days, people, owner, agenda, status } = project;
     return { project: { id, name, assoc, form, date, days, people, owner, agenda, status },
       actions: [], visibility: "participant" };
@@ -216,7 +216,7 @@ function register(router) {
   router.get("/api/projects", async (ctx) => {
     const r = listProjects(ctx.user, ctx.query);
     // 参会者只能看到会议信息，不能通过列表取得预算、电话或已付款统计。
-    if (ctx.user.role === "user") {
+    if (ctx.user.role === "user" && !["project:create","project:transition","verify:check","payment:create","material:write","project:change"].some(k=>can(ctx.user,k))) {
       const participantRow = ({ id, name, assoc, form, date, days, people, owner, status }) =>
         ({ id, name, assoc, form, date, days, people, owner, status });
       if (Array.isArray(r)) return { rows: r.map(participantRow), total: r.length };
@@ -385,7 +385,7 @@ function register(router) {
   });
 
   router.get("/api/projects/:id/timeline", async (ctx) => {
-    if (ctx.user.role === "user") throw forbidden("普通用户无法查看内部操作留痕");
+    if (!can(ctx.user,"audit:read")) throw forbidden("未获审计查看权限，不能读取操作留痕");
     const p = getProject(ctx.params.id);
     assertProjectVisible(ctx.user, p);
     return { rows: db.prepare("SELECT * FROM audit_logs WHERE target = ? ORDER BY id DESC").all(p.id) };

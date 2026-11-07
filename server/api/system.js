@@ -379,7 +379,7 @@ function resetSnapshot() {
 }
 
 function register(router) {
-  router.get("/api/dashboard", async (ctx) => dashboard(ctx.user));
+  router.get("/api/dashboard", async (ctx) => {require("../lib/rbac").assertModule(ctx.user,"dashboard");return dashboard(ctx.user);});
 
   const {validateAssociations,listForUser,updateForUser}=require("../lib/user-associations");
   router.get("/api/users", async (ctx) => {
@@ -398,7 +398,8 @@ function register(router) {
     return {
       rows: rows.map((u) => ({
         id: u.id, username: u.username, name: u.name, role: u.role, assoc: u.assoc, assocs:listForUser(u.id,u.assoc), dept: u.dept,
-        phone: u.phone, active: u.active, material_file_replace: Number(u.material_file_replace||0), created_at: u.created_at, role_name: ROLES[u.role]?.name || u.role
+        phone: u.phone, active: u.active, material_file_replace: isSuper(u)?1:can(u,"material:file:replace")?1:0,
+        created_at: u.created_at, role_name: ROLES[u.role]?.name || u.role
       })),
       limited: false
     };
@@ -455,6 +456,7 @@ function register(router) {
     // 按账号授权，默认关闭；普通访客不允许被授予内部合同修改权。
     const contractReplaceGrant=b.material_file_replace===undefined?0:toFlag(b.material_file_replace);
     if(contractReplaceGrant===null)throw bad("合同材料修改权限只能设置为允许或禁止");
+    if("material_file_replace" in b)throw bad("合同材料修改授权请通过用户权限分配");
     if(contractReplaceGrant && !["assoc","exec","finance"].includes(b.role))
       throw bad("合同材料修改权限只能授予具有材料管理权限的业务账号");
     if (!isDemoMode()) {
@@ -473,7 +475,7 @@ function register(router) {
     }
     if (!/^[a-zA-Z0-9_.-]{3,20}$/.test(String(b.username || ""))) throw bad("账号需 3~20 位字母/数字");
     if (!String(b.name || "").trim()) throw bad("请填写姓名");
-    if (!ROLES[b.role]) throw bad("角色不合法");
+    if (!ROLES[b.role] || b.role==="admin") throw bad("总管理员由系统唯一指定，不能新增其他总管理员");
     checkUserLen(b);
     if (db.prepare("SELECT 1 FROM users WHERE username = ?").get(b.username)) throw conflict("账号已存在");
     // V1.2.17 SEC-04：不再给默认口令 123456，也不接受弱口令 —— 与自助改密同一份策略
@@ -497,6 +499,7 @@ function register(router) {
     const userAssocs=b.assocs===undefined ? null : validateAssociations(b.assocs,b.assoc);
     const requestedGrant="material_file_replace" in b?toFlag(b.material_file_replace):Number(u.material_file_replace||0);
     if(requestedGrant===null)throw bad("合同材料修改权限只能设置为允许或禁止");
+    if("material_file_replace" in b)throw bad("合同材料修改授权请通过用户权限分配");
     if(requestedGrant && !["assoc","exec","finance"].includes(b.role||u.role))
       throw bad("合同材料修改权限只能授予具有材料管理权限的业务账号");
     if(userAssocs!==null) {
@@ -559,7 +562,7 @@ function register(router) {
     for (const k of ["name", "role", "assoc", "dept", "phone", "active", "material_file_replace"]) {
       if (k in b && String(b[k] ?? "") !== String(u[k] ?? "")) patch[k] = b[k];
     }
-    if (patch.role && !ROLES[patch.role]) throw bad("角色不合法");
+    if (patch.role && (!ROLES[patch.role] || patch.role==="admin" || u.role==="admin")) throw bad("不能新增、提升或修改总管理员身份");
     if ("material_file_replace" in patch)patch.material_file_replace=requestedGrant;
     if(patch.assoc && !require("../lib/associations").has(patch.assoc))throw bad("所属协会不在有效目录中");
     checkUserLen(patch);

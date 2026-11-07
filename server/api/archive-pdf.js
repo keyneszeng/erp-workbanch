@@ -1,6 +1,7 @@
 "use strict";
 const {db}=require("../lib/db");
 const {getProject}=require("../lib/workflow");
+const {can,isSuper,assertProjectVisible}=require("../lib/rbac");
 const {bad,forbidden,conflict}=require("../lib/util");
 const {storage}=require("../lib/storage");
 const {logAudit}=require("../lib/audit");
@@ -8,9 +9,8 @@ const {buildSelectedMaterialsPdf}=require("../lib/material-export-pdf");
 
 /** 与原归档下载相同的角色边界；仅允许当前所属协会管理员或总管理员。 */
 function assertArchiveDownloadAccess(user,project){
- if(user.role==="admin")return;
- if(user.role!=="assoc"||!user.assoc||user.assoc!==project.assoc)
-   throw forbidden("只有总管理员或该会议所属协会管理员可以下载材料");
+ if(!can(user,"archive:download"))throw forbidden("当前账号未获材料PDF下载权限");
+ assertProjectVisible(user,project);
 }
 function getAllowedProject(ctx){
  const p=getProject(ctx.params.id);
@@ -50,7 +50,7 @@ function availableKinds(pid){
 function parseWatermark(user,body={}){
  const mode=body.watermark_mode??"default";
  if(!["default","none","custom"].includes(mode))throw bad("水印模式不合法");
- if(user.role!=="admin"&&mode!=="default")
+ if(!isSuper(user)&&mode!=="default")
    throw forbidden("仅总管理员可取消水印或设置自定义水印");
  const text=mode==="custom"?String(body.watermark_text??"").trim():"";
  if(mode==="custom"&&(!text||text.length>80||/[\u0000-\u001f\u007f]/.test(text)))
@@ -61,7 +61,7 @@ function register(router){
  router.get("/api/projects/:id/archive-pdf/options",async ctx=>{
    const project=getAllowedProject(ctx);
    return {project:{id:project.id,name:project.name,assoc:project.assoc,status:project.status},
-     categories:availableKinds(project.id),can_customize_watermark:ctx.user.role==="admin"};
+     categories:availableKinds(project.id),can_customize_watermark:isSuper(ctx.user)};
  });
  const generate=async(ctx,legacyAll=false)=>{
    const project=getAllowedProject(ctx);

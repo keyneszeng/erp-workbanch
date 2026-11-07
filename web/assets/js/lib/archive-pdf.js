@@ -1,11 +1,10 @@
-import {api,state} from "./api.js";
+import {api,state,can} from "./api.js";
 import {esc,modal,toast} from "./ui.js";
 
 /** 原归档权限保持不变；导出内容从固定卷宗改为材料类目自由勾选。 */
 export function canDownloadArchivePdf(project){
  const me=state.user;
- return !!(project&&project.status==="已归档"&&me&&
-  (me.role==="admin"||(me.role==="assoc"&&me.assoc&&me.assoc===project.assoc)));
+ return !!(project&&project.status==="已归档"&&me&&can("archive:download"));
 }
 export async function downloadArchivePdf(pid,button){
  if(!pid||(button&&button.disabled))return;

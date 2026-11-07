@@ -35,6 +35,7 @@ export const NAV = [
  */
 export function canVisit(nav) {
   const mods = state.role?.modules || [];
+  if(nav==="dashboard"&&!mods.includes("dashboard"))return true; // 无功能授权时展示安全待授权提示
   for (const g of NAV) {
     if (!mods.includes(g.k)) continue;
     const it = g.items.find((x) => x.k === nav);
