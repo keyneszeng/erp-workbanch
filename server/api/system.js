@@ -500,6 +500,14 @@ function register(router) {
     const u = db.prepare("SELECT * FROM users WHERE id = ?").get(Number(ctx.params.id));
     if (!u) throw notFound("用户不存在");
     const b = {...(ctx.body||{})};
+    // 获授权的账号管理员可以维护基础资料，但不能改变总管理员、
+    // 本人协会数据范围、任意账号的登录凭据和其他安全相关字段。
+    if(!isSuper(ctx.user)){
+      if(u.role==="admin")throw forbidden("仅总管理员可以修改总管理员账号");
+      const protectedKeys=["role","assoc","assocs","phone","password","resetPassword","material_file_replace"];
+      if(protectedKeys.some(key=>Object.prototype.hasOwnProperty.call(b,key)))
+        throw forbidden("角色、协会范围、账号凭据与单项授权仅可由总管理员修改");
+    }
     checkUserLen(b);
     assertDepartmentChoice(b.dept, u.dept);
     const userAssocs=b.assocs===undefined ? null : validateAssociations(b.assocs,b.assoc);

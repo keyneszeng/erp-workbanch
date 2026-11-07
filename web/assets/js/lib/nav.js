@@ -13,7 +13,7 @@ import { state, can } from "./api.js";
  * 改这里的 need 条件时必须同步改那边。
  */
 export const NAV = [
-  { k: "dashboard", n: "工作台", items: [{ k: "dashboard", n: "我的工作台" }, { k: "flow", n: "全流程总览" }] },
+  { k: "dashboard", n: "工作台", items: [{ k: "dashboard", n: "我的工作台" }, { k: "flow", n: "全流程总览", need: () => state.role?.modules?.includes("dashboard") }] },
   { k: "projects", n: "项目管理", items: [
     { k: "projects", n: "会议项目" },
     { k: "approvals", n: "审批中心", need: () => can("project:approve") || can("verify:exception_approve") || can("payment:approve") },

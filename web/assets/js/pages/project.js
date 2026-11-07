@@ -33,7 +33,7 @@ let tab = "overview";
 export async function render(root, [pid]) {
   const d = await api.get(`/api/projects/${pid}`);
   const p = d.project;
-  const participant = state.user.role === "user" && !["project:create","project:transition","verify:check","payment:create","material:write","project:change","project:edit"].some(can);
+  const participant = d.visibility === "participant";
   if (participant) tab = "overview";
   const visibleTabs = participant ? [["overview", "会议概览"]] : TABS;
   if (!visibleTabs.some(([k])=>k===tab)) tab="overview";
