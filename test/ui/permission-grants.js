@@ -50,6 +50,27 @@ async function run(){
  assert.equal(await reopen.locator('input[data-grant="permission"][value="material:write"]').isChecked(),true);
  assert.equal(await reopen.locator('input[data-grant="module"][value="materials"]').isChecked(),true);
  await reopen.locator('[data-x="0"]').click();
+ // 零权限账号应仅有可进入的“我的工作台”，不再展示点击后被弹回的总览。
+ const created=await page.evaluate(async()=>{
+  const response=await fetch("/api/users",{method:"POST",headers:{"content-type":"application/json"},
+   body:JSON.stringify({username:"qa_nogrants",name:"零权限浏览器测试",
+    role:"user",assoc:"华东医学会",assocs:["华东医学会"],
+    dept:"非供应商",phone:"13800009611",password:"NoGrants2026!"})});
+  return {status:response.status,payload:await response.json()};
+ });
+ assert.equal(created.status,200,JSON.stringify(created.payload));
+ const anonymous=await browser.newContext({viewport:{width:1100,height:860}});
+ const limitedPage=await anonymous.newPage();
+ limitedPage.on("pageerror",e=>jsErrors.push(String(e)));
+ await limitedPage.goto(origin);
+ await limitedPage.locator('input[name="username"]').fill("qa_nogrants");
+ await limitedPage.locator('input[name="password"]').fill("NoGrants2026!");
+ await limitedPage.locator("#lbtn").click();
+ await limitedPage.locator("#content").getByText("账号尚未获得功能授权").waitFor({timeout:15000});
+ const navText=await limitedPage.locator("#nav").innerText();
+ assert.match(navText,/我的工作台/);
+ assert.doesNotMatch(navText,/全流程总览|项目管理|财务结算|系统配置/);
+ await anonymous.close();
  assert.deepEqual(jsErrors,[]);
  console.log("PASS: superadmin can select, revoke and persist per-account modules and actions");
  await context.close();

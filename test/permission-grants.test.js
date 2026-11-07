@@ -139,6 +139,61 @@ test("总管理员可授权用户管理，但该用户绝对无权再授权他�
  });
  assert.equal(grant.status,403,"非总管理员不能再分配权限");
 });
+test("账号管理代理不能篡改总管理员、自己的数据范围或他人的登录凭据",async()=>{
+ const before=await call("admin","GET","/api/users");
+ assert.equal(before.status,200);
+ const root=before.body.rows.find(u=>u.role==="admin");
+ const finance=before.body.rows.find(u=>u.role==="finance");
+ assert.ok(root&&finance);
+ for(const payload of [{active:0},{name:"恶意管理员改名"},{password:"Compromised2026!"}]){
+  const denied=await call("newstaff","PATCH","/api/users/"+root.id,payload);
+  assert.equal(denied.status,403,JSON.stringify({payload,denied}));
+ }
+ for(const payload of [
+  {role:"finance"}, {assocs:["护理协会"]},{assoc:"护理协会"},
+  {phone:"13900008888"},{password:"AccountTakeover2026!"}
+ ]){
+  const denied=await call("newstaff","PATCH","/api/users/"+userId,payload);
+  assert.equal(denied.status,403,JSON.stringify({payload,denied}));
+ }
+ const takeover=await call("newstaff","PATCH","/api/users/"+finance.id,{password:"Compromised2026!"});
+ assert.equal(takeover.status,403,JSON.stringify(takeover));
+ // 真正被授权的普通账号仍然能修改非敏感的基础资料。
+ const safe=await call("newstaff","PATCH","/api/users/"+userId,{name:"零权限测试账号"});
+ assert.equal(safe.status,200,JSON.stringify(safe));
+ const after=await call("admin","GET","/api/users");
+ assert.equal(after.body.rows.find(x=>x.id===root.id).active,1);
+ assert.equal(after.body.rows.find(x=>x.id===root.id).name,root.name);
+ assert.equal(after.body.rows.find(x=>x.id===userId).role,"exec");
+});
+test("只授权项目浏览模块的账号不能读取预算、合同、付款、审计等内部明细",async()=>{
+ const created=await call("admin","POST","/api/users",{
+  username:"qa_viewonly",name:"项目只读审计测试",role:"finance",
+  assoc:"华东医学会",assocs:["华东医学会"],dept:"非供应商",
+  phone:"13800009610",password:"ReadOnly2026!"
+ });
+ assert.equal(created.status,200,JSON.stringify(created.body));
+ const id=created.body.user.id;
+ const grant=await call("admin","PATCH","/api/users/"+id+"/access",{
+  modules:["projects"],permissions:[]
+ });
+ assert.equal(grant.status,200,JSON.stringify(grant.body));
+ await login("qa_viewonly","ReadOnly2026!");
+ const list=await call("qa_viewonly","GET","/api/projects");
+ assert.equal(list.status,200,JSON.stringify(list.body));
+ assert.ok(list.body.rows.length>0,"只读用户应可查看所属协会的公开项目目录");
+ assert.equal(list.body.summary,null,"公开项目目录不能附带预算/支付汇总");
+ assert.equal(list.body.rows[0].budget,undefined);
+ const detail=await call("qa_viewonly","GET","/api/projects/MP-2026-001");
+ assert.equal(detail.status,200,JSON.stringify(detail.body));
+ assert.equal(detail.body.visibility,"participant");
+ assert.equal(detail.body.project.budget,undefined);
+ for(const key of ["contracts","payments","settlement","timeline","approvals","verification","members"]){
+  assert.equal(detail.body[key],undefined,key+"应由独立权限保护");
+ }
+ assert.equal((await call("qa_viewonly","GET","/api/contracts")).status,403);
+ assert.equal((await call("qa_viewonly","GET","/api/payments")).status,403);
+});
 test("撤销后立即失效；重新登录也不能访问已经撤销的模块",async()=>{
  const revoke=await call("admin","PATCH","/api/users/"+userId+"/access",{
   modules:[],permissions:[]
