@@ -382,6 +382,11 @@ function register(router) {
   router.get("/api/dashboard", async (ctx) => {require("../lib/rbac").assertModule(ctx.user,"dashboard");return dashboard(ctx.user);});
 
   const {validateAssociations,listForUser,updateForUser}=require("../lib/user-associations");
+  // 老版逐人「修改材料文件」授权与新版权限表保持兼容，由总管理员独占写入权。
+  const syncMaterialGrant=(uid,flag)=>{
+    db.prepare("DELETE FROM user_permission_grants WHERE user_id=? AND permission=?").run(uid,"material:file:replace");
+    if(flag)db.prepare("INSERT INTO user_permission_grants(user_id,permission) VALUES (?,?)").run(uid,"material:file:replace");
+  };
   router.get("/api/users", async (ctx) => {
     /**
      * V1.2.17 SEC-01：整本通讯录只给能管理账号的人。
@@ -456,9 +461,8 @@ function register(router) {
     // 按账号授权，默认关闭；普通访客不允许被授予内部合同修改权。
     const contractReplaceGrant=b.material_file_replace===undefined?0:toFlag(b.material_file_replace);
     if(contractReplaceGrant===null)throw bad("合同材料修改权限只能设置为允许或禁止");
-    if("material_file_replace" in b)throw bad("合同材料修改授权请通过用户权限分配");
-    if(contractReplaceGrant && !["assoc","exec","finance"].includes(b.role))
-      throw bad("合同材料修改权限只能授予具有材料管理权限的业务账号");
+    if("material_file_replace" in b && !isSuper(ctx.user))throw forbidden("仅总管理员能授权修改材料文件");
+
     if (!isDemoMode()) {
       const phone = normalizePhone(b.phone);
       if (!String(b.name || "").trim()) throw bad("请填写姓名");
@@ -470,6 +474,7 @@ function register(router) {
         .run(phone, String(b.name).trim(), b.role, b.assoc || null, b.dept || "", phone, salt, hash, contractReplaceGrant, now());
       const u = db.prepare("SELECT id,username,name,role,assoc,phone FROM users WHERE phone = ?").get(phone);
       updateForUser(u.id,userAssocs);
+      if(contractReplaceGrant)syncMaterialGrant(u.id,1);
       logAudit({ user: ctx.user, module: "系统配置", action: "加入手机白名单", target: String(u.id), detail: `${u.name} / ${ROLES[b.role].name} / ${phone.slice(0,3)}****${phone.slice(-4)}`, ip: ctx.ip });
       return { user: u, message: "手机号已加入白名单，初始密码为 123456；首次登录须短信验证并改密" };
     }
@@ -485,6 +490,7 @@ function register(router) {
       .run(b.username, b.name, b.role, b.assoc || null, b.dept || "", b.phone || "", salt, hash, contractReplaceGrant, now());
     const u = db.prepare("SELECT id,username,name,role,assoc FROM users WHERE username = ?").get(b.username);
     updateForUser(u.id,userAssocs);
+    if(contractReplaceGrant)syncMaterialGrant(u.id,1);
     logAudit({ user: ctx.user, module: "系统配置", action: "新建用户", target: String(u.id), detail: `${b.name} / ${ROLES[b.role].name}`, ip: ctx.ip });
     return { user: u, message: `账号 ${b.username} 已创建` };
   });
@@ -499,9 +505,8 @@ function register(router) {
     const userAssocs=b.assocs===undefined ? null : validateAssociations(b.assocs,b.assoc);
     const requestedGrant="material_file_replace" in b?toFlag(b.material_file_replace):Number(u.material_file_replace||0);
     if(requestedGrant===null)throw bad("合同材料修改权限只能设置为允许或禁止");
-    if("material_file_replace" in b)throw bad("合同材料修改授权请通过用户权限分配");
-    if(requestedGrant && !["assoc","exec","finance"].includes(b.role||u.role))
-      throw bad("合同材料修改权限只能授予具有材料管理权限的业务账号");
+    if("material_file_replace" in b && !isSuper(ctx.user))throw forbidden("仅总管理员能授权修改材料文件");
+
     if(userAssocs!==null) {
       if(b.role==="admin" && u.role!=="admin")throw bad("不能通过协会编辑将业务用户提升为总管理员");
       if(userAssocs.length===0 && (b.role||u.role)!=="admin")throw bad("业务账号至少关联一个协会");
@@ -536,6 +541,7 @@ function register(router) {
         db.prepare(`UPDATE users SET ${Object.keys(patch).map(k => `${k} = ?`).join(", ")} WHERE id = ?`)
           .run(...Object.values(patch), u.id);
       }
+      if("material_file_replace" in b)syncMaterialGrant(u.id,requestedGrant);
       if (reset || patch.phone) {
         const { salt, hash } = hashPassword(INITIAL_PASSWORD);
         db.prepare("UPDATE users SET pass_salt = ?, pass_hash = ?, must_change_password = 1, phone_verified_at = NULL WHERE id = ?")
@@ -579,6 +585,7 @@ function register(router) {
       }
       logAudit({ user: ctx.user, module: "系统配置", action: "改角色/资料", target: String(u.id), detail: Object.entries(patch).map(([k, v]) => `${k}: ${u[k] ?? "空"} → ${v}`).join("；"), ip: ctx.ip });
     }
+    if("material_file_replace" in b)syncMaterialGrant(u.id,requestedGrant);
     if(userAssocs!==null){
       updateForUser(u.id,userAssocs);
       db.prepare("UPDATE users SET token_ver=token_ver+1 WHERE id=?").run(u.id);
