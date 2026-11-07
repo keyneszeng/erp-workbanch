@@ -8,6 +8,7 @@ import { bindFilePicker, fileUrl, UPLOAD_ACCEPT, UPLOAD_TIP } from "../lib/uploa
 import { exStepLabel, openStepDetail } from "../lib/verify-detail.js";
 import { sopEvidenceForm, collectSopEvidence } from "../lib/sop-fields.js";
 import { bindLaborContractPreview } from "../lib/labor-contract-preview.js";
+import { openContractMaterialReplace } from "../lib/contract-material-replace.js";
 import { flowHint, flowOf, openContractDetail } from "../lib/contract-detail.js";
 
 const ORDER = ["草稿", "待审批", "已立项", "筹备中", "执行中", "待核销", "已核销", "已结算", "已归档"];
@@ -423,7 +424,7 @@ function tabMaterials(d, p) {
     <div class="hint" style="padding:8px 14px">材料类别可自由选择（「权益照片」须选择合同对应权益二级类目），不再要求固定类别齐全；至少上传一份原件即可满足材料门槛。核销与财务独立审批仍须按流程完成。</div>
     <div class="chips">${ms.have.map((k) => `<span class="chip"><i>✓</i><b>${esc(k)}</b></span>`).join("")}</div>
     ${table([{ t: "类别", w: "104px" }, { t: "材料名称" }, { t: "附件", w: "84px" }, { t: "版本", w: "56px" },
-      { t: "上传人", w: "76px" }, { t: "时间", w: "130px" }, { t: "操作", w: "56px" }],
+      { t: "上传人", w: "76px" }, { t: "时间", w: "130px" }, { t: "操作", w: "120px" }],
       d.materials.map((m) => ({
         c: [
           esc(m.kind)+(m.kind==="权益照片"?`<div class="hint">${esc(sponsorsById.get(rightById.get(Number(m.sponsor_right_id))?.sponsor_id)?.enterprise||"未关联赞助合同")} · ${esc(rightById.get(Number(m.sponsor_right_id))?.category||"未关联权益类目")}</div>`:""), esc(m.name),
@@ -433,7 +434,11 @@ function tabMaterials(d, p) {
                 : `<a href="${fileUrl(m.file_key)}" target="_blank" rel="noopener"><img class="thumb" src="${fileUrl(m.file_key)}" alt=""></a>`)
             : '<span style="color:var(--mute)">—</span>',
           esc(m.version || ""), esc(m.uploader || ""), `<span class="mono">${esc(m.created_at)}</span>`,
-          can("material:write") && p.status !== "已归档" ? `<button class="link danger" data-del-mat="${m.id}">删除</button>` : "—"
+          (can("material:write") && p.status !== "已归档" && !m.deleted_at
+            ? `<button class="link danger" data-del-mat="${m.id}">删除</button>` : "") +
+          (can("material:contract:replace") && m.kind==="合同" && m.file_key && !m.deleted_at &&
+            !["已核销","已结算","已归档"].includes(p.status) && !d.settlement
+            ? ` <button class="link" data-replace-material="${m.id}">修改</button>` : "") || "—"
         ]
       })),
       { empty: "暂无材料" })}`,
@@ -488,7 +493,11 @@ function wire(root, pid, d, body) {
     }));
   body.querySelectorAll("[data-ex-ok]").forEach((b) => b.onclick = () => exDecide(root, pid, b.dataset.exOk, true));
   body.querySelectorAll("[data-ex-no]").forEach((b) => b.onclick = () => exDecide(root, pid, b.dataset.exNo, false));
-  body.querySelectorAll("[data-del-mat]").forEach((b) => b.onclick = () => delMaterial(root, pid, b.dataset.delMat));
+  body.querySelectorAll("[data-del-mat]").forEach((b) => b.onclick = () => delMaterial(root, pid, b.dataset.delMat));  body.querySelectorAll("[data-replace-material]").forEach(b=>b.onclick=()=>{
+    const m=d.materials.find(x=>Number(x.id)===Number(b.dataset.replaceMaterial));
+    if(m)openContractMaterialReplace(m,()=>refresh(root,pid));
+  });
+
   body.querySelectorAll("[data-del-mem]").forEach((b) => b.onclick = () => delMember(root, pid, b.dataset.delMem));
   // 变更落账（双人复核）与合同两步流转
   body.querySelectorAll("[data-exec]").forEach((b) => b.onclick = () => execChange(root, pid, b.dataset.exec));

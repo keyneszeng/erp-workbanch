@@ -64,6 +64,7 @@ const PERMS = {
   "settle:create": ["finance"],
   "archive:write": ["assoc", "finance"],
   "material:write": ["assoc", "exec", "finance"],
+  "material:contract:replace": [], // 总管理员按账号授权，不能由角色自动继承
   "audit:read": ["assoc"],
   "export:any": ["assoc", "exec", "finance"],
   "user:manage": [],
@@ -147,6 +148,9 @@ const isSuper = (user) => !!(user && ROLES[user.role] && ROLES[user.role].super)
 function can(user, perm) {
   if (!user) return false;
   if (isSuper(user)) return true;
+  // 合同材料替换必须具备原材料管理角色 + 总管理员对该账号的显式授权。
+  if (perm === "material:contract:replace")
+    return !!Number(user.material_contract_replace) && ["assoc","exec","finance"].includes(user.role);
   // Historical demo finance approvals stay available for QA; production approval belongs to association managers.
   if (perm === "payment:approve" && isDemoMode() && user.role === "finance") return true;
   const allow = PERMS[perm];
