@@ -75,11 +75,15 @@ async function load(root) {
   const list = root.querySelector("#list");
   root.querySelector("#cnt").textContent = d.total;
   // 分页后本页行只含当前页金额，合计必须用后端给的全量 summary
-  const budget = d.summary ? d.summary.budget : d.rows.reduce((s, r) => s + r.budget, 0);
-  const paid = d.summary ? d.summary.paid : d.rows.reduce((s, r) => s + (r.paid_amt || 0), 0);
-  root.querySelector("#sum").textContent = state.user.role === "user"
-    ? "只显示本人相关会议"
-    : `预算合计 ¥${money(budget)} · 已付款 ¥${money(paid)}`;
+  const mods=state.role?.modules||[];
+  const financeVisible=state.super||mods.includes("finance")||
+    ["payment:create","payment:approve","payment:pay","settle:create","ledger:read"].some(can);
+  const budgetVisible=financeVisible||
+    ["project:create","project:edit","project:change","project:approve","verify:check","verify:conclude"].some(can);
+  const budget=budgetVisible?(d.summary?d.summary.budget:d.rows.reduce((s,r)=>s+(Number(r.budget)||0),0)):null;
+  const paid=financeVisible?(d.summary?d.summary.paid:d.rows.reduce((s,r)=>s+(Number(r.paid_amt)||0),0)):null;
+  root.querySelector("#sum").textContent=!budgetVisible
+    ?"仅显示授权范围内的会议":(`预算合计 ¥${money(budget)}`+(financeVisible?` · 已付款 ¥${money(paid)}`:""));
 
   list.innerHTML = table(
     [{ t: "会议编号", w: "120px" }, { t: "会议名称" }, { t: "协会", w: "118px" }, { t: "形式", w: "58px" },
@@ -91,7 +95,7 @@ async function load(root) {
         `<span class="mono">${p.id}</span>`,
         `<b style="font-size:12.8px">${esc(p.name)}</b>`,
         esc(p.assoc), esc(p.form), `<span class="mono">${esc(p.date)}</span>`,
-        state.user.role === "user" ? "—" : `¥${money(p.budget)}<div class="hint">可用 ¥${money(p.available_budget ?? p.budget)}</div>`, esc(p.owner || "—"),
+        !budgetVisible ? "—" : `¥${money(p.budget)}<div class="hint">可用 ¥${money(p.available_budget ?? p.budget)}</div>`, esc(p.owner || "—"),
         badge(p.status) + (canDownloadArchivePdf(p) ? ` <button class="link" data-archive-pdf="${p.id}">材料下载</button>` : ""),
         `<div class="tacts"><button class="link" data-go="projects/${p.id}">详情</button>
          ${p.status === "待核销" && can("verify:check") ? `<button class="link" data-go="verify/${p.id}">核销</button>` : ""}</div>`
