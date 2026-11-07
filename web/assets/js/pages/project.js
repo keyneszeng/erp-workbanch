@@ -7,6 +7,7 @@ import {
 import { bindFilePicker, fileUrl, UPLOAD_ACCEPT, UPLOAD_TIP } from "../lib/upload.js";
 import { exStepLabel, openStepDetail } from "../lib/verify-detail.js";
 import { sopEvidenceForm, collectSopEvidence } from "../lib/sop-fields.js";
+import { bindLaborContractPreview } from "../lib/labor-contract-preview.js";
 import { flowHint, flowOf, openContractDetail } from "../lib/contract-detail.js";
 
 const ORDER = ["草稿", "待审批", "已立项", "筹备中", "执行中", "待核销", "已核销", "已结算", "已归档"];
@@ -653,6 +654,7 @@ function openJudge(root, pid, no, d) {
       ${sopEvidenceForm(no,d.project,d.sponsorRights)}`,
     footer: `<button class="btn btn-o" data-x="0">取消</button><button class="btn btn-p" data-x="1">提交判定</button>`
   });
+  if(no===5) bindLaborContractPreview(m,d.materials||[]);
   m.querySelector('[data-x="0"]').onclick = () => m.classList.remove("open");
   m.querySelector('[data-x="1"]').onclick = async () => {
     const v = readForm(m);

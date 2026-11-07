@@ -1,5 +1,6 @@
 "use strict";
 const {laborSheetInfo}=require("./labor-sop");
+const {contractPool}=require("./labor-contracts");
 const {demandSopState}=require("./meeting-demand-sop");
 const {sponsorRights}=require("./sponsor-rights");
 const { db } = require("./db");
@@ -28,7 +29,8 @@ function verification(pid) {
       (def.no!==7 || sponsor.required);
     const evidence=r?.evidence_json?JSON.parse(r.evidence_json):null;
     const stale=required && r?.result==="通过" && (
-      (def.no===5 && evidence?.laborSourceSignature!==labor.signature) ||
+      (def.no===5 && (evidence?.laborSourceSignature!==labor.signature ||
+        !evidence?.contractPoolSignature || evidence.contractPoolSignature!==contractPool(db,pid).signature)) ||
       (def.no===2 && !isDemoMode() && (
         !Array.isArray(evidence?.matchedSources) ||
         evidence.matchedSources.join("|")!=="终版议程|签到表|讲者照片"
