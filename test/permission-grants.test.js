@@ -182,7 +182,7 @@ test("只授权项目浏览模块的账号不能读取预算、合同、付款�
  const list=await call("qa_viewonly","GET","/api/projects");
  assert.equal(list.status,200,JSON.stringify(list.body));
  assert.ok(list.body.rows.length>0,"只读用户应可查看所属协会的公开项目目录");
- assert.equal(list.body.summary,null,"公开项目目录不能附带预算/支付汇总");
+ assert.ok(list.body.summary==null,"公开项目目录不能附带预算/支付汇总");
  assert.equal(list.body.rows[0].budget,undefined);
  const detail=await call("qa_viewonly","GET","/api/projects/MP-2026-001");
  assert.equal(detail.status,200,JSON.stringify(detail.body));
