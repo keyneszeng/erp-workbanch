@@ -204,6 +204,7 @@ function detail(project, user) {
 
   return {
     project,
+    sectionAccess:{finance:viewFinance,contracts:viewContracts,materials:viewMaterials,verify:viewVerify,demand:viewDemand,team:viewTeam,exec:viewExec,approvals:viewApprovals,audit:viewAudit},
     members: viewTeam?members:[],
     approvals: viewApprovals?approvals:[],
     contracts: viewContracts?contracts:[],
@@ -212,9 +213,9 @@ function detail(project, user) {
     tasks: viewExec?tasks:[],
     issues: viewExec?issues:[],
     materials: viewMaterials?materials:[],
-    verification: viewVerify?verification(pid):{passed:0,total:0,steps:[]},
+    verification: viewVerify?verification(pid):{passed:0,total:0,complete:false,openExceptions:0,steps:[]},
     sponsorRights:viewContracts?require("../lib/sponsor-rights").sponsorRights(db,pid):{required:false,contracts:[],rights:[],photos:[],activeContracts:[]},
-    materialsStatus: viewMaterials?materialsStatus(pid):{uploadedCount:0},
+    materialsStatus: viewMaterials?materialsStatus(pid):{uploadedCount:0,ok:false,missing:[]},
     settlement: viewFinance?settlement:null,
     settlementBreakdown: viewFinance&&settlement ? buildSettlementBreakdown(settlement,project,payments) : null,
     // 核销第 3 步的费用对照基准。项目详情页的核销页签读的是这个接口，
