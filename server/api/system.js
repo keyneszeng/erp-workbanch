@@ -1,7 +1,7 @@
 "use strict";
 const { db } = require("../lib/db");
 const { now, today, nextId, toCsv, bad, notFound, conflict, forbidden } = require("../lib/util");
-const { assertCan, scopeFilter, isSuper, ROLES, can, canVisitNav, STATUSES } = require("../lib/rbac");
+const { assertCan, scopeFilter, isSuper, hasModule, ROLES, can, canVisitNav, STATUSES } = require("../lib/rbac");
 const { logAudit } = require("../lib/audit");
 const { hashPassword, validatePassword } = require("../lib/auth");
 const { listProjects } = require("./projects");
@@ -38,11 +38,10 @@ function myTodos(user) {
     const need = a.type === "立项审批" ? can(user, "project:approve")
       : a.type === "例外单审批" ? can(user, "verify:exception_approve")
       : a.type === "付款审批" ? can(user, "payment:approve") : can(user, "project:approve");
-    if (need) todos.push({ kind: "审批", title: `${a.type}：${a.title}`, pid: a.pid, pname: a.pname, ref: a.id, sla: a.sla, go: "approvals" });
+    if (need && canVisitNav(user,"approvals")) todos.push({ kind: "审批", title: `${a.type}：${a.title}`, pid: a.pid, pname: a.pname, ref: a.id, sla: a.sla, go: "approvals" });
   }
   // 立项审批通过后，自动进入已指派会务执行负责人待办；由负责人执行“进入筹备”。
-  if(can(user,"project:transition") && canVisitNav(user,"projects") &&
-     (user.role==="exec" || isSuper(user))) {
+  if(can(user,"project:transition") && canVisitNav(user,"projects")) {
     const rows=db.prepare(`SELECT p.* FROM projects p WHERE p.status='已立项' AND p.owner_id=?
       ORDER BY p.status_at DESC`).all(user.id);
     for(const p of rows)todos.push({
@@ -52,8 +51,7 @@ function myTodos(user) {
   }
   // 执行人提交核销后，项目进入协会管理员、核销财务和总管理员工作台队列。
   // 严格区分可见性：协会管理员按多协会范围；财务仅分派项目；总管理员全平台。
-  if ((user.role==="assoc" || user.role==="finance" || isSuper(user)) &&
-      can(user,"verify:check") && canVisitNav(user,"verify")) {
+  if (can(user,"verify:check") && canVisitNav(user,"verify")) {
     const rows=db.prepare(`SELECT p.* FROM projects p WHERE p.status='待核销' AND ${sql}
       ORDER BY p.status_at DESC`).all(...params);
     for(const p of rows)todos.push({
@@ -61,27 +59,27 @@ function myTodos(user) {
       pid:p.id,pname:p.name,ref:p.id,sla:"会后核销待办",go:"verify"
     });
   }
-  if (can(user, "verify:conclude")) {
+  if (can(user, "verify:conclude") && canVisitNav(user,"verify")) {
     const rows = db.prepare(
       `SELECT p.*, (SELECT COUNT(*) FROM verify_steps v WHERE v.pid=p.id AND v.result IN ('通过','已解例外')) AS passed
        FROM projects p WHERE p.status='待核销' AND ${sql}`
     ).all(...params);
     for (const p of rows) todos.push({ kind: "核销", title: `核销待判定（${p.passed}/6 已通过）`, pid: p.id, pname: p.name, ref: p.id, sla: "会期后 5 个工作日", go: "verify" });
   }
-  if (can(user, "settle:create")) {
+  if (can(user, "settle:create") && canVisitNav(user,"finance")) {
     const rows = db.prepare(
       `SELECT p.* FROM projects p WHERE p.status='已核销' AND ${sql}
        AND NOT EXISTS (SELECT 1 FROM settlements s WHERE s.pid=p.id)`
     ).all(...params);
     for (const p of rows) todos.push({ kind: "结算", title: "核销已通过，待生成结算单", pid: p.id, pname: p.name, ref: p.id, sla: "核销后 3 个工作日", go: "finance" });
   }
-  if (can(user, "archive:write")) {
+  if (can(user, "archive:write") && canVisitNav(user,"archive")) {
     const rows = db.prepare(
       `SELECT p.* FROM projects p WHERE p.status='已结算' AND ${sql}`
     ).all(...params);
     for (const p of rows) todos.push({ kind: "归档", title: "结算完成，待归档", pid: p.id, pname: p.name, ref: p.id, sla: "结算后 5 个工作日", go: "archive" });
   }
-  if (can(user, "payment:pay")) {
+  if (can(user, "payment:pay") && canVisitNav(user,"finance")) {
     const rows = db.prepare(
       `SELECT y.*, p.name AS pname FROM payments y JOIN projects p ON p.id=y.pid WHERE y.status='已审批' AND ${sql}`
     ).all(...params);
@@ -199,41 +197,28 @@ function dashboard(user) {
      ORDER BY p.date ASC LIMIT 6`
   ).all(...params, today());
 
-  // 预算与已付款必须各自独立聚合。
-  // 原来把已付款写成 SELECT 列表里的标量子查询，子查询里 JOIN 用的是 p2 别名、
-  // 而数据范围条件用的是 p. —— SQLite 把 p 当成外层引用，条件恒真，
-  // 于是协会管理员看到的是全平台已付款（实测 ¥698,600 vs 本协会 ¥364,000）。
-  const budget = Number(db.prepare(
+  // 查看工作台不等于自动拥有财务统计或审计查看权，与角色名称无关。
+  const financeAllowed=isSuper(user) || hasModule(user,"finance") ||
+    ["payment:create","payment:approve","payment:pay","settle:create","ledger:read"].some(k=>can(user,k));
+  const auditAllowed=isSuper(user) || hasModule(user,"audit") || can(user,"audit:read");
+  const budget=financeAllowed ? Number(db.prepare(
     `SELECT COALESCE(ROUND(SUM(p.budget),2),0) AS v FROM projects p WHERE ${sql}`
-  ).get(...params).v) || 0;
-  const paid = Number(db.prepare(
+  ).get(...params).v)||0 : null;
+  const paid=financeAllowed ? Number(db.prepare(
     `SELECT COALESCE(ROUND(SUM(y.amount),2),0) AS v FROM payments y JOIN projects p ON p.id = y.pid
      WHERE y.status = '已付款' AND ${sql}`
-  ).get(...params).v) || 0;
+  ).get(...params).v)||0 : null;
 
-  if (user.role === "user" && !["project:create","project:change","project:edit","verify:check","payment:create","payment:pay","audit:read"].some(k=>can(user,k))) {
-    // 参会者只可读取本人会议安排；聚合预算、付款、审计以及项目原始行均属于内部信息。
-    return {
-      counts: map,
-      statusRows: rows.map(({ status, c }) => ({ status, c })),
-      budget: null,
-      paid: null,
-      todos,
-      upcoming: upcoming.map(({ id, name, assoc, date, status, owner }) =>
-        ({ id, name, assoc, date, status, owner })),
-      alerts: [],
-      recent: []
-    };
-  }
+  const publiclyVisible=({id,name,assoc,date,status,owner})=>({id,name,assoc,date,status,owner});
   return {
     counts: map,
-    statusRows: rows,
+    statusRows: financeAllowed ? rows : rows.map(({status,c})=>({status,c})),
     budget,
     paid,
     todos,
-    upcoming,
+    upcoming: financeAllowed ? upcoming : upcoming.map(publiclyVisible),
     alerts: alerts(user),
-    recent: recentAudits(user)
+    recent: auditAllowed ? recentAudits(user) : []
   };
 }
 
