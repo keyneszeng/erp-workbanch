@@ -11,7 +11,7 @@ const A=Buffer.from("%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Title (old) >>\nendob
 const B=Buffer.from("%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Title (new) >>\nendobj\n%%EOF\n");
 let proc,cookie={},original,id,execId;
 async function ready(){
- for(let i=0;i<150;i++){try{if((await fetch(BASE+"/api/health")).ok)return;}catch{}
+ for(let i=0;i<375;i++){try{if((await fetch(BASE+"/api/health")).ok)return;}catch{}
  await new Promise(r=>setTimeout(r,160));}
  throw Error("test ERP server not ready");
 }

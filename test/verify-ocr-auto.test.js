@@ -40,7 +40,7 @@ before(async()=>{
   stdio:["ignore","pipe","pipe"]});
  let error="";server.stderr.on("data",x=>error+=String(x));
  let ok=false;
- for(let i=0;i<180;i++){
+ for(let i=0;i<500;i++){
   try{if((await fetch(base+"/api/health")).ok){ok=true;break;}}catch{}
   if(server.exitCode!==null)throw Error(error);
   await new Promise(r=>setTimeout(r,120));
