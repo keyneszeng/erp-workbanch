@@ -92,7 +92,7 @@ export async function render(root, params = []) {
             `<div class="tacts">
               ${y.status === "待审批" && can("payment:approve") ? `<button class="link" data-ok="${y.id}">审批</button><button class="link danger" data-no="${y.id}">驳回</button>` : ""}
               ${y.status === "已审批" && can("payment:pay") && y.payee_account ? `<button class="link" data-pay="${y.id}">付款</button>` : ""}
-              ${y.status !== "已付款" && can("payment:approve") && !y.payee_account ? `<button class="link" data-acct="${y.id}">登记账户</button>` : ""}
+              ${y.status !== "已付款" && can("payment:pay") && !y.payee_account ? `<button class="link" data-acct="${y.id}">登记账户</button>` : ""}
               ${y.status === "已付款" ? `<span style="font-size:11.5px;color:var(--mute)">${esc(y.paid_at || "")}</span>` : ""}
             </div>`]
         })), { empty: "暂无付款记录" })}

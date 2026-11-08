@@ -41,7 +41,7 @@ export async function render(root) {
   const withFile = rows.filter((r) => r.file_key).length;
 
   root.innerHTML = `<div class="phead">
-      <div><h2>合同台账</h2><p>合同金额是核销第 6 步与付款金额的比对基准</p></div>
+      <div><h2>合同台账</h2><p>合同按类别归集；会务费用在核销第6项与需求预算、发票比对；劳务个人合同在材料库按姓名核验</p></div>
       <div class="acts">
         ${can("export:any") ? '<button class="btn btn-o" id="exp">导出 CSV</button>' : ""}
         ${can("contract:write") ? '<button class="btn btn-p" id="newC">+ 录入合同</button>' : ""}
@@ -129,7 +129,7 @@ function openCreate(root, projects) {
     { k: "vendor", l: "签约方", req: 1 },
     { k: "amount", l: "合同金额（元）", t: "number", req: 1 },
     { k: "category", l: "合同类别", t: "select", opts: state.meta.contractCategories || [],
-      tip: "核销第 5 步「劳务与专家费核对」只列「劳务专家」类，其余类别在第 6 步全量对照里核" },
+      tip: "合同类别用于台账和会务费用核对；第5项需在材料库按完整姓名匹配个人劳务合同，不能用台账合同替代。第6项核对实际会务需求、已签会务合同和会务发票。" },
     { k: "sign_date", l: "签署日期", t: "date" },
     // 录入只能选草稿 / 待签署：已签署必须走「确认签署」，
     // 否则两步流转等于没做，台账上的「已签署金额」也没有可信来源

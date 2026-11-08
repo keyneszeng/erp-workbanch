@@ -29,9 +29,9 @@ const ROUTES = [
   { re: /^approvals$/, page: approvals, nav: "approvals", title: "审批中心", sub: "立项 / 例外单 / 付款 / 变更" },
   // 带目标：从工作台待办/预警点进来时定位到具体那一条（审批单号或项目号）
   { re: /^approvals\/([\w-]+)$/, page: approvals, nav: "approvals", title: "审批中心", sub: "已定位到待处理事项" },
-  { re: /^verify$/, page: verify, nav: "verify", title: "核销看板", sub: "6 步 SOP · 付款唯一前置门" },
-  { re: /^verify\/([\w-]+)$/, page: verify, nav: "verify", title: "核销作业", sub: "6 步判定与例外单闭环" },
-  { re: /^finance$/, page: finance, nav: "finance", title: "付款与结算", sub: "付款申请、审批、付款与结算单" },
+  { re: /^verify$/, page: verify, nav: "verify", title: "核销看板", sub: "七项 SOP（第5～7项按需）· 付款前置门" },
+  { re: /^verify\/([\w-]+)$/, page: verify, nav: "verify", title: "核销作业", sub: "七项适用核销与例外单闭环" },
+  { re: /^finance$/, page: finance, nav: "finance", title: "会议收入与财务", sub: "企业赞助回款、付款申请、审批与结算" },
   // 带项目：从「待付款」待办点进来时只列该项目的付款，直接能看到付款按钮
   { re: /^finance\/([\w-]+)$/, page: finance, nav: "finance", title: "付款与结算", sub: "已定位到指定项目" },
   { re: /^project-ledger$/, page: projectLedger, nav: "project-ledger", title: "项目台账", sub: "仅总管理员 · 按会议编号对照财务资料" },
