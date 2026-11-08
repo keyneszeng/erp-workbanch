@@ -247,3 +247,56 @@ test("登记开票：上传真实 DOCX 发票、OCR 预览只读、自动候选�
  },admin);
  assert.equal(dup.status,409,"重复发票号码仍应被拦截");
 });
+
+
+test("登记回款：上传真实银行回单 DOCX，OCR 预览交易金额和流水号码，然后登记到账",async()=>{
+ const PizZip=require("pizzip");
+ const p=await request("POST","/api/projects",{
+  name:"银行回单OCR端到端",assoc:"华东医学会",form:"线下",date:"2027-12-01",
+  budget:12345.67,people:20,owner:"陈静",agenda:"银行回款识别"
+ },exec);
+ assert.equal(p.status,200,JSON.stringify(p.data));
+ const pid=p.data.project.id;
+ const c=await request("POST","/api/projects/"+pid+"/income/contracts",{
+  enterprise:"广州睿康医疗科技有限公司",amount:12345.67,file_key:await upload(exec,pid)
+ },exec);
+ assert.equal(c.status,200,JSON.stringify(c.data));
+ const approved=await request("POST","/api/projects/"+pid+"/income/contracts/"+c.data.id+"/decide",{approve:true},admin);
+ assert.equal(approved.status,200,JSON.stringify(approved.data));
+ const zip=new PizZip();
+ zip.file("[Content_Types].xml",'<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"/>');
+ zip.file("_rels/.rels",'<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"/>');
+ const lines=["银行电子回单","付款账号：6222000000001234567",
+  "收款账号：6217000000098765432","交易流水号：20261108000987654321",
+  "转账金额：人民币12,345.67元","账户余额：90,000元","手续费：5元","交易成功"];
+ zip.file("word/document.xml",
+  '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>'+
+  lines.map(x=>'<w:p><w:r><w:t>'+x+'</w:t></w:r></w:p>').join("")+'</w:body></w:document>');
+ const raw=await fetch(base+"/api/uploads?pid="+encodeURIComponent(pid),{
+  method:"POST",headers:{Cookie:admin,"Content-Type":"application/octet-stream","X-File-Name":"bank-receipt.docx"},
+  body:zip.generate({type:"nodebuffer",compression:"DEFLATE"})
+ });
+ const saved=await raw.json();assert.equal(raw.status,200,JSON.stringify(saved));
+ const endpoint="/api/projects/"+pid+"/income/receipts/scan";
+ assert.equal((await request("POST",endpoint,{file_key:saved.key})).status,401,"无权用户不能 OCR 读取银行凭据");
+ assert.equal((await request("POST",endpoint,{file_key:"invalid.docx"},admin)).status,400,"非法附件键不得扫描");
+ const preview=await request("POST",endpoint,{file_key:saved.key},admin);
+ assert.equal(preview.status,200,JSON.stringify(preview.data));
+ assert.equal(preview.data.fields.paymentRef,"20261108000987654321");
+ assert.equal(preview.data.fields.amount,12345.67);
+ assert.match(preview.data.note,/自动预填/);
+ const before=await request("GET","/api/projects/"+pid+"/income",undefined,admin);
+ assert.equal(before.data.receipts.length,0,"OCR 预览不能写入回款凭证");
+ const registered=await request("POST","/api/projects/"+pid+"/income/receipts",{
+  sponsorId:c.data.id,amount:preview.data.fields.amount,
+  paymentRef:preview.data.fields.paymentRef,receivedDate:"2027-11-29",
+  file_key:saved.key,file_name:"bank-receipt.docx"
+ },admin);
+ assert.equal(registered.status,200,JSON.stringify(registered.data));
+ assert.equal(registered.data.summary.received,12345.67);
+ const after=await request("GET","/api/projects/"+pid+"/income",undefined,admin);
+ assert.equal(after.data.receipts.length,1);
+ assert.equal(after.data.receipts[0].payment_ref,"20261108000987654321");
+ assert.equal(after.data.receipts[0].amount,12345.67);
+ assert.equal(after.data.receipts[0].file_key,saved.key);
+});
