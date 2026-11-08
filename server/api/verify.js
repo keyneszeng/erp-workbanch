@@ -13,6 +13,9 @@ const { assertUploadAttachable } = require("../lib/upload-ownership");
 const { validateSopEvidence } = require("../lib/meeting-sop");
 const {sponsorRights}=require("../lib/sponsor-rights");
 const {buildSettlementBreakdown}=require("../lib/settlement-breakdown");
+const verifyOcr=require("../lib/verify-ocr-compare");
+const {sponsorRights:currentSponsorRights,validateRightsEvidence}=require("../lib/sponsor-rights");
+let scanningVerification=false;
 
 function register(router) {
   /**
@@ -47,6 +50,29 @@ function register(router) {
     };
   });
 
+  /**
+   * OCR 扫描→关键字段提取→跨材料比较。只生成“建议”，从不自动改核销状态。
+   * 复用 material_ocr_results 缓存，按 file_key 版本严格绑定，改件即失效。
+   */
+  router.post("/api/projects/:id/verify/steps/:no/scan",async ctx=>{
+    assertCan(ctx.user,"verify:check","没有核销OCR比对权限");
+    const p=getProject(ctx.params.id);
+    assertProjectVisible(ctx.user,p);
+    const no=Number(ctx.params.no);
+    if(!Number.isInteger(no)||no<1||no>7)throw bad("核销步骤编号必须为1~7");
+    const step=verification(p.id).steps.find(x=>x.no===no);
+    if(step?.required===false)throw conflict("本项目该核销项不适用","SOP_NOT_APPLICABLE");
+    if(scanningVerification)throw Object.assign(new Error("另一个核销文件正在OCR处理中，请稍后重新扫描"),{status:429,code:"OCR_BUSY"});
+    scanningVerification=true;
+    try{
+      const result=await verifyOcr.scan(p.id,no,ctx.user.name);
+      logAudit({user:ctx.user,module:"会后核销",action:"OCR智能比对",target:p.id,
+        detail:"步骤"+no+"；关联材料"+result.total+"份，实际可识别"+result.scanned+"份；相符"+result.summary.match+"，疑点"+result.summary.mismatch+"，待人工确认"+result.summary.uncertain,
+        ip:ctx.ip});
+      return {report:result};
+    }finally{scanningVerification=false;}
+  });
+
   /** 单步判定 */
   router.post("/api/projects/:id/verify/steps/:no", async (ctx) => {
     const p = getProject(ctx.params.id);
@@ -65,7 +91,18 @@ function register(router) {
       throw conflict("请先上传至少一份会议材料附件，再进行核销判定","MATERIAL_GATE",
         { missing: ms.missing });
 
-    const { result, remark } = ctx.body || {};
+    const { result } = ctx.body || {};
+    const isAuto=ctx.body?.auto===true;
+    // 防止绕过UI直接构造“已OCR一致”的请求；每次判定验证材料版本与缓存哈希。
+    const ocrReport=isAuto?verifyOcr.verifiedReport(p.id,no,ctx.body?.scanToken):null;
+    if(isAuto && result==="通过" && (!ocrReport.total || (!ocrReport.scanned && ![3,7].includes(no))))
+      throw conflict("未取得有效的OCR比对资料，不能直接判定通过；请先上传可识别的PDF或图片原件","OCR_EVIDENCE_REQUIRED");
+    let remark=isAuto
+      ?(result==="不通过"?
+        "OCR比对异常/人工未认可："+(ocrReport.checks.filter(x=>x.status!=="一致").slice(0,3)
+         .map(x=>x.name+"（"+x.detail+"）").join("；")||"原件复核不通过")
+        :"OCR比对后由人工核验通过；OCR疑点"+ocrReport.summary.mismatch+"项，待确认"+ocrReport.summary.uncertain+"项")
+      :String(ctx.body?.remark||"");
     if (!["通过", "不通过"].includes(result)) throw bad("判定结果只能是「通过」或「不通过」");
     if (String(remark || "").length > 1000) throw bad(`问题描述不能超过 1000 字（当前 ${String(remark).length} 字）`);
     if (result === "不通过" && !String(remark || "").trim()) throw bad("判定不通过必须填写问题描述");
@@ -84,10 +121,10 @@ function register(router) {
       if(!demand.contractCount)throw conflict("没有已签署的会务合同","CONTRACT_NOT_SIGNED");
       if(!demand.agreements.length || !demand.agenda.length || !demand.invoices.length)
         throw conflict("需上传终版议程、终版会务协议及会务发票原件","SOP_MATERIAL_MISSING");
-      invoiceAmount=Number(ctx.body?.invoiceAmount);
-      if(ctx.body?.invoiceAmount===""||ctx.body?.invoiceAmount==null||!Number.isFinite(invoiceAmount)||
+      invoiceAmount=isAuto?ocrReport.invoiceAmount:Number(ctx.body?.invoiceAmount);
+      if((!isAuto&&(ctx.body?.invoiceAmount===""||ctx.body?.invoiceAmount==null))||invoiceAmount==null||!Number.isFinite(invoiceAmount)||
          invoiceAmount<0||Number(invoiceAmount.toFixed(2))!==invoiceAmount)
-        throw bad("请输入会务发票总金额（精确到分）");
+        throw bad(isAuto?"OCR未能从会务发票唯一可靠识别金额，请补充清晰的发票PDF/图片后重新扫描":"请输入会务发票总金额（精确到分）");
       if(cents(demand.budgetTotal)!==cents(demand.contractTotal)||cents(invoiceAmount)!==cents(demand.budgetTotal))
         throw conflict("会务需求总预算、会务合同总金额、会务发票金额三方必须一致","MEETING_THREE_WAY_MISMATCH");
     }
@@ -99,8 +136,13 @@ function register(router) {
     const pending = db.prepare("SELECT COUNT(*) AS n FROM exceptions WHERE pid=? AND step_no=? AND status='待审批'").get(p.id,no).n;
     if (!isDemoMode() && result==="通过" && pending)
       throw conflict("此步骤存在未处理例外单，请先完成例外处理，再返回原步骤复核", "EXCEPTION_NOT_HANDLED");
-    const validated = !isDemoMode() && result==="通过"
-      ? validateSopEvidence(no,ctx.body?.evidence,p,db,invoiceAmount) : null;
+    // 第7项仍要求确认完整权益目录，并关联每项照片；OCR不能替代真实照片的人工审核。
+    if(isAuto && no===7 && result==="通过"){
+      const snap=currentSponsorRights(db,p.id);
+      validateRightsEvidence(db,p.id,{verifiedRights:snap.requiredRights.map(r=>r.id)});
+    }
+    const validated=isAuto ? ocrReport.evidence : (!isDemoMode() && result==="通过"
+      ? validateSopEvidence(no,ctx.body?.evidence,p,db,invoiceAmount) : null);
     const at = now();
     // 重新核验仅更新当前步骤；不清除其他步骤的判定、依据或发票核对结果。
     db.prepare(
@@ -110,7 +152,7 @@ function register(router) {
     // 第五步通过后保留 AES-GCM 加密的已核验劳务收款资料供财务选用。
     // 如未配置服务器专用密钥，不落地敏感账号，仍需手工登记。
     if(!isDemoMode() && no===5){
-      if(result!=="通过") db.prepare("DELETE FROM verified_labor_payees WHERE pid=?").run(p.id);
+      if(result!=="通过"||isAuto) db.prepare("DELETE FROM verified_labor_payees WHERE pid=?").run(p.id);
       else require("../lib/verified-payees").saveLabor(p.id,ctx.body.evidence.collectionRecords);
     }
     if (!isDemoMode() && result==="通过") {
@@ -320,10 +362,10 @@ function register(router) {
     if (paging) {
       total = countOf(db.prepare(`SELECT COUNT(*) AS c ${base}`).get(...params));
       rows = db.prepare(
-        `SELECT m.*, p.name AS pname, p.status AS pstatus, sr.category AS sponsor_right_category, sc.enterprise AS sponsor_enterprise ${base} ORDER BY m.id DESC LIMIT ? OFFSET ?`
+        `SELECT m.*, p.name AS pname, p.status AS pstatus, p.assoc AS passoc, sr.category AS sponsor_right_category, sc.enterprise AS sponsor_enterprise ${base} ORDER BY m.id DESC LIMIT ? OFFSET ?`
       ).all(...params, paging.size, paging.offset);
     } else {
-      rows = db.prepare(`SELECT m.*, p.name AS pname, p.status AS pstatus, sr.category AS sponsor_right_category, sc.enterprise AS sponsor_enterprise ${base} ORDER BY m.id DESC`).all(...params);
+      rows = db.prepare(`SELECT m.*, p.name AS pname, p.status AS pstatus, p.assoc AS passoc, sr.category AS sponsor_right_category, sc.enterprise AS sponsor_enterprise ${base} ORDER BY m.id DESC`).all(...params);
       total = rows.length;
     }
 
