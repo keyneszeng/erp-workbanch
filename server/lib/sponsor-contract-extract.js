@@ -69,4 +69,24 @@ function extractSponsorContract(text,meta={}){
   return {status:missing.length?"待人工补全":"待人工确认",fields,note,
     engine:String(meta.engine||""),truncated,mode:String(meta.mode||"")};
 }
-module.exports={extractSponsorContract,extractEnterprise,extractAmount,moneyValue};
+function extractLedgerContract(text,meta={}){
+  const sponsor=extractSponsorContract(text,meta);
+  const names=new Set();
+  for(const raw of clean(text).split("\n")){
+    const line=raw.trim();
+    const m=/^(?:签约方|合同签约方|合同乙方|乙方|承包方|服务提供方|供应商)\s*[:：]\s*(.{2,110})$/u.exec(line);
+    if(!m)continue;
+    const v=company(m[1]);
+    if(v)names.add(v);
+    else if(/^(?:签约方|合同签约方)\s*[:：]/u.test(line)){
+      const name=m[1].split(/\s{2,}|、|；|;/)[0].trim();
+      if(name.length>=2&&name.length<=80)names.add(name);
+    }
+  }
+  const vendor=names.size===1?[...names][0]:"";
+  return {status:!sponsor.fields.amount||!(vendor||sponsor.fields.enterprise)?"待人工补全":"待人工确认",
+    fields:{vendor:vendor||sponsor.fields.enterprise,enterprise:sponsor.fields.enterprise,
+      amount:sponsor.fields.amount,rightsContent:sponsor.fields.rightsContent},
+    note:sponsor.note,engine:sponsor.engine,truncated:sponsor.truncated,mode:sponsor.mode};
+}
+module.exports={extractSponsorContract,extractEnterprise,extractAmount,extractLedgerContract,moneyValue};
