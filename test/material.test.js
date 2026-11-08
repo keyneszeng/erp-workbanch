@@ -94,6 +94,20 @@ test("exec 可登记并删除材料", async () => {
 
   const del = await exec("DELETE", `/api/materials/${row.id}`);
   assert.equal(del.status, 200, "exec 删除材料应成功");
+  assert.ok(del.data.materialsStatus, "软删后服务器应重新计算有效材料总量");
+
+  const archive = await exec("GET", `/api/projects/${p.id}`);
+  assert.equal(archive.status, 200);
+  assert.ok(Array.isArray(archive.data.materials), "会议项目详情应返回归档材料列表");
+  assert.ok(!archive.data.materials.some((m) => Number(m.id) === Number(row.id)),
+    "已经删除的材料不得再出现在会议项目→归档材料接口，即使重新打开页面");
+  const materialList = await exec("GET", "/api/materials");
+  assert.equal(materialList.status, 200);
+  assert.ok(!materialList.data.rows.some((m) => Number(m.id) === Number(row.id)),
+    "材料中心也不得再展示已删除原件");
+  const repeated = await exec("DELETE", `/api/materials/${row.id}`);
+  assert.equal(repeated.status, 409, "软删历史记录必须存在，且不允许重复删除");
+  assert.equal(repeated.data.error.code, "ALREADY_DELETED");
 });
 
 test("guest 登记材料返回 403", async () => {

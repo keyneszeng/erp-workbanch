@@ -453,7 +453,7 @@ function tabMaterials(d, p) {
     <div class="chips">${ms.have.map((k) => `<span class="chip"><i>✓</i><b>${esc(k)}</b></span>`).join("")}</div>
     ${table([{ t: "类别", w: "104px" }, { t: "材料名称" }, { t: "附件", w: "84px" }, { t: "版本", w: "56px" },
       { t: "上传人", w: "76px" }, { t: "时间", w: "130px" }, { t: "操作", w: "120px" }],
-      d.materials.map((m) => ({
+      (d.materials||[]).filter(m=>!m.deleted_at).map((m) => ({
         c: [
           esc(m.kind)+(m.kind==="权益照片"?`<div class="hint">${esc(sponsorsById.get(rightById.get(Number(m.sponsor_right_id))?.sponsor_id)?.enterprise||"未关联赞助合同")} · ${esc(rightById.get(Number(m.sponsor_right_id))?.category||"未关联权益类目")}</div>`:""), esc(m.name),
           m.file_key
