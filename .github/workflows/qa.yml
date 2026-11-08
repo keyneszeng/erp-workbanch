@@ -21,6 +21,21 @@ jobs:
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
+      - name: Enforce test-version feature parity before demo or production release
+        if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+        run: |
+          set -euo pipefail
+          # The ECS test branch is the single functional source of truth.
+          # Compare business code only; release-specific docs and CI may differ.
+          git fetch --no-tags --depth=1 origin 'refs/heads/云服务器测试版本:refs/remotes/origin/erp-test-baseline'
+          if ! git diff --quiet refs/remotes/origin/erp-test-baseline HEAD -- \
+              server web miniprogram worker api package.json wrangler.jsonc; then
+            echo "::error::Demo/production business code differs from ECS test baseline"
+            git diff --name-status refs/remotes/origin/erp-test-baseline HEAD -- \
+              server web miniprogram worker api package.json wrangler.jsonc
+            exit 1
+          fi
+          echo "Demo/production business code matches ECS test baseline."
       - name: Install Node 22
         uses: actions/setup-node@v4
         with:
@@ -40,6 +55,12 @@ jobs:
           node --input-type=module --check < web/assets/js/pages/materials.js
           node --input-type=module --check < web/assets/js/pages/demand.js
           node --check server/api/projects.js
+          node --check server/lib/settlement-breakdown.js
+          node --check test/settlement-breakdown.test.js
+          node --input-type=module --check < web/assets/js/lib/settlement-breakdown.js
+          node --check server/lib/budget-fee.js
+          node --input-type=module --check < web/assets/js/pages/projects.js
+          node --input-type=module --check < web/assets/js/lib/budget-fee.js
           node --check server/api/project-notice.js
           node --check server/lib/project-notice.js
           node --check miniprogram/app.js
@@ -52,9 +73,25 @@ jobs:
           node --check miniprogram/pages/materials/index.js
           node --check miniprogram/pages/account/index.js
           node --check server/api/finance.js
+          node --check server/lib/db.js
+          node --check test/payment-duplicate.test.js
           node --input-type=module --check < web/assets/js/lib/contract-detail.js
           node --input-type=module --check < web/assets/js/pages/contracts.js
           node --check server/api/verify.js
+          node --check server/lib/verify-ocr-compare.js
+          node --check server/lib/verify-office-text.js
+          node --input-type=module --check < web/assets/js/lib/verify-ocr-judge.js
+          node --input-type=module --check < web/assets/js/pages/verify.js
+          node --check test/verify-ocr-auto.test.js
+          node --input-type=module --check < web/assets/js/lib/contract-material-replace.js
+          node --input-type=module --check < web/assets/js/pages/materials.js
+          node --input-type=module --check < web/assets/js/pages/users.js
+          node --check server/lib/meeting-sop.js
+          node --check server/lib/labor-contracts.js
+          node --input-type=module --check < web/assets/js/lib/labor-contract-preview.js
+          node --check miniprogram/pages/materials/index.js
+          node --input-type=module --check < web/assets/js/lib/sop-fields.js
+          node --input-type=module --check < web/assets/js/lib/verify-detail.js
           node --check server/api/system.js
           node --check server/api/files.js
           node --check server/lib/legacy-office.js
@@ -64,9 +101,18 @@ jobs:
           node --input-type=module --check < web/assets/js/lib/upload.js
           node --input-type=module --check < web/assets/js/lib/income-workbench.js
           node --check server/lib/ocr-engine.js
+          node --check scripts/rapidocr-preflight.cjs
+          python3 -m py_compile server/lib/rapid-ocr.py
           node --check server/api/material-workbench.js
           node --check server/lib/archive-pdf.js
           node --check server/api/archive-pdf.js
+          node --check server/api/user-access.js
+          node --check test/permission-grants.test.js
+          node --input-type=module --check < web/assets/js/pages/users.js
+          node --input-type=module --check < web/assets/js/lib/nav.js
+          node --check server/lib/material-export-pdf.js
+          node --input-type=module --check < web/assets/js/lib/archive-pdf.js
+          node --input-type=module --check < web/assets/js/lib/api.js
           node --check server/api/prep-invitations.js
           node --check server/api/prep-admin.js
           node --check server/api/project-ledger.js
@@ -80,6 +126,16 @@ jobs:
           node --check miniprogram/pages/invite/index.js
       - name: Install PDF and Word generation dependencies
         run: npm install --no-audit --no-fund
+      - name: Verify OCR-driven human verification with source freshness, no re-entry, and native Office extraction
+        run: ERP_DEMO_MODE=1 node --experimental-sqlite --test test/verify-ocr-auto.test.js
+      - name: Verify per-account grants and zero-rights default before OCR setup
+        run: ERP_DEMO_MODE=1 node --experimental-sqlite --test test/permission-grants.test.js
+      - name: Verify material selection and mandatory PDF watermarks before heavy OCR setup
+        run: ERP_DEMO_MODE=1 node --experimental-sqlite --test test/archive-pdf.test.js
+      - name: Verify settlement classifications, totals and scoped detail access
+        run: ERP_DEMO_MODE=1 node --experimental-sqlite --test test/settlement-breakdown.test.js
+      - name: Verify initiation budget tax-fee and available budget before heavy OCR setup
+        run: ERP_DEMO_MODE=1 node --experimental-sqlite --test test/project-tax-fee.test.js
       - name: Verify Word initiation notice workflow before heavy OCR setup
         run: ERP_DEMO_MODE=1 node --experimental-sqlite --test test/project-notice.test.js
       - name: Verify demand quantities and unit-price totals before OCR setup
@@ -92,16 +148,28 @@ jobs:
         run: ERP_DEMO_MODE=1 node --experimental-sqlite --test test/v1219.test.js
       - name: Verify final agenda confirms on upload with no manual task or speaker form
         run: ERP_DEMO_MODE=1 node --experimental-sqlite --test test/final-agenda-upload.test.js
-      - name: Install offline OCR runtime (Tesseract Chinese/English + Poppler)
+      - name: Verify first-step stamped document versus host script without sponsor field
+        run: ERP_DEMO_MODE=1 node --experimental-sqlite --test test/meeting-sop.test.js
+      - name: Verify five-source speaker reconciliation before OCR setup
+        run: ERP_DEMO_MODE=1 node --experimental-sqlite --test test/meeting-sop.test.js test/speaker-five-source.test.js test/verify-step4-course-topics.test.js
+      - name: Install Poppler for RapidOCR PDF rendering
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq tesseract-ocr tesseract-ocr-chi-sim tesseract-ocr-eng poppler-utils
+          sudo apt-get install -y -qq poppler-utils
       - name: Run complete API regression
         run: npm test
       - name: Run Cloudflare DO-SQLite compatibility regression
         run: npm run test:cf
       - name: Install headless browser test harness
         run: npm install --no-save --no-package-lock --no-audit --no-fund playwright
+      - name: "Black-box superadmin per-user access assignment editor"
+        run: ERP_DEMO_MODE=1 node test/ui/permission-grants.js
+      - name: "Black-box material selection modal, operator watermark and superadmin controls"
+        run: ERP_DEMO_MODE=1 node test/ui/material-export.js
+      - name: "Black-box settlement summary and clickable category detail"
+        run: ERP_DEMO_MODE=1 node test/ui/settlement-breakdown.js
+      - name: "Black-box initiation form tax-fee preview"
+        run: ERP_DEMO_MODE=1 node test/ui/budget-fee.js
       - name: "Black-box legacy XLS upload from material register"
         run: ERP_DEMO_MODE=1 node test/ui/xls-upload.js
       - name: "Black-box contract sign confirmation and replacement"
