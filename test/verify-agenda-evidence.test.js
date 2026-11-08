@@ -13,6 +13,7 @@ test("讲者照片按真实原文件名取姓名，移除图片后缀和常见�
  assert.equal(photoName({file_name:"张三照片.jpg",name:"手动别名"}),"张三");
  assert.equal(photoName({file_name:"李四主任.webp",name:"李四主任.webp"}),"李四");
  assert.equal(photoName({file_name:"王五_讲者照片.png",name:"王五照片"}),"王五");
+ assert.equal(photoName({file_name:"speaker.png",name:"测试讲者"}),"测试讲者","legacy generic image name uses explicit registered label");
  assert.equal(photoName({file_name:"多人合影01.jpg",name:"张三"}),"","未指明姓名的图片不能猜人名");
 });
 test("讲者姓名精确比对：漏人、增人、重复、冒名都不得自动通过",()=>{
