@@ -99,12 +99,27 @@ const NAV_MODULE = {
   materials: "materials", archive: "archive", audit: "audit", users: "system", "invitation-config": "system"
 };
 
+/**
+ * 业务模块需要用会议项目作为上下文：只读可达性不等于编辑或跨协会访问。
+ * scopeFilter、项目详情按字段/模块裁剪仍然必须执行。
+ */
+const PROJECT_CONTEXT_MODULES = ["projects","prep","demand","exec","materials","verify","finance","archive"];
+const PROJECT_CONTEXT_PERMS = ["project:create","project:approve","project:transition","project:change",
+  "project:edit","project:member","mini:apply","contract:write","contract:approve","invite:manage",
+  "demand:write","material:write","payment:create","payment:approve","payment:pay","settle:create",
+  "verify:check","verify:exception","verify:exception_approve","verify:conclude","archive:write",
+  "archive:download","ledger:read"];
+function canReadProjects(user) {
+  return PROJECT_CONTEXT_MODULES.some(m=>hasModule(user,m)) || PROJECT_CONTEXT_PERMS.some(p=>can(user,p));
+}
+
 /** 这个角色能不能打开某个页面（含审批中心的动作级条件） */
 function canVisitNav(user, nav) {
   if (!user || !ROLES[user.role]) return false;
   const need = NAV_MODULE[nav];
   if (!need) return false;
   if (nav === "dashboard" && !hasModule(user,"dashboard")) return true; // 安全待授权页
+  if (nav === "projects" && canReadProjects(user)) return true;
   if (!hasModule(user,need)) return false;
   if (nav === "project-ledger") return can(user,"ledger:read");
   if (nav === "prep-invitations") return can(user, "invite:manage");
@@ -229,4 +244,4 @@ function assertProjectVisible(user, project) {
   if (!row) throw forbidden("该项目不在你的数据范围内");
 }
 
-module.exports = { ROLES, PERMS, MODULES, STATUSES, isSuper, can, assertCan, assertModule, hasModule, scopeFilter, assertProjectVisible, canVisitNav };
+module.exports = { ROLES, PERMS, MODULES, STATUSES, isSuper, can, assertCan, assertModule, hasModule, scopeFilter, assertProjectVisible, canVisitNav, canReadProjects };

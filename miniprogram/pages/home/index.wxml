@@ -9,6 +9,7 @@
   <view class="metric-strip"><view wx:for="{{stats}}" wx:key="label" class="metric">
    <view class="metric-num">{{item.value}}</view><view class="muted">{{item.label}}</view>
   </view></view>
+  <view wx:if="{{!stats.length}}" class="muted">当前账号未获得工作台统计权限，已隐藏业务数据。</view>
  </view>
  <view class="quick-grid">
   <view wx:if="{{canApply}}" class="quick-tile quick-blue" data-page="apply" bindtap="go">
