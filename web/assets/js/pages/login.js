@@ -16,18 +16,18 @@ export function render(root, onSuccess, { demo = false } = {}) {
         <div class="sub">会规化会务执行系统 ERP</div>
         <h1>会规化会务执行系统</h1>
       </div>
-      <p>从立项审批到数字卷宗，一条链跑完会议全生命周期。<br>核销是付款的唯一前置门，6 步 SOP 不可跳过。</p>
+      <p>从立项审批到数字卷宗，一条链跑完会议全生命周期。<br>通过七项核销规则中的全部适用项后，才能申请付款。</p>
       <div class="login-points">
         <div><b>01</b><span>立项 → 审批 → 筹备 → 执行，9 状态 8 流转全程留痕</span></div>
-        <div><b>02</b><span>6 步核销 + 例外单闭环，未核销项目付款直接拦截</span></div>
-        <div><b>03</b><span>结算单生成即冻结结论，材料 8/8 才允许归档</span></div>
+        <div><b>02</b><span>七项核销（第5～7项按需）+ 例外单闭环，未核销不可付款</span></div>
+        <div><b>03</b><span>付款完成且合同金额核对一致后结算；归档须保留有效材料原件</span></div>
         <div><b>04</b><span>每个动作写审计日志，4W 可追溯、可导出</span></div>
       </div>
     </div>
     <div class="login-right">
       <div>
         <h2>登录工作台<span style="${demo ? "display:inline-block;" : "display:none;"}margin-left:8px;padding:2px 9px;border-radius:999px;background:#fdf8ec;color:#b7791f;border:1px solid #f0dfb8;font-size:11px;font-weight:600;vertical-align:middle;letter-spacing:0">演示环境 · 数据非真实</span></h2>
-        <div class="hint">${demo ? "使用演示账号登录" : "仅允许白名单手机号登录；初始密码 123456，首次必须短信验证并改密"}，权限与数据范围由角色决定${demo ? "；演示数据可由总管理员重置" : ""}</div>
+        <div class="hint">${demo ? "使用演示账号登录" : "仅允许白名单手机号登录；初始密码 123456，首次必须短信验证并改密"}，功能权限由总管理员逐账号分配；数据范围依协会与项目归属控制${demo ? "；演示数据可由总管理员重置" : ""}</div>
       </div>
       <div class="login-err" id="lerr"></div>
       <form id="lform" autocomplete="off">

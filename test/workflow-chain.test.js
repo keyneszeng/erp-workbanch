@@ -201,17 +201,17 @@ test("全链路：立项 → 筹备 → 执行 → 核销（含例外）→ 付�
   });
   assert.equal(c1.status, 200, JSON.stringify(c1.data));
 
-  // V1.2.19：材料 8 类齐备才开启核销
+  // 新规则：材料类别不再强制齐备；只需任意类别材料原件（演示环境兼容老模拟数据）。
   await fillMaterials(executor, pid);
   const rv = await executor("POST", `/api/projects/${pid}/transition`, { action: "request_verify" });
   assert.equal(rv.status, 200, rv.msg);
 
-  for (let no = 1; no <= 5; no++) {
+  for (const no of [1,2,3,4]) {
     const r = await executor("POST", `/api/projects/${pid}/verify/steps/${no}`, { result: "通过" });
     assert.equal(r.status, 200, `第 ${no} 步判定失败：${r.msg}`);
   }
-  const fail = await executor("POST", `/api/projects/${pid}/verify/steps/6`, {
-    result: "不通过", remark: "发票金额与合同差 200 元"
+  const fail = await executor("POST", `/api/projects/${pid}/verify/steps/4`, {
+    result: "不通过", remark: "课件主题不在终版议程里，需补正"
   });
   assert.equal(fail.status, 200, fail.msg);
   assert.match(fail.msg, /已生成例外单/);
@@ -219,7 +219,7 @@ test("全链路：立项 → 筹备 → 执行 → 核销（含例外）→ 付�
   // 例外单审批通过
   const vd = (await admin("GET", `/api/projects/${pid}/verify`)).data;
   const ex = vd.verification.exceptions.find((e) => e.status === "待审批");
-  assert.ok(ex, "第 6 步不通过必须生成待审批例外单");
+  assert.ok(ex, "第 4 步不通过必须生成待审批例外单");
   const dec = await finance("POST", `/api/exceptions/${ex.id}/decide`, { approve: true, comment: "差额已补票" });
   assert.equal(dec.status, 200, dec.msg);
 
@@ -253,13 +253,14 @@ test("事后勾稽：结算单 income/expense/profit 与预算、已付款一致
   assert.equal(Number(d.paidTotal), paid, "项目详情 paidTotal 应与付款一致");
 });
 
-test("事后勾稽：6 步核销全通过，8 类材料齐备", async () => {
+test("事后勾稽：所有适用的核销项通过，至少一个材料类别已登记", async () => {
   const d = (await admin("GET", `/api/projects/${pid}`)).data;
   const passed = d.verification.steps.filter((x) => ["通过", "已解例外"].includes(x.result));
-  assert.equal(passed.length, 6, `核销通过步数 ${passed.length}/6`);
+  assert.equal(passed.length, d.verification.total, `核销通过步数 ${passed.length}/${d.verification.total}`);
   assert.equal(d.verification.complete, true);
+  assert.equal(d.verification.steps.find(s=>s.no===5).result,"不适用");
   assert.equal(d.materialsStatus.ok, true, `缺材料：${d.materialsStatus.missing.join("、")}`);
-  assert.equal(d.materialsStatus.have.length, 8);
+  assert.ok(d.materialsStatus.have.length>=1,"自选材料至少一类即可满足材料条件");
 });
 
 test("核销接口自带核对原始数据（材料 / 合同 / 付款 / 已付合计）", async () => {
@@ -331,6 +332,6 @@ test("判定「不通过」自动生成的例外单必须单独留痕，且带�
 
   // 「结论」那条也要带上例外单号，两条记录能互相指认
   const concl = rows.find((l) => l.action === "结论" && /不通过/.test(l.detail || ""));
-  assert.ok(concl, "缺第 6 步「不通过」的结论审计");
+  assert.ok(concl, "缺第 4 步「不通过」的结论审计");
   assert.match(concl.detail, /已生成例外单 EX-/, `结论 detail 未带单号：${concl.detail}`);
 });
