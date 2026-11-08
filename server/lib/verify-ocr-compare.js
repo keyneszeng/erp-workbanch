@@ -135,7 +135,7 @@ function report(pid,no){
   const contracts=docs.filter(x=>contractIds.has(Number(x.materialId)));
   const names=[...new Set(labor.flatMap(x=>{
     const text=String(x.text||"");
-    const labeled=[...text.matchAll(/(?:姓名|讲者|专家)\s*[:：]?\s*([\u4e00-\u9fa5]{2,5})/g)].map(m=>m[1]);
+    const labeled=[...text.matchAll(/(?:^|\n)[ \t]*(?:姓名|讲者姓名|专家姓名|讲者|专家)[ \t]*[:：][ \t]*([\u4e00-\u9fa5]{2,5})/g)].map(m=>m[1]);
     // Native XLSX uses a tab-separated row per attendee. Only accept the
     // explicit 姓名 column: do not extract random Chinese words from a contract.
     const lines=text.split("\n"),header=lines.findIndex(row=>row.split("\t").some(cell=>cell.trim()==="姓名"));
