@@ -196,9 +196,7 @@ test("production: association member IDs, approved contract signing and pay-afte
     3:{signedAttendance:true},
     4:{agendaTopics:["课题甲","课题乙"],courseTopics:["课题甲"]},
     5:{collectionRecords:[record]},
-    6:{agendaTitle:base.name,agendaTime:base.date,agendaFormat:base.form,
-      agreementTitle:base.name,agreementTime:base.date,agreementFormat:base.form,
-      agreementPartyA:base.assoc,agreementFinal:true}
+    6:{demandReviewed:true,meetingContractReviewed:true,meetingInvoiceReviewed:true}
   };
   // 真实例外单闭环：审批并不等于核销，必须登记整改和关联材料后再回原步骤。
   let failed=await request("POST","/api/projects/"+pid+"/verify/steps/1",
