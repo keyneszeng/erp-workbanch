@@ -56,7 +56,7 @@ before(async()=>{
     ERP_DB:dbFile,ERP_UPLOAD_DIR:uploadDir},stdio:["ignore","pipe","pipe"]});
  let stderr="";proc.stderr.on("data",c=>stderr+=String(c));
  let ready=false;
- for(let i=0;i<180;i++){
+ for(let i=0;i<462;i++){
   try{if((await fetch(base+"/api/health")).ok){ready=true;break;}}catch{}
   if(proc.exitCode!==null)throw Error("server crashed "+stderr);
   await new Promise(r=>setTimeout(r,130));

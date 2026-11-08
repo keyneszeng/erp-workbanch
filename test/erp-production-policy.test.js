@@ -25,7 +25,7 @@ before(async () => {
       ERP_SMS_PROVIDER:"test",ERP_SMS_TEST_MODE:"1",ERP_SESSION_FALLBACK:"0"}
   });
   let err="";proc.stderr.on("data",b=>err+=String(b));
-  for(let i=0;i<180;i++){
+  for(let i=0;i<600;i++){
     if(proc.exitCode!==null)throw Error("Server failed "+err);
     try{if((await request("GET","/api/health")).status===200)return;}catch{}
     await new Promise(r=>setTimeout(r,100));

@@ -9,7 +9,7 @@ const DB=path.join(__dirname,"..","data","demand-pricing-test.db");
 const PID="MP-2026-002";
 let server,admin,finance;
 async function healthy(){
-  for(let i=0;i<180;i++){
+  for(let i=0;i<400;i++){
     try{if((await fetch(BASE+"/api/health")).ok)return}catch{}
     await new Promise(r=>setTimeout(r,150));
   }

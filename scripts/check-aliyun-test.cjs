@@ -68,20 +68,31 @@ function check(env = process.env) {
   if (mailKey && mailKey.length < 32)
     fail("ERP_MAIL_CONFIG_KEY 至少 32 个随机字符，否则无法加密保存发件密钥");
 
-  // OCR 开启时必须逐个校验原生依赖与语言模型，否则上传材料后才报错，排查成本高。
-  if (env.ERP_OCR_ENABLED && !["0", "1"].includes(env.ERP_OCR_ENABLED))
-    fail("ERP_OCR_ENABLED 必须为 0 或 1");
-  if (env.ERP_OCR_ENABLED === "1") {
+  // RapidOCR + Poppler 共用预检；不再依赖 Tesseract 语言包。
+  try { require("./rapidocr-preflight.cjs").checkRapidOcr(env); }
+  catch (err) { fail(err.message); }
+
+  // Office 原件在线预览依赖 LibreOffice（缺失不阻断启动：预览会退化为下载入口）。
+  {
     const { spawnSync } = require("node:child_process");
-    for (const cmd of ["tesseract", "pdfinfo", "pdftotext", "pdftoppm"]) {
-      const args = cmd === "tesseract" ? ["--list-langs"] : ["-v"];
-      const res = spawnSync(cmd, args, { encoding: "utf8", timeout: 5000, maxBuffer: 65536 });
-      if (res.error || res.status !== 0) fail("已启用 OCR 但缺少可执行依赖 " + cmd);
-      if (cmd === "tesseract") {
-        const langs = (String(res.stdout || "") + "\n" + String(res.stderr || "")).split(/\s+/);
-        if (!langs.includes("chi_sim") || !langs.includes("eng"))
-          fail("OCR 必须安装 chi_sim 和 eng 两种语言模型");
-      }
+    const lo = spawnSync("soffice", ["--version"], { encoding: "utf8", timeout: 8000, maxBuffer: 65536 });
+    if (lo.error || lo.status !== 0) {
+      console.warn("[warn] 未检测到 LibreOffice（soffice）：Office 原件将无法在线预览，只能下载");
+    } else {
+      const fonts = spawnSync("fc-list", [], { encoding: "utf8", timeout: 8000, maxBuffer: 8 * 1024 * 1024 });
+      if (!/wqy|noto.*cjk|source han/i.test(String(fonts.stdout || "")))
+        console.warn("[warn] 未检测到中文字体：Office 转 PDF 后中文可能显示为方框");
+    }
+  }
+
+  // 超大附件自动压缩依赖（PDF 用 gs，图片用 convert）。缺失不阻断启动：
+  // >20MB 的文件会被拒绝并提示用户本地压缩，不会静默丢数据。
+  {
+    const { spawnSync } = require("node:child_process");
+    for (const [cmd, label] of [["gs", "Ghostscript"], ["convert", "ImageMagick"], ["zip", "zip"], ["unzip", "unzip"]]) {
+      const res = spawnSync(cmd, ["-version"], { encoding: "utf8", timeout: 8000, maxBuffer: 65536 });
+      if (res.error || res.status !== 0)
+        console.warn(`[warn] 未检测到 ${label}（${cmd}）：超过 20 MB 的原件将无法自动压缩`);
     }
   }
 

@@ -318,7 +318,7 @@ tr.row-focus td .mono{font-weight:600}
 .ux-checkpoints strong{display:block;color:#2053a0;font-size:17px}
 .ux-checkpoints span{font-size:12px;color:var(--sub)}
 .ux-public-hint{font-size:12px;color:var(--sub)}
-.ux-finance-tabs{display:flex;gap:14px;border-bottom:1px solid var(--line);margin-top:16px}
+.ux-finance-tabs{display:flex;flex-wrap:wrap;gap:14px;border-bottom:1px solid var(--line);margin-top:16px}
 .ux-finance-tab{font-size:13px;padding:12px 14px;border-bottom:3px solid transparent;color:var(--sub)}
 .ux-finance-tab.active{color:var(--blue);font-weight:700;border-color:var(--blue)}
 .ux-finance-rule{padding:11px 13px;background:#eff6ff;border:1px solid #d6e5fb;border-radius:8px;font-size:12px;color:#365d8d;margin:12px 0}
