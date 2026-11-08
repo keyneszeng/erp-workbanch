@@ -187,3 +187,63 @@ test("赞助合同/到账凭证/开票逐笔登记、授权与预算差额",asyn
  const dup=await request("POST","/api/projects/"+pid+"/income/invoices",{sponsorId:c.data.id,amount:1,invoiceNo:"INV20270001",issuedDate:"2027-10-21",file_key:await upload(admin,pid)},admin);
  assert.equal(dup.status,409);
 });
+
+test("登记开票：上传真实 DOCX 发票、OCR 预览只读、自动候选字段可用于入账",async()=>{
+ const PizZip=require("pizzip");
+ const p=await request("POST","/api/projects",{
+  name:"开票OCR端到端测试",assoc:"华东医学会",form:"线下",date:"2027-11-20",
+  budget:954,people:30,owner:"陈静",agenda:"发票自动识别"
+ },exec);
+ assert.equal(p.status,200,JSON.stringify(p.data));
+ const pid=p.data.project.id;
+ const c=await request("POST","/api/projects/"+pid+"/income/contracts",{
+  enterprise:"某企业赞助单位",amount:954,file_key:await upload(exec,pid)
+ },exec);
+ assert.equal(c.status,200,JSON.stringify(c.data));
+ const approved=await request("POST","/api/projects/"+pid+"/income/contracts/"+c.data.id+"/decide",{approve:true},admin);
+ assert.equal(approved.status,200,JSON.stringify(approved.data));
+ const zip=new PizZip();
+ zip.file("[Content_Types].xml",'<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"/>');
+ zip.file("_rels/.rels",'<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"/>');
+ const lines=[
+  "电子发票（普通发票）","发票代码：044001234567",
+  "发票号码：25000000000012345678","金额：900.00","税额：54.00",
+  "价税合计（小写）￥954.00"
+ ];
+ zip.file("word/document.xml",
+  '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>'+
+  lines.map(x=>'<w:p><w:r><w:t>'+x+'</w:t></w:r></w:p>').join("")+
+  '</w:body></w:document>');
+ const raw=await fetch(base+"/api/uploads?pid="+encodeURIComponent(pid),{
+  method:"POST",
+  headers:{Cookie:admin,"Content-Type":"application/octet-stream","X-File-Name":"invoice.docx"},
+  body:zip.generate({type:"nodebuffer",compression:"DEFLATE"})
+ });
+ const uploaded=await raw.json();
+ assert.equal(raw.status,200,JSON.stringify(uploaded));
+ const url="/api/projects/"+pid+"/income/invoices/scan";
+ assert.equal((await request("POST",url,{file_key:"invalid.docx"},admin)).status,400);
+ assert.equal((await request("POST",url,{file_key:uploaded.key})).status,401);
+ const preview=await request("POST",url,{file_key:uploaded.key},admin);
+ assert.equal(preview.status,200,JSON.stringify(preview.data));
+ assert.equal(preview.data.fields.invoiceNo,"25000000000012345678");
+ assert.equal(preview.data.fields.amount,954);
+ assert.match(preview.data.note,/预填/);
+ const before=await request("GET","/api/projects/"+pid+"/income",undefined,admin);
+ assert.equal(before.data.invoices.length,0,"OCR 预览不得提前创建发票");
+ const saved=await request("POST","/api/projects/"+pid+"/income/invoices",{
+  sponsorId:c.data.id,amount:preview.data.fields.amount,
+  invoiceNo:preview.data.fields.invoiceNo,issuedDate:"2027-11-19",
+  file_key:uploaded.key,file_name:"invoice.docx"
+ },admin);
+ assert.equal(saved.status,200,JSON.stringify(saved.data));
+ assert.equal(saved.data.summary.invoiced,954);
+ const after=await request("GET","/api/projects/"+pid+"/income",undefined,admin);
+ assert.equal(after.data.invoices[0].invoice_no,"25000000000012345678");
+ assert.equal(after.data.invoices[0].amount,954);
+ const dup=await request("POST","/api/projects/"+pid+"/income/invoices",{
+  sponsorId:c.data.id,amount:1,invoiceNo:"25000000000012345678",
+  issuedDate:"2027-11-19",file_key:uploaded.key
+ },admin);
+ assert.equal(dup.status,409,"重复发票号码仍应被拦截");
+});

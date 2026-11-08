@@ -138,6 +138,8 @@ jobs:
         run: ERP_DEMO_MODE=1 node --experimental-sqlite --test test/meeting-sop.test.js
       - name: Verify five-source speaker reconciliation before OCR setup
         run: ERP_DEMO_MODE=1 node --experimental-sqlite --test test/meeting-sop.test.js test/speaker-five-source.test.js test/verify-step4-course-topics.test.js
+      - name: Verify Chinese invoice OCR field extraction including VAT totals
+        run: node --experimental-sqlite --test test/invoice-extract.test.js
       - name: Install Poppler for RapidOCR PDF rendering
         run: |
           sudo apt-get update -qq
@@ -160,6 +162,8 @@ jobs:
         run: ERP_DEMO_MODE=1 node test/ui/xls-upload.js
       - name: "Black-box contract sign confirmation and replacement"
         run: ERP_DEMO_MODE=1 node test/ui/contract-detail.js
+      - name: "Black-box invoice OCR: real upload fills invoice number and tax-inclusive amount"
+        run: ERP_DEMO_MODE=1 node test/ui/invoice-ocr.js
       - name: "Black-box contract OCR: real DOCX upload auto-fills party, amount and sponsor rights"
         run: ERP_DEMO_MODE=1 node test/ui/contract-ocr.js
       - name: "Black-box demand UI: quantity times unit price and archiving"
