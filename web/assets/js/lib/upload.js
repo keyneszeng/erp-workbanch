@@ -7,7 +7,7 @@
  *   浏览器 canvas 做同样的事几乎零成本，还能把上传时间从 12 秒降到 3 秒。
  */
 
-export const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
+export const MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
 
 export function formatBytes(n) {
   const v = Number(n) || 0;
@@ -62,7 +62,7 @@ export async function compressImage(file, { maxEdge = 2000, quality = 0.85, skip
 const ACCEPTED_EXTS = ["jpg","jpeg","png","webp","gif","pdf","doc","docx","ppt","pptx","xls","xlsx","csv","txt"];
 export const UPLOAD_ACCEPT = ACCEPTED_EXTS.map(ext=>"."+ext).join(",")+",application/pdf,image/jpeg,image/png,image/webp,image/gif";
 export const UPLOAD_FORMATS = "JPG / PNG / WebP / GIF / PDF / DOC / DOCX / PPT / PPTX / XLS / XLSX / CSV / TXT";
-export const UPLOAD_TIP = "支持图片、PDF、Word、PowerPoint、Excel（包括老版 XLS）及 CSV/TXT，单个不超过 20 MB。旧版 Office 文件只提供安全下载，不执行宏。";
+export const UPLOAD_TIP = "支持图片、PDF、Word、PowerPoint、Excel（包括老版 XLS）及 CSV/TXT，单个不超过 50 MB。旧版 Office 文件只提供安全下载，不执行宏。";
 
 export function checkFile(file) {
   const ext=String(file?.name||"").split(".").pop().toLowerCase();
