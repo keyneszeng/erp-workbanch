@@ -36,8 +36,8 @@ test("终版议程、签到表、讲者照片一致且附件真实时通过",()=
 test("适用讲者名单任一漏名、重名、串名或未确认不得通过",()=>{
   const {db}=build();
   for(const k of ["agendaSpeakers","attendanceSpeakers","photoSpeakers"]){
-    assert.throws(()=>validateSopEvidence(2,{...base,[k]:["李老师"]},project,db),/不一致/);
-    assert.throws(()=>validateSopEvidence(2,{...base,[k]:["李老师","李老师"]},project,db),/不一致/);
+    assert.throws(()=>validateSopEvidence(2,{...base,[k]:["李老师"]},project,db),/不一致|重复姓名/);
+    assert.throws(()=>validateSopEvidence(2,{...base,[k]:["李老师","李老师"]},project,db),/不一致|重复姓名/);
   }
   assert.throws(()=>validateSopEvidence(2,{...base,noOmissions:false},project,db),/人工确认/);
   db.close();
@@ -55,7 +55,7 @@ test("缺失必需原件、或只登记文件名却没有附件，不能通过",
   assert.throws(()=>validateSopEvidence(2,base,project,db),/缺少已上传的 签到表/);
   db.close();
 });
-test("劳务表缺失或其讲者信息不同，不影响第2项的三份材料核验",()=>{
+test("劳务表缺失或其中姓名不一致，不影响第2项三份材料核验",()=>{
   const {db}=build();
   db.prepare("DELETE FROM materials WHERE kind='劳务收集表'").run();
   const r=validateSopEvidence(2,{...base,collectionSpeakers:["另一个人"]},project,db);

@@ -54,7 +54,7 @@ test("上传任意一种权益照片附件即可进入下一阶段，原先其�
   assert.deepEqual(st.missing,[]);
   assert.ok(st.have.includes("权益照片"));
   assert.equal(GUARDS.request_verify(project),null);
-  assert.match(GUARDS.verify_pass(project),/项必核步骤未判定/,"无劳务表时必须完成其余五项核销");
+  assert.match(GUARDS.verify_pass(project),/项必核步骤未判定/,"无劳务表和会务需求时仅四项必核");
   assert.match(GUARDS.archive(project),/结算单未生成/,"仍必须完成结算");
 });
 
@@ -76,33 +76,36 @@ test("第5项随劳务表真实附件出现和移除，换表后旧证据失效"
   const {verification}=require("../server/lib/workflow");
   const {laborSheetInfo}=require("../server/lib/labor-sop");
   const {contractPool}=require("../server/lib/labor-contracts");
-  assert.equal(verification(pid).total,5);
+  assert.equal(verification(pid).total,4);
+  assert.equal(verification(pid).steps[5].result,"不适用");
   assert.equal(verification(pid).steps[4].result,"不适用");
   db.prepare("INSERT INTO materials(pid,kind,name,created_at) VALUES (?,?,?,?)")
     .run(pid,"劳务表","未上传仅登记","2026-11-06");
-  assert.equal(verification(pid).total,5);
+  assert.equal(verification(pid).total,4);
   db.prepare("INSERT INTO materials(pid,kind,name,file_key,created_at) VALUES (?,?,?,?,?)")
     .run(pid,"劳务表","新劳务表","labor-proof-v1.pdf","2026-11-06");
-  assert.equal(verification(pid).total,6);
+  assert.equal(verification(pid).total,5);
   assert.equal(verification(pid).steps[4].result,"待判定");
   db.prepare("INSERT INTO materials(pid,kind,name,file_name,file_key,created_at) VALUES (?,?,?,?,?,?)")
-    .run(pid,"合同","李老师","李老师.pdf","test-person-contract-v1.pdf","2026-11-06");
+    .run(pid,"合同","甲","甲合同.pdf","contract-proof-v1.pdf","2026-11-06");
   db.prepare("INSERT INTO verify_steps(pid,step_no,name,result,evidence_json) VALUES (?,?,?,?,?)")
-    .run(pid,5,"劳务表五字段核验","通过",JSON.stringify({laborSourceSignature:laborSheetInfo(db,pid).signature,
-      contractPoolSignature:contractPool(db,pid).signature}));
+    .run(pid,5,"劳务表五字段核验","通过",JSON.stringify({
+      laborSourceSignature:laborSheetInfo(db,pid).signature,
+      contractPoolSignature:contractPool(db,pid).signature
+    }));
   assert.equal(verification(pid).steps[4].result,"通过");
-  db.prepare("UPDATE materials SET file_name=? WHERE pid=? AND kind='合同'")
-    .run("李老师合同-新版.pdf",pid);
-  assert.equal(verification(pid).steps[4].result,"待判定","按姓名关联的合同文件变更后旧结论失效");
-  db.prepare("UPDATE materials SET file_name=? WHERE pid=? AND kind='合同'")
-    .run("李老师.pdf",pid);
-  assert.equal(verification(pid).steps[4].result,"通过","恢复原文件名称后关联凭证重新有效");
+  db.prepare("UPDATE materials SET file_key=? WHERE pid=? AND kind='合同'")
+    .run("contract-proof-v2.pdf",pid);
+  assert.equal(verification(pid).steps[4].result,"待判定","替换个人合同应使历史核销失效");
+  db.prepare("UPDATE materials SET file_key=? WHERE pid=? AND kind='合同'")
+    .run("contract-proof-v1.pdf",pid);
+  assert.equal(verification(pid).steps[4].result,"通过");
   db.prepare("INSERT INTO materials(pid,kind,name,file_key,created_at) VALUES (?,?,?,?,?)")
     .run(pid,"劳务表","替换的新劳务表","labor-proof-v2.pdf","2026-11-06");
   assert.equal(verification(pid).steps[4].result,"待判定","换表后旧通过结果必须失效");
   db.prepare("UPDATE materials SET deleted_at=? WHERE pid=? AND kind='劳务表' AND file_key IS NOT NULL")
     .run("2026-11-06",pid);
-  assert.equal(verification(pid).total,5);
+  assert.equal(verification(pid).total,4);
   assert.equal(verification(pid).steps[4].result,"不适用");
 });
 test("自定义材料分类没有数量上限，仍保留归档后冻结及财务审批等独立门禁",()=>{

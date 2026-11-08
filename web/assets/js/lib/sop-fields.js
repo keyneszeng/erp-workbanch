@@ -6,7 +6,23 @@ const ck=(name,label)=>`<label style="display:block;margin-top:9px"><input type=
 const names=v=>String(v||"").split(/[\n,，、;；]+/).map(x=>x.trim()).filter(Boolean);
 const labor=v=>String(v||"").split(/\n+/).map(line=>line.split("|").map(x=>x.trim()))
   .filter(x=>x.some(Boolean)).map(([name,time,role,amount,bankAccount,bankName])=>({name,time,role,amount,bankAccount,bankName}));
-export function sopEvidenceForm(no,p){
+function rightsChecklist(data){
+  const rights=data?.requiredRights||[];
+  if(!rights.length)return '<div class="gate">没有可核对的已签署赞助合同权益。若存在已签赞助合同，请到「会议收入」先审核权益类目。</div>';
+  return '<div class="hint">权益照片必须按赞助合同权益二级类目上传。请逐一打开照片，对照合同原件，只有实际内容相符才勾选通过；OCR 不自动判定照片合规。</div>'+
+    rights.map(r=>{
+      const c=(data.contracts||[]).find(x=>x.id===r.sponsor_id);
+      const photos=(data.photos||[]).filter(x=>Number(x.sponsor_right_id)===Number(r.id)&&x.file_key);
+      return '<div class="fld" style="margin-top:10px;padding:10px;border:1px solid var(--line);border-radius:8px">'+
+        '<div><b>'+esc(c?.enterprise||r.sponsor_id)+'</b> · '+esc(r.category)+
+        ' · '+(r.confirmed?'已确认权益':'权益尚未人工确认')+' · '+photos.length+' 张照片</div>'+
+        photos.map(m=>'<a class="link" href="/api/uploads/'+encodeURIComponent(m.file_key)+'" target="_blank" rel="noopener">'+esc(m.file_name||m.name)+' · 打开照片</a>').join(' · ')+
+        (!photos.length?'<div class="hint">尚未上传对应权益照片</div>':'')+
+        '<label style="display:block;margin-top:10px"><input type="checkbox" name="rightReviewed" value="'+r.id+'"> 已按合同权益逐项人工审查，确认照片内容一致</label></div>';
+    }).join('');
+}
+
+export function sopEvidenceForm(no,p,rightsData=null){
   const head=`<div class="gate" style="margin-bottom:9px">以下信息来自人工核验/结构化录入，系统只做字段比较；不具备自动 OCR。原件请先在材料中心上传。</div>`;
   const s={
     1:`<div class="fld"><label>盖章函件原件</label><select name="documentKind"><option value="会议通知">盖章会议通知</option><option value="招商函">盖章招商函</option></select></div>`
@@ -29,10 +45,17 @@ export function sopEvidenceForm(no,p){
        +area("courseTopics","已上传课件的主题（逗号或换行）","主题甲")
        +`<div class="hint">只核对两点：材料库已有课件原件；所填每个课件主题都能在已确认的终版议程中找到。终版议程可以包含其他未上传课件的主题。无需核对串场、Logo 或赞助商展示页面。请从原件人工摘录主题。</div>`,
     5:area("collectionRecords","劳务表（每行：姓名|时间|角色|金额|银行账号|开户行（可选））","张老师|2026-11-01|讲者|1000|6222...")
-       +`<div class="hint">有劳务表时，第5项逐人到本项目材料库搜索以本人姓名命名的「合同」附件（如：张老师.pdf、张老师合同.pdf）。缺少或多份同名合同均不得通过；不读取合同台账总合同。文件名匹配不等于自动识别合同正文。</div>`
-       +`<div data-labor-contract-preview class="dsec"><div class="hint">输入劳务表姓名后显示合同关联预览。</div></div>`,
-    6:input("meetingName","拟结算单会议名称",p.name)+input("meetingDate","拟结算单会议日期",p.date)
-       +input("draftAmount","拟请款总金额（元，须等于所有已签合同总额；专家费可免发票）")
+       +`<div class="hint">仅上传劳务表原件后需要判定。每个人员须在本项目材料库“合同”类有一份完整姓名对应的个人合同附件；不能使用合同台账总合同代替。银行账号不写入核销证据。</div><div data-labor-contract-preview></div>`,
+    6: `<div class="hint">第6项仅有实际标记「需要」的会务需求时核销。请分别从材料库「终版议程」与终版「会务协议」原件录入下列字段，并核对实际会务需求预算、已签署会务合同及发票三方金额一致。系统当前不自动 OCR 提取字段。</div>`
+       +input("agendaTitle","终版议程 · 会议主题",p.name)
+       +input("agendaTime","终版议程 · 会议时间",p.date)
+       +input("agendaFormat","终版议程 · 会议形式（线下/线上/混合）",p.form)
+       +input("agreementTitle","会务协议 · 会议主题")
+       +input("agreementTime","会务协议 · 会议时间")
+       +input("agreementFormat","会务协议 · 会议形式（线下/线上/混合）")
+       +input("agreementPartyA","会务协议 · 甲方（须等于协会主体）",p.assoc)
+       +ck("agreementFinal","已核验当前会务协议为终版，且字段来自所上传的协议原件"),
+    7:rightsChecklist(rightsData)
   };
   return head+(s[no]||"");
 }
@@ -52,7 +75,11 @@ export function collectSopEvidence(no,m){
       hostTitleMatches:checked("hostTitleMatches"),hostNameLogoMatches:checked("hostNameLogoMatches"),
       sponsorLogoPages:["首页","尾页","鸣谢页"].filter(x=>checked("logo"+x))};
     case 5:return {collectionRecords:labor(get("collectionRecords"))};
-    case 6:return {draftAmount:Number(get("draftAmount")),meetingName:get("meetingName"),meetingDate:get("meetingDate")};
+    case 6:return {agendaTitle:get("agendaTitle"),agendaTime:get("agendaTime"),agendaFormat:get("agendaFormat"),
+      agreementTitle:get("agreementTitle"),agreementTime:get("agreementTime"),
+      agreementFormat:get("agreementFormat"),agreementPartyA:get("agreementPartyA"),
+      agreementFinal:checked("agreementFinal")};
+    case 7:return {verifiedRights:[...m.querySelectorAll('input[name="rightReviewed"]:checked')].map(x=>Number(x.value))};
     default:return {};
   }
 }

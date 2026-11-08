@@ -3,7 +3,7 @@ const {test}=require("node:test");
 const assert=require("node:assert/strict");
 const {validateSopEvidence,sameNames}=require("../server/lib/meeting-sop");
 const project={id:"MP-TEST",name:"会议甲",date:"2026-11-01",assoc:"学会甲",form:"混合"};
-const db={prepare(sql){return {get(pid,kind){return {n:1,total:1000};},all(){return [{id:1,name:"甲",file_name:"甲.pdf",file_key:"fake-1.pdf"},{id:2,name:"乙",file_name:"乙.pdf",file_key:"fake-2.pdf"}];}};}};
+const db={prepare(sql){return {get(pid,kind){return {n:1,total:1000};},all(){return [{id:1,name:"甲",file_name:"甲.pdf",file_key:"mock-a.pdf"},{id:2,name:"乙",file_name:"乙.pdf",file_key:"mock-b.pdf"}];}};}};
 function expectBlock(no,evidence,p=project,amount=1000){
   assert.throws(()=>validateSopEvidence(no,evidence,p,db,amount));
 }
@@ -151,7 +151,6 @@ test("第5项按劳务表五字段核验，无单独协议，且不保留任何�
  assert.equal(result.matchedLaborRecords,1);
  assert.ok(result.laborSourceSignature);
  assert.equal(result.matchedContracts,1);
- assert.equal(result.matchedContractMaterialIds[0],1);
  assert.ok(result.contractPoolSignature);
  assert.doesNotMatch(JSON.stringify(result),/IN_MEMORY_ONLY|甲/);
  expectBlock(5,{collectionRecords:[{...a,role:""}]});
@@ -159,9 +158,8 @@ test("第5项按劳务表五字段核验，无单独协议，且不保留任何�
  const noLabor={prepare(){return {all(){return [];}};}};
  assert.throws(()=>validateSopEvidence(5,e,project,noLabor),x=>x.code==="SOP_NOT_APPLICABLE");
 });
-test("正式结算单不能提前生成；核销只校验拟结算金额与会议基线",()=>{
- const e={draftAmount:1000,meetingName:project.name,meetingDate:project.date};
- assert.equal(validateSopEvidence(6,e,project,db,1000).meetingMatched,true);
- expectBlock(6,{...e,draftAmount:999},project,1000);
- expectBlock(6,{...e,meetingName:"其他会议"},project,1000);
+test("无实际会务需求，第6项不适用；不再以拟结算单金额替代会务需求预算",()=>{
+ assert.throws(()=>validateSopEvidence(6,{draftAmount:1000},project,{
+   prepare(){return {all(){return [];},get(){return null;}};}
+ },1000),err=>err.code==="SOP_NOT_APPLICABLE");
 });
