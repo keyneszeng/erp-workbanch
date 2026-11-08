@@ -59,7 +59,7 @@ export async function render(root) {
   <div class="ux-kpi-grid" aria-label="我的工作台核心业务指标">
     <div class="ux-metric"><span>在管会议</span><strong>${total}</strong><small>场</small></div>
     <div class="ux-metric ux-metric-warn"><span>待核销</span><strong>${d.counts["待核销"] || 0}</strong><small>个</small></div>
-    ${state.user.role === "user" ? "" : `
+    ${d.budget == null || d.paid == null ? "" : `
     <div class="ux-metric"><span>预算总额</span><strong>¥${money(d.budget)}</strong></div>
     <div class="ux-metric ux-metric-done"><span>已付款</span><strong>¥${money(d.paid)}</strong></div>`}
   </div>
@@ -70,7 +70,7 @@ export async function render(root) {
     ${reachable("verify") ? '<button class="btn btn-o btn-sm" data-go="verify">会后核销</button>' : ""}
     ${reachable("finance") ? '<button class="btn btn-o btn-sm" data-go="finance">会议收入／付款结算</button>' : ""}
   </div>
-  ${state.user.role === "user" ? "" : '<div class="ux-finance-rule mt">业务门禁：七项核销规则（第5～7项按需启用）全部适用项通过后，先申请、审批并登记付款，再进行结算；系统不直接向银行转账。</div>'}
+  ${d.budget == null ? "" : '<div class="ux-finance-rule mt">业务门禁：七项核销规则（第5～7项按需启用）全部适用项通过后，先申请、审批并登记付款，再进行结算；系统不直接向银行转账。</div>'}
 
   ${d.alerts.length ? `<div class="panel mt"><div class="panel-h"><h2>异常预警</h2>
       <div><span class="hint">${d.alerts.length} 条需要处理</span></div></div>
@@ -100,7 +100,7 @@ export async function render(root) {
     [{ t: "会期", w: "120px" }, { t: "会议" }, { t: "状态", w: "96px" }],
     d.upcoming.map((p) => ({
       c: [`<span class="mono">${esc(p.date)}</span>`,
-        `<a class="link" data-go="projects/${p.id}">${esc(p.name)}</a>
+        `${reachable("projects") ? `<a class="link" data-go="projects/${p.id}">${esc(p.name)}</a>` : esc(p.name)}
          <div style="font-size:11.5px;color:var(--mute)">${esc(p.assoc)} · ${esc(p.owner || "")}</div>`,
         badge(p.status)]
     })), { empty: "近期没有排期会议" }))}</div>
