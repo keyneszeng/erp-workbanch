@@ -6,9 +6,10 @@ const ocr=require("./ocr-engine"),{laborSheetInfo}=require("./labor-sop");
 const {contractPool,linkLaborContracts}=require("./labor-contracts"),{demandSopState}=require("./meeting-demand-sop");
 const {sponsorRights}=require("./sponsor-rights");
 const office=require("./verify-office-text");
+const agendaEvidence=require("./verify-agenda-evidence");
 const OCR_TYPES=new Set(["jpg","png","pdf"]),MAX_FILES=32;
 const KINDS={
- 1:["会议通知","招商函","串场"],2:["终版议程","签到表","讲者照片"],
+ 1:["会议通知","招商函","串场"],2:["终版议程","讲者照片"],
  3:["签到表","在线记录","直播数据","在线时长","会议截图"],
  4:["终版议程","课件"],5:["劳务表","劳务登记表","劳务收集表"],
  6:[],
@@ -39,7 +40,7 @@ function materials(pid,no){
     (["合同","赞助合同"].includes(m.kind)&&keys.has(m.file_key))).slice(0,MAX_FILES);
  }
  return docs.filter(m=>((KINDS[no]||[]).includes(m.kind)||(expertIds?.has(Number(m.id))))
-  &&!(m.kind==="终版议程"&&m.version==="历史版")).slice(0,MAX_FILES);
+  &&!(m.kind==="终版议程"&&((no===2||no===4)?m.version!=="终版":m.version==="历史版"))).slice(0,MAX_FILES);
 }
 function cache(m,pid){
  const row=db.prepare("SELECT recognized_text,engine,mode,pages,total_pages,truncated FROM material_ocr_results WHERE material_id=? AND pid=? AND file_key=?").get(m.id,pid,m.file_key);
@@ -117,12 +118,25 @@ function report(pid,no){
   }
   add("原件盖章真实性",null,"OCR无法验证实体印章或签章法律效力，需人工查看");
  }else if(no===2){
-  const people=[...new Set(ocr.parseAgenda(agenda).map(x=>x.speaker))],att=txt("签到表"),photos=by("讲者照片");
-  add("议程讲者",people.length?true:null,"识别到"+people.length+"名讲者",ids(agendaDocs));
-  add("签到表讲者信息",people.length&&att?people.every(n=>contains(att,n)):null,
-    "签到表中匹配"+people.filter(n=>contains(att,n)).length+"/"+people.length+"名讲者",ids(by("签到表")));
-  add("讲者照片",people.length&&photos.length?people.every(n=>photos.some(x=>contains(x.name,n))):null,
-    "已上传"+photos.length+"份照片；真人身份及重复照片仍需人工核对",ids(photos));
+  // Step 2 is strictly FINAL agenda -> speaker photo original filenames.
+  // Attendance belongs to step 3 and never affects this result.
+  const people=agendaEvidence.agendaSpeakers(agenda),photos=by("讲者照片");
+  const photoNames=photos.map(x=>agendaEvidence.photoName({file_name:x.fileName,name:x.name}));
+  const matched=agendaEvidence.compareNames(people,photoNames);
+  const invalid=photoNames.filter(x=>!x).length;
+  add("终版议程讲者提取",agendaDocs.length===1&&people.length?true:null,
+    agendaDocs.length===1&&people.length?"从当前终版议程提取"+people.length+"位讲者":"尚未从唯一的当前终版议程可靠提取姓名",ids(agendaDocs));
+  const checkable=agendaDocs.length===1&&people.length&&photos.length;
+  const status=!checkable?null:invalid?false:matched.matched;
+  const problems=[];
+  if(matched.missing.length)problems.push("缺少："+matched.missing.join("、"));
+  if(matched.extra.length)problems.push("多出："+matched.extra.join("、"));
+  if(matched.duplicate.length)problems.push("重复："+matched.duplicate.join("、"));
+  if(invalid)problems.push("无法从文件名提取姓名："+invalid+"份");
+  add("讲者照片姓名与终版议程",status,
+    "终版议程"+people.length+"位、照片"+photos.length+"份；"+
+    (problems.join("；")|| (status===true?"逐人姓名完全一致":"需要核对原件及照片文件名")),
+    ids([...agendaDocs,...photos]));
  }else if(no===3){
   if(["线下","混合"].includes(p.form))
    add("线下签到表",txt("签到表")?true:null,"签到表文字识别不代表签字真实",ids(by("签到表")));
@@ -133,13 +147,19 @@ function report(pid,no){
     minutes.length?"识别时长："+minutes.join("、")+"分钟":"未提取到有效在线时长",ids(online));
   }
  }else if(no===4){
-  const topics=ocr.parseAgenda(agenda).map(x=>x.topic),courses=by("课件");
-  add("终版议程课题",topics.length?true:null,"OCR识别"+topics.length+"个主题",ids(agendaDocs));
+  const topics=agendaEvidence.agendaTopics(agenda),courses=by("课件");
+  const allowed=new Set(topics.map(agendaEvidence.topicKey));
+  add("终版议程课题",agendaDocs.length===1&&topics.length?true:null,
+    agendaDocs.length===1&&topics.length?"从当前终版议程提取"+topics.length+"个主题":"无法从唯一当前终版议程提取课题",ids(agendaDocs));
   for(const file of courses){
-   const first=file.text.split("\n").slice(0,15).join("\n");
-   const matched=topics.some(x=>contains(first,x));
-   add("课件："+String(file.name).slice(0,50),first&&topics.length?matched:null,
-    matched?"课件标题与终版议程匹配":"未找到可靠的课题匹配，需人工核对",[file.materialId]);
+   const courseTopics=agendaEvidence.courseTopics(file.text,topics);
+   const notFound=courseTopics.filter(topic=>!allowed.has(agendaEvidence.topicKey(topic)));
+   const canCompare=agendaDocs.length===1&&topics.length&&courseTopics.length&&!file.truncated;
+   add("课件："+String(file.name).slice(0,50),canCompare?notFound.length===0:null,
+    canCompare?notFound.length?"课件课题不在终版议程："+notFound.join("、").slice(0,90):
+      "已提取"+courseTopics.length+"个课件主题，均在当前终版议程中":
+      "课件主题未可靠提取，或原件未完整识别；需打开终版议程与课件核对",
+    ids([...agendaDocs,file]));
   }
   if(!courses.length)add("课件原件",null,"缺少已上传课件");
  }else if(no===5){
@@ -204,14 +224,14 @@ function report(pid,no){
    add("权益交付："+r.category,null,pictures.length+"份照片，OCR无法判断实际交付及照片真实性",pictures.map(x=>x.id));
   }
  }
- for(const file of docs.filter(x=>x.state!=="recognized"))
+ for(const file of docs.filter(x=>x.state!=="recognized"&&!(no===2&&x.kind==="讲者照片")))
   add("文件识别："+file.name,null,file.state==="unsupported"?
     "该格式无法直接OCR，请补充 PDF/JPG/PNG 原件":"文件缺失、无文字或未识别成功",[file.materialId]);
  for(const file of docs.filter(x=>x.truncated))
   add("超出扫描页数："+file.name,null,"共"+file.totalPages+"页，仅识别前"+file.pages+"页，需人工核对剩余页面",[file.materialId]);
  if(!docs.length)add("原件",null,"没有本步骤可以扫描的有效文件");
  const fingerprint={
-  docs:docs.map(x=>[x.materialId,x.fileKey,x.version,x.state,x.mode,x.text?sha(x.text):null]),
+  docs:docs.map(x=>[x.materialId,x.fileKey,x.name,x.fileName,x.version,x.state,x.mode,x.text?sha(x.text):null]),
   project:[p.name,p.assoc,p.date,p.form],
   demand:no===6?demandSopState(db,pid).signature:null,
   laborContracts:no===5?contractPool(db,pid).signature:null,
@@ -222,7 +242,7 @@ function report(pid,no){
   sources:docs.map(x=>({materialId:x.materialId,kind:x.kind,fileKey:x.fileKey,state:x.state,pages:x.pages,totalPages:x.totalPages,truncated:x.truncated})),
   checkSummary:{match:checks.filter(x=>x.status==="一致").length,mismatch:checks.filter(x=>x.status==="不一致").length,
     uncertain:checks.filter(x=>x.status==="无法确认").length},
-  ...(no===2?{matchedSources:["终版议程","签到表","讲者照片"]}:{}),
+  ...(no===2?{matchedSources:["终版议程","讲者照片"]}:{}),
   ...(no===5?{laborSourceSignature:laborSheetInfo(db,pid).signature,contractPoolSignature:contractPool(db,pid).signature}:{}),
   ...(no===6?{demandSopSignature:demandSopState(db,pid).signature}:{}),
   ...(no===7?{rightsSignature:sponsorRights(db,pid).signature}:{})
