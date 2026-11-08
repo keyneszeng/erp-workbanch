@@ -126,7 +126,7 @@ test("现代Office可直接提取原生文字，旧式XLS不冒充OCR成功",()=
   "ppt/slides/slide1.xml":"<p:sld><a:p><a:t>临床研究</a:t></a:p></p:sld>"});
  assert.match(extract(ppt,"pptx").text,/临床研究/);
  const xlsx=zip({"xl/workbook.xml":"<workbook/>","xl/sharedStrings.xml":"<sst><si><t>会务预算</t></si></sst>",
-  "xl/worksheets/sheet1.xml":"<worksheet><row><c t='inlineStr'><is><t>1000</t></is></c></row></worksheet>"});
+  "xl/worksheets/sheet1.xml":"<worksheet><row><c r='A1' t='s'><v>0</v></c><c r='B1' t='inlineStr'><is><t>1000</t></is></c></row></worksheet>"});
  assert.match(extract(xlsx,"xlsx").text,/会务预算/);
  assert.equal(extract(Buffer.from("dummy"),"xls"),null);
 });
