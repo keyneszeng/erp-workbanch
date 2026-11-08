@@ -1,6 +1,7 @@
 import { api, state } from "../lib/api.js";
 import { badge, esc, money, panel, table } from "../lib/ui.js";
 import { reachable } from "../lib/nav.js";
+import { targetForTodo, badgeForTodo } from "../lib/todo-target.js";
 
 /**
  * 我的工作台。
@@ -19,22 +20,12 @@ import { reachable } from "../lib/nav.js";
  * 这些路径，拼出来匹配不上，route() 会把人丢回工作台 —— 表现就是「点了处理没反应」。
  * 每条按「点进去就能直接动手」选目标：
  *   审批 → 审批中心，按审批单号定位到那一行
- *   核销 → 核销看板（该项目的 6 步）
+ *   核销 → 核销看板（该项目的七项规则，第5～7项按需）
  *   付款 → 财务页，只列该项目的付款，直接看到「付款」按钮
  *   结算 / 归档 / 变更落账 → 项目详情页（「生成结算单」「归档」「执行落账」按钮在那里）
  */
 function todoHref(t) {
-  let target;
-  switch (t.kind) {
-    case "审批": target = `approvals/${t.ref || t.pid}`; break;
-    case "核销": target = `verify/${t.pid}`; break;
-    case "付款": target = `finance/${t.pid}`; break;
-    case "结算":
-    case "归档":
-    case "变更落账": target = `projects/${t.pid}`; break;
-    default: target = t.go || "dashboard";
-  }
-  return safeTarget(target, t.pid);
+  return safeTarget(targetForTodo(t), t.pid);
 }
 
 /** 预警同理：例外单待审批要落到审批中心并定位到该项目 */
@@ -68,7 +59,7 @@ export async function render(root) {
   <div class="ux-kpi-grid" aria-label="我的工作台核心业务指标">
     <div class="ux-metric"><span>在管会议</span><strong>${total}</strong><small>场</small></div>
     <div class="ux-metric ux-metric-warn"><span>待核销</span><strong>${d.counts["待核销"] || 0}</strong><small>个</small></div>
-    ${state.user.role === "user" ? "" : `
+    ${d.budget == null || d.paid == null ? "" : `
     <div class="ux-metric"><span>预算总额</span><strong>¥${money(d.budget)}</strong></div>
     <div class="ux-metric ux-metric-done"><span>已付款</span><strong>¥${money(d.paid)}</strong></div>`}
   </div>
@@ -77,9 +68,9 @@ export async function render(root) {
     ${reachable("approvals") ? '<button class="btn btn-o btn-sm" data-go="approvals">审批中心</button>' : ""}
     ${reachable("materials") ? '<button class="btn btn-o btn-sm" data-go="materials">材料中心</button>' : ""}
     ${reachable("verify") ? '<button class="btn btn-o btn-sm" data-go="verify">会后核销</button>' : ""}
-    ${reachable("finance") ? '<button class="btn btn-o btn-sm" data-go="finance">付款结算</button>' : ""}
+    ${reachable("finance") ? '<button class="btn btn-o btn-sm" data-go="finance">会议收入／付款结算</button>' : ""}
   </div>
-  ${state.user.role === "user" ? "" : '<div class="ux-finance-rule mt">财务提示：核销六步通过后才可申请付款；正式结算后相关凭证冻结。</div>'}
+  ${d.budget == null ? "" : '<div class="ux-finance-rule mt">业务门禁：七项核销规则（第5～7项按需启用）全部适用项通过后，先申请、审批并登记付款，再进行结算；系统不直接向银行转账。</div>'}
 
   ${d.alerts.length ? `<div class="panel mt"><div class="panel-h"><h2>异常预警</h2>
       <div><span class="hint">${d.alerts.length} 条需要处理</span></div></div>
@@ -96,20 +87,20 @@ export async function render(root) {
   <div class="mt">${panel("我的待办", `${d.todos.length} 项`, d.todos.length ? table(
     [{ t: "类型", w: "86px" }, { t: "事项" }, { t: "项目", w: "190px" }, { t: "时限", w: "132px" }, { t: "操作", w: "76px" }],
     d.todos.map((t) => ({
-      c: [badge(t.kind === "审批" ? "待审批" : t.kind === "核销" ? "待核销" : t.kind === "结算" ? "已核销" : t.kind === "归档" ? "已结算" : "已审批"),
+      c: [badge(badgeForTodo(t)),
         `<b style="font-size:12.8px">${esc(t.title)}</b>`,
         `<span class="mono">${esc(t.pname || t.pid || "—")}</span>`,
         `<span style="font-size:12px;color:var(--sub)">${esc(t.sla || "")}</span>`,
         todoHref(t) ? `<button class="link" data-go="${todoHref(t)}">处理</button>` : `<span style="color:var(--mute)">—</span>`],
       attrs: ""
     })), { empty: "当前没有待办，保持这个状态" }) : `<div class="empty">当前没有待办</div>`,
-    `<button class="btn btn-o btn-sm" data-go="flow">看全流程</button>`)}</div>
+    reachable("flow") ? `<button class="btn btn-o btn-sm" data-go="flow">看全流程</button>` : "")}</div>
 
   <div class="mt">${panel("近期会议", "按会期排序", table(
     [{ t: "会期", w: "120px" }, { t: "会议" }, { t: "状态", w: "96px" }],
     d.upcoming.map((p) => ({
       c: [`<span class="mono">${esc(p.date)}</span>`,
-        `<a class="link" data-go="projects/${p.id}">${esc(p.name)}</a>
+        `${reachable("projects") ? `<a class="link" data-go="projects/${p.id}">${esc(p.name)}</a>` : esc(p.name)}
          <div style="font-size:11.5px;color:var(--mute)">${esc(p.assoc)} · ${esc(p.owner || "")}</div>`,
         badge(p.status)]
     })), { empty: "近期没有排期会议" }))}</div>
