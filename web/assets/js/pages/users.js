@@ -33,22 +33,22 @@ export async function render(root) {
   const manage = can("user:manage");
 
   root.innerHTML = `<div class="phead">
-      <div><h2>${state.demo ? "用户与权限" : "手机号白名单与权限"}</h2><p>${state.demo ? "角色决定模块可见性与动作权限；总管理员为超级角色，拥有全部权限与全平台数据" : "仅部署指定的总管理员可维护手机白名单；统一初始密码 123456，首次须短信改密"}</p></div>
+      <div><h2>${state.demo ? "用户与权限" : "手机号白名单与权限"}</h2><p>${state.demo ? "总管理员默认拥有全部功能权限；其他账号由总管理员按需分配模块和操作权限" : "账号无角色默认权限；总管理员自行给每个账号授权"}</p></div>
       <div class="acts">${manage ? `<button type="button" class="btn btn-p" id="newU">+ ${state.demo ? "新建账号" : "录入手机号"}</button>` : ""}</div>
     </div>
 
     <div class="panel">
       <div class="panel-h"><h2>账号列表</h2><span class="hint">${d.rows.length} 个账号</span></div>
       ${table([{ t: "姓名", w: "90px" }, { t: state.demo ? "账号" : "白名单手机号", w: "140px" }, { t: "角色", w: "130px" }, { t: "所属协会", w: "130px" },
-        { t: "部门", w: "90px" }, { t: "合同材料修改", w: "100px" }, { t: "状态", w: "70px" }, { t: "创建时间", w: "130px" }, { t: "操作", w: "110px" }],
+        { t: "部门", w: "90px" }, { t: "功能权限", w: "100px" }, { t: "状态", w: "70px" }, { t: "创建时间", w: "130px" }, { t: "操作", w: "110px" }],
         d.rows.map((u) => ({
           c: [esc(u.name), `<span class="mono">${esc(u.username)}</span>`,
             `<span class="role-tag ${u.role === "admin" ? "super" : ""}">${esc(u.role_name)}</span>`,
             esc(u.role==="admin" ? "全平台" : (u.assocs||[u.assoc]).filter(Boolean).join("、") || "—"), esc(u.dept === "会务部" ? "待重新分类" : (u.dept || "—")),
-            u.role==="admin" ? "默认拥有" : Number(u.material_file_replace) ? "已授权" : "未授权",
+            u.role==="admin" ? "全部权限" : "独立分配",
             u.active ? badge("已启用") : badge("已停用"),
             `<span class="mono">${esc(u.created_at)}</span>`,
-            manage ? `<button class="link" data-edit="${u.id}">编辑</button>` : "—"]
+            manage ? `<button class="link" data-edit="${u.id}">编辑</button>${state.super?` <button class="link" data-user-access="${u.id}">分配权限</button>`:""}` : "—"]
         })), { empty: "暂无账号" })}
     </div>
 
@@ -57,14 +57,7 @@ export async function render(root) {
        <p class="hint">仅总管理员可维护。已关联用户或项目的协会不可直接删除，以免丢失历史业务归属。</p>
        <div class="chips mt">${(state.meta.assocs||[]).map(n=>`<span class="chip"><b>${esc(n)}</b><button class="link danger" data-remove-assoc="${esc(n)}">停用</button></span>`).join("")}</div>
      </div>` : ""}
-    <div class="panel">
-      <div class="panel-h"><h2>角色权限矩阵</h2><span class="hint">★ 表示该角色可见模块</span></div>
-      <div class="tw"><table><thead><tr><th>模块</th>${roles.map((r) => `<th>${esc(r.name)}${r.super ? " ★全部" : ""}</th>`).join("")}</tr></thead>
-        <tbody>${state.meta.modules.map((m) => `<tr><td><b>${esc(m.n)}</b><div style="font-size:11.5px;color:var(--mute)">${esc(m.d)}</div></td>
-          ${roles.map((r) => `<td>${r.modules.includes(m.k) ? '<span style="color:var(--green);font-weight:700">✓</span>' : '<span style="color:var(--mute)">—</span>'}</td>`).join("")}</tr>`).join("")}
-        </tbody></table></div>
-      <div class="chips mt">${roles.map((r) => `<span class="chip"><i>${esc(r.name)}</i><b>${esc(r.scope)}</b></span>`).join("")}</div>
-    </div>
+    <div class="panel"><div class="panel-h"><h2>按账号分配权限</h2></div><p class="hint" style="padding:12px 16px">除总管理员外，所有角色默认无内置功能权限。角色只表示身份和数据范围；总管理员在用户列表点击「分配权限」，独立授权模块与具体操作。</p></div>
 
     ${state.super && state.demo ? `<div class="panel danger-zone">
       <div class="panel-h"><h2>危险操作</h2><span class="hint">仅总管理员可见 · 不可恢复</span></div>
@@ -93,6 +86,10 @@ export async function render(root) {
     try{await api.del("/api/associations/"+encodeURIComponent(name));state.meta.assocs=(await api.get("/api/associations")).rows;toast("已停用","ok");await render(root);}
     catch(e){toast(e.message,"warn");}
   }));
+  root.querySelectorAll("[data-user-access]").forEach(b=>b.onclick=()=>{
+    const target=d.rows.find(x=>String(x.id)===b.dataset.userAccess);
+    if(target)openAccessEditor(root,target);
+  });
   const nb = root.querySelector("#newU");
   if (nb) nb.onclick = () => openCreate(root, roles);
   root.querySelectorAll("[data-edit]").forEach((b) => b.onclick = () => {
@@ -105,12 +102,10 @@ function openCreate(root, roles) {
   const fields = [
     ...(state.demo ? [{ k: "username", l: "登录账号", req: 1, ph: "3~20 位字母/数字" }] : []),
     { k: "name", l: "姓名", req: 1 },
-    { k: "role", l: "角色", t: "select", req: 1, opts: roles.filter((r) => state.demo || !r.super).map((r) => ({ v: r.key, l: r.name })) },
+    { k: "role", l: "角色", t: "select", req: 1, opts: roles.filter((r) => !r.super).map((r) => ({ v: r.key, l: r.name })) },
     
     { k: "dept", l: "部门", t: "select", req: 1, opts: departmentOptions() },
     { k: "phone", l: state.demo ? "电话" : "白名单手机号（11 位）", req: !state.demo, ph: "13800138000" },
-    { k: "material_file_replace", l: "合同及材料文件修改权限（总管理员分配）", t: "select", v: "0",
-      opts:[{v:"0",l:"不授权（默认）"},{v:"1",l:"授权修改材料文件"}] },
     ...(state.demo ? [{ k: "password", l: "初始密码", req: 1, ph: "至少 8 位，含字母和数字" }] : [])
   ];
   const m = modal({ title: state.demo ? "新建账号" : "录入手机白名单", width: "600px", body: formHtml(fields)+associationPicker(),
@@ -187,26 +182,26 @@ async function openReset(root) {
 function openEdit(root, u, roles) {
   const fields = [
     { k: "name", l: "姓名", req: 1 },
-    { k: "role", l: "角色", t: "select", req: 1, opts: roles.map((r) => ({ v: r.key, l: r.name })) },
+    ...(state.super ? [{ k: "role", l: "角色", t: "select", req: 1, opts: roles.map((r) => ({ v: r.key, l: r.name })) }] : []),
     
     { k: "dept", l: "部门", t: "select", opts: departmentOptions(u.dept) },
-    { k: "phone", l: state.demo ? "电话" : "白名单手机号", req: !state.demo },
-    ...(u.role==="admin"?[]:[{ k: "material_file_replace", l: "合同及材料文件修改权限（总管理员分配）", t: "select",
-      opts:[{v:"0",l:"不授权"},{v:"1",l:"授权修改材料文件"}] }]),
+    ...(state.super ? [{ k: "phone", l: state.demo ? "电话" : "白名单手机号", req: !state.demo }] : []),
     { k: "active", l: "账号状态", t: "select", opts: [{ v: "1", l: "启用" }, { v: "0", l: "停用" }] },
-    ...(state.demo ? [{ k: "password", l: "重置密码（留空不改）", ph: "留空不改；至少 8 位，含字母和数字" }] :
-      [{ k: "resetPassword", l: "重置为初始密码 123456（要求重新短信改密）", t: "select", opts: [{ v: "0", l: "不重置" }, { v: "1", l: "重置" }] }])
+    ...(state.super ? (state.demo ? [{ k: "password", l: "重置密码（留空不改）", ph: "留空不改；至少 8 位，含字母和数字" }] :
+      [{ k: "resetPassword", l: "重置为初始密码 123456（要求重新短信改密）", t: "select", opts: [{ v: "0", l: "不重置" }, { v: "1", l: "重置" }] }]) : [])
   ];
-  const m = modal({ title: `编辑账号 · ${esc(u.name)}`, width: "600px", body: formHtml(fields, { ...u, active: String(u.active),material_file_replace:String(Number(u.material_file_replace)||0) })+associationPicker(u.assocs||[u.assoc]),
+  const m = modal({ title: `编辑账号 · ${esc(u.name)}`, width: "600px", body: formHtml(fields, { ...u, active: String(u.active) })+(state.super?associationPicker(u.assocs||[u.assoc]):""),
     footer: `<button class="btn btn-o" data-x="0">取消</button><button class="btn btn-p" data-x="1">保存</button>` });
   m.querySelector('[data-x="0"]').onclick = () => m.classList.remove("open");
   m.querySelector('[data-x="1"]').onclick = async () => {
     if (!validate(m, fields)) return;
     const v = readForm(m);
-    const body = { name: v.name, role: v.role, assocs:selectedAssocs(m), dept: v.dept, phone: v.phone, active: Number(v.active) };
-    if(u.role!=="admin")body.material_file_replace=Number(v.material_file_replace);
-    if (state.demo && v.password) body.password = v.password;
-    if (!state.demo && v.resetPassword === "1") body.resetPassword = true;
+    const body = { name: v.name, dept: v.dept, active: Number(v.active) };
+    if(state.super){
+      Object.assign(body,{role:v.role,assocs:selectedAssocs(m),phone:v.phone});
+      if (state.demo && v.password) body.password = v.password;
+      if (!state.demo && v.resetPassword === "1") body.resetPassword = true;
+    }
     try {
       const r = await api.patch(`/api/users/${u.id}`, body);
       toast(r.message, "ok");
@@ -214,4 +209,59 @@ function openEdit(root, u, roles) {
       await render(root);
     } catch (e) { toast(e.message, "warn"); }
   };
+}
+
+/** 独立的账号功能授权弹窗。角色只标识岗位身份，不代表模块和操作权限。 */
+async function openAccessEditor(root,user){
+ let d;
+ try{d=await api.get("/api/users/"+user.id+"/access");}
+ catch(err){toast(err.message,"warn");return;}
+ const mods=new Set(d.access.modules),perms=new Set(d.access.permissions);
+ const names={
+ "project:create":"创建立项","project:approve":"项目审批","project:transition":"推进项目阶段",
+ "project:change":"项目变更申请","project:edit":"编辑项目资料","mini:apply":"小程序立项申请","change:execute":"执行预算变更",
+ "project:member":"管理项目成员","contract:write":"录入及修改合同",
+ "contract:approve":"合同审批","invite:manage":"企业/嘉宾邀请",
+ "demand:write":"会务需求确认","payment:create":"付款申请",
+ "payment:approve":"付款审批","payment:pay":"财务确认付款",
+ "verify:check":"核销判定","verify:exception":"核销例外处理",
+ "verify:exception_approve":"核销例外审批","verify:conclude":"核销结论",
+ "settle:create":"生成结算单","archive:write":"项目归档",
+ "archive:download":"自选材料PDF下载","material:write":"材料上传管理",
+ "material:file:replace":"替换材料附件","audit:read":"查看审计日志",
+ "export:any":"导出数据","user:manage":"用户与账号管理",
+ "setting:write":"系统设置","ledger:read":"项目台账查看"
+ };
+ const cb=(key,label,group,checked)=>'<label class="chip" style="display:flex;align-items:center;gap:7px;margin:4px;cursor:pointer"><input type="checkbox" data-grant="'+group+'" value="'+esc(key)+'"'+(checked?" checked":"")+'><span>'+esc(label)+'</span></label>';
+ const moduleRows=d.available_modules.map(m=>cb(m.k,m.n,"module",mods.has(m.k))).join("");
+ const permissionRows=d.available_permissions.map(k=>cb(k,names[k]||k,"permission",perms.has(k))).join("");
+ const m=modal({title:"权限分配 · "+esc(user.name),width:"760px",
+  body:'<p class="hint">只修改当前账号的权限；不影响其他同角色账号。保存后此账号需重新登录。</p>'+
+  '<div class="material-export-tools" style="margin-top:14px"><b>模块访问权限</b> <button type="button" class="link" data-grant-all="module">全选</button><button type="button" class="link" data-grant-none="module">清空</button></div>'+
+  '<div class="chips" style="max-height:190px;overflow:auto">'+moduleRows+'</div>'+
+  '<div class="material-export-tools" style="margin-top:16px"><b>具体操作权限</b> <button type="button" class="link" data-grant-all="permission">全选</button><button type="button" class="link" data-grant-none="permission">清空</button></div>'+
+  '<div class="chips" style="max-height:250px;overflow:auto">'+permissionRows+'</div>'+
+  (d.immutable?'<p class="hint">总管理员拥有全部权限，不允许取消授权。</p>':""),
+  footer:'<button class="btn btn-o" data-x="0">取消</button><button class="btn btn-p" data-x="1"'+(d.immutable?" disabled":"")+'>保存授权</button>'});
+ for(const group of ["module","permission"]){
+  for(const kind of ["all","none"]){
+   m.querySelector('[data-grant-'+kind+'="'+group+'"]').onclick=()=>
+    m.querySelectorAll('[data-grant="'+group+'"]').forEach(x=>x.checked=kind==="all");
+  }
+ }
+ if(d.immutable)m.querySelectorAll('input[data-grant]').forEach(x=>x.disabled=true);
+ m.querySelector('[data-x="0"]').onclick=()=>m.classList.remove("open");
+ const submit=m.querySelector('[data-x="1"]');
+ submit.onclick=async()=>{
+  if(submit.disabled)return;
+  const selected=group=>[...m.querySelectorAll('[data-grant="'+group+'"]:checked')].map(x=>x.value);
+  submit.disabled=true;submit.textContent="正在保存…";
+  try{
+   const result=await api.patch("/api/users/"+user.id+"/access",{
+      modules:selected("module"),permissions:selected("permission")});
+   toast(result.message||"已保存授权","ok");
+   m.classList.remove("open");
+   await render(root);
+  }catch(err){toast(err.message,"warn");submit.disabled=false;submit.textContent="保存授权";}
+ };
 }

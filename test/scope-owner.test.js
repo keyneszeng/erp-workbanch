@@ -88,6 +88,12 @@ test("新建同名账号看不到同名负责人名下的项目", async () => {
   });
   assert.equal(mk.status, 200, mk.msg);
 
+  // 显式赋予该新账号「仅能查看项目列表」的模块权；没有功能操作权限。
+  // 否则新账户的零权限默认值会令列表403，无法验证同名不会偷看项目。
+  const grant=await admin("PATCH","/api/users/"+mk.data.user.id+"/access",{
+    modules:["projects"],permissions:[]
+  });
+  assert.equal(grant.status,200,grant.msg);
   const twin = client(await login("zhangwei2", "Init1234"));
   const seen = idsOf(await twin("GET", "/api/projects"));
   assert.deepEqual(seen, [], `同名账号凭姓名看到了 ${seen.join(", ")}`);
