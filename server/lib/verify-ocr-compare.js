@@ -7,7 +7,7 @@ const {contractPool,linkLaborContracts}=require("./labor-contracts"),{demandSopS
 const {sponsorRights}=require("./sponsor-rights");
 const office=require("./verify-office-text");
 const agendaEvidence=require("./verify-agenda-evidence");
-const {sumInvoiceAmounts}=require("./invoice-extract");
+const {extractInvoiceAmount}=require("./invoice-extract");
 const OCR_TYPES=new Set(["jpg","png","pdf"]),MAX_FILES=32;
 const KINDS={
  1:["会议通知","招商函","串场"],2:["终版议程","讲者照片"],
@@ -87,6 +87,11 @@ async function scan(pid,no,operator){
   }
  }
  return {...report(pid,no),processed};
+}
+// Compatibility helper: only the VAT-inclusive total is meaningful for an invoice.
+function amounts(text){
+ const value=extractInvoiceAmount(text);
+ return value===null?[]:[value];
 }
 function report(pid,no){
  const p=db.prepare("SELECT id,name,assoc,date,form FROM projects WHERE id=?").get(pid);
@@ -191,10 +196,9 @@ function report(pid,no){
   const invoiceIds=new Set(d.invoices.map(x=>Number(x.id)));
   const agreements=docs.filter(x=>contractIds.has(Number(x.materialId)));
   const invoices=docs.filter(x=>invoiceIds.has(Number(x.materialId)));
-  // Extract tax-inclusive invoice totals; never guess from unrelated amounts.
-  // Any unreadable, truncated or ambiguous invoice requires manual review.
-  invoiceAmount=invoices.length&&invoices.every(x=>x.state==="recognized"&&!x.truncated)?
-    sumInvoiceAmounts(invoices.map(x=>x.text)):null;
+  // Step 6 requires a linked invoice original, not OCR extraction of its amount.
+  // Keep invoice text recognition optional; it must not block a linked-file check.
+  invoiceAmount=null;
   add("会务需求表",d.required?d.confirmed:null,
     d.required?"已登记需求表，确认归档："+(d.confirmed?"是":"否")+"；预算"+d.budgetTotal+"元":"未建立会务需求表");
   add("已签会务合同原件",d.contractCount&&agreements.length?true:null,
@@ -202,10 +206,8 @@ function report(pid,no){
   add("会务需求表与会务合同金额一致",d.contractCount?
     Math.round(d.budgetTotal*100)===Math.round(d.contractTotal*100):null,
     "需求表"+d.budgetTotal+"元，会务合同"+d.contractTotal+"元",ids(agreements));
-  add("会务发票与合同和需求表金额一致",invoiceAmount!==null?
-    Math.round(invoiceAmount*100)===Math.round(d.budgetTotal*100)&&
-      Math.round(invoiceAmount*100)===Math.round(d.contractTotal*100):null,
-    invoiceAmount!==null?"会务发票识别合计"+invoiceAmount+"元":"会务发票价税合计无法可靠识别（请检查发票原件、OCR结果及是否有未识别页面）",ids(invoices));
+  add("已关联会务发票原件",invoices.length>0,
+    invoices.length?"已关联"+invoices.length+"份会务发票原件":"尚未关联会务发票原件",ids(invoices));
  }else if(no===7){
   const rights=sponsorRights(db,pid);
   add("赞助合同与权益来源",rights.activeContracts.length?true:null,
@@ -218,7 +220,7 @@ function report(pid,no){
    add("权益交付："+r.category,null,pictures.length+"份照片，OCR无法判断实际交付及照片真实性",pictures.map(x=>x.id));
   }
  }
- for(const file of docs.filter(x=>x.state!=="recognized"&&!(no===2&&x.kind==="讲者照片")))
+ for(const file of docs.filter(x=>x.state!=="recognized"&&!(no===2&&x.kind==="讲者照片")&&!(no===6&&demandSopState(db,pid).invoices.some(m=>Number(m.id)===Number(x.materialId)))))
   add("文件识别："+file.name,null,file.state==="unsupported"?
     "该格式无法直接OCR，请补充 PDF/JPG/PNG 原件":"文件缺失、无文字或未识别成功",[file.materialId]);
  for(const file of docs.filter(x=>x.truncated))
