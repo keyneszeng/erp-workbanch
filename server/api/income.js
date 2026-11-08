@@ -10,7 +10,7 @@ const {isDemoMode}=require("../lib/runtime");
 const {storage}=require("../lib/storage");
 const ocr=require("../lib/ocr-engine");
 const {normalizedCategories,sponsorRights}=require("../lib/sponsor-rights");
-const {extractSponsorContract}=require("../lib/sponsor-contract-extract");
+const {extractSponsorContract,extractLedgerContract}=require("../lib/sponsor-contract-extract");
 const office=require("../lib/verify-office-text");
 
 const KEY=/^[a-f0-9]{32}\.(jpg|png|webp|gif|pdf|ppt|doc|docx|xls|xlsx|pptx|csv|txt)$/;
@@ -57,7 +57,7 @@ function writable(ctx,p,perm){
   if(p.status==="已核销")throw conflict("项目已核销，收入凭证冻结，须先办理核销更正","INCOME_FROZEN");
 }
 /** 预览时只产生候选字段，不写入合同，不触发审批或权益确认。 */
-async function scanContract(fileKey){
+async function scanContract(fileKey,ledger=false){
   const ext=String(fileKey||"").split(".").pop().toLowerCase();
   const blank={enterprise:"",amount:null,rightsContent:[]};
   const manual=note=>({status:"需人工补录",fields:blank,note,engine:"",truncated:false,mode:""});
@@ -71,7 +71,7 @@ async function scanContract(fileKey){
     if(!file?.buffer)return manual("未能读取上传文件，请重新上传原件。");
     const result=native?office.extract(file.buffer,ext):await ocr.recognize(file.buffer,ext);
     if(!result?.text?.trim())return manual("原件没有可提取文字，请人工查看并填写。");
-    return extractSponsorContract(result.text,result);
+    return ledger?extractLedgerContract(result.text,result):extractSponsorContract(result.text,result);
   }catch(e){
     return manual("合同自动识别未成功（"+String(e.code||"SCAN_ERROR")+"），请人工核对并填写。");
   }
