@@ -1,6 +1,6 @@
 "use strict";
 const { db, transaction } = require("../lib/db");
-const { now, bad, notFound, conflict, yuan, toCsv } = require("../lib/util");
+const { now, bad, notFound, conflict, yuan, toCsv, HttpError } = require("../lib/util");
 const { assertCan, assertModule, assertProjectVisible, isSuper } = require("../lib/rbac");
 const { logAudit } = require("../lib/audit");
 const { listProjects } = require("./projects");
@@ -13,23 +13,63 @@ const MAX_LEN = { item: 40, spec: 200, owner: 20, due: 20, note: 120, attach: 15
 
 const money2 = (n) => Number(n || 0).toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
+// 返回准确字段信息，供前端定位错误行并标红，而不是只有笼统 toast。
+function invalidField(message, it, field, index) {
+  return new HttpError(400, "DEMAND_FIELD_INVALID", message, {
+    group: it.grp, item: String(it.item||""), field, index
+  });
+}
+function errorField(message) {
+  if (/数量/.test(message)) return "quantity";
+  if (/单价/.test(message)) return "unit_price";
+  if (/交付时间|日期|due/.test(message)) return "due";
+  if (/负责人|owner/.test(message)) return "owner";
+  if (/规格|spec/.test(message)) return "spec";
+  if (/总价|金额|budget/.test(message)) return "budget";
+  if (/是否需要/.test(message)) return "need";
+  return "item";
+}
+
 /**
  * 预算金额只收数字。
  * 「预算归属」改成「预算金额」之后，这一列要能合计、能跟核销的费用构成对照，
  * 混进「会务预算」这种文字就失去意义了。
  * 空值合法（这一项还没定价），非空必须是 ≤2 位小数的非负数。
  */
-function parseAmount(v, itemName) {
+function parseAmount(v, itemName, label = "总价") {
   const s = String(v === undefined || v === null ? "" : v).trim();
   if (!s) return "";
   if (!/^\d+(\.\d{1,2})?$/.test(s)) {
-    throw bad(`「${itemName}」的预算金额只能填数字（最多两位小数），当前填的是「${s}」`);
+    throw bad(`「${itemName}」的${label}只能填数字（最多两位小数），当前填的是「${s}」`);
   }
-  if (Number(s) > 1e9) throw bad(`「${itemName}」的预算金额过大`);
+  if (Number(s) > 1e9) throw bad(`「${itemName}」的${label}过大`);
   return s;
 }
 
+/** 单价按分、数量按万分之一进行乘法，避免浮点进位错误。 */
+function parseQuantity(v, itemName) {
+  const s = String(v === undefined || v === null ? "" : v).trim();
+  if (!s) return "";
+  if (!/^\d+(\.\d{1,4})?$/.test(s) || Number(s) > 1000000)
+    throw bad("「" + itemName + "」的数量必须是 0～1,000,000 的数字，最多四位小数");
+  return s;
+}
+function calculateBudget(quantity, unitPrice, itemName) {
+  if (!quantity || !unitPrice) return "";
+  const [q0, q1=""] = quantity.split(".");
+  const [p0, p1=""] = unitPrice.split(".");
+  const qty=BigInt(q0)*10000n+BigInt(q1.padEnd(4,"0"));
+  const unitCents=BigInt(p0)*100n+BigInt(p1.padEnd(2,"0"));
+  const totalCents=(qty*unitCents+5000n)/10000n;
+  if(totalCents>100000000000n) throw bad("「"+itemName+"」的总价不能超过 10 亿元");
+  return (Number(totalCents)/100).toFixed(2);
+}
+
 function checkItem(it) {
+  if (it.due && (!/^\d{4}-\d{2}-\d{2}$/.test(it.due) ||
+    !Number.isFinite(Date.parse(it.due)) ||
+    new Date(it.due).toISOString().slice(0,10)!==it.due))
+    throw bad(`「${it.item || ""}」的交付时间必须是有效日期`);
   if (it.need !== undefined && !DEMAND_NEED_OPTIONS.includes(it.need)) throw bad(`「${it.item || ""}」的「是否需要」取值非法`);
   if (it.status !== undefined && !["未开始", "执行中", "已交付", "已验收", "不需要"].includes(it.status)) throw bad(`「${it.item || ""}」的执行状态非法`);
   for (const [k, max] of Object.entries(MAX_LEN)) {
@@ -62,15 +102,17 @@ function loadSheet(pid) {
       groups[r.grp].push({
         item: r.item, note: r.note, need: r.need, spec: r.spec || "",
         owner: r.owner || "", owner_id: r.owner_id || "", due: r.due || "", budget: r.budget || "",
+        quantity: r.quantity || "", unit_price: r.unit_price || "",
         budget_owner: r.budget_owner || "", attach: r.attach || "", status: r.status || "未开始"
       });
     }
   } else {
-    // 按模板生成（带默认 需要）
+    // 新建或重置的需求表：所有内置条目默认「不需要」，不改变历史已存单据
     for (const g of DEMAND_GROUPS) {
       for (const t of (DEMAND_TEMPLATE[g] || [])) {
         groups[g].push({
-          item: t.item, note: t.note || "", need: "需要", spec: "", owner: "", owner_id: "", due: "", budget: "",
+          item: t.item, note: t.note || "", need: "不需要", spec: "", owner: "", owner_id: "", due: "", budget: "",
+          quantity: "", unit_price: "",
           budget_owner: "", attach: "", status: "未开始"
         });
       }
@@ -115,8 +157,8 @@ function ensureSheet(pid) {
 function replaceItems(pid, items, at) {
   db.prepare("DELETE FROM demand_items WHERE pid = ?").run(pid);
   const ins = db.prepare(
-    `INSERT OR REPLACE INTO demand_items (pid, grp, item, note, need, spec, owner, owner_id, due, budget, attach, status, ordering, updated_at,budget_owner)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+    `INSERT OR REPLACE INTO demand_items (pid, grp, item, note, need, spec, owner, owner_id, due, budget, attach, status, ordering, updated_at,budget_owner,quantity,unit_price)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
   );
   let order = 0;
   const seen = new Set();
@@ -127,8 +169,9 @@ function replaceItems(pid, items, at) {
     const key = `${it.grp}@@${item}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    ins.run(pid, it.grp, item, it.note || "", it.need || "需要", it.spec || "", it.owner || "", it.owner_id || null,
-      it.due || "", it.budget || "", it.attach || "", it.status || "未开始", order++, at, it.budget_owner || "");
+    ins.run(pid, it.grp, item, it.note || "", it.need || "不需要", it.spec || "", it.owner || "", it.owner_id || null,
+      it.due || "", it.budget || "", it.attach || "", it.status || "未开始", order++, at, it.budget_owner || "",
+      it.quantity || "", it.unit_price || "");
   }
   db.prepare("UPDATE demand_sheets SET updated_at = ? WHERE pid = ?").run(at, pid);
 }
@@ -184,6 +227,7 @@ function register(router) {
     // 列表页已经按阶段过滤，但详情页仍可直接打开（归档记录、核销对照都要看得到）
     sheet.projectStatus = p.status;
     sheet.inDemandPhase = DEMAND_STATUSES.includes(p.status);
+    sheet.requireCompletion = !isDemoMode();
     return sheet;
   });
 
@@ -211,7 +255,8 @@ function register(router) {
     // 原来靠 replaceItems 里的 seen 集合静默跳过重复项 —— 用户提交 10 条只存 9 条，
     // 接口返回 200、审计还写「更新 10 条」，账实不符。这里直接拒绝并指出是哪一条。
     const seen = new Set();
-    for (const it of b.items) {
+    for (const [index,it] of b.items.entries()) {
+      try {
       if (!DEMAND_GROUPS.includes(it.grp)) throw bad(`分组「${it.grp || ""}」非法`);
       // 名字统一 trim 后再校验、判重、入库：三处用同一份值，
       // 否则「台卡」与「台卡 」在长度校验上算两个长度，在唯一键上又算同一个
@@ -223,18 +268,59 @@ function register(router) {
         throw bad(`「${it.grp}」分组下存在重复条目「${name}」，同一分组内条目名必须唯一`, "DUPLICATE_ITEM");
       }
       seen.add(key);
+      // 仅需求表的负责人可自由填写；立项项目负责人仍按协会成员权限模型校验。
+      // 向后兼容旧客户端的 owner_id，用户输入的新姓名优先，且不额外授予任何项目权限。
+      const typedOwner = String(it.owner ?? "").trim();
       if (it.owner_id != null && String(it.owner_id).trim() !== "") {
         const member = assignedMember(it.owner_id, p.assoc);
-        it.owner_id = member.id;
-        it.owner = member.name;
-      } else if (!isDemoMode() && String(it.owner || "").trim()) {
-        throw bad("需求负责人必须从本协会有效成员选择，不可手动输入姓名");
+        if (!typedOwner || typedOwner === member.name) {
+          it.owner = member.name;
+          it.owner_id = member.id;
+        } else {
+          it.owner = typedOwner;
+          it.owner_id = null;
+        }
       } else {
-        it.owner_id = null;
-        if (!isDemoMode()) it.owner = "";
+        it.owner = typedOwner;
+        // 自由输入不自动授予系统用户身份；仅姓名未改变时保留原有成员关联。
+        const previousOwner = db.prepare(
+          "SELECT owner,owner_id FROM demand_items WHERE pid=? AND grp=? AND item=?"
+        ).get(p.id,it.grp,name);
+        it.owner_id = previousOwner && String(previousOwner.owner||"").trim()===typedOwner
+          ? (previousOwner.owner_id||null) : null;
       }
-      it.budget = parseAmount(it.budget, name);
+      // 新版客户端发送数量/单价时，只允许服务端自动计算总价。
+      // 老版接口未传数量/单价：兼容旧金额；旧单在新版编辑时仍保留原手填金额。
+      const hasPricing=Object.prototype.hasOwnProperty.call(it,"quantity") ||
+        Object.prototype.hasOwnProperty.call(it,"unit_price");
+      const prior=hasPricing ? db.prepare(
+        "SELECT quantity,unit_price,budget FROM demand_items WHERE pid=? AND grp=? AND item=?"
+      ).get(p.id,it.grp,name) : null;
+      const submittedBudget=parseAmount(it.budget,name);
+      it.quantity=parseQuantity(it.quantity,name);
+      it.unit_price=parseAmount(it.unit_price,name,"单价");
+      if(hasPricing) {
+        if(it.quantity && it.unit_price) {
+          it.budget=calculateBudget(it.quantity,it.unit_price,name);
+        } else {
+          const oldBudget=prior ? String(prior.budget||"") : "";
+          const isLegacy=prior && !prior.quantity && !prior.unit_price &&
+            !it.quantity && !it.unit_price && submittedBudget === oldBudget;
+          it.budget=isLegacy ? oldBudget : "";
+        }
+      } else {
+        it.budget=submittedBudget;
+      }
+      if ((it.quantity && !it.unit_price) || (!it.quantity && it.unit_price))
+        throw invalidField("「"+name+"」请同时填写数量和单价，系统才能自动汇算总价",it,
+          it.quantity?"unit_price":"quantity",index);
       checkItem(it);
+      } catch (err) {
+        if (err.status===400 && !err.extra) {
+          err.extra={group:it.grp,item:it.item,index,field:errorField(err.message)};
+        }
+        throw err;
+      }
     }
     const before = loadSheet(p.id);
     const at = ensureSheet(p.id);
@@ -270,22 +356,12 @@ function register(router) {
     }
     if (!isDemoMode()) {
       const rows = db.prepare("SELECT * FROM demand_items WHERE pid=? AND need='需要'").all(p.id);
-      if (!rows.length) throw bad("确认前至少一项需求应标记为需要");
+      // 全部不需要也允许确认：明确的零需求比强迫用户勾选虚假需求更可靠。
       for (const it of rows) {
-        const missing = ["spec","owner_id","due","budget"].filter(k=>!String(it[k]??"").trim());
-        if (missing.length) throw bad("需求「"+it.item+"」缺少必填字段："+missing.join("、")+"。需求单必填字段必须齐全");
-        if (it.attach && !/^(?:[a-f0-9]{32}\.(?:jpg|png|pdf|ppt|docx|pptx|xlsx|webp|gif)|不适用)$/.test(it.attach))
-          throw bad("需求「"+it.item+"」附件必须关联已登记文件标识，或明确标记不适用");
-        if (it.attach && it.attach !== "不适用") {
-          const file = db.prepare("SELECT file_key,pid,user_id FROM uploaded_files WHERE file_key=?").get(it.attach);
-          if (!file) throw bad("需求「"+it.item+"」的附件不存在，必须使用已上传文件");
-          if (file.pid && file.pid !== p.id) throw bad("需求「"+it.item+"」的附件属于其他项目");
-          const refs = db.prepare("SELECT pid FROM materials WHERE file_key=? UNION SELECT pid FROM contracts WHERE file_key=?")
-            .all(it.attach, it.attach);
-          if (refs.some(ref => ref.pid !== p.id)) throw bad("需求「"+it.item+"」的附件已被其他项目使用");
-          if (!refs.length && !file.pid && !isSuper(ctx.user) && Number(file.user_id) !== Number(ctx.user.id))
-            throw bad("需求「"+it.item+"」只能引用本人上传或同项目已登记的附件");
-        }
+        const labels={spec:"规格",owner:"负责人",due:"交付时间"};
+        const missing=["spec","owner","due"].filter(k=>!String(it[k]??"").trim());
+        if (missing.length) throw invalidField("需求「"+it.item+"」请补充"+missing.map(k=>labels[k]).join("、"),
+          it,missing[0]);
       }
     }
     db.prepare("INSERT INTO demand_revisions (pid,before_json,after_json,changed_by,changed_at,action) VALUES (?,?,?,?,?,?)")
@@ -354,15 +430,16 @@ function register(router) {
     if (!p) throw notFound("会议项目不存在");
     assertProjectVisible(ctx.user, p);
     const sheet = loadSheet(p.id);
-    const headers = ["分组", "项目", "业务提示", "是否需要", "规格数量", "负责人", "交付时间", "预算金额"];
+    const headers = ["分组", "项目", "业务提示", "是否需要", "规格", "数量", "单价", "总价", "负责人", "交付时间"];
     const rows = [];
     for (const g of DEMAND_GROUPS) {
       for (const it of (sheet.items[g] || [])) {
-        rows.push([g, it.item, it.note || "", it.need, it.spec || "", it.owner || "", it.due || "",
-          it.budget ? Number(it.budget).toFixed(2) : ""]);
+        rows.push([g, it.item, it.note || "", it.need, it.spec || "", it.quantity || "",
+          it.unit_price ? Number(it.unit_price).toFixed(2) : "",
+          it.budget ? Number(it.budget).toFixed(2) : "", it.owner || "", it.due || ""]);
       }
     }
-    rows.push(["合计", "", "", "", "", "", "预算合计", Number(sheet.budgetTotal).toFixed(2)]);
+    rows.push(["合计", "", "", "", "", "", "需要项总价合计", Number(sheet.budgetTotal).toFixed(2), "", ""]);
     const csv = toCsv(headers, rows);
     return { __csv: csv, __filename: `会务需求_${p.id}.csv` };
   });
@@ -375,7 +452,8 @@ function flattenTemplate() {
   let order = 0;
   for (const g of DEMAND_GROUPS) {
     for (const t of (DEMAND_TEMPLATE[g] || [])) {
-      out.push({ grp: g, item: t.item, note: t.note || "", need: "需要", spec: "", owner: "", due: "", budget: "", ordering: order++ });
+      out.push({ grp: g, item: t.item, note: t.note || "", need: "不需要", spec: "", owner: "", due: "", budget: "",
+        quantity: "", unit_price: "", ordering: order++ });
     }
   }
   return out;

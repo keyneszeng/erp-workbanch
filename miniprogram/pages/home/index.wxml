@@ -9,15 +9,16 @@
   <view class="metric-strip"><view wx:for="{{stats}}" wx:key="label" class="metric">
    <view class="metric-num">{{item.value}}</view><view class="muted">{{item.label}}</view>
   </view></view>
+  <view wx:if="{{!stats.length}}" class="muted">当前账号未获得工作台统计权限，已隐藏业务数据。</view>
  </view>
  <view class="quick-grid">
   <view wx:if="{{canApply}}" class="quick-tile quick-blue" data-page="apply" bindtap="go">
    <view class="quick-icon">＋</view><view class="quick-title">立项申请</view><view class="quick-sub">发起会议项目</view>
   </view>
-  <view class="quick-tile quick-green" bindtap="myApplications">
+  <view wx:if="{{canApply}}" class="quick-tile quick-green" bindtap="myApplications">
    <view class="quick-icon">◉</view><view class="quick-title">我的申请</view><view class="quick-sub">查看审批进度</view>
   </view>
-  <view class="quick-tile quick-orange" bindtap="meetingList">
+  <view wx:if="{{canMeetings}}" class="quick-tile quick-orange" bindtap="meetingList">
    <view class="quick-icon">▤</view><view class="quick-title">我的会议</view><view class="quick-sub">会议与项目详情</view>
   </view>
   <view wx:if="{{canApprove}}" class="quick-tile quick-purple" data-page="approvals" bindtap="go">
