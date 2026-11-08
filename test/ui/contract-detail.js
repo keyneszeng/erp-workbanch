@@ -196,7 +196,7 @@ async function openDetailFromLedger(page, cid) {
   check("显示所属项目", /华东医学会年会/.test(body));
   check("显示签约方", /详情弹窗测试供应商/.test(body));
   check("显示金额", /¥10,000/.test(body));
-  check("显示类别", /其他|场地餐饮|劳务专家|物料搭建|设备技术/.test(body));
+  check("显示类别", /会务需求|劳务专家|企业赞助/.test(body));
   check("显示录入人", /录入/.test(body));
 
   const iframeSrc = await exec1.page.getAttribute("#modal iframe.cdpdf", "src");
