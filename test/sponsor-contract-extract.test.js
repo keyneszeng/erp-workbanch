@@ -43,3 +43,19 @@ test("合同台账通用OCR识别签约方及金额",()=>{
  assert.equal(other.fields.vendor,"广州睿康医疗科技有限公司");
  assert.equal(other.fields.amount,12000);
 });
+
+test("OCR 合同常见排版：同一行甲乙方、跨行总额、大写金额",()=>{
+ const {extractLedgerContract}=require("../server/lib/sponsor-contract-extract");
+ const a=extractLedgerContract("会议服务合同\n甲方：广东省医学会    乙方：深圳市卓越会务服务有限公司\n合同总价：人民币88,000.00元");
+ assert.equal(a.fields.vendor,"深圳市卓越会务服务有限公司");
+ assert.equal(a.fields.amount,88000);
+ assert.doesNotMatch(a.note,/赞助企业|权益内容/);
+ const b=extractLedgerContract("企业赞助合同\n甲方（赞助方）：广州睿康医疗科技有限公司\n乙方：广东省医学会\n合同金额\n人民币15万元");
+ assert.equal(b.fields.vendor,"广州睿康医疗科技有限公司");
+ assert.equal(b.fields.enterprise,"广州睿康医疗科技有限公司");
+ assert.equal(b.fields.amount,150000);
+ assert.equal(extractAmount("合同金额（含税）：人民币壹拾伍万元整"),150000);
+ assert.equal(extractAmount("合同总价：100000元\n合同总价：200000元"),null);
+ const amb=extractLedgerContract("甲方：甲科技有限公司\n乙方：乙科技有限公司\n合同总金额：20000元");
+ assert.equal(amb.fields.vendor,"");
+});
