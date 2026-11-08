@@ -10,6 +10,7 @@ import { exStepLabel, openStepDetail } from "../lib/verify-detail.js";
 import {openOcrJudge} from "../lib/verify-ocr-judge.js";
 import { openContractMaterialReplace } from "../lib/contract-material-replace.js";
 import { flowHint, flowOf, openContractDetail } from "../lib/contract-detail.js";
+import { reachable } from "../lib/nav.js";
 import {renderSettlementBreakdown} from "../lib/settlement-breakdown.js";
 
 const ORDER = ["草稿", "待审批", "已立项", "筹备中", "执行中", "待核销", "已核销", "已结算", "已归档"];
@@ -434,7 +435,9 @@ function tabVerify(d, p) {
       c: [`<span class="mono">${e.id}</span>`, exStepLabel(e), esc(e.reason), esc(e.created_by || ""), badge(e.status), esc(e.approved_by || "—"),
         e.status === "待审批" && can("verify:exception_approve")
           ? `<div class="tacts"><button class="link" data-ex-ok="${e.id}">通过</button><button class="link danger" data-ex-no="${e.id}">驳回</button></div>`
-          : "—"]
+          : e.status === "待复核" && reachable("verify")
+            ? `<button class="link" data-go="verify/${p.id}">整改／复核</button>`
+            : "—"]
     })), { empty: "无例外单" }),
     can("verify:exception") ? '<button class="btn btn-o btn-sm" id="addEx">+ 提交例外单</button>' : "")}`;
 }
