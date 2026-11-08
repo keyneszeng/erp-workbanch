@@ -121,8 +121,28 @@ async function ready(){
     const matching=list.rows.filter(x=>x.pid===pid&&x.name===name&&x.file_name===name);
     assert.equal(matching.length,1,"retry should not duplicate successful material "+name);
   }
+  // Delete through the SAME project archive page that used to display soft-deleted
+  // rows. Confirm immediate removal, API filtering, and persistence after reload.
+  await page.goto(origin+"/#/projects/"+encodeURIComponent(pid),{waitUntil:"domcontentloaded"});
+  await page.locator('.tabs [data-tab="materials"]').click();
+  await page.locator('[data-del-mat="'+all[0].id+'"]').click();
+  await page.locator('#modal.open [data-x="1"]').click();
+  await page.waitForFunction(name=>!document.querySelector("#content")?.innerText.includes(name),names[0],{timeout:15000});
+  const detail=await (await page.request.get(origin+"/api/projects/"+encodeURIComponent(pid))).json();
+  assert.ok(!detail.materials.some(m=>Number(m.id)===Number(all[0].id)),
+    "deleted material excluded from project detail API");
+  assert.ok(detail.materials.some(m=>Number(m.id)===Number(all[1].id)),
+    "other materials remain present");
+  await page.reload({waitUntil:"domcontentloaded"});
+  await page.locator('.tabs [data-tab="materials"]').click();
+  assert.ok(!(await page.locator("#content").innerText()).includes(names[0]),
+    "deleted material must not return after project page reload");
+  assert.ok((await page.locator("#content").innerText()).includes(names[1]),
+    "non-deleted material still visible");
+  list=await (await page.request.get(origin+"/api/materials")).json();
+  assert.ok(!list.rows.some(m=>Number(m.id)===Number(all[0].id)));
   assert.deepEqual(jsErrors,[]);
-  console.log("PASS: real Chrome project material batch, 3 parallel uploads, original file names, archive listing, individual retry");
+  console.log("PASS: real Chrome batch uploads, original names, retry, and soft-deleted archive item disappears immediately and after reload");
 })().then(async()=>{
   await browser?.close();server?.kill("SIGTERM");
   fs.rmSync(dir,{recursive:true,force:true});
