@@ -78,6 +78,7 @@ function buildRouter() {
     require("../api/finance"),
     require("../api/income"),
     require("../api/system"),
+    require("../api/user-access"),
     require("../api/demand"),
     require("../api/files"),
     require("../api/material-workbench"),

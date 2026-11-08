@@ -7,6 +7,9 @@ const {assertProjectVisible,assertCan,assertModule,isSuper,can}=require("../lib/
 const {assertUploadAttachable}=require("../lib/upload-ownership");
 const {logAudit}=require("../lib/audit");
 const {isDemoMode}=require("../lib/runtime");
+const {storage}=require("../lib/storage");
+const ocr=require("../lib/ocr-engine");
+const {parseSponsorRights,normalizedCategories,sponsorRights}=require("../lib/sponsor-rights");
 
 const KEY=/^[a-f0-9]{32}\.(jpg|png|webp|gif|pdf|ppt|doc|docx|xls|xlsx|pptx|csv|txt)$/;
 function amount(v) {
@@ -51,6 +54,28 @@ function writable(ctx,p,perm){
   assertNotFrozen(p,"会议赞助收入");
   if(p.status==="已核销")throw conflict("项目已核销，收入凭证冻结，须先办理核销更正","INCOME_FROZEN");
 }
+/** OCR is a recommendation source, never a substitute for human contract review. */
+async function scanRights(fileKey){
+  const ext=String(fileKey||"").split(".").pop();
+  if(isDemoMode() || !ocr.enabled() || storage().name!=="fs")
+    return {status:"需人工补录",note:"当前环境未启用服务器本地OCR，须人工读取合同权益内容",categories:[]};
+  if(!["pdf","png","jpg"].includes(ext))
+    return {status:"需人工补录",note:"Office合同请转PDF/图片以自动识别，或人工录入权益类目",categories:[]};
+  try{
+    const file=await storage().get(fileKey);
+    if(!file?.buffer)return {status:"需人工补录",note:"上传的合同原件未找到，请人工确认",categories:[]};
+    const result=await ocr.recognize(file.buffer,ext);
+    const categories=parseSponsorRights(result.text);
+    if(!categories.length)return {status:"需人工补录",note:result.truncated?"仅识别前3页，尚未找到权益清单，请检查后续页并人工补录":"未可靠识别权益条目，须人工录入",categories:[]};
+    return {status:"待确认",note:result.truncated?"已扫描前3页，权益类目可能不完整；请检查合同全部页面":"已自动提取权益类目，请核对合同原件并确认",categories};
+  }catch(e){
+    return {status:"需人工补录",note:"OCR未成功（"+String(e.code||"OCR_ERROR")+"），请人工核对原件",categories:[]};
+  }
+}
+function saveRights(pid,contractId,categories,source,confirmed){
+  const ins=db.prepare("INSERT INTO sponsor_rights(pid,sponsor_id,category,source,confirmed,updated_at) VALUES(?,?,?,?,?,?)");
+  for(const category of categories)ins.run(pid,contractId,category,source,confirmed?1:0,now());
+}
 function register(router){
   router.get("/api/projects/:id/income",async ctx=>{
     const p=getProject(ctx.params.id);
@@ -59,6 +84,7 @@ function register(router){
        !can(ctx.user,"payment:pay")&&!can(ctx.user,"payment:approve"))
       throw require("../lib/util").forbidden("无权查看赞助合同与财务回款");
     return {pid:p.id,summary:incomeSummary(p.id,p.budget),
+      rights:sponsorRights(db,p.id).rights,
       contracts:db.prepare("SELECT * FROM meeting_sponsor_contracts WHERE pid=? ORDER BY created_at DESC").all(p.id),
       receipts:db.prepare("SELECT * FROM meeting_sponsor_receipts WHERE pid=? ORDER BY created_at DESC").all(p.id),
       invoices:db.prepare("SELECT * FROM meeting_sponsor_invoices WHERE pid=? ORDER BY created_at DESC").all(p.id)};
@@ -71,12 +97,56 @@ function register(router){
       throw bad("请填写企业名称与赞助合同编号（2～100 字）");
     const total=amount(b.amount);
     const key=evidence(ctx,p,b.file_key);
+    const manual=b.rightsCategories==null?null:normalizedCategories(b.rightsCategories);
+    const extracted=manual!==null?{status:"已人工确认",note:"权益清单由录入人员逐项确认",categories:manual}:
+      await scanRights(key);
     const id=nextId(db,"meeting_sponsor_contracts","id","SC");
-    db.prepare("INSERT INTO meeting_sponsor_contracts(id,pid,enterprise,contract_no,amount,status,file_key,file_name,created_by,created_at) VALUES (?,?,?,?,?,'待确认',?,?,?,?)")
-      .run(id,p.id,enterprise,contractNo,total,key,String(b.file_name||"").slice(0,120),ctx.user.id,now());
+    db.prepare("INSERT INTO meeting_sponsor_contracts(id,pid,enterprise,contract_no,amount,status,file_key,file_name,created_by,created_at,rights_scan_status,rights_scan_note) VALUES (?,?,?,?,?,'待确认',?,?,?,?,?,?)")
+      .run(id,p.id,enterprise,contractNo,total,key,String(b.file_name||"").slice(0,120),ctx.user.id,now(),
+        extracted.status,extracted.note);
+    saveRights(p.id,id,extracted.categories,manual!==null?"manual":"ocr",manual!==null);
     logAudit({user:ctx.user,module:"会议收入",action:"登记赞助合同",target:p.id,
       detail:id+"；企业："+enterprise+"；合同金额："+total,ip:ctx.ip});
-    return {id,status:"待确认",summary:incomeSummary(p.id,p.budget)};
+    return {id,status:"待确认",summary:incomeSummary(p.id,p.budget),
+      rightsScanStatus:extracted.status,rightsScanNote:extracted.note,rightsCategories:extracted.categories};
+  });
+  // Available to meeting-material operators: populate "权益照片" second-level dropdown.
+  router.get("/api/projects/:id/sponsor-rights",async ctx=>{
+    const p=getProject(ctx.params.id);assertProjectVisible(ctx.user,p);
+    if(!can(ctx.user,"material:write")&&!can(ctx.user,"verify:check")&&
+       !can(ctx.user,"contract:write")&&!can(ctx.user,"contract:approve"))
+      throw require("../lib/util").forbidden("无权查看该项目赞助权益");
+    const data=sponsorRights(db,p.id);
+    return {contracts:data.contracts,rights:data.rights,photos:data.photos};
+  });
+  // OCR suggestions are never final until this explicit, audited review.
+  router.patch("/api/projects/:id/income/contracts/:cid/rights",async ctx=>{
+    const p=getProject(ctx.params.id);writable(ctx,p,"contract:write");
+    const contract=sponsor(p.id,ctx.params.cid);
+    if(contract.status==="已驳回")throw conflict("已驳回的赞助合同不可修改权益","SPONSOR_CONTRACT_REJECTED");
+    const categories=normalizedCategories(ctx.body?.categories);
+    if(!categories.length && ctx.body?.confirmNoRights!==true)
+      throw bad("权益清单不得为空；如合同明确没有权益，须人工选择「确认无权益」");
+    const old=db.prepare("SELECT id,category FROM sponsor_rights WHERE sponsor_id=? ORDER BY id").all(contract.id);
+    const byCategory=new Map(old.map(x=>[x.category,x]));
+    for(const item of old.filter(x=>!categories.includes(x.category))){
+      const photos=db.prepare("SELECT COUNT(*) AS n FROM materials WHERE sponsor_right_id=? AND (deleted_at IS NULL OR deleted_at='')").get(item.id);
+      if(photos.n)throw conflict("权益「"+item.category+"」已有照片，请先将照片关联到正确类目后再删除该项","RIGHT_HAS_PHOTOS");
+    }
+    const insert=db.prepare("INSERT INTO sponsor_rights(pid,sponsor_id,category,source,confirmed,updated_at) VALUES(?,?,?,?,1,?)");
+    const update=db.prepare("UPDATE sponsor_rights SET confirmed=1,source='manual',updated_at=? WHERE id=?");
+    for(const category of categories){
+      const oldOne=byCategory.get(category);
+      if(oldOne)update.run(now(),oldOne.id);
+      else insert.run(p.id,contract.id,category,"manual",now());
+    }
+    for(const item of old)if(!categories.includes(item.category))
+      db.prepare("DELETE FROM sponsor_rights WHERE id=?").run(item.id);
+    db.prepare("UPDATE meeting_sponsor_contracts SET rights_scan_status=?,rights_scan_note=? WHERE id=?")
+      .run(categories.length?"已确认":"确认无权益","人工核对赞助合同权益条目后确认",contract.id);
+    logAudit({user:ctx.user,module:"会议收入",action:"确认赞助权益类目",target:p.id,
+      detail:contract.id+"；权益类目 "+categories.length+" 项",ip:ctx.ip});
+    return {contractId:contract.id,rights:db.prepare("SELECT * FROM sponsor_rights WHERE sponsor_id=? ORDER BY id").all(contract.id)};
   });
   router.post("/api/projects/:id/income/contracts/:cid/decide",async ctx=>{
     const p=getProject(ctx.params.id);writable(ctx,p,"contract:approve");

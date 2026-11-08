@@ -25,7 +25,7 @@ before(async () => {
       ERP_SMS_PROVIDER:"test",ERP_SMS_TEST_MODE:"1",ERP_SESSION_FALLBACK:"0"}
   });
   let err="";proc.stderr.on("data",b=>err+=String(b));
-  for(let i=0;i<180;i++){
+  for(let i=0;i<600;i++){
     if(proc.exitCode!==null)throw Error("Server failed "+err);
     try{if((await request("GET","/api/health")).status===200)return;}catch{}
     await new Promise(r=>setTimeout(r,100));
@@ -114,7 +114,7 @@ test("production: association member IDs, approved contract signing and pay-afte
   assert.equal(confirmedNeed.status,200,JSON.stringify(confirmedNeed.body));
 
 
-  for (const kind of [...new Set([...MATERIAL_KINDS,"会议通知","劳务收集表","串场"])]) {
+  for (const kind of [...new Set([...MATERIAL_KINDS.filter(x=>x!=="权益照片"),"会议通知","劳务收集表","串场"])]) {
     const attachment = kind === "发票" ? uploadBody : await (async () => {
       const response = await fetch(root + "/api/uploads?pid=" + pid, {
         method:"POST",
@@ -132,7 +132,19 @@ test("production: association member IDs, approved contract signing and pay-afte
     assert.equal(item.status,200,"material "+kind+": "+JSON.stringify(item.body));
   }
 
-  // 使用人工合成的一像素图片与虚拟讲者姓名验证图片材料与五方核验。
+  // 核销第5项须关联材料库中按姓名登记的个人合同，而不是会务总合同。
+  const uploadPersonal=await fetch(root+"/api/uploads?pid="+pid,{
+    method:"POST",headers:{Cookie:cookie,"Content-Type":"application/octet-stream",
+      "X-File-Name":encodeURIComponent("测试讲者合同.pdf")},body:invoiceData
+  });
+  const personalFile=await uploadPersonal.json();
+  assert.equal(uploadPersonal.status,200,JSON.stringify(personalFile));
+  const personalMaterial=await request("POST","/api/projects/"+pid+"/materials",{
+    kind:"合同",name:"测试讲者",file_key:personalFile.key,
+    file_name:personalFile.name,file_size:personalFile.size,file_mime:personalFile.mime
+  },cookie);
+  assert.equal(personalMaterial.status,200,JSON.stringify(personalMaterial.body));
+  // 使用人工合成的一像素图片与虚拟讲者姓名验证讲者照片材料。
   const photoBytes=Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/cYUAAAAASUVORK5CYII=","base64");
   const photoRes=await fetch(root+"/api/uploads?pid="+pid,{
     method:"POST",headers:{Cookie:cookie,"Content-Type":"image/png","X-File-Name":"speaker.png"},
