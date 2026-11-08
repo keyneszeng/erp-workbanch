@@ -60,7 +60,7 @@ export async function render(root) {
   bindArchivePdfButtons(root);
 
   const add = root.querySelector("#add");
-  if (add) add.onclick = () => openMaterialRegistration(root, d.projects, d.kinds);
+  if (add) add.onclick = () => openMaterialRegistration(root, d.projects.filter(p=>!["已结算","已归档"].includes(p.status)), d.kinds);
   root.querySelectorAll("[data-replace-material]").forEach(btn=>{
     btn.onclick=()=>{
       const item=d.rows.find(x=>Number(x.id)===Number(btn.dataset.replaceMaterial));
@@ -70,6 +70,7 @@ export async function render(root) {
 }
 
 export function openMaterialRegistration(root, projects, kinds, defaultPid="", onSaved=null) {
+  if(!projects.length){toast("当前没有可登记材料的项目（已结算、已归档项目不允许新增材料）","warn");return;}
   const fields = [
     { k: "pid", l: "所属项目", t: "select", req: 1, v:defaultPid, opts: projects.map((p) => ({ v: p.id, l: `${p.id} ${p.name}` })) },
     { k: "kind", l: "材料类别", t: "select", req: 1, custom: 1, ph: "如：盖章会议通知 / 招商函 / 终版议程 / 讲者照片",

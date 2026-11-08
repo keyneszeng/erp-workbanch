@@ -84,7 +84,7 @@ async function open(root,pid){
     ' · 厂家/付款凭证文件 '+d.document_coverage.payment_voucher_files+'</p>'+
     table([{t:"材料ID"},{t:"材料类别"},{t:"资料名称"},{t:"版本"},{t:"原件"}],docs,{empty:"暂无已关联的财务资料"})+
     '<h3 style="margin:22px 0 10px">结算单</h3>'+
-    (d.settlement?'<p>结算编号 <strong>'+td(d.settlement.id)+'</strong>　收入 '+num(d.settlement.income)+
+    (d.settlement?'<p>结算编号 <strong>'+td(d.settlement.id)+'</strong>　项目预算 '+num(d.settlement.income)+
       '　支出 '+num(d.settlement.expense)+'　结余 '+num(d.settlement.profit)+'</p>':'<p class="hint">本项目尚未生成结算单。</p>')+
     '<h3 style="margin:22px 0 10px">核对提醒</h3>'+
     (d.warnings.length?'<div class="gate">'+d.warnings.map(x=>'<p>• '+esc(x)+'</p>').join("")+'</div>':
