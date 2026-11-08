@@ -99,7 +99,7 @@ export function stepBody(d,no){
     if(["劳务专家合同","专家劳务合同","劳务合同","专家合同"].includes(m.kind))return true;
     if(m.kind!=="合同")return false;
     const title=String(m.name||"")+" "+String(m.file_name||"");
-    return /劳务专家|专家劳务|劳务合同|专家合同|讲课合同|讲师合同|授课合同|劳务服务合同/.test(title)&&
+    return /劳务专家|专家劳务|劳务合同|专家合同|讲课合同|讲师合同|讲者合同|授课合同|劳务服务合同/.test(title)&&
       !/赞助合同|企业赞助|招商合同|会务合同|会务协议|会议服务合同|场地合同|酒店合同|采购合同|设备合同/.test(title);
   };
   const selected=(d.materials||[]).filter(m=>(names[no]||[]).includes(m.kind)||
