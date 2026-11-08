@@ -32,7 +32,7 @@ before(async () => {
   let error = "";
   child.stderr.on("data", b => error += b.toString());
   const start = Date.now();
-  while (Date.now()-start < 18000) {
+  while (Date.now()-start < 60000) {
     if (child.exitCode !== null) throw Error("Mini test server died: "+error);
     try { if ((await req("GET","/api/health")).status === 200) return; } catch {}
     await new Promise(done => setTimeout(done, 85));

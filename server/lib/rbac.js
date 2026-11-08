@@ -72,9 +72,9 @@ const MODULES = [
   { k: "projects", n: "项目管理", d: "会议列表、立项与阶段推进" },
   { k: "prep", n: "筹备管理", d: "合同 / 招商 / 嘉宾 / 议程 / 资源 / 任务" },
   { k: "demand", n: "会务需求", d: "设计 / 制作 / 现场执行 / 其他" },
-  { k: "exec", n: "会务执行", d: "报名签到 / 嘉宾邀请 / 任务 / 异常" },
+  { k: "exec", n: "会务执行", d: "嘉宾邀请 / 会务协作 / 现场资料与异常" },
   { k: "materials", n: "材料中心", d: "课件 / 串场 / 劳务表 / 协议 / 照片" },
-  { k: "verify", n: "会后核销", d: "6 步 SOP + 例外单（付款唯一前置门）" },
+  { k: "verify", n: "会后核销", d: "七项核销（第5～7项按需）+ 例外单；付款前置门" },
   { k: "finance", n: "财务结算", d: "公付 / 报销 / 厂家款 / 发票 / 结算单" },
   { k: "archive", n: "档案中心", d: "数字卷宗检索 / 归档 / 导出" },
   { k: "audit", n: "审计日志", d: "跨模块全量操作留痕 · 4W" },
@@ -99,18 +99,37 @@ const NAV_MODULE = {
   materials: "materials", archive: "archive", audit: "audit", users: "system", "invitation-config": "system"
 };
 
+/**
+ * 业务模块需要用会议项目作为上下文：只读可达性不等于编辑或跨协会访问。
+ * scopeFilter、项目详情按字段/模块裁剪仍然必须执行。
+ */
+const PROJECT_CONTEXT_MODULES = ["projects","prep","demand","exec","materials","verify","finance","archive"];
+const PROJECT_CONTEXT_PERMS = ["project:create","project:approve","project:transition","project:change",
+  "project:edit","project:member","mini:apply","contract:write","contract:approve","invite:manage",
+  "demand:write","material:write","payment:create","payment:approve","payment:pay","settle:create",
+  "verify:check","verify:exception","verify:exception_approve","verify:conclude","archive:write",
+  "archive:download","ledger:read"];
+function canReadProjects(user) {
+  return PROJECT_CONTEXT_MODULES.some(m=>hasModule(user,m)) || PROJECT_CONTEXT_PERMS.some(p=>can(user,p));
+}
+
 /** 这个角色能不能打开某个页面（含审批中心的动作级条件） */
 function canVisitNav(user, nav) {
   if (!user || !ROLES[user.role]) return false;
   const need = NAV_MODULE[nav];
   if (!need) return false;
   if (nav === "dashboard" && !hasModule(user,"dashboard")) return true; // 安全待授权页
+  if (nav === "projects" && canReadProjects(user)) return true;
   if (!hasModule(user,need)) return false;
   if (nav === "project-ledger") return can(user,"ledger:read");
   if (nav === "prep-invitations") return can(user, "invite:manage");
   if (nav === "users") return isSuper(user) || can(user,"user:manage");
+  // 前端 NAV 对「邀请函上线配置」要求 setting:write，接口层 prep-admin.js 的
+  // admin() 也用 assertCan("setting:write")。这里原来只查 system 模块就放行，
+  // 是同一张表里唯一漏掉的动作条件：补上后三处口径才真正一致。
+  if (nav === "invitation-config") return can(user, "setting:write");
   if (nav === "approvals") {
-    return can(user, "project:approve") || can(user, "verify:exception_approve") || can(user, "payment:approve");
+    return can(user, "project:approve") || can(user, "verify:exception_approve") || can(user, "payment:approve") || can(user, "contract:approve");
   }
   return true;
 }
@@ -225,4 +244,4 @@ function assertProjectVisible(user, project) {
   if (!row) throw forbidden("该项目不在你的数据范围内");
 }
 
-module.exports = { ROLES, PERMS, MODULES, STATUSES, isSuper, can, assertCan, assertModule, hasModule, scopeFilter, assertProjectVisible, canVisitNav };
+module.exports = { ROLES, PERMS, MODULES, STATUSES, isSuper, can, assertCan, assertModule, hasModule, scopeFilter, assertProjectVisible, canVisitNav, canReadProjects };

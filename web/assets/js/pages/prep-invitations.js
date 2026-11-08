@@ -14,9 +14,9 @@ function emptyMsg(text) {
  * 现在未就绪时置灰 + title 说明去哪配，用户不用先踩一次坑。
  * PDF 下载不受影响 —— 渠道没开也能导出后手动发送。
  */
-function recordHtml(x, channels) {
+function recordHtml(x, channels, canCreate) {
   const target = x.recipient_org || x.recipient_name || "—";
-  const closed = ["已确认", "已拒绝", "已撤销"].includes(x.status);
+  const closed = !canCreate || ["已确认", "已拒绝", "已撤销"].includes(x.status);
   const emailBtn = channels.email
     ? ' <button class="link" data-email="' + esc(x.id) + '">邮件发送</button>'
     : ' <button class="link" disabled title="邮件渠道未启用：请总管理员在「邀请函上线配置」中设置加密凭证、发件邮箱与 HTTPS 公开地址">邮件发送</button>';
@@ -42,7 +42,8 @@ function channelNote(channels) {
 export async function render(root) {
   const projects = (await api.get("/api/projects")).rows || [];
   const eligible = projects.filter(p=>["已立项","筹备中"].includes(p.status));
-  if (!selectedPid || !projects.some(p=>p.id===selectedPid)) selectedPid=(eligible[0]||{}).id||"";
+  if (!selectedPid || !projects.some(p=>p.id===selectedPid)) selectedPid=(eligible[0]||projects[0]||{}).id||"";
+  const canCreate = eligible.some(p=>p.id===selectedPid);
   let items = [], templates = [], channels = { email: false, wechat: false };
   if(selectedPid) {
     const [info, rows] = await Promise.all([
@@ -54,12 +55,12 @@ export async function render(root) {
   }
   root.innerHTML = '<div class="phead"><div><h2>会议项目 · 筹备邀请</h2>' +
     '<p>立项通过后自动匹配企业邀请（招商）与嘉宾邀请函模板；负责人填写受邀名头即可生成 PDF。</p></div></div>' +
-    (eligible.length ? '<div class="panel"><div class="panel-h"><h2>选择筹备会议</h2></div>' +
+    (projects.length ? '<div class="panel"><div class="panel-h"><h2>选择会议（筹备可创建，其他状态仅看历史）</h2></div>' +
       '<select id="prepPid" style="max-width:560px">' +
-      eligible.map(p=>'<option value="'+esc(p.id)+'"'+(p.id===selectedPid?" selected":"")+'>'+esc(p.id+" · "+p.name)+'</option>').join("") +
-      '</select><p class="hint">仅显示已立项/筹备中会议；其他阶段可查看历史已生成邀请。</p></div>' :
-      emptyMsg("当前没有已立项或筹备中的会议；审批通过后自动开放内置模板。")) +
-    (selectedPid ? '<div class="panel"><div class="panel-h"><h2>生成个性化邀请函</h2></div>' +
+      projects.map(p=>'<option value="'+esc(p.id)+'"'+(p.id===selectedPid?" selected":"")+'>'+esc(p.id+" · "+p.name+" · "+p.status)+'</option>').join("") +
+      '</select><p class="hint">「已立项 / 筹备中」可以新建邀请；其他阶段只可查看历史邀请函，不能生成新邀请。</p></div>' :
+      emptyMsg("暂无会议项目，完成立项后即可使用邀请函功能。")) +
+    (selectedPid && canCreate ? '<div class="panel"><div class="panel-h"><h2>生成个性化邀请函</h2></div>' +
       '<div class="filters"><label>模板类型 <select id="templateType">' +
       templates.map(t=>'<option value="'+esc(t.key)+'"'+(t.key===selectedType?' selected':'')+'>'+esc(t.name)+'</option>').join("") +
       '</select></label></div>' +
@@ -71,13 +72,15 @@ export async function render(root) {
       '<label>电子邮箱<input id="recipientEmail" type="email" placeholder="可在生成后发送"></label></div>' +
       '<button id="makeInvitation" class="btn btn-p">生成专属 PDF 邀请函</button>' +
       '<p class="hint">项目名称、协会、会议日期、形式、议程及负责人从会议项目自动填充。生成时保存文档快照；不会自动发送。</p></div>' +
-      '<div class="panel"><div class="panel-h"><h2>历史邀请函与发送记录</h2></div>' +
+      '' : "") +
+    (selectedPid ? '<div class="panel"><div class="panel-h"><h2>历史邀请函与发送记录</h2></div>' +
       channelNote(channels) +
       '<div class="table-wrap"><table><thead><tr><th>邀请编号</th><th>模板</th><th>受邀对象</th><th>状态</th><th>发送时间</th><th>操作</th></tr></thead><tbody>' +
-      items.map(x=>recordHtml(x,channels)).join("") + '</tbody></table></div></div>' : "");
+      items.map(x=>recordHtml(x,channels,canCreate)).join("") + '</tbody></table></div></div>' : "");
   if (!selectedPid) return;
-  root.querySelector("#prepPid").onchange=e=>{ selectedPid=e.target.value;render(root); };
-  root.querySelector("#templateType").onchange=e=>{
+  root.querySelector("#prepPid")?.addEventListener("change",e=>{ selectedPid=e.target.value;render(root); });
+  const typeSelect=root.querySelector("#templateType");
+  if (typeSelect) typeSelect.onchange=e=>{
     selectedType=e.target.value;
     const isGuest=selectedType==="guest";
     root.querySelector("#recipientName").closest("label").style.display=isGuest?"":"none";
@@ -85,8 +88,9 @@ export async function render(root) {
     root.querySelector("#guestRole").closest("label").style.display=isGuest?"":"none";
     root.querySelector("#topic").closest("label").style.display=isGuest?"":"none";
   };
-  root.querySelector("#templateType").dispatchEvent(new Event("change"));
-  root.querySelector("#makeInvitation").onclick=async()=>{
+  typeSelect?.dispatchEvent(new Event("change"));
+  const createBtn=root.querySelector("#makeInvitation");
+  if (createBtn) createBtn.onclick=async()=>{
     const b={
       type:selectedType,
       recipient_org:root.querySelector("#recipientOrg").value.trim(),
