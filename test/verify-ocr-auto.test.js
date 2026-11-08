@@ -73,7 +73,9 @@ test("自动扫描读取已有的真实OCR缓存，课件课题与终版议程�
  assert.match(r.token,/^[a-f0-9]{64}$/);
  // A presentation containing the agenda title as a substring is not a
  // matching course theme. It must match a complete, extracted topic.
- const course=db.prepare("SELECT id FROM materials WHERE pid=? AND kind='课件' ORDER BY id LIMIT 1").get(pid);
+ const course=db.prepare("SELECT id FROM materials WHERE pid=? AND kind='课件' AND file_key=?").get(pid,
+  "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.pdf");
+ assert.ok(course?.id,"must mutate the exact scanned course fixture, not a seeded course");
  db.prepare("UPDATE material_ocr_results SET recognized_text=? WHERE material_id=?")
    .run("课件主题：精准诊疗技术新进展补充专题",course.id);
  const mismatch=await call("admin","POST",pathStep(4)+"/scan",{});
