@@ -112,6 +112,8 @@ jobs:
           node --check miniprogram/pages/invite/index.js
       - name: Install PDF and Word generation dependencies
         run: npm install --no-audit --no-fund
+      - name: Verify Excel XLSX attendance worksheet rows, shared strings and invalid entries
+        run: node --experimental-sqlite --test test/xlsx-attendance-ocr.test.js
       - name: Verify OCR-driven human verification with source freshness, no re-entry, and native Office extraction
         run: ERP_DEMO_MODE=1 node --experimental-sqlite --test test/verify-ocr-auto.test.js
       - name: Verify per-account grants and zero-rights default before OCR setup
