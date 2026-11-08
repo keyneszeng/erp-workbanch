@@ -22,14 +22,17 @@ function speakerName(value,{filename=false}={}){
  if(without.length>=2)s=without;
  if(s.length<2||s.length>48||/[\/\\|、,，;；:：]/.test(s))return "";
  if(!/^[\u3400-\u9fffA-Za-z.'·-]+$/u.test(s))return "";
- if(/^(?:姓名|讲者|讲师|专家|照片|课程|课题|主题|主持|主办|会议)$/u.test(s))return "";
+ if(/^(?:姓名|讲者|讲师|专家|照片|课程|课题|主题|主持|主办|会议|speaker|photo|image|img|headshot)$/u.test(s))return "";
  return s.toLowerCase();
 }
 function photoName(material){
- const candidates=[material.file_name,material.name].filter(Boolean);
- // Prefer the actual original filename; never use a generic display label to
- // rescue an ambiguous original name when the operator uploaded multiple files.
- return speakerName(candidates[0],{filename:true});
+ const file=String(material.file_name||"").trim();
+ // Older registrations used a placeholder ("speaker.png") while entering
+ // the actual speaker name in material.name. Fall back ONLY for such explicit
+ // placeholder filenames; never override a real person-named original.
+ const generic=/^(?:speaker|photo|image|img|headshot|讲者照片|照片)(?:[-_ ]?\d+)?\.(?:jpe?g|png|webp|gif|heic|bmp)$/iu.test(file);
+ if(generic)return speakerName(material.name,{filename:true});
+ return speakerName(file||material.name,{filename:true});
 }
 function agendaSpeakers(text){
  const names=[];
