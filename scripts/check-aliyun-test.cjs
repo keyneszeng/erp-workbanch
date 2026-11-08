@@ -56,6 +56,46 @@ function check(env = process.env) {
   const secret = required(env, "ERP_SECRET");
   if (secret.length < 32 || new Set(secret).size < 8) fail("ERP_SECRET 必须是独立的高熵随机长密钥，至少 32 字符");
 
+  // 劳务收款人银行账号加密密钥：可缺省（功能降级为不落库），但一旦配置必须是合法 32 字节。
+  const finKey = String(env.ERP_FINANCIAL_DATA_KEY || "");
+  if (finKey && !/^[0-9a-f]{64}$/i.test(finKey))
+    fail("ERP_FINANCIAL_DATA_KEY 必须为 64 位十六进制（32 字节）");
+  if (env.ERP_REQUIRE_VERIFIED_PAYEES === "1" && !/^[0-9a-f]{64}$/i.test(finKey))
+    fail("启用 ERP_REQUIRE_VERIFIED_PAYEES=1 前必须先配置 ERP_FINANCIAL_DATA_KEY");
+
+  // 邀请函发件密钥加密口令：可缺省（只能生成 PDF、发不出邮件），但一旦配置不得少于 32 字符。
+  const mailKey = String(env.ERP_MAIL_CONFIG_KEY || "");
+  if (mailKey && mailKey.length < 32)
+    fail("ERP_MAIL_CONFIG_KEY 至少 32 个随机字符，否则无法加密保存发件密钥");
+
+  // RapidOCR + Poppler 共用预检；不再依赖 Tesseract 语言包。
+  try { require("./rapidocr-preflight.cjs").checkRapidOcr(env); }
+  catch (err) { fail(err.message); }
+
+  // Office 原件在线预览依赖 LibreOffice（缺失不阻断启动：预览会退化为下载入口）。
+  {
+    const { spawnSync } = require("node:child_process");
+    const lo = spawnSync("soffice", ["--version"], { encoding: "utf8", timeout: 8000, maxBuffer: 65536 });
+    if (lo.error || lo.status !== 0) {
+      console.warn("[warn] 未检测到 LibreOffice（soffice）：Office 原件将无法在线预览，只能下载");
+    } else {
+      const fonts = spawnSync("fc-list", [], { encoding: "utf8", timeout: 8000, maxBuffer: 8 * 1024 * 1024 });
+      if (!/wqy|noto.*cjk|source han/i.test(String(fonts.stdout || "")))
+        console.warn("[warn] 未检测到中文字体：Office 转 PDF 后中文可能显示为方框");
+    }
+  }
+
+  // 超大附件自动压缩依赖（PDF 用 gs，图片用 convert）。缺失不阻断启动：
+  // >20MB 的文件会被拒绝并提示用户本地压缩，不会静默丢数据。
+  {
+    const { spawnSync } = require("node:child_process");
+    for (const [cmd, label] of [["gs", "Ghostscript"], ["convert", "ImageMagick"], ["zip", "zip"], ["unzip", "unzip"]]) {
+      const res = spawnSync(cmd, ["-version"], { encoding: "utf8", timeout: 8000, maxBuffer: 65536 });
+      if (res.error || res.status !== 0)
+        console.warn(`[warn] 未检测到 ${label}（${cmd}）：超过 20 MB 的原件将无法自动压缩`);
+    }
+  }
+
   const file = required(env, "ERP_DB");
   const uploads = required(env, "ERP_UPLOAD_DIR");
   for (const [name, value] of [["ERP_DB", file], ["ERP_UPLOAD_DIR", uploads]]) {

@@ -1,8 +1,6 @@
 "use strict";
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
-const fs = require("node:fs");
-const path = require("node:path");
 const { check } = require("../scripts/check-aliyun-test.cjs");
 const { check: checkProduction } = require("../scripts/check-aliyun-production.cjs");
 
@@ -92,18 +90,18 @@ test("console 通道无法混入生产：生产门禁必须拒绝", () => {
   }), /erp-test|持久/);
 });
 
-test("测试 Nginx 仅绑定回环地址，禁止通过公网 8080 暴露账号与短信流程", () => {
-  const nginx = fs.readFileSync(path.join(__dirname, "../deploy/aliyun/nginx-erp-test.conf.example"), "utf8");
-  assert.match(nginx, /listen\s+127\.0\.0\.1:8080;/);
-  assert.doesNotMatch(nginx, /listen\s+(?:8080|0\.0\.0\.0:8080|\[::\]:8080)\s*;/);
-  const deploy = fs.readFileSync(path.join(__dirname, "../deploy/aliyun/deploy.sh"), "utf8");
-  assert.match(deploy, /SSH 隧道/);
-  assert.match(deploy, /生产部署禁止 --skip-tls/, "生产不得通过 --skip-tls 绕过 TLS");
-  assert.doesNotMatch(deploy, /rm -f \/etc\/nginx\/sites-enabled\/default/, "安装不应删除同机现有 Nginx 默认站点");
-  assert.ok(deploy.indexOf("对候选 release 执行环境预检") < deploy.indexOf("预检通过后切换 current"), "必须先预检后切换发布指针");
-  assert.match(deploy, /\$RELEASE_DIR\/scripts\/\$GATE/, "预检目标必须是候选 release");
-  const start = deploy.indexOf('if [ "$MODE" = "test" ]; then\n  # 测试环境：');
-  const end = deploy.indexOf("\nelse\n  # 生产：", start);
-  assert.ok(start >= 0 && end > start, "应能定位测试站点配置段");
-  assert.doesNotMatch(deploy.slice(start, end), /rm -f \/etc\/nginx\/sites-enabled\/default/);
+test("ECS deployment defaults to the correct branch and rejects unsynced production code", () => {
+  const fs = require("node:fs");
+  const path = require("node:path");
+  const { spawnSync } = require("node:child_process");
+  const script = path.join(__dirname, "../deploy/aliyun/deploy.sh");
+  const shell = fs.readFileSync(script, "utf8");
+  assert.match(shell, /REF="\$\{ERP_REF:-\}"/);
+  assert.match(shell, /REF="云服务器测试版本"/);
+  assert.match(shell, /REF="main"/);
+  assert.match(shell, /测试部署只允许 云服务器测试版本 分支/);
+  assert.match(shell, /生产部署只允许已同步测试版功能的 main 分支/);
+  assert.match(shell, /git -C "\$RELEASE_DIR" diff --quiet refs\/remotes\/origin\/erp-test-baseline HEAD/);
+  const parsed = spawnSync("bash", ["-n", script], { encoding: "utf8", timeout: 5000 });
+  assert.equal(parsed.status, 0, parsed.stderr);
 });

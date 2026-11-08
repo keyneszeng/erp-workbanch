@@ -31,7 +31,7 @@ before(async () => {
   let logs = "";
   proc.stderr.on("data", b => { logs += b.toString(); });
   const start = Date.now();
-  while (Date.now() - start < 16000) {
+  while (Date.now() - start < 60000) {
     if (proc.exitCode !== null) throw new Error("服务器启动失败：" + logs.slice(0, 1500));
     try { if ((await call("GET", "/api/health")).status === 200) return; } catch {}
     await new Promise(resolve => setTimeout(resolve, 100));

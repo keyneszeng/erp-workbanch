@@ -84,10 +84,16 @@ test("新建同名账号看不到同名负责人名下的项目", async () => {
 
   const mk = await admin("POST", "/api/users", {
     username: "zhangwei2", name: "张伟", role: "exec",
-    assoc: "华东医学会", dept: "会务部", phone: "13900000009", password: "Init1234"
+    assoc: "华东医学会", dept: "非供应商", phone: "13900000009", password: "Init1234"
   });
   assert.equal(mk.status, 200, mk.msg);
 
+  // 显式赋予该新账号「仅能查看项目列表」的模块权；没有功能操作权限。
+  // 否则新账户的零权限默认值会令列表403，无法验证同名不会偷看项目。
+  const grant=await admin("PATCH","/api/users/"+mk.data.user.id+"/access",{
+    modules:["projects"],permissions:[]
+  });
+  assert.equal(grant.status,200,grant.msg);
   const twin = client(await login("zhangwei2", "Init1234"));
   const seen = idsOf(await twin("GET", "/api/projects"));
   assert.deepEqual(seen, [], `同名账号凭姓名看到了 ${seen.join(", ")}`);
