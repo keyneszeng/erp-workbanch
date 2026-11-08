@@ -75,6 +75,19 @@ function extractInvoiceAmount(text){
  const values=[...new Set(candidates.filter(x=>x.rank===rank).map(x=>x.value))];
  return values.length===1?values[0]:null;
 }
+/** Step 6: sum only reliably identified tax-inclusive totals, in cents.
+ * A missing, conflicting or unreadable invoice never counts as zero. */
+function sumInvoiceAmounts(texts){
+ if(!Array.isArray(texts)||!texts.length)return null;
+ let totalCents=0;
+ for(const text of texts){
+  const value=extractInvoiceAmount(text);
+  if(value===null||!Number.isSafeInteger(Math.round(value*100)))return null;
+  totalCents+=Math.round(value*100);
+  if(!Number.isSafeInteger(totalCents))return null;
+ }
+ return totalCents/100;
+}
 function extractInvoice(text,meta={}){
  const fields={invoiceNo:extractInvoiceNo(text),amount:extractInvoiceAmount(text)};
  const missing=[];
@@ -89,4 +102,4 @@ function extractInvoice(text,meta={}){
   engine:String(meta.engine||""),mode:String(meta.mode||""),truncated
  };
 }
-module.exports={extractInvoice,extractInvoiceNo,extractInvoiceAmount};
+module.exports={extractInvoice,extractInvoiceNo,extractInvoiceAmount,sumInvoiceAmounts};

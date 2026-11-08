@@ -89,7 +89,7 @@ export function stepBody(d,no){
     3:"线上有效讲者在线时长 >30 分钟；线下有签到原件；混合两项都需要。",
     4:"只关联当前终版议程与课件原件，核对课件主题是否逐个出现在议程中；不引用串场或其他材料。",
     5:"仅核对劳务登记表与劳务专家合同：逐人核对姓名、时间、角色、金额、银行账号五字段；会务合同和赞助合同不参与本项。",
-    6:"有已建立会务需求表即必核：只核对会务需求表预算、已签署会务需求类别合同与会务发票三方金额一致。",
+    6:"有已建立会务需求表即必核：核对会务需求表预算与已签会务合同金额一致，并确认已关联会务发票原件；不比对发票金额。",
     7:"有赞助权益内容或权益照片即必核：只关联赞助合同和权益照片，逐项核实交付内容及照片真实性。"
   };
   const isLaborContract=m=>{
@@ -141,7 +141,7 @@ export function stepBody(d,no){
         const photos=(d.sponsorRights?.photos||[]).filter(x=>Number(x.sponsor_right_id)===Number(r.id)&&x.file_key);
         return '<div class="dchk"><b>'+esc(sponsor?.enterprise||r.sponsor_id)+' · '+esc(r.category)+'</b> · '+(r.confirmed?'权益已确认':'待校正')+' · '+photos.length+' 张照片'+matList(photos,'请按权益二级类目上传照片')+'</div>';
       }).join("")+'</div>':""}
-    ${no===6?`<div class="dgrid">${cell("会务需求总预算",fmt(meetingDemandTotal))}${cell("已签会务合同总额",fmt(contractTotal))}${cell("会务发票核验金额",step?.invoiceAmount==null?"未核对":fmt(step.invoiceAmount))}</div>${!d.demand?.archived?"<div class=\"dhint\">需求表尚未确认归档，不能完成第6项三单一致核验。</div>":""}`:""}
+    ${no===6?`<div class="dgrid">${cell("会务需求总预算",fmt(meetingDemandTotal))}${cell("已签会务合同总额",fmt(contractTotal))}</div>${!d.demand?.archived?"<div class=\"dhint\">需求表尚未确认归档，不能完成第6项核验。</div>":""}`:""}
     ${no===5?`<div class="dsec"><h4>已关联劳务专家合同（材料库）</h4>
       ${matList(linkedContracts,"尚未匹配劳务专家合同，请上传对应专家的合同原件。")}
       <div class="hint">仅关联劳务专家合同；会务合同、赞助合同不进入核销第5项。合同正文与人员信息仍需人工核对。</div></div>`:""}

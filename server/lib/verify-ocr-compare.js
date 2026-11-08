@@ -7,6 +7,7 @@ const {contractPool,linkLaborContracts}=require("./labor-contracts"),{demandSopS
 const {sponsorRights}=require("./sponsor-rights");
 const office=require("./verify-office-text");
 const agendaEvidence=require("./verify-agenda-evidence");
+const {extractInvoiceAmount}=require("./invoice-extract");
 const OCR_TYPES=new Set(["jpg","png","pdf"]),MAX_FILES=32;
 const KINDS={
  1:["会议通知","招商函","串场"],2:["终版议程","讲者照片"],
@@ -60,11 +61,13 @@ function persist(m,pid,result,operator){
 }
 async function scan(pid,no,operator){
  const docs=materials(pid,no);
+ // Step 6 is a materials-link check; invoice OCR is not a prerequisite.
+ if(no===6)return {...report(pid,no),processed:0};
  const available=ocr.enabled()&&storage().name==="fs";
  // Native Office files (including XLSX attendance) never require RapidOCR.
  // On demo installs do not simulate image recognition, but do read real Office bytes.
  const officePresent=docs.some(m=>office.SUPPORTED.has(m.file_key.split(".").pop().toLowerCase()));
- if(!isDemoMode()&&!available&&!officePresent&&no!==7)
+ if(!isDemoMode()&&!available&&!officePresent&&no!==7&&no!==6)
   throw Object.assign(new Error("当前部署未启用 RapidOCR，请在阿里云 ECS 配置 ERP_OCR_ENABLED=1，安装 RapidOCR (ONNX Runtime CPU) 和 Poppler；Excel原生表格可不依赖 RapidOCR 解析"),{status:503,code:"OCR_NOT_CONFIGURED"});
  // Step 7 can always be reviewed from the original signed sponsor agreements
  // and photos; image OCR cannot prove that contractual rights were delivered.
@@ -87,13 +90,10 @@ async function scan(pid,no,operator){
  }
  return {...report(pid,no),processed};
 }
-function amounts(t){
- const list=[];
- for(const x of String(t||"").matchAll(/(?:价税合计|合计金额|发票金额|总金额|金额|人民币|[¥￥]|Total)\s*[:：]?\s*[¥￥]?\s*([0-9][0-9,]*(?:\.[0-9]{1,2})?)/gi)){
-  const n=Number(x[1].replace(/,/g,""));
-  if(n>0&&n<1e9)list.push(n);
- }
- return [...new Set(list)];
+// Compatibility helper: only the VAT-inclusive total is meaningful for an invoice.
+function amounts(text){
+ const value=extractInvoiceAmount(text);
+ return value===null?[]:[value];
 }
 function report(pid,no){
  const p=db.prepare("SELECT id,name,assoc,date,form FROM projects WHERE id=?").get(pid);
@@ -198,9 +198,9 @@ function report(pid,no){
   const invoiceIds=new Set(d.invoices.map(x=>Number(x.id)));
   const agreements=docs.filter(x=>contractIds.has(Number(x.materialId)));
   const invoices=docs.filter(x=>invoiceIds.has(Number(x.materialId)));
-  const extracted=invoices.map(x=>amounts(x.text));
-  invoiceAmount=extracted.length&&extracted.every(x=>x.length===1)?
-    extracted.reduce((n,x)=>n+Math.round(x[0]*100),0)/100:null;
+  // Step 6 requires a linked invoice original, not OCR extraction of its amount.
+  // Keep invoice text recognition optional; it must not block a linked-file check.
+  invoiceAmount=null;
   add("会务需求表",d.required?d.confirmed:null,
     d.required?"已登记需求表，确认归档："+(d.confirmed?"是":"否")+"；预算"+d.budgetTotal+"元":"未建立会务需求表");
   add("已签会务合同原件",d.contractCount&&agreements.length?true:null,
@@ -208,10 +208,8 @@ function report(pid,no){
   add("会务需求表与会务合同金额一致",d.contractCount?
     Math.round(d.budgetTotal*100)===Math.round(d.contractTotal*100):null,
     "需求表"+d.budgetTotal+"元，会务合同"+d.contractTotal+"元",ids(agreements));
-  add("会务发票与合同和需求表金额一致",invoiceAmount!==null?
-    Math.round(invoiceAmount*100)===Math.round(d.budgetTotal*100)&&
-      Math.round(invoiceAmount*100)===Math.round(d.contractTotal*100):null,
-    invoiceAmount!==null?"会务发票识别合计"+invoiceAmount+"元":"会务发票金额尚不能可靠唯一识别",ids(invoices));
+  add("已关联会务发票原件",invoices.length>0,
+    invoices.length?"已关联"+invoices.length+"份会务发票原件":"尚未关联会务发票原件",ids(invoices));
  }else if(no===7){
   const rights=sponsorRights(db,pid);
   add("赞助合同与权益来源",rights.activeContracts.length?true:null,
@@ -224,10 +222,10 @@ function report(pid,no){
    add("权益交付："+r.category,null,pictures.length+"份照片，OCR无法判断实际交付及照片真实性",pictures.map(x=>x.id));
   }
  }
- for(const file of docs.filter(x=>x.state!=="recognized"&&!(no===2&&x.kind==="讲者照片")))
+ for(const file of docs.filter(x=>x.state!=="recognized"&&no!==6&&!(no===2&&x.kind==="讲者照片")))
   add("文件识别："+file.name,null,file.state==="unsupported"?
     "该格式无法直接OCR，请补充 PDF/JPG/PNG 原件":"文件缺失、无文字或未识别成功",[file.materialId]);
- for(const file of docs.filter(x=>x.truncated))
+ for(const file of docs.filter(x=>x.truncated&&no!==6))
   add("超出扫描页数："+file.name,null,"共"+file.totalPages+"页，仅识别前"+file.pages+"页，需人工核对剩余页面",[file.materialId]);
  if(!docs.length)add("原件",null,"没有本步骤可以扫描的有效文件");
  const fingerprint={
