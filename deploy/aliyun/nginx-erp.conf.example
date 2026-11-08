@@ -11,7 +11,9 @@ server {
     ssl_certificate /etc/letsencrypt/live/production.example.com/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/production.example.com/privkey.pem;
     ssl_protocols TLSv1.2 TLSv1.3;
-    client_max_body_size 12m;
+    # 单文件上限 20MB（server/lib/storage.js MAX_BYTES），这里留 5MB 余量给头部与编码。
+    # 设小了会在 nginx 层直接 413，应用层根本没机会给出友好提示。
+    client_max_body_size 25m;
 
     location / {
         proxy_pass http://127.0.0.1:8787;
