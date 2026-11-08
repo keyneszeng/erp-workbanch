@@ -43,6 +43,57 @@ before(async()=>{
  admin=await login("admin");exec=await login("exec");
 });
 after(()=>{child?.kill("SIGTERM");fs.rmSync(dir,{recursive:true,force:true});});
+test("合同台账企业赞助自动编码，OCR预填，并同步会议收入签署状态",async()=>{
+ const p=await request("POST","/api/projects",
+  {name:"合同台账关联赞助收入测试",assoc:"华东医学会",form:"线下",date:"2027-11-20",
+   budget:30000,people:30,owner:"陈静",agenda:"会务合作"},exec);
+ assert.equal(p.status,200,JSON.stringify(p.data));
+ const pid=p.data.project.id,key=await uploadDocx(exec,pid);
+ const ocr=await request("POST","/api/contracts/scan",{pid,file_key:key},exec);
+ assert.equal(ocr.status,200,JSON.stringify(ocr.data));
+ assert.equal(ocr.data.fields.vendor,"广州睿康医疗科技有限公司");
+ assert.equal(ocr.data.fields.enterprise,"广州睿康医疗科技有限公司");
+ assert.equal(ocr.data.fields.amount,12000);
+ assert.deepEqual(ocr.data.fields.rightsContent,["主会场背景板LOGO露出","企业展位展示"]);
+ const empty=await request("GET","/api/projects/"+pid+"/income",undefined,admin);
+ assert.equal(empty.data.contracts.length,0,"预览不得提前落库");
+ const bad=await request("POST","/api/contracts",{
+  pid,name:"无合同原件的企业赞助",vendor:"广州睿康医疗科技有限公司",
+  amount:12000,category:"企业赞助",status:"待签署"},exec);
+ assert.equal(bad.status,400);
+ const create=await request("POST","/api/contracts",{
+  pid,name:"2027年企业赞助合同",vendor:"广州睿康医疗科技有限公司",amount:12000,
+  category:"企业赞助",status:"待签署",file_key:key,file_name:"sponsor.docx",
+  rightsCategories:ocr.data.fields.rightsContent},exec);
+ assert.equal(create.status,200,JSON.stringify(create.data));
+ assert.match(create.data.contract.id,/^HT-\d{4}-\d{3,}$/);
+ assert.match(create.data.sponsorId,/^SC-\d{4}-\d{3,}$/);
+ const income=await request("GET","/api/projects/"+pid+"/income",undefined,admin);
+ assert.equal(income.data.contracts.length,1);
+ const sponsor=income.data.contracts[0];
+ assert.equal(sponsor.ledger_contract_id,create.data.contract.id);
+ assert.equal(sponsor.contract_no,create.data.contract.id,"跨模块合同编号须一致");
+ assert.equal(sponsor.enterprise,"广州睿康医疗科技有限公司");
+ assert.equal(sponsor.amount,12000);
+ assert.equal(income.data.rights.filter(r=>r.sponsor_id===sponsor.id).length,2);
+ assert.equal(income.data.summary.contracted,0,"待签署合同不能计作实际签署收入");
+ const list=await request("GET","/api/contracts?pid="+pid,undefined,admin);
+ assert.equal(list.data.rows.filter(r=>r.category==="企业赞助").length,1);
+ const approve=await request("POST","/api/projects/"+pid+"/income/contracts/"+sponsor.id+"/decide",{approve:true},admin);
+ assert.equal(approve.status,200,JSON.stringify(approve.data));
+ assert.equal(approve.data.summary.contracted,12000);
+ const after=await request("GET","/api/contracts?pid="+pid,undefined,admin);
+ assert.equal(after.data.rows.find(r=>r.id===create.data.contract.id).status,"已签署");
+ const ledger=await request("GET","/api/projects/"+pid+"/ledger",undefined,admin);
+ if(ledger.status===200){
+   assert.equal(ledger.data.financial_summary.signed_contracts,0,"赞助收入不得计入支出合同");
+   assert.equal(ledger.data.financial_summary.sponsor_contract_signed,12000);
+ }
+ const payees=await request("GET","/api/projects/"+pid+"/payee-options",undefined,admin);
+ if(payees.status===200)assert.ok(!payees.data.rows.some(x=>x.payee==="广州睿康医疗科技有限公司"),
+   "赞助企业不是供应商，不应成为可付款对象");
+});
+
 test("赞助合同/到账凭证/开票逐笔登记、授权与预算差额",async()=>{
  const p=await request("POST","/api/projects",{name:"赞助收入测试项目",assoc:"华东医学会",form:"线下",date:"2027-10-20",budget:10000,people:60,owner:"陈静",agenda:"学术会议"},exec);
  assert.equal(p.status,200,JSON.stringify(p.data));const pid=p.data.project.id;

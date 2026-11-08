@@ -32,3 +32,14 @@ test("无赞助方标记不得把甲乙方或主办单位误当赞助企业",()=
  assert.deepEqual(result.fields.rightsContent,[]);
  assert.match(result.note,/后续页/);
 });
+
+test("合同台账通用OCR识别签约方及金额",()=>{
+ const {extractLedgerContract}=require("../server/lib/sponsor-contract-extract");
+ const doc="会议服务合同\n甲方：某医学协会\n乙方：深圳市卓越会务服务有限公司\n合同金额：人民币15万元\n付款方式：分期";
+ const found=extractLedgerContract(doc,{mode:"pdf-text"});
+ assert.equal(found.fields.vendor,"深圳市卓越会务服务有限公司");
+ assert.equal(found.fields.amount,150000);
+ const other=extractLedgerContract("签约方：广州睿康医疗科技有限公司\n合同总金额：12000元");
+ assert.equal(other.fields.vendor,"广州睿康医疗科技有限公司");
+ assert.equal(other.fields.amount,12000);
+});
