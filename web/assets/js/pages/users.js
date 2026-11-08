@@ -182,23 +182,26 @@ async function openReset(root) {
 function openEdit(root, u, roles) {
   const fields = [
     { k: "name", l: "姓名", req: 1 },
-    { k: "role", l: "角色", t: "select", req: 1, opts: roles.map((r) => ({ v: r.key, l: r.name })) },
+    ...(state.super ? [{ k: "role", l: "角色", t: "select", req: 1, opts: roles.map((r) => ({ v: r.key, l: r.name })) }] : []),
     
     { k: "dept", l: "部门", t: "select", opts: departmentOptions(u.dept) },
-    { k: "phone", l: state.demo ? "电话" : "白名单手机号", req: !state.demo },
+    ...(state.super ? [{ k: "phone", l: state.demo ? "电话" : "白名单手机号", req: !state.demo }] : []),
     { k: "active", l: "账号状态", t: "select", opts: [{ v: "1", l: "启用" }, { v: "0", l: "停用" }] },
-    ...(state.demo ? [{ k: "password", l: "重置密码（留空不改）", ph: "留空不改；至少 8 位，含字母和数字" }] :
-      [{ k: "resetPassword", l: "重置为初始密码 123456（要求重新短信改密）", t: "select", opts: [{ v: "0", l: "不重置" }, { v: "1", l: "重置" }] }])
+    ...(state.super ? (state.demo ? [{ k: "password", l: "重置密码（留空不改）", ph: "留空不改；至少 8 位，含字母和数字" }] :
+      [{ k: "resetPassword", l: "重置为初始密码 123456（要求重新短信改密）", t: "select", opts: [{ v: "0", l: "不重置" }, { v: "1", l: "重置" }] }]) : [])
   ];
-  const m = modal({ title: `编辑账号 · ${esc(u.name)}`, width: "600px", body: formHtml(fields, { ...u, active: String(u.active) })+associationPicker(u.assocs||[u.assoc]),
+  const m = modal({ title: `编辑账号 · ${esc(u.name)}`, width: "600px", body: formHtml(fields, { ...u, active: String(u.active) })+(state.super?associationPicker(u.assocs||[u.assoc]):""),
     footer: `<button class="btn btn-o" data-x="0">取消</button><button class="btn btn-p" data-x="1">保存</button>` });
   m.querySelector('[data-x="0"]').onclick = () => m.classList.remove("open");
   m.querySelector('[data-x="1"]').onclick = async () => {
     if (!validate(m, fields)) return;
     const v = readForm(m);
-    const body = { name: v.name, role: v.role, assocs:selectedAssocs(m), dept: v.dept, phone: v.phone, active: Number(v.active) };
-    if (state.demo && v.password) body.password = v.password;
-    if (!state.demo && v.resetPassword === "1") body.resetPassword = true;
+    const body = { name: v.name, dept: v.dept, active: Number(v.active) };
+    if(state.super){
+      Object.assign(body,{role:v.role,assocs:selectedAssocs(m),phone:v.phone});
+      if (state.demo && v.password) body.password = v.password;
+      if (!state.demo && v.resetPassword === "1") body.resetPassword = true;
+    }
     try {
       const r = await api.patch(`/api/users/${u.id}`, body);
       toast(r.message, "ok");

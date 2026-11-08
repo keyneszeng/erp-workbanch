@@ -13,16 +13,16 @@ import { state, can } from "./api.js";
  * 改这里的 need 条件时必须同步改那边。
  */
 export const NAV = [
-  { k: "dashboard", n: "工作台", items: [{ k: "dashboard", n: "我的工作台" }, { k: "flow", n: "全流程总览" }] },
+  { k: "dashboard", n: "工作台", items: [{ k: "dashboard", n: "我的工作台" }, { k: "flow", n: "全流程总览", need: () => state.role?.modules?.includes("dashboard") }] },
   { k: "projects", n: "项目管理", items: [
     { k: "projects", n: "会议项目" },
-    { k: "approvals", n: "审批中心", need: () => can("project:approve") || can("verify:exception_approve") || can("payment:approve") },
+    { k: "approvals", n: "审批中心", need: () => can("project:approve") || can("verify:exception_approve") || can("payment:approve") || can("contract:approve") },
     { k: "contracts", n: "合同台账", need: () => state.role.modules.includes("prep") },
     { k: "prep-invitations", n: "企业邀请（招商）/嘉宾邀请", need: () => can("invite:manage") }
   ] },
   { k: "demand", n: "会务需求", items: [{ k: "demand", n: "需求确认" }] },
   { k: "verify", n: "会后核销", items: [{ k: "verify", n: "核销看板" }] },
-  { k: "finance", n: "财务结算", items: [{ k: "finance", n: "付款与结算" }, { k: "project-ledger", n: "项目台账", need: () => can("ledger:read") }] },
+  { k: "finance", n: "会议收入与财务", items: [{ k: "finance", n: "收入／付款／结算" }, { k: "project-ledger", n: "项目台账", need: () => can("ledger:read") }] },
   { k: "materials", n: "材料中心", items: [{ k: "materials", n: "归档材料" }] },
   { k: "archive", n: "档案中心", items: [{ k: "archive", n: "数字卷宗" }] },
   { k: "audit", n: "审计日志", items: [{ k: "audit", n: "操作留痕" }] },
@@ -35,6 +35,14 @@ export const NAV = [
  */
 export function canVisit(nav) {
   const mods = state.role?.modules || [];
+  // 操作模块对会议有只读依赖；API仍按账号数据范围与每项业务授权裁剪。
+  if(nav==="projects" && (
+    ["projects","prep","demand","exec","materials","verify","finance","archive"].some(m=>mods.includes(m)) ||
+    ["project:create","project:approve","project:transition","project:change","project:edit",
+     "project:member","mini:apply","contract:write","contract:approve","invite:manage",
+     "demand:write","material:write","payment:create","payment:approve","payment:pay","settle:create",
+     "verify:check","verify:exception","verify:exception_approve","verify:conclude","archive:write",
+     "archive:download","ledger:read"].some(can)))return true;
   if(nav==="dashboard"&&!mods.includes("dashboard"))return true; // 无功能授权时展示安全待授权提示
   for (const g of NAV) {
     if (!mods.includes(g.k)) continue;

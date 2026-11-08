@@ -16,7 +16,7 @@ let proc;
 let admin, assoc, finance, guest;
 
 async function waitReady() {
-  for (let i = 0; i < 160; i++) {
+  for (let i = 0; i < 300; i++) {
     try {
       const r = await fetch(BASE + "/api/health");
       if (r.ok) return;
