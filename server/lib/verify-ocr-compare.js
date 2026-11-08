@@ -32,6 +32,9 @@ function cache(m,pid){
  if(!row)return null;
  const ext=m.file_key.split(".").pop().toLowerCase();
  // 原生 Office/TXT 文本并非 OCR，仍可复用；图片和扫描 PDF 必须来自 RapidOCR。
+ // Previous XLSX reader appended the entire shared-string pool, including unused names,
+ // so its cached "recognized" result cannot be trusted for speaker verification.
+ if(ext==="xlsx"&&row.engine!==office.XLSX_ENGINE)return null;
  if(!OCR_TYPES.has(ext))return office.SUPPORTED.has(ext)?row:null;
  return ocr.providerMatches(row.engine)?row:null;
 }
@@ -41,19 +44,28 @@ function persist(m,pid,result,operator){
   result.engine,result.mode,result.pages,result.totalPages,result.truncated?1:0,now(),operator);
 }
 async function scan(pid,no,operator){
- if(!isDemoMode()&&(!ocr.enabled()||storage().name!=="fs"))
-  throw Object.assign(new Error("当前部署未启用 RapidOCR，请在阿里云 ECS 配置 ERP_OCR_ENABLED=1，安装 RapidOCR (ONNX Runtime CPU) 和 Poppler"),{status:503,code:"OCR_NOT_CONFIGURED"});
+ const docs=materials(pid,no);
+ const available=ocr.enabled()&&storage().name==="fs";
+ // Native Office files (including XLSX attendance) never require RapidOCR.
+ // On demo installs do not simulate image recognition, but do read real Office bytes.
+ const officePresent=docs.some(m=>office.SUPPORTED.has(m.file_key.split(".").pop().toLowerCase()));
+ if(!isDemoMode()&&!available&&!officePresent)
+  throw Object.assign(new Error("当前部署未启用 RapidOCR，请在阿里云 ECS 配置 ERP_OCR_ENABLED=1，安装 RapidOCR (ONNX Runtime CPU) 和 Poppler；Excel原生表格可不依赖 RapidOCR 解析"),{status:503,code:"OCR_NOT_CONFIGURED"});
  let processed=0;
- for(const m of materials(pid,no)){
+ for(const m of docs){
   if(cache(m,pid))continue;
   const ext=m.file_key.split(".").pop().toLowerCase();
-  if((!OCR_TYPES.has(ext)&&!office.SUPPORTED.has(ext))||isDemoMode())continue; // 测试环境不捏造OCR。
+  const nativeOffice=office.SUPPORTED.has(ext);
+  if(!nativeOffice&&(!OCR_TYPES.has(ext)||isDemoMode()||!available))continue;
   const file=await storage().get(m.file_key);
-  if(!file)continue;
-  try{persist(m,pid,OCR_TYPES.has(ext)?await ocr.recognize(file.buffer,ext):office.extract(file.buffer,ext),operator);processed++;}
-  catch(e){
+  if(!file?.buffer)continue;
+  try{
+   const result=nativeOffice?office.extract(file.buffer,ext):await ocr.recognize(file.buffer,ext);
+   if(result?.text?.trim()){persist(m,pid,result,operator);processed++;}
+  }catch(e){
    if(["OCR_DISABLED","OCR_ENGINE_MISSING","OCR_PROVIDER_MISCONFIGURED","OCR_UNAVAILABLE","OCR_TIMEOUT"].includes(e.code))throw e;
-   // 损坏原件在报告里明确标为“无法确认”，其余原件仍可正常识别。
+   // Corrupt/unreadable originals remain 'not recognized' in the report; never
+   // pretend a failed or ambiguous document was a verified attendance list.
   }
  }
  return {...report(pid,no),processed};
