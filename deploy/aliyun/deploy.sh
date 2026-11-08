@@ -11,7 +11,7 @@
 #
 # 测试模式（--test）：
 #   sudo ./deploy.sh --test --admin-phone 13800000000
-#   临时验收端口 8080 仅绑定 127.0.0.1，通过 SSH 加密隧道访问（不可公网直连）；
+#   面向「域名未备案、短信未开通」阶段：纯 HTTP 监听 8080，用 IP 直接访问；
 #   验证码走 console 通道写入服务器日志，不发真实短信。
 #   与生产完全隔离：独立代码目录 /opt/erp-test、数据库 /var/lib/erp-test、端口 8788。
 #
@@ -27,7 +27,7 @@ set -Eeuo pipefail
 
 MODE="prod"
 REPO_URL="${ERP_REPO_URL:-https://github.com/keyneszeng/erp-workbanch.git}"
-REF="${ERP_REF:-main}"
+REF="${ERP_REF:-}"
 CONF_DIR="/etc/erp-workbanch"
 SERVICE_USER="erp"
 DOMAIN=""
@@ -70,6 +70,22 @@ while [ $# -gt 0 ]; do
     *) die "未知参数：$1（用 --help 查看用法）" ;;
   esac
 done
+
+# 业务功能以 ECS 测试分支为准：测试拉测试分支，正式发布拉已验收并同步的 main。
+# --ref / ERP_REF 可以显式传入，但不能跨环境误用分支。
+if [ -z "$REF" ]; then
+  if [ "$MODE" = "test" ]; then
+    REF="云服务器测试版本"
+  else
+    REF="main"
+  fi
+fi
+if [ "$MODE" = "test" ] && [ "$REF" != "云服务器测试版本" ]; then
+  die "测试部署只允许 云服务器测试版本 分支（实际：$REF）"
+fi
+if [ "$MODE" = "prod" ] && [ "$REF" != "main" ]; then
+  die "生产部署只允许已同步测试版功能的 main 分支（实际：$REF）"
+fi
 
 # ---------- 模式派生 ----------
 if [ "$MODE" = "test" ]; then
@@ -144,9 +160,8 @@ if [ -n "$FIXED_CODE" ]; then
   [ "$SMS_PROVIDER" = "console" ] || die "ERP_TEST_FIXED_SMS_CODE 仅可与 console 通道同时使用"
 fi
 
-if [ "$MODE" = "prod" ]; then
-  [ "$SKIP_TLS" = "0" ] || die "生产部署禁止 --skip-tls：正式域名必须使用有效 HTTPS 证书"
-  [ -n "$ACME_EMAIL" ] || die "生产证书签发需要 --email"
+if [ "$MODE" = "prod" ] && [ "$SKIP_TLS" = "0" ]; then
+  [ -n "$ACME_EMAIL" ] || die "签发证书需要 --email（或加 --skip-tls 先不配 HTTPS）"
 fi
 
 # ---------- 系统依赖 ----------
@@ -180,6 +195,44 @@ if [ "$MODE" = "prod" ]; then
   run apt-get install -y -qq certbot python3-certbot-nginx
 fi
 
+# 材料/议程 OCR：RapidOCR 负责识别，poppler 负责 PDF 拆页与文本层提取。
+# RapidOCR 本身装在独立 venv 里（见 install-rapidocr.sh），不在这里装。
+log "安装 OCR 依赖（poppler-utils）"
+run apt-get install -y -qq poppler-utils
+
+# Office 原件在线预览（课件 / 串场 PPT、劳务表 Excel）。
+# 浏览器没有 Office 渲染能力，预览时由 LibreOffice 无头模式转成 PDF，再用 poppler 拆成图片。
+# 只装 writer/calc/impress 三个组件，不装全套（省 ~300MB）；中文字体必须装，
+# 否则转出来的 PDF 里中文全是方框。
+log "安装 Office 预览依赖（LibreOffice + 中文字体）"
+if [ "$DRY_RUN" = "0" ] && command -v soffice >/dev/null 2>&1; then
+  log "  LibreOffice 已安装，跳过"
+else
+  run apt-get install -y -qq --no-install-recommends \
+    libreoffice-writer libreoffice-calc libreoffice-impress fonts-wqy-zenhei
+fi
+if [ "$DRY_RUN" = "0" ]; then
+  command -v soffice >/dev/null 2>&1 \
+    || warn "LibreOffice 未就绪，Office 原件只能下载查看"
+  fc-list 2>/dev/null | grep -qi "wqy\|noto.*cjk" \
+    || warn "未检测到中文字体，Office 转 PDF 后中文可能显示为方框"
+fi
+
+# 超大附件自动瘦身：PDF 用 Ghostscript 降采样，图片用 ImageMagick 限长边。
+# 缺这两个工具时，>20MB 的扫描件会直接被拒（提示用户本地压缩），不会静默丢数据。
+log "安装附件压缩依赖（Ghostscript + ImageMagick + zip/unzip）"
+if [ "$DRY_RUN" = "0" ] && command -v gs >/dev/null 2>&1 && command -v convert >/dev/null 2>&1 \
+   && command -v zip >/dev/null 2>&1 && command -v unzip >/dev/null 2>&1; then
+  log "  压缩工具已安装，跳过"
+else
+  run apt-get install -y -qq --no-install-recommends ghostscript imagemagick zip unzip
+fi
+if [ "$DRY_RUN" = "0" ]; then
+  command -v gs >/dev/null 2>&1 || warn "Ghostscript 未就绪，超大 PDF 无法自动压缩"
+  command -v convert >/dev/null 2>&1 || warn "ImageMagick 未就绪，超大图片无法自动压缩"
+  command -v zip >/dev/null 2>&1 || warn "zip 未就绪，超大 PPTX/DOCX/XLSX 无法自动压缩"
+fi
+
 # ---------- 服务账户与目录 ----------
 if ! id -u "$SERVICE_USER" >/dev/null 2>&1; then
   log "创建服务账户 $SERVICE_USER"
@@ -190,6 +243,9 @@ log "准备目录（$DATA_ROOT）"
 run install -d -m 0755 "$APP_ROOT" "$APP_ROOT/releases"
 run install -d -m 0700 -o "$SERVICE_USER" -g "$SERVICE_USER" "$DATA_ROOT"
 run install -d -m 0700 -o "$SERVICE_USER" -g "$SERVICE_USER" "$DATA_ROOT/uploads"
+# Office 转 PDF 的缓存目录：key 一次上传一个、永不改写，所以转换结果可以长期复用，
+# 否则每次翻页都要重跑一遍 LibreOffice（1~3 秒）。
+run install -d -m 0700 -o "$SERVICE_USER" -g "$SERVICE_USER" "$DATA_ROOT/preview-cache"
 run install -d -m 0700 "$DATA_ROOT/backup"
 run install -d -m 0750 -o root -g "$SERVICE_USER" "$CONF_DIR"
 
@@ -198,6 +254,17 @@ STAMP="$(date +%Y%m%d%H%M%S)"
 RELEASE_DIR="$APP_ROOT/releases/$STAMP"
 log "拉取代码：$REPO_URL @ $REF → $RELEASE_DIR"
 run git clone --quiet --depth 1 --branch "$REF" "$REPO_URL" "$RELEASE_DIR"
+# 正式部署必须与当前测试基线的业务源码一致；绕过 CI 的独立旧主线不能上线。
+if [ "$DRY_RUN" = "0" ] && [ "$MODE" = "prod" ]; then
+  log "核对生产代码与云服务器测试版本的主要业务功能"
+  git -C "$RELEASE_DIR" fetch --quiet --no-tags --depth 1 origin \
+    'refs/heads/云服务器测试版本:refs/remotes/origin/erp-test-baseline' \
+    || die "无法获取云服务器测试基准分支，已拒绝生产部署"
+  if ! git -C "$RELEASE_DIR" diff --quiet refs/remotes/origin/erp-test-baseline HEAD -- \
+      server web miniprogram worker api package.json wrangler.jsonc; then
+    die "生产源码与云服务器测试版功能不一致，先完成测试版→main 代码同步，再部署"
+  fi
+fi
 if [ "$DRY_RUN" = "0" ]; then
   git -C "$RELEASE_DIR" rev-parse --short HEAD > "$RELEASE_DIR/.revision"
   log "代码版本：$(cat "$RELEASE_DIR/.revision")"
@@ -222,6 +289,22 @@ if [ -f "$ENV_FILE" ]; then
 else
   log "生成 $ENV_FILE"
   GEN_SECRET="$(openssl rand -base64 48 | tr -d '\n')"
+  # 劳务收款人银行账号用 AES-256-GCM 加密存储，需要独立的 32 字节密钥（64 位十六进制）。
+  # 缺失时不会报错，但敏感账号不写库，付款申请就选不到已核验收款人。
+  GEN_FIN_KEY="$(openssl rand -hex 32)"
+  # 邀请函邮件用 Resend 发送，管理员在界面里填的 API Key 用它加密后入库。
+  # 缺失时保存发件密钥会报 MAIL_ENCRYPTION_KEY_REQUIRED，邀请函只能生成 PDF、发不出邮件。
+  GEN_MAIL_KEY="$(openssl rand -base64 48 | tr -d '\n')"
+  # 邀请函公开链接前缀：生产用域名，测试用 IP:端口。
+  # 测试环境没有域名，尽量从阿里云元数据取 EIP；取不到就留空，由管理员在界面里填。
+  if [ -z "${ERP_PUBLIC_BASE_URL:-}" ]; then
+    if [ "$MODE" = "test" ]; then
+      EIP="$(curl -sS --max-time 2 http://100.100.100.200/latest/meta-data/eipv4 2>/dev/null || true)"
+      [ -n "$EIP" ] && ERP_PUBLIC_BASE_URL="http://${EIP}:${NGINX_PORT}"
+    else
+      ERP_PUBLIC_BASE_URL="https://${DOMAIN}"
+    fi
+  fi
   if [ "$DRY_RUN" = "1" ]; then
     printf '    + 写入 %s（含新生成的 ERP_SECRET）\n' "$ENV_FILE"
   else
@@ -232,14 +315,20 @@ else
       printf 'ERP_DEPLOY_TARGET=%s\n' "$DEPLOY_TARGET"
       printf 'ERP_DEMO_MODE=0\n'
       printf 'ERP_PRODUCTION_DOMAIN=%s\n' "$DOMAIN"
+      printf 'ERP_PUBLIC_BASE_URL=%s\n' "${ERP_PUBLIC_BASE_URL:-}"
       printf 'ERP_BOOTSTRAP_ADMIN_PHONE=%s\n' "$ADMIN_PHONE"
       printf 'ERP_DB=%s/erp.db\n' "$DATA_ROOT"
       printf 'ERP_UPLOAD_DIR=%s/uploads\n' "$DATA_ROOT"
+      printf 'ERP_PREVIEW_CACHE_DIR=%s/preview-cache\n' "$DATA_ROOT"
+      printf 'ERP_MAX_UPLOAD_MB=%s\n' "${ERP_MAX_UPLOAD_MB:-200}"
+      printf 'ERP_MAX_FILE_MB=%s\n' "${ERP_MAX_FILE_MB:-50}"
       printf 'ERP_HOST=127.0.0.1\n'
       printf 'ERP_PORT=%s\n' "$APP_PORT"
       printf 'ERP_TRUST_PROXY=1\n'
       printf 'ERP_SESSION_FALLBACK=0\n'
       printf 'ERP_SECRET=%s\n' "$GEN_SECRET"
+      printf 'ERP_FINANCIAL_DATA_KEY=%s\n' "$GEN_FIN_KEY"
+      printf 'ERP_MAIL_CONFIG_KEY=%s\n' "$GEN_MAIL_KEY"
       printf 'ERP_SMS_PROVIDER=%s\n' "$SMS_PROVIDER"
       case "$SMS_PROVIDER" in
         console) printf 'ERP_TEST_FIXED_SMS_CODE=%s\n' "$FIXED_CODE" ;;
@@ -262,26 +351,29 @@ else
       printf 'ERP_MINIPROGRAM_ENABLED=%s\n' "${ERP_MINIPROGRAM_ENABLED:-0}"
       printf 'ERP_WECHAT_APP_ID=%s\n' "${ERP_WECHAT_APP_ID:-}"
       printf 'ERP_WECHAT_APP_SECRET=%s\n' "${ERP_WECHAT_APP_SECRET:-}"
+      # 测试环境默认开 OCR（服务器已装依赖）；生产默认关，确认依赖齐了再手动开。
+      printf 'ERP_OCR_ENABLED=%s\n' "${ERP_OCR_ENABLED:-$([ "$MODE" = "test" ] && echo 1 || echo 0)}"
+      printf 'ERP_REQUIRE_VERIFIED_PAYEES=%s\n' "${ERP_REQUIRE_VERIFIED_PAYEES:-0}"
     } > "$ENV_FILE"
     chown root:"$SERVICE_USER" "$ENV_FILE"
     chmod 0640 "$ENV_FILE"
   fi
 fi
 
-# ---------- 环境预检（必须先于任何 current 切换） ----------
-log "对候选 release 执行环境预检（$GATE，fail closed）"
-if [ "$DRY_RUN" = "0" ]; then
-  set -a; . "$ENV_FILE"; set +a
-  if ! "$NODE_BIN" "$RELEASE_DIR/scripts/$GATE"; then
-    die "候选版本预检未通过，保留原 current，未重启服务。修正 $ENV_FILE 后重跑。"
-  fi
-fi
-
 # ---------- 切换版本 ----------
-log "预检通过后切换 current → $STAMP"
+log "切换 current → $STAMP"
 if [ "$DRY_RUN" = "0" ]; then
   ln -sfn "$RELEASE_DIR" "$APP_ROOT/current.next"
   mv -Tf "$APP_ROOT/current.next" "$APP_ROOT/current"
+fi
+
+# ---------- 环境预检 ----------
+log "执行环境预检（$GATE，fail closed）"
+if [ "$DRY_RUN" = "0" ]; then
+  set -a; . "$ENV_FILE"; set +a
+  if ! "$NODE_BIN" "$APP_ROOT/current/scripts/$GATE"; then
+    die "预检未通过，未启动服务。修正 $ENV_FILE 后重跑。"
+  fi
 fi
 
 # ---------- systemd ----------
@@ -299,12 +391,12 @@ SITE_AVAIL="/etc/nginx/sites-available/${SITE_NAME}.conf"
 SITE_ENABLED="/etc/nginx/sites-enabled/${SITE_NAME}.conf"
 
 if [ "$MODE" = "test" ]; then
-  # 测试环境：仅绑定 127.0.0.1:8080，禁止公网直连，验收走 SSH 隧道。
-  log "配置 Nginx（127.0.0.1:$NGINX_PORT，仅 SSH 隧道访问）"
+  # 测试环境：纯 HTTP + 8080，直接吃 IP 访问，不碰 80/443（未备案会被拦）
+  log "配置 Nginx（$NGINX_PORT，纯 HTTP，无需备案）"
   if [ "$DRY_RUN" = "0" ]; then
     install -m 0644 "$APP_ROOT/current/deploy/aliyun/nginx-erp-test.conf.example" "$SITE_AVAIL"
     ln -sfn "$SITE_AVAIL" "$SITE_ENABLED"
-    # 测试只增加本地 8080 站点，不删除同机已有的 Nginx 默认站点。
+    rm -f /etc/nginx/sites-enabled/default
     nginx -t
     ensure_nginx
     systemctl reload nginx
@@ -324,7 +416,7 @@ server {
     listen 80;
     listen [::]:80;
     server_name ${DOMAIN};
-    client_max_body_size 12m;
+    client_max_body_size 210m;
 
     location / {
         proxy_pass http://127.0.0.1:${APP_PORT};
@@ -334,13 +426,13 @@ server {
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto \$scheme;
         proxy_connect_timeout 10s;
-        proxy_read_timeout 90s;
+        proxy_read_timeout 300s;
     }
 }
 NGINX
     fi
     ln -sfn "$SITE_AVAIL" "$SITE_ENABLED"
-    # 生产站点按 server_name 匹配；不删除同机已有默认站点。
+    rm -f /etc/nginx/sites-enabled/default
     nginx -t
     ensure_nginx
     systemctl reload nginx
@@ -413,9 +505,15 @@ UNIT
   systemctl enable --now "${BACKUP_UNIT}.timer" >/dev/null
 fi
 
+# ---------- RapidOCR 引擎检查 ----------
+# RapidOCR 装在独立 venv（约 450 MB），不进代码仓库；首次使用需单独安装。
+if [ "$DRY_RUN" = "0" ] && [ ! -x "${ERP_RAPIDOCR_VENV:-/opt/rapidocr-venv}/bin/python" ]; then
+  warn "RapidOCR 未安装，OCR 不可用；请执行 bash deploy/aliyun/install-rapidocr.sh"
+fi
+
 # ---------- 完成 ----------
 PUBLIC_HINT="https://${DOMAIN}"
-[ "$MODE" = "test" ] && PUBLIC_HINT="http://127.0.0.1:${NGINX_PORT}（本地浏览器，先通过 SSH 隧道转发）"
+[ "$MODE" = "test" ] && PUBLIC_HINT="http://<ECS公网IP>:${NGINX_PORT}（安全组需放通 ${NGINX_PORT}）"
 
 cat <<EOF
 
@@ -445,8 +543,7 @@ EOF
 cat <<EOF
 
  注意        本环境仅供功能验证，禁止录入真实业务数据。
-             ECS 安全组不要放通公网 8080；通过 SSH -L 8080:127.0.0.1:8080 访问。
-             域名及短信合规准备完成后，使用独立生产模式部署。
+             域名备案与短信审核通过后，用生产模式重新部署，两者互不影响。
 ────────────────────────────────────────────────────────
 EOF
 else
