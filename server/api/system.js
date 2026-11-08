@@ -35,9 +35,10 @@ function myTodos(user) {
   ).all(...params);
 
   for (const a of pendingAp) {
-    const need = a.type === "立项审批" ? can(user, "project:approve")
+    const need = ["立项审批","变更审批"].includes(a.type) ? can(user, "project:approve")
       : a.type === "例外单审批" ? can(user, "verify:exception_approve")
-      : a.type === "付款审批" ? can(user, "payment:approve") : can(user, "project:approve");
+      : a.type === "付款审批" ? can(user, "payment:approve")
+      : a.type === "合同审批" ? can(user, "contract:approve") : false;
     if (need && canVisitNav(user,"approvals")) todos.push({ kind: "审批", title: `${a.type}：${a.title}`, pid: a.pid, pname: a.pname, ref: a.id, sla: a.sla, go: "approvals" });
   }
   // 立项审批通过后，自动进入已指派会务执行负责人待办；由负责人执行“进入筹备”。

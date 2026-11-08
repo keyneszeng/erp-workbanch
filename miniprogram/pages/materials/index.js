@@ -10,6 +10,13 @@ Page({
   try{
    const r=await app.api("/projects?page=1&size=100");
    const projects=r.rows||[];
+   // 指定项目可能不在第一页；不能悄悄把材料归档到另一场会议。
+   if(this.data.pid&&!projects.some(x=>x.id===this.data.pid)){
+    try{
+     const one=await app.api("/projects/"+encodeURIComponent(this.data.pid));
+     if(one.project)projects.unshift(one.project);
+    }catch(e){this.setData({error:"指定会议不可访问："+e.message});return;}
+   }
    let index=projects.findIndex(x=>x.id===this.data.pid);if(index<0)index=0;
    const p=projects[index];
    this.setData({projects,index,pid:p?.id||"",locked:!p||["已结算","已归档"].includes(p.status)});

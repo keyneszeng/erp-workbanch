@@ -39,8 +39,8 @@ export async function render(root) {
   const [c, proj] = await Promise.all([api.get("/api/contracts"), api.get("/api/projects")]);
   if (seq !== renderSeq) return;
   const rows = c.rows.filter((r) => !q || (r.name + r.vendor + r.pname + r.id).includes(q));
-  const total = rows.reduce((s, r) => s + r.amount, 0);
-  const signed = rows.filter((r) => r.status === "已签署").reduce((s, r) => s + r.amount, 0);
+  const total = rows.reduce((s, r) => s + Number(r.amount || 0), 0);
+  const signed = rows.filter((r) => r.status === "已签署").reduce((s, r) => s + Number(r.amount || 0), 0);
   const withFile = rows.filter((r) => r.file_key).length;
 
   root.innerHTML = `<div class="phead">

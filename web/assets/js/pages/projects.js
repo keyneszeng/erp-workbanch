@@ -14,6 +14,7 @@ const TABS = [
 
 const PAGE_SIZE = 50;
 let filter = { stage: "", q: "", assoc: "", page: 1 };
+let listSeq = 0;
 
 export async function render(root) {
   root.innerHTML = `<div class="phead">
@@ -71,7 +72,9 @@ async function load(root) {
   if (filter.assoc) qs.set("assoc", filter.assoc);
   qs.set("page", filter.page);
   qs.set("size", PAGE_SIZE);
+  const requestNo=++listSeq;
   const d = await api.get("/api/projects?" + qs.toString());
+  if (requestNo!==listSeq) return;
   const list = root.querySelector("#list");
   root.querySelector("#cnt").textContent = d.total;
   // 分页后本页行只含当前页金额，合计必须用后端给的全量 summary
