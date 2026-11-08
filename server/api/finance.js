@@ -9,7 +9,33 @@ const { readPaging, countOf } = require("../lib/paginate");
 const { transition } = require("../lib/workflow");
 const { assertUploadAttachable } = require("../lib/upload-ownership");
 const { isDemoMode } = require("../lib/runtime");
+const {availableBudget}=require("../lib/budget-fee");
 const { storage, sniffMime, safeName, ALLOWED_MIME, MAX_BYTES } = require("../lib/storage");
+
+/**
+ * 同一项目、付款类型、收款方、金额（分）、**期次**视为同一笔有效付款申请。
+ * 发票号、备注、银行账号变化不代表新的应付事项。
+ *
+ * 期次是后加的：分期付款两期金额常常完全相同（合同 12 万，两期各 6 万），
+ * 只按「类型+收款方+金额」去重会把第二期误判成重复提交，
+ * 逼得用户改收款方名称（如「（尾款）」）绕过 —— 那是脏数据。
+ * 不填期次时按空串参与比较，等价于原来的三要素去重。
+ */
+function paymentDedupeKey(type,payee,amount,period) {
+  const canonical=v=>String(v||"").normalize("NFKC").replace(/\s+/g,"").toLowerCase();
+  return JSON.stringify([canonical(type),canonical(payee),cents(amount),canonical(period)]);
+}
+function findExistingPayment(pid,type,payee,amount,period) {
+  const key=paymentDedupeKey(type,payee,amount,period);
+  return db.prepare("SELECT id,type,payee,amount,period,status,dedupe_key FROM payments WHERE pid=? AND status<>'已驳回'")
+    .all(pid).find(y=>y.dedupe_key===key || paymentDedupeKey(y.type,y.payee,y.amount,y.period)===key);
+}
+function duplicatePaymentError(row) {
+  return conflict(
+    "本笔付款已存在申请 "+row.id+"（"+row.status+"），不能重复提交；请在付款记录查看原申请",
+    "DUPLICATE_PAYMENT",{payment:row.id,status:row.status}
+  );
+}
 
 // 只有「已核销」可新增付款：结算后账目已封账，归档后卷宗已封存，均不得再挂账
 const PAYABLE_STATUS = ["已核销"];
@@ -492,17 +518,20 @@ function register(router) {
     if (!Number.isFinite(amount) || !(amount > 0)) throw bad("付款金额必须大于 0");
     if (amount > 1e9) throw bad("单笔付款金额不能超过 10 亿元");
     if (Number(amount.toFixed(2)) !== amount) throw bad("付款金额最多保留两位小数（精确到分）");
+    // 期次：可选。填了就参与去重，让「同额分期」的第二期能正常提交。
+    const period = String(b.period ?? "").trim();
+    if (period.length > 20) throw bad("期次不能超过 20 字（如：第1期 / 首付款 / 尾款）");
     // 超预算硬门禁：总管理员可显式 force 特批
     // 比较走「分」，否则 2789.69 + 2600.09 = 5389.780000000001 > 预算 5389.78，
     // 明明正好用尽却报「超预算 ¥0.0000000000000009」。
     const used = committed(p.id);
-    const budget = yuan(p.budget);
+    const budget = availableBudget(p);
     const force = !!b.force && isSuper(ctx.user);
     const overCents = cents(used) + cents(amount) - cents(budget);
     if (!force && overCents > 0) {
       const over = overCents / 100;
       throw conflict(
-        `付款被拦截：项目预算 ¥${budget.toLocaleString("zh-CN")}，已占用 ¥${used.toLocaleString("zh-CN")}，` +
+        `付款被拦截：项目可用预算 ¥${budget.toLocaleString("zh-CN")}（立项预算扣除税费管理费），已占用 ¥${used.toLocaleString("zh-CN")}，` +
         `本笔 ¥${amount.toLocaleString("zh-CN")} 将超预算 ¥${over.toLocaleString("zh-CN")}；` +
         `如需特批请由总管理员携带 force 标记提交`,
         "OVER_BUDGET",
@@ -525,15 +554,31 @@ function register(router) {
       }
     }
 
-    const id = nextId(db, "payments", "id", "PY");
-    db.prepare("INSERT INTO payments (id,pid,type,payee,payee_bank,payee_account,amount,invoice_no,req_user,status,remark,created_by,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)")
-      .run(id, p.id, b.type, payee, payeeBank, payeeAccount, amount, invoiceNo, ctx.user.name, "待审批", remark, ctx.user.id, at);
-    const apId = nextId(db, "approvals", "id", "AP");
-    db.prepare("INSERT INTO approvals (id,type,title,pid,ref_id,amount,by_user,sla,status,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)")
-      .run(apId, "付款审批", `${b.type} ¥${amount.toLocaleString("zh-CN")}`, p.id, id, amount, ctx.user.name, "1 个工作日", "待审批", at);
+    // 付款与审批单原子提交；数据库唯一约束确保并发请求只有一次成功。
+    const key=paymentDedupeKey(b.type,payee,amount,period);
+    const prior=findExistingPayment(p.id,b.type,payee,amount,period);
+    if(prior)throw duplicatePaymentError(prior);
+    let id;
+    try{
+      transaction(()=>{
+        const same=findExistingPayment(p.id,b.type,payee,amount,period);
+        if(same)throw duplicatePaymentError(same);
+        id=nextId(db,"payments","id","PY");
+        db.prepare("INSERT INTO payments (id,pid,type,payee,payee_bank,payee_account,amount,invoice_no,dedupe_key,period,req_user,status,remark,created_by,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
+          .run(id,p.id,b.type,payee,payeeBank,payeeAccount,amount,invoiceNo,key,period,ctx.user.name,"待审批",remark,ctx.user.id,at);
+        const apId=nextId(db,"approvals","id","AP");
+        db.prepare("INSERT INTO approvals (id,type,title,pid,ref_id,amount,by_user,sla,status,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)")
+          .run(apId,"付款审批",`${b.type} ¥${amount.toLocaleString("zh-CN")}`,p.id,id,amount,ctx.user.name,"1 个工作日","待审批",at);
+      });
+    }catch(err){
+      if(err.code==="DUPLICATE_PAYMENT")throw err;
+      const collided=findExistingPayment(p.id,b.type,payee,amount,period);
+      if(collided)throw duplicatePaymentError(collided);
+      throw err;
+    }
     logAudit({
       user: ctx.user, module: "财务结算", action: "付款申请", target: p.id,
-      detail: `${id} ${b.type} ¥${amount.toLocaleString("zh-CN")} → ${b.payee}（${payeeBank} 尾号 ${payeeAccount.slice(-4)}；核销已通过${force ? "；超预算特批" : ""}）`,
+      detail: `${id} ${b.type} ¥${amount.toLocaleString("zh-CN")}${period ? "（" + period + "）" : ""} → ${b.payee}（${payeeBank} 尾号 ${payeeAccount.slice(-4)}；核销已通过${force ? "；超预算特批" : ""}）`,
       ip: ctx.ip
     });
     return { payment: db.prepare("SELECT * FROM payments WHERE id = ?").get(id), message: `付款申请 ${id} 已提交，等待财务审批` };
