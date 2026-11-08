@@ -121,12 +121,19 @@ function register(router) {
       if(!demand.contractCount)throw conflict("没有已签署的会务合同","CONTRACT_NOT_SIGNED");
       if(!demand.agreements.length || !demand.invoices.length)
         throw conflict("需上传会务需求类别合同对应原件及会务发票，不关联终版议程","SOP_MATERIAL_MISSING");
-      invoiceAmount=isAuto?ocrReport.invoiceAmount:Number(ctx.body?.invoiceAmount);
-      if((!isAuto&&(ctx.body?.invoiceAmount===""||ctx.body?.invoiceAmount==null))||invoiceAmount==null||!Number.isFinite(invoiceAmount)||
-         invoiceAmount<0||Number(invoiceAmount.toFixed(2))!==invoiceAmount)
-        throw bad(isAuto?"OCR未能从会务发票唯一可靠识别金额，请补充清晰的发票PDF/图片后重新扫描":"请输入会务发票总金额（精确到分）");
-      if(cents(demand.budgetTotal)!==cents(demand.contractTotal)||cents(invoiceAmount)!==cents(demand.budgetTotal))
-        throw conflict("会务需求总预算、会务合同总金额、会务发票金额三方必须一致","MEETING_THREE_WAY_MISMATCH");
+      /**
+       * 第 6 步口径已改为「会务合同与发票关联核对」：只要求
+       * 会务需求预算 == 已签会务合同总额，并已关联发票原件，**不校验发票金额**。
+       * 旧版这里还强制 OCR 唯一识别发票金额并要求三方一致，导致项目里有多张
+       * 发票（会务发票 + 赞助发票）或发票是扫描件时，提示
+       * 「OCR未能从会务发票唯一可靠识别金额」永远判不了通过。
+       * invoice_amount 仍按可识别到的值记录供查阅，但不再作为门禁条件。
+       */
+      if(cents(demand.budgetTotal)!==cents(demand.contractTotal))
+        throw conflict("会务需求总预算与已签署会务合同总金额不一致","MEETING_THREE_WAY_MISMATCH");
+      const candidate=isAuto?ocrReport.invoiceAmount:ctx.body?.invoiceAmount;
+      invoiceAmount=(candidate===null||candidate===undefined||candidate==="")?null:Number(candidate);
+      if(invoiceAmount!==null&&(!Number.isFinite(invoiceAmount)||invoiceAmount<0))invoiceAmount=null;
     }
     if (!isDemoMode() && result==="通过") {
       const outstanding = db.prepare("SELECT id,resolved_at,evidence_material_id FROM exceptions WHERE pid=? AND step_no=? AND status='待复核'").all(p.id,no);

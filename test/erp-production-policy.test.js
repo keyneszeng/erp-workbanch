@@ -221,10 +221,12 @@ test("production: association member IDs, approved contract signing and pay-afte
     step=await request("POST","/api/projects/"+pid+"/verify/steps/"+no,{result:"通过",evidence:sop[no]},cookie);
     assert.equal(step.status,200,"out-of-order verification "+no+": "+JSON.stringify(step.body));
   }
+  // 第 6 步新口径：只核对「需求预算 == 已签会务合同总额」并已关联发票原件，
+  // 不校验发票金额。金额填多少都不应拦住判定（预算≠合同另有用例覆盖）。
   step=await request("POST","/api/projects/"+pid+"/verify/steps/6",{result:"通过",invoiceAmount:7999,evidence:sop[6]},cookie);
-  assert.equal(step.status,409,"invoice total cannot differ from signed contracts");
-  step=await request("POST","/api/projects/"+pid+"/verify/steps/6",{result:"通过",invoiceAmount:8000,evidence:sop[6]},cookie);
-  assert.equal(step.status,200,JSON.stringify(step.body));
+  assert.equal(step.status,200,"step 6 must not gate on invoice amount: "+JSON.stringify(step.body));
+  step=await request("POST","/api/projects/"+pid+"/verify/steps/6",{result:"通过",evidence:sop[6]},cookie);
+  assert.equal(step.status,200,"step 6 must pass without any invoice amount: "+JSON.stringify(step.body));
   assert.equal(step.body.verification.exceptions.find(x=>x.id===exceptionId).status,"已闭环",
     "整改必须在原步骤核销通过后才闭环");
   const freeze=await request("POST","/api/contracts",{pid,name:"Late Contract",vendor:"X",amount:1,status:"草稿"},cookie);
