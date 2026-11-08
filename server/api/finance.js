@@ -1,5 +1,8 @@
 "use strict";
 const { db, transaction } = require("../lib/db");
+const { scanContract } = require("./income");
+const { normalizedCategories } = require("../lib/sponsor-rights");
+const { linkedSponsor,ensureSponsorSignable,setSponsorStatus } = require("../lib/sponsor-ledger");
 const { now, today, nextId, bad, notFound, conflict, forbidden, cents, yuan, parseBankAccount, parseBankName } = require("../lib/util");
 const { assertCan, assertModule, assertProjectVisible, scopeFilter, can, isSuper } = require("../lib/rbac");
 const { logAudit } = require("../lib/audit");
@@ -108,6 +111,17 @@ function register(router) {
     return { rows, total, page: paging.page, size: paging.size, pages: Math.max(1, Math.ceil(total / paging.size)), paged: true };
   });
 
+  /** 先上传再扫描，OCR仅预填，正式合同仍须人工核对后保存。 */
+  router.post("/api/contracts/scan",async ctx=>{
+    const b=ctx.body||{},p=getProject(b.pid);
+    assertProjectVisible(ctx.user,p);
+    assertCan(ctx.user,"contract:write","当前角色无合同录入权限");
+    const key=String(b.file_key||"");
+    if(!FILE_KEY_RE.test(key))throw bad("请先上传合同原件后进行OCR扫描");
+    assertUploadAttachable(key,p.id,ctx.user);
+    return scanContract(key,true);
+  });
+
   router.post("/api/contracts", async (ctx) => {
     const b = ctx.body || {};
     const p = getProject(b.pid);
@@ -165,7 +179,12 @@ function register(router) {
       fmime = String(b.file_mime || "").slice(0, 60) || null;
     }
 
-    const id = nextId(db, "contracts", "id", "HT");
+    if(category==="企业赞助"&&!fk)throw bad("企业赞助合同必须上传原件，以便自动关联会议收入");
+    const draft=category==="企业赞助" && b.rightsCategories!=null?normalizedCategories(b.rightsCategories):null;
+    const scan=category==="企业赞助" && draft===null?await scanContract(fk):null;
+    let id,sponsorId=null;
+    transaction(()=>{
+    id=nextId(db, "contracts", "id", "HT");
     db.prepare("INSERT INTO contracts (id,pid,name,vendor,amount,sign_date,status,category,remark,created_by,created_at,file_key,file_name,file_size,file_mime) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
       .run(id, p.id, b.name, b.vendor, amount, isDemoMode() ? signDate : "", st, category, remark, ctx.user.id, now(), fk, fname, fsize, fmime);
     if(fk) {
@@ -175,11 +194,22 @@ function register(router) {
         VALUES (?,?,?,?,?,?,?,?,?,?)`)
         .run(p.id,"合同",id+" · "+b.name,st,ctx.user.name,now(),fk,fname,fsize,fmime);
     }
+    if(category==="企业赞助"){
+      sponsorId=nextId(db,"meeting_sponsor_contracts","id","SC");
+      const rights=draft===null?(scan?.fields?.rightsContent||[]):draft;
+      db.prepare("INSERT INTO meeting_sponsor_contracts(id,pid,enterprise,contract_no,ledger_contract_id,amount,status,file_key,file_name,created_by,created_at,rights_scan_status,rights_scan_note) "+
+        "VALUES (?,?,?,?,?,?,'待确认',?,?,?,?,?,?)")
+        .run(sponsorId,p.id,String(b.vendor).trim(),id,id,amount,fk,fname,ctx.user.id,now(),
+          rights.length?"待确认":"需人工补录",rights.length?"权益内容待人工核对":"未识别到权益内容，请人工补录");
+      const insert=db.prepare("INSERT INTO sponsor_rights(pid,sponsor_id,category,source,confirmed,updated_at) VALUES (?,?,?,?,0,?)");
+      for(const right of rights)insert.run(p.id,sponsorId,right,draft===null?"ocr":"draft",now());
+    }
     if (!isDemoMode() && st === "待签署") {
       const apId = nextId(db, "approvals", "id", "AP");
       db.prepare("INSERT INTO approvals (id,type,title,pid,ref_id,amount,by_user,sla,status,created_at,submitted_by_id) VALUES (?,?,?,?,?,?,?,?,?,?,?)")
         .run(apId, "合同审批", "合同签署：" + b.name, p.id, id, amount, ctx.user.name, "2 个工作日", "待审批", now(), ctx.user.id);
     }
+    });
     logAudit({
       user: ctx.user, module: "筹备管理", action: "合同录入", target: p.id,
       detail: `${id} ${b.name} / ${b.vendor} / ${category} / ¥${amount.toLocaleString("zh-CN")}${fk ? "（含原件）" : ""}`, ip: ctx.ip
@@ -187,7 +217,7 @@ function register(router) {
 
     // 合同总额超预算是要预警的业务事实（不是错误，可能确需超支）。
     // 硬拦会让人没法录真实合同，所以只回一个 warning 让前端提示，不阻断。
-    const contractSum = Number(db.prepare("SELECT COALESCE(SUM(amount),0) AS s FROM contracts WHERE pid = ?").get(p.id).s) || 0;
+    const contractSum = Number(db.prepare("SELECT COALESCE(SUM(amount),0) AS s FROM contracts WHERE pid = ? AND COALESCE(category,'')<>'企业赞助'").get(p.id).s) || 0;
     const budget = Number(p.budget) || 0;
     let warning = "";
     if (budget > 0 && contractSum > budget) {
@@ -197,6 +227,7 @@ function register(router) {
 
     return {
       contract: db.prepare("SELECT * FROM contracts WHERE id = ?").get(id),
+      sponsorId,
       message: `合同 ${id} 已保存${!isDemoMode() && st === "待签署" ? "并提交协会管理员或总管理员审批签署" : ""}`,
       warning
     };
