@@ -40,3 +40,19 @@ test("被冻结项目不会显示可修改入口，移动协作角色仅展示�
   assert.match(mini,/statusNotes/);
   assert.match(mini,/canMaterials\|\|canApprove/);
 });
+
+
+test("逐页 UI 文字与操作入口符合测试版实际行为", () => {
+  const projects=src("web/assets/js/pages/projects.js");
+  assert.match(projects,/\{ k: "draft", n: "草稿／待审批" \}/);
+  const approvals=src("web/assets/js/pages/approvals.js");
+  assert.doesNotMatch(approvals,/api\/export\/projects/);
+  assert.match(approvals,/view = b\.dataset\.v; render\(root, \[\]\)/);
+  const dashboard=src("web/assets/js/pages/dashboard.js");
+  assert.match(dashboard,/reachable\("flow"\) \? .*data-go="flow"/);
+  const contracts=src("web/assets/js/pages/contracts.js");
+  assert.match(contracts,/opts: \["草稿", "待签署"\]/);
+  const materials=src("web/assets/js/pages/materials.js");
+  assert.match(materials,/if\(requestId!==rightsRequestId\|\|pidSelect\.value!==pid\)return/);
+  assert.match(materials,/esc\(p\.status\)/);
+});
