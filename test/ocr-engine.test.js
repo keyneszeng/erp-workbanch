@@ -83,3 +83,26 @@ test("OCR requires an explicit server-side enable flag; image/PDF MIME mismatch 
     await assert.rejects(recognize(Buffer.from("abc"),"docx"),{code:"OCR_UNSUPPORTED"});
   }finally{if(prev===undefined)delete process.env.ERP_OCR_ENABLED;else process.env.ERP_OCR_ENABLED=prev;}
 });
+
+test("PDF 有文字层时不用启用图片 OCR 也能提取合同内容",async()=>{
+ const {extractPdfText}=require("../server/lib/ocr-engine");
+ const old=process.env.ERP_OCR_ENABLED;
+ delete process.env.ERP_OCR_ENABLED;
+ const commands=[];
+ try{
+  const result=await extractPdfText(Buffer.from("%PDF-1.7\nfixture"),{
+   exec:async(name)=>{
+    commands.push(name);
+    if(name==="pdfinfo")return "Pages: 5\n";
+    return "甲方：广东省医学会\n乙方：广州睿康医疗科技有限公司\n合同金额：120000元";
+   }
+  });
+  assert.equal(result.mode,"pdf-text");
+  assert.equal(result.truncated,true);
+  assert.match(result.text,/合同金额：120000元/);
+  assert.deepEqual(commands,["pdfinfo","pdftotext"]);
+ }finally{
+  if(old===undefined)delete process.env.ERP_OCR_ENABLED;
+  else process.env.ERP_OCR_ENABLED=old;
+ }
+});
