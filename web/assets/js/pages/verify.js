@@ -56,7 +56,7 @@ async function renderOne(root, pid) {
   const p = d.project;
   const v = d.verification;
   const frozen = !!d.settlement;
-  // 任何已上传材料原件满足流程材料门槛；核销六步与财务验证仍独立进行
+  // 任何一份有效上传原件满足最低材料门槛；七项核销的适用检查和财务审批另行完成
   const materialReady = d.materialsStatus.ok;
   const canJudge = can("verify:check") && !frozen && materialReady
     && (p.status === "待核销" || (p.status === "已核销" && state.super));
@@ -78,17 +78,17 @@ async function renderOne(root, pid) {
     任意类别（含「权益照片」）上传至少一份有效附件即可满足材料条件，无需凑齐固定类别。
     <a class="link" data-go="projects/${p.id}">去项目详情的材料页签登记 →</a></div>`}
   <div class="panel">
-    <div class="panel-h"><h2>核销 SOP · OCR扫描原件 → 智能比对 → 人工判定（无需再次录入表单）</h2>
+    <div class="panel-h"><h2>七项核销 SOP · 原件识别与智能比对 → 人工判定</h2>
       <div><span class="hint">已通过 ${v.passed}/${v.total} 项必核${v.openExceptions ? ` · ${v.openExceptions} 张例外单待处理或待复核` : ""}</span></div></div>
     <div class="vsteps">${v.steps.map((s) => {
-      const cls = ["通过", "已解例外"].includes(s.result) ? "s-pass" : s.result === "不通过" ? "s-fail" : "s-wait";
+      const cls = s.required === false ? "s-na" : ["通过", "已解例外"].includes(s.result) ? "s-pass" : s.result === "不通过" ? "s-fail" : "s-wait";
       return `<div class="vstep ${cls}">
         <div class="vh"><span class="no">${s.no}</span><span class="nm">${esc(s.name)}</span><span class="who">${esc(s.who)}</span></div>
         <div class="desc">${esc(s.desc)}</div>
         <div class="res">${badge(s.result)}
           ${s.remark ? `<span class="rm">${esc(s.remark)}</span>` : ""}
           ${s.checked_by ? `<span style="color:var(--mute)">· ${esc(s.checked_by)} ${esc(s.checked_at)}</span>` : ""}
-          ${s.evidence ? `<span class="hint">· 结构化核验已留痕</span>` : ""}
+          ${s.evidence ? `<span class="hint">· 核验依据及人工判定已留痕</span>` : ""}
           <div style="flex:1"></div>
           <button class="btn btn-o btn-sm" data-detail="${s.no}">详情</button>
           ${canJudge && s.required!==false && s.result === "待判定" ? `<button class="btn btn-o btn-sm" data-judge="${s.no}">判定</button>` : ""}

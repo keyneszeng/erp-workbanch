@@ -20,7 +20,7 @@ import { targetForTodo, badgeForTodo } from "../lib/todo-target.js";
  * 这些路径，拼出来匹配不上，route() 会把人丢回工作台 —— 表现就是「点了处理没反应」。
  * 每条按「点进去就能直接动手」选目标：
  *   审批 → 审批中心，按审批单号定位到那一行
- *   核销 → 核销看板（该项目的 6 步）
+ *   核销 → 核销看板（该项目的七项规则，第5～7项按需）
  *   付款 → 财务页，只列该项目的付款，直接看到「付款」按钮
  *   结算 / 归档 / 变更落账 → 项目详情页（「生成结算单」「归档」「执行落账」按钮在那里）
  */
@@ -68,9 +68,9 @@ export async function render(root) {
     ${reachable("approvals") ? '<button class="btn btn-o btn-sm" data-go="approvals">审批中心</button>' : ""}
     ${reachable("materials") ? '<button class="btn btn-o btn-sm" data-go="materials">材料中心</button>' : ""}
     ${reachable("verify") ? '<button class="btn btn-o btn-sm" data-go="verify">会后核销</button>' : ""}
-    ${reachable("finance") ? '<button class="btn btn-o btn-sm" data-go="finance">付款结算</button>' : ""}
+    ${reachable("finance") ? '<button class="btn btn-o btn-sm" data-go="finance">会议收入／付款结算</button>' : ""}
   </div>
-  ${state.user.role === "user" ? "" : '<div class="ux-finance-rule mt">财务提示：核销六步通过后才可申请付款；正式结算后相关凭证冻结。</div>'}
+  ${state.user.role === "user" ? "" : '<div class="ux-finance-rule mt">业务门禁：七项核销规则（第5～7项按需启用）全部适用项通过后，先申请、审批并登记付款，再进行结算；系统不直接向银行转账。</div>'}
 
   ${d.alerts.length ? `<div class="panel mt"><div class="panel-h"><h2>异常预警</h2>
       <div><span class="hint">${d.alerts.length} 条需要处理</span></div></div>
