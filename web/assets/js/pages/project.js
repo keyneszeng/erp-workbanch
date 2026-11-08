@@ -710,8 +710,8 @@ function openContract(root, pid) {
     { k: "name", l: "合同名称", req: 1, full: 1 },
     { k: "vendor", l: "签约方", req: 1 },
     { k: "amount", l: "合同金额（元）", t: "number", req: 1 },
-    { k: "category", l: "合同类别", t: "select", opts: state.meta.contractCategories || [],
-      tip: "合同类别用于合同台账及会务费用比对。核销第5项必须从材料库按完整姓名核对个人劳务合同，不能只用合同台账总合同代替。" },
+    { k: "category", l: "合同类别", t: "select", req: 1, opts: ["会务需求","劳务专家","企业赞助"],
+      tip: "会务需求关联核销第6项，劳务专家关联第5项，企业赞助关联收入与第7项权益。" },
     { k: "sign_date", l: "签署日期", t: "date" },
     { k: "status", l: "状态", t: "select", opts: ["草稿", "待签署", "已签署"], tip: "已签署需要管理员审批，不能通过录入直接跳过审批" },
     {

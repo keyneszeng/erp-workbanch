@@ -771,6 +771,12 @@ function migrate() {
     /* 旧库没有 contracts 表，忽略 */
   }
 
+  // 三类合同口径：保留历史合同/附件不变，只迁移旧分类标签。
+  // 可重复执行；不将明确的劳务专家或企业赞助记录覆盖。
+  try {
+    db.exec("UPDATE contracts SET category='会务需求' WHERE category IN ('场地餐饮','物料搭建','设备技术','其他','会务服务')");
+  } catch { /* 旧库过渡期保持兼容 */ }
+
   // 附件查询走 file_key，补索引（旧库没有）
   try {
     db.exec("CREATE INDEX IF NOT EXISTS idx_materials_file ON materials(file_key)");
