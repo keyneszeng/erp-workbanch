@@ -67,8 +67,8 @@ export const api = {
       xhr.send(file);
     });
   },
-  async download(path) {
-    const res = await request(path, { raw: true });
+  async download(path, { method = "GET", body } = {}) {
+    const res = await request(path, { raw: true, method, body });
     if (!res.ok) {
       let msg = "导出失败";
       try { msg = (await res.json()).error?.message || msg; } catch {}

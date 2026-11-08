@@ -70,8 +70,8 @@ async function api(method, url, body) {
 async function seedArchivedDemand() {
   const r1 = await api("PATCH", `/api/demand/${PID2}`, {
     items: [
-      { grp: "设计", item: "串场", need: "需要", spec: "主视觉", owner: "王敏", budget: "5000" },
-      { grp: "制作", item: "横幅", need: "需要", spec: "8m", owner: "李强", budget: "3000" },
+      { grp: "设计", item: "串场", note: "签到处布置要点", need: "需要", spec: "主视觉", owner: "王敏", due: "2026-12-10", budget: "5000" },
+      { grp: "制作", item: "横幅", need: "需要", spec: "8m", owner: "李强", due: "2026-12-11", budget: "3000" },
       { grp: "其他", item: "代购酒水", need: "不需要", budget: "9999" }
     ]
   });
@@ -246,6 +246,21 @@ async function seedArchivedDemand() {
     console.log("\n[7b] 项目详情页的核销页签：同一个参会时长核验");
     await page.goto(`${BASE}/#/projects/${PID2}`, { waitUntil: "networkidle" });
     await page.waitForTimeout(1600);
+    const demandTab=await page.$('.tabs button[data-tab="demand"]');
+    check("会议项目有会务需求详情页签",!!demandTab,"");
+    if(demandTab) {
+      await demandTab.click();
+      await page.waitForTimeout(850);
+      const heads=await page.$$eval("#tabbody th",els=>els.map(el=>el.textContent.trim()));
+      check("项目需求清单包含详细字段",["项目 / 业务提示","规格","数量","单价","总价","负责人","交付时间"].every(h=>heads.includes(h)),JSON.stringify(heads));
+      const items=await page.$$eval("#tabbody tbody tr",els=>els.map(el=>el.textContent));
+      check("只展示需要项，隐藏不需要的酒水",items.length===2 && items.some(t=>t.includes("串场")) &&
+        items.some(t=>t.includes("横幅")) && !items.some(t=>t.includes("代购酒水")),JSON.stringify(items));
+      const full=await page.textContent("#tabbody");
+      check("详情保留业务提示、规格、负责人和交付日期",
+        ["签到处布置要点","主视觉","8m","王敏","李强","2026-12-10","2026-12-11"].every(t=>full.includes(t)),full.slice(0,400));
+      check("项目清单金额仍按需要项合计 8000",full.includes("8,000"),full.slice(0,160));
+    }
     const vtab = await page.$('button[data-tab="verify"]');
     check("项目详情页有核销页签", !!vtab, "");
     if (vtab) {
