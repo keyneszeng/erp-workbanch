@@ -35,6 +35,14 @@ export const NAV = [
  */
 export function canVisit(nav) {
   const mods = state.role?.modules || [];
+  // 操作模块对会议有只读依赖；API仍按账号数据范围与每项业务授权裁剪。
+  if(nav==="projects" && (
+    ["projects","prep","demand","exec","materials","verify","finance","archive"].some(m=>mods.includes(m)) ||
+    ["project:create","project:approve","project:transition","project:change","project:edit",
+     "project:member","mini:apply","contract:write","contract:approve","invite:manage",
+     "demand:write","material:write","payment:create","payment:approve","payment:pay","settle:create",
+     "verify:check","verify:exception","verify:exception_approve","verify:conclude","archive:write",
+     "archive:download","ledger:read"].some(can)))return true;
   if(nav==="dashboard"&&!mods.includes("dashboard"))return true; // 无功能授权时展示安全待授权提示
   for (const g of NAV) {
     if (!mods.includes(g.k)) continue;

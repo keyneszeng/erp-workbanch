@@ -10,6 +10,7 @@ import { exStepLabel, openStepDetail } from "../lib/verify-detail.js";
 import {openOcrJudge} from "../lib/verify-ocr-judge.js";
 import { openContractMaterialReplace } from "../lib/contract-material-replace.js";
 import { flowHint, flowOf, openContractDetail } from "../lib/contract-detail.js";
+import { reachable } from "../lib/nav.js";
 import {renderSettlementBreakdown} from "../lib/settlement-breakdown.js";
 
 const ORDER = ["草稿", "待审批", "已立项", "筹备中", "执行中", "待核销", "已核销", "已结算", "已归档"];
@@ -386,7 +387,7 @@ function tabPayments(d, p) {
         `<div class="tacts">
           ${y.status === "待审批" && can("payment:approve") ? `<button class="link" data-pay-approve="${y.id}">审批</button>` : ""}
           ${y.status === "已审批" && can("payment:pay") && y.payee_account ? `<button class="link" data-pay-pay="${y.id}">付款</button>` : ""}
-          ${y.status !== "已付款" && can("payment:approve") && !y.payee_account ? `<button class="link" data-pay-acct="${y.id}">登记账户</button>` : ""}
+          ${y.status !== "已付款" && can("payment:pay") && !y.payee_account ? `<button class="link" data-pay-acct="${y.id}">登记账户</button>` : ""}
           ${y.status === "待审批" && can("payment:approve") ? `<button class="link danger" data-pay-reject="${y.id}">驳回</button>` : ""}
         </div>`]
     })), { empty: "暂无付款记录" }),
@@ -416,7 +417,7 @@ function tabVerify(d, p) {
         <div class="vh"><span class="no">${s.no}</span><span class="nm">${esc(s.name)}</span>
           <span class="who">${esc(s.who)}</span></div>
         <div class="desc">${esc(s.desc)}</div>
-        <div class="res">${badge(s.result)}
+        <div class="res">${badge(s.required===false?"不适用":s.result)}
           ${s.remark ? `<span class="rm">${esc(s.remark)}</span>` : ""}
           ${s.checked_by ? `<span style="color:var(--mute)">· ${esc(s.checked_by)} ${esc(s.checked_at)}</span>` : ""}
           <div style="flex:1"></div>
@@ -434,7 +435,9 @@ function tabVerify(d, p) {
       c: [`<span class="mono">${e.id}</span>`, exStepLabel(e), esc(e.reason), esc(e.created_by || ""), badge(e.status), esc(e.approved_by || "—"),
         e.status === "待审批" && can("verify:exception_approve")
           ? `<div class="tacts"><button class="link" data-ex-ok="${e.id}">通过</button><button class="link danger" data-ex-no="${e.id}">驳回</button></div>`
-          : "—"]
+          : e.status === "待复核" && reachable("verify")
+            ? `<button class="link" data-go="verify/${p.id}">整改／复核</button>`
+            : "—"]
     })), { empty: "无例外单" }),
     can("verify:exception") ? '<button class="btn btn-o btn-sm" id="addEx">+ 提交例外单</button>' : "")}`;
 }
@@ -459,7 +462,7 @@ function tabMaterials(d, p) {
                 : `<a href="${fileUrl(m.file_key)}" target="_blank" rel="noopener"><img class="thumb" src="${fileUrl(m.file_key)}" alt=""></a>`)
             : '<span style="color:var(--mute)">—</span>',
           esc(m.version || ""), esc(m.uploader || ""), `<span class="mono">${esc(m.created_at)}</span>`,
-          (can("material:write") && p.status !== "已归档" && !m.deleted_at
+          (can("material:write") && !d.settlement && !["已结算", "已归档"].includes(p.status) && !m.deleted_at
             ? `<button class="link danger" data-del-mat="${m.id}">删除</button>` : "") +
           (can("material:file:replace") && m.file_key && !m.deleted_at &&
             !["已核销","已结算","已归档"].includes(p.status) && !d.settlement
@@ -708,7 +711,7 @@ function openContract(root, pid) {
     { k: "vendor", l: "签约方", req: 1 },
     { k: "amount", l: "合同金额（元）", t: "number", req: 1 },
     { k: "category", l: "合同类别", t: "select", opts: state.meta.contractCategories || [],
-      tip: "决定核销第 5 步「劳务与专家费核对」列不列这一份：只有「劳务专家」类会被列进去" },
+      tip: "合同类别用于合同台账及会务费用比对。核销第5项必须从材料库按完整姓名核对个人劳务合同，不能只用合同台账总合同代替。" },
     { k: "sign_date", l: "签署日期", t: "date" },
     { k: "status", l: "状态", t: "select", opts: ["草稿", "待签署", "已签署"], tip: "已签署需要管理员审批，不能通过录入直接跳过审批" },
     {
@@ -797,11 +800,12 @@ async function openPay(root, pid, d) {
     { k: "payee_bank", l: "开户行", req: 0, ph: "如：中国银行北京朝阳支行" },
     { k: "payee_account", l: "银行账号", req: 0, ph: "10~25 位数字，可含空格分隔" },
     { k: "amount", l: "付款金额（元）", t: "number", req: 1 },
+    { k: "period", l: "期次（可选）", ph: "第1期 / 第2期 / 尾款", tip: "同额分期务必填写不同期次，否则会按重复付款申请拦截；最多20字。" },
     { k: "remark", l: "备注", t: "textarea", full: 1, rows: 2 }
   ];
   const m = modal({
     title: "付款申请",
-    body: `<div class="gate ok" style="margin-bottom:12px"><b>核销门禁已通过</b>项目「${esc(d.project.name)}」当前状态「${d.project.status}」，允许付款。</div><div class="hint" style="margin-bottom:10px">同项目、同付款类型、同收款方、同金额的有效付款单只允许申请一次；待审批、已审批及已付款均不可重复，已驳回可重新提交。</div>${formHtml(fields)}`,
+    body: `<div class="gate ok" style="margin-bottom:12px"><b>核销门禁已通过</b>项目「${esc(d.project.name)}」当前状态「${d.project.status}」，允许付款。</div><div class="hint" style="margin-bottom:10px">同项目、同付款类型、同收款方、同金额、同期次的有效付款单只允许申请一次；分期付款请填写不同期次；待审批、已审批及已付款均不可重复，已驳回可重新提交。</div>${formHtml(fields)}`,
     footer: `<button class="btn btn-o" data-x="0">取消</button><button class="btn btn-p" data-x="1">提交申请</button>`
   });
   await bindPayeePicker(m,pid,false);
@@ -843,7 +847,7 @@ function openException(root, pid, d) {
     },
     { k: "reason", l: "例外原因", t: "textarea", req: 1, full: 1, rows: 3 }
   ];
-  const m = modal({ title: "提交例外单", body: `<div class="hint" style="margin-bottom:12px">例外单需财务审批通过后，对应步骤记为「已解例外」，方可继续核销。</div>${formHtml(fields)}`,
+  const m = modal({ title: "提交例外单", body: `<div class="hint" style="margin-bottom:12px">例外单审批通过不等于核销通过。生产流程须补充整改证据、原步骤复核通过后才能继续结算；演示模式另按演示规则执行。</div>${formHtml(fields)}`,
     footer: `<button class="btn btn-o" data-x="0">取消</button><button class="btn btn-p" data-x="1">提交</button>` });
   m.querySelector('[data-x="0"]').onclick = () => m.classList.remove("open");
   m.querySelector('[data-x="1"]').onclick = async () => {
@@ -852,7 +856,7 @@ function openException(root, pid, d) {
       const v = readForm(m);
       // readForm 已经把「自定义填入」的下拉值替换成文本框里的内容，
       // 所以这里拿到的是人写的事项名而不是 "__custom__"。
-      // 步骤是数字字段：不是 1~6 就说明选了自定义，转成 step_no = 0 + step_label。
+      // 步骤是数字字段：不是 1~7 就说明选了自定义，转成 step_no = 0 + step_label。
       const no = Number(v.step_no);
       if (!(no >= 1 && no <= 7)) {
         v.step_label = String(v.step_no || "").trim();

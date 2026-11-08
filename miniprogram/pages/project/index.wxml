@@ -21,7 +21,7 @@
    <view class="section-caption">我的业务协作</view>
    <view class="quick-grid">
     <view wx:if="{{canMaterials}}" class="quick-tile quick-blue" bindtap="materials"><view class="quick-title">材料收集</view><view class="quick-sub">拍照上传 · 结算后冻结</view></view>
-    <view wx:if="{{canApprove}}" class="quick-tile quick-green" bindtap="approvals"><view class="quick-title">审批管理</view><view class="quick-sub">立项／例外／付款审批</view></view>
+    <view wx:if="{{canApprove}}" class="quick-tile quick-green" bindtap="approvals"><view class="quick-title">审批管理</view><view class="quick-sub">按已授权类型处理审批</view></view>
    </view>
   </view>
   <view class="card">
