@@ -1,7 +1,7 @@
 "use strict";
 const { db } = require("../lib/db");
 const { now, nextId, bad, notFound, conflict, forbidden, cents, yuan } = require("../lib/util");
-const { assertCan, assertModule, assertProjectVisible, can, isSuper, hasModule, scopeFilter, ROLES } = require("../lib/rbac");
+const { assertCan, assertModule, assertProjectVisible, can, isSuper, hasModule, scopeFilter, ROLES, canReadProjects } = require("../lib/rbac");
 const { logAudit } = require("../lib/audit");
 const { getProject, verification, materialsStatus, settlementOf, demandSummary, assertNotFrozen, committed, availableActions, transition } = require("../lib/workflow");
 const { ASSOCS, FORMS, DEPTS } = require("../lib/constants");
@@ -221,7 +221,7 @@ function detail(project, user) {
     materialsStatus: viewMaterials?materialsStatus(pid):{uploadedCount:0,ok:false,missing:[]},
     settlement: viewFinance?settlement:null,
     settlementBreakdown: viewFinance&&settlement ? buildSettlementBreakdown(settlement,project,payments) : null,
-    // 核销第 3 步的费用对照基准。项目详情页的核销页签读的是这个接口，
+    // 核销第 6 项的费用对照基准。项目详情页的核销页签读的是这个接口，
     // 之前只在 /verify 里返回，导致同一个第 3 步在两个页面给出不同答案。
     demand: viewDemand?demandSummary(pid):null,
     ...(viewNotice?require("../lib/project-notice").overview(project):{}),
@@ -235,7 +235,7 @@ function detail(project, user) {
 
 function register(router) {
   router.get("/api/projects", async (ctx) => {
-    assertModule(ctx.user,"projects");
+    if(!canReadProjects(ctx.user)) assertModule(ctx.user,"projects");
     const r = listProjects(ctx.user, ctx.query);
     // 参会者只能看到会议信息，不能通过列表取得预算、电话或已付款统计。
     if (!isSuper(ctx.user) && !["project:transition","project:approve","project:edit","project:change",
@@ -297,7 +297,7 @@ function register(router) {
   });
 
   router.get("/api/projects/:id", async (ctx) => {
-    assertModule(ctx.user,"projects");
+    if(!canReadProjects(ctx.user)) assertModule(ctx.user,"projects");
     const p = getProject(ctx.params.id);
     assertProjectVisible(ctx.user, p);
     return detail(p, ctx.user);

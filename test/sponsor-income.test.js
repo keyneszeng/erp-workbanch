@@ -19,7 +19,7 @@ before(async()=>{
  // 慢盘上 Node 冷启动（含 pdf-lib 加载）可能超过 15 秒，窗口放到 40 秒；
  // 循环耗尽必须显式报错，否则会退化成一句无信息的 "fetch failed"。
  let ready=false;
- for(let i=0;i<400;i++){if(child.exitCode!==null)throw Error("Server failed: "+err);try{if((await request("GET","/api/health")).status===200){ready=true;break;}}catch{}await new Promise(r=>setTimeout(r,100));}
+ for(let i=0;i<600;i++){if(child.exitCode!==null)throw Error("Server failed: "+err);try{if((await request("GET","/api/health")).status===200){ready=true;break;}}catch{}await new Promise(r=>setTimeout(r,100));}
  if(!ready)throw Error("Server did not start in 40s: "+err);
  admin=await login("admin");exec=await login("exec");
 });
