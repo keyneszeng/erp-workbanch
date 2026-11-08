@@ -200,7 +200,9 @@ function detail(project, user) {
   const guests = db.prepare("SELECT * FROM guests WHERE pid = ? ORDER BY id").all(pid);
   const tasks = db.prepare("SELECT * FROM tasks WHERE pid = ? ORDER BY id").all(pid);
   const issues = db.prepare("SELECT * FROM issues WHERE pid = ? ORDER BY id").all(pid);
-  const materials = db.prepare("SELECT * FROM materials WHERE pid = ? ORDER BY id").all(pid);
+  // Project detail only exposes ACTIVE materials; deleted originals remain in the
+   // audit trail/database but must never reappear in the archive-materials list.
+   const materials = db.prepare("SELECT * FROM materials WHERE pid = ? AND deleted_at IS NULL ORDER BY id").all(pid);
   const timeline = db.prepare(
     "SELECT at, user_name, role, action, detail FROM audit_logs WHERE target = ? ORDER BY id DESC LIMIT 30"
   ).all(pid);
