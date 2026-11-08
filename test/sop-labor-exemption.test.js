@@ -53,7 +53,8 @@ test("三单一致：仅会务需求表、会务需求类别合同原件和会�
  assert.deepEqual(d.invoices.map(x=>x.file_key),["invoice.pdf"]);
  assert.equal(d.budgetTotal,8000);
  const result=validateSopEvidence(6,reviewed,project,db,8000);
- assert.equal(result.matchedFields,3);
+ // 新口径只比对「需求预算 vs 已签会务合同总额」两项，发票金额不再参与
+ assert.equal(result.matchedFields,2);
  assert.equal(result.meetingMatched,true);
  assert.equal(result.comparedWith,"会务需求表+会务合同+会务发票");
  assert.equal(result.demandBudget,8000);
@@ -77,10 +78,13 @@ test("三方原件须人工检查；不能用原来的议程七字段冒充核�
  assert.throws(()=>validateSopEvidence(6,{agendaTitle:"论坛",agreementFinal:true},project,db,8000),/人工检查/);
  db.close();
 });
-test("会务需求预算、已签会务合同、会务发票必须金额一致",()=>{
+test("新口径：发票金额不参与判定，但预算与已签会务合同总额不一致仍拦截",()=>{
  const {db,addMaterial,addContract}=setup();addDemand(db);
  addThreeSources(db,addMaterial,addContract);
- assert.throws(()=>validateSopEvidence(6,reviewed,project,db,7999),/发票/);
+ // 发票金额填什么都不影响第 6 步（扫描件/多张发票时 OCR 常取不到唯一值）
+ assert.doesNotThrow(()=>validateSopEvidence(6,reviewed,project,db,7999));
+ assert.doesNotThrow(()=>validateSopEvidence(6,reviewed,project,db,null));
+ // 预算与已签会务合同总额不一致仍必须拦
  db.prepare("UPDATE contracts SET amount=7999 WHERE id='HT-MEETING'").run();
  assert.throws(()=>validateSopEvidence(6,reviewed,project,db,8000),/总预算/);
  db.close();
