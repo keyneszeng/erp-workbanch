@@ -277,6 +277,11 @@ function register(router) {
       assertUploadAttachable(newKey,p.id,ctx.user);
       db.prepare("UPDATE contracts SET file_key=?,file_name=?,file_size=?,file_mime=? WHERE id=?")
         .run(newKey,fileName,fileSize,mime,c.id);
+      if(c.category==="企业赞助"){
+        db.prepare("UPDATE meeting_sponsor_contracts SET file_key=?,file_name=?,rights_scan_status='需重新核对',rights_scan_note='原件已替换，须重新核对权益内容' WHERE ledger_contract_id=?")
+          .run(newKey,fileName,c.id);
+        db.prepare("UPDATE sponsor_rights SET confirmed=0 WHERE sponsor_id IN (SELECT id FROM meeting_sponsor_contracts WHERE ledger_contract_id=?)").run(c.id);
+      }
       // 原合同自动归档时登记的材料，需要一起换成新原件；不能留下旧合同副本。
       const material=db.prepare(
         "SELECT id FROM materials WHERE pid=? AND kind='合同' AND file_key=?"
@@ -397,8 +402,10 @@ function register(router) {
       checkDate(signDate, "签署日期");
     }
 
+    const sponsor=action==="sign"&&c.category==="企业赞助"?ensureSponsorSignable(db,p,c.id):null;
     db.prepare("UPDATE contracts SET status = ?, sign_date = COALESCE(?, sign_date) WHERE id = ?")
       .run(flow.to, signDate, c.id);
+    if(sponsor)setSponsorStatus(db,sponsor,true,ctx.user.id);
     if (!isDemoMode()) {
       if (action === "submit") {
         const duplicate = db.prepare("SELECT id FROM approvals WHERE type='合同审批' AND ref_id=? AND status='待审批'").get(c.id);
@@ -535,7 +542,7 @@ function register(router) {
       if(v.demandRequired && (v.steps.find(s=>s.no===6)?.result!=="通过" ||
           !Number.isFinite(v.steps.find(s=>s.no===6)?.invoiceAmount)))
         throw conflict("存在会务需求时必须先完成第6项会务三单一致核验再请款","INVOICE_CHECK_REQUIRED");
-      const signed=db.prepare("SELECT COALESCE(SUM(amount),0) AS total FROM contracts WHERE pid=? AND status='已签署'").get(p.id);
+      const signed=db.prepare("SELECT COALESCE(SUM(amount),0) AS total FROM contracts WHERE pid=? AND status='已签署' AND COALESCE(category,'')<>'企业赞助'").get(p.id);
       const allocated=db.prepare("SELECT COALESCE(SUM(amount),0) AS total FROM payments WHERE pid=? AND status IN ('待审批','已审批','已付款')").get(p.id);
       const requested=Number(b.amount);
       if(Number.isFinite(requested) && cents(allocated.total)+cents(requested)>cents(signed.total))
@@ -793,8 +800,10 @@ function register(router) {
       if (!isDemoMode() && !isSuper(ctx.user) && Number(c.created_by) === Number(ctx.user.id))
         throw conflict("签署审批必须由其他协会管理员或总管理员完成", "NEED_SECOND_PERSON");
       const at = now();
+      const sponsor=approve&&c.category==="企业赞助"?ensureSponsorSignable(db,p,c.id):null;
       db.prepare("UPDATE contracts SET status=?,sign_date=? WHERE id=?")
         .run(approve ? "已签署" : "草稿", approve ? today() : "", c.id);
+      if(sponsor)setSponsorStatus(db,sponsor,true,ctx.user.id);
       db.prepare("UPDATE approvals SET status=?,decided_by=?,decided_at=?,comment=? WHERE id=?")
         .run(approve ? "已通过" : "已驳回",ctx.user.name,at,comment,a.id);
       logAudit({user:ctx.user,module:"筹备管理",action:approve?"合同签署审批通过":"合同签署驳回",target:p.id,detail:c.id+" "+c.name,ip:ctx.ip});
