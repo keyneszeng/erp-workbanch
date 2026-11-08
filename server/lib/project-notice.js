@@ -8,7 +8,7 @@
 const { db } = require("./db");
 const { now, bad, conflict, notFound, forbidden } = require("./util");
 const { storage, sniffMime } = require("./storage");
-const { isSuper } = require("./rbac");
+const { isSuper,can } = require("./rbac");
 const { listForUser } = require("./user-associations");
 
 const DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
@@ -21,7 +21,7 @@ const VARS = Object.freeze([
 ]);
 
 function canManage(user, assoc) {
-  return isSuper(user) || (user?.role === "assoc" && listForUser(user.id, user.assoc).includes(assoc));
+  return isSuper(user) || (can(user,"project:approve") && listForUser(user.id,user.assoc).includes(assoc));
 }
 
 function letterFor(project) {

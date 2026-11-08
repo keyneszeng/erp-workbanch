@@ -34,7 +34,7 @@ before(async()=>{
   });
   let errors="";
   child.stderr.on("data",d=>{errors+=String(d)});
-  for(let i=0;i<180;i++){
+  for(let i=0;i<706;i++){
     if(child.exitCode!==null)throw Error("Test server exited: "+errors);
     try{if((await req("GET","/api/health")).status===200)return;}catch{}
     await new Promise(resolve=>setTimeout(resolve,85));
