@@ -1,16 +1,19 @@
 import { api, state } from "../lib/api.js";
-import { bindPager, esc, pager, panel, table, toast } from "../lib/ui.js";
+import { bindPager, bindSearchRefresh, esc, pager, panel, table, toast } from "../lib/ui.js";
 
 const PAGE_SIZE = 100;
 let filter = { module: "", q: "", page: 1 };
+let renderSeq = 0;
 
 export async function render(root) {
+  const seq = ++renderSeq;
   const qs = new URLSearchParams();
   if (filter.module) qs.set("module", filter.module);
   if (filter.q) qs.set("q", filter.q);
   qs.set("page", filter.page);
   qs.set("size", PAGE_SIZE);
   const d = await api.get("/api/audit?" + qs.toString());
+  if (seq !== renderSeq) return;
   const mods = ["项目管理", "筹备管理", "材料中心", "会后核销", "财务结算", "档案中心", "系统配置"];
 
   root.innerHTML = `<div class="phead">
@@ -43,11 +46,7 @@ export async function render(root) {
 
   bindPager(root, (n) => { filter.page = n; render(root); });
   root.querySelector("#mod").onchange = (e) => { filter.module = e.target.value; filter.page = 1; render(root); };
-  const q = root.querySelector("#q");
-  q.addEventListener("input", () => {
-    clearTimeout(q._t);
-    q._t = setTimeout(() => { filter.q = q.value.trim(); filter.page = 1; render(root); }, 350);
-  });
+  bindSearchRefresh(root, "#q", value => { filter.q = value; filter.page = 1; }, () => render(root), 350);
   const exp = root.querySelector("#exp");
   if (exp) exp.onclick = async () => {
     try { const r = await api.download("/api/export/audit"); toast(`已导出 ${r.name}`, "ok"); }

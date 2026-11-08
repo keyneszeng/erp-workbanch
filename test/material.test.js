@@ -8,7 +8,7 @@ const assert = require("node:assert/strict");
 const { spawn } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
-const { can } = require("../server/lib/rbac");
+const { can,PERMS,ROLES } = require("../server/lib/rbac");
 
 const PORT = 8805;
 const BASE = `http://127.0.0.1:${PORT}`;
@@ -61,13 +61,14 @@ before(async () => {
 });
 after(() => { if (proc) proc.kill("SIGTERM"); });
 
-test("权限矩阵：exec 可写材料但不可归档", () => {
-  assert.equal(can({ role: "exec" }, "material:write"), true, "exec 应可写材料");
-  assert.equal(can({ role: "exec" }, "archive:write"), false, "exec 不应可归档");
-  assert.equal(can({ role: "assoc" }, "material:write"), true);
-  assert.equal(can({ role: "finance" }, "material:write"), true);
-  assert.equal(can({ role: "user" }, "material:write"), false, "普通用户不可写材料");
-  assert.equal(can({ role: "admin" }, "material:write"), true, "超级角色恒可");
+test("角色定义不再带内置材料权限，总管理员仍始终拥有全部权限", () => {
+  for(const role of ["assoc","exec","finance","user"]){
+    assert.deepEqual(ROLES[role].modules,[],"普通角色不能内置模块："+role);
+  }
+  assert.deepEqual(PERMS["material:write"],[]);
+  assert.deepEqual(PERMS["archive:write"],[]);
+  assert.equal(can({role:"admin"},"material:write"),true);
+  assert.equal(can({role:"admin"},"archive:write"),true);
 });
 
 test("exec 登录后 /me 权限包含 material:write 且不含 archive:write", async () => {

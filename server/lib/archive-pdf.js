@@ -2,7 +2,7 @@
 /**
  * 已归档会议 PDF 资料卷宗。
  *
- * - 核销六步、例外、归档八类材料、会务需求、合同、付款、结算和审批都有独立章节。
+ * - 核销六步、例外、自选类别归档材料、会务需求、合同、付款、结算和审批都有独立章节。
  * - PDF/JPEG/PNG 原件转为 PDF 可见页面，并将每份原文件嵌入 PDF 附件区以便取证。
  * - GIF/WebP 与不可解析的 PDF 原件作为 PDF 内嵌附件保留，目录明示不能分页呈现。
  * - Cloudflare 无 R2 或只登记元数据时仍生成带缺失清单的 PDF，绝不伪称原件齐备。
@@ -157,7 +157,7 @@ function makeLines(d, sources) {
   simpleRecords(records.exceptions, e => e.id + " / 第" + e.step_no + "步 / " + e.status +
     " / 原因：" + e.reason + " / 审批人：" + display(e.approved_by) +
     " / 意见：" + display(e.comment), "  无例外单");
-  section("四、八类归档材料及文件状态");
+  section("四、归档材料及文件状态");
   add("  说明：以下列出全部材料登记记录；各原始文件的分页和内嵌情况详见附件目录。");
   simpleRecords(records.materials, m => "[" + m.kind + "] " + m.name +
     " / 版本 " + display(m.version) + " / 登记者 " + display(m.uploader) +

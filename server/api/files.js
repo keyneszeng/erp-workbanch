@@ -27,13 +27,17 @@ const EXT_MIME = {
   gif: "image/gif",
   pdf: "application/pdf",
   ppt: "application/vnd.ms-powerpoint",
+  doc: "application/msword",
+  xls: "application/vnd.ms-excel",
+  csv: "text/csv",
+  txt: "text/plain",
   docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
   pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
   xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 };
 
 /** key 必须严格匹配自己生成的格式，避免 ../ 之类的路径穿越 */
-const KEY_RE = /^[a-f0-9]{32}\.(jpg|png|webp|gif|pdf|ppt|docx|pptx|xlsx)$/;
+const KEY_RE = /^[a-f0-9]{32}\.(jpg|png|webp|gif|pdf|ppt|doc|docx|xls|xlsx|pptx|csv|txt)$/;
 
 function register(router) {
   router.post("/api/uploads", async (ctx) => {
@@ -49,20 +53,17 @@ function register(router) {
       throw new HttpError(413, "PAYLOAD_TOO_LARGE", `单个文件不能超过 ${Math.round(MAX_BYTES / 1024 / 1024)} MB`);
     }
 
-    // 以文件头为准，不信客户端声明的 Content-Type
-    const mime = sniffMime(buf);
-    if (!mime) throw bad("无法识别文件类型，仅支持 JPG / PNG / WebP / GIF / PDF / PPT / DOCX / PPTX / XLSX");
+    // 以文件头/容器结构为准。CSV/TXT 属于纯文本，还须检查原始扩展名和控制字符。
+    let declaredName=String(ctx.req.headers["x-file-name"] || "");
+    try { declaredName=decodeURIComponent(declaredName); } catch {}
+    const mime = sniffMime(buf,declaredName);
+    if (!mime) throw bad("无法识别文件类型，支持图片、PDF、DOC/DOCX、PPT/PPTX、XLS/XLSX、CSV、TXT");
     checkMime(mime);
-    // Office 附件必须与原始文件名扩展名一致，禁止把可识别的 PPTX 冒充 EXE 等格式展示。
-    const officeExt = ALLOWED_MIME[mime];
-    if (["ppt","docx", "pptx", "xlsx"].includes(officeExt)) {
-      const declared = String(ctx.req.headers["x-file-name"] || "");
-      let decoded = declared;
-      try { decoded = decodeURIComponent(declared); } catch {}
-      if (!decoded.toLowerCase().endsWith("." + officeExt)) {
-        throw bad("Office 文件扩展名与实际格式不符");
-      }
-    }
+    // 旧版/新版 Office、CSV、TXT 都必须与真实识别类型对应，防止扩展名伪造。
+    const recognizedExt=ALLOWED_MIME[mime];
+    if (["ppt","doc","xls","docx","pptx","xlsx","csv","txt"].includes(recognizedExt) &&
+        !declaredName.toLowerCase().endsWith("."+recognizedExt))
+      throw bad("文件扩展名与识别类型不符，请使用真实的 "+recognizedExt.toUpperCase()+" 文件");
 
     const rawName = ctx.req.headers["x-file-name"] || "";
     let name = "未命名文件";
@@ -106,7 +107,10 @@ function register(router) {
     // 尚未关联的（刚上传、还没提交单据）只要求登录，key 本身是 32 位随机串。
     const m = db.prepare("SELECT pid, file_name FROM materials WHERE file_key = ?").get(key);
     const c = m ? null : db.prepare("SELECT pid, file_name FROM contracts WHERE file_key = ?").get(key);
-    const owner = m || c;
+    const sponsor=c||m?null:db.prepare("SELECT pid,file_name FROM meeting_sponsor_contracts WHERE file_key=?").get(key);
+    const receipt=c||m||sponsor?null:db.prepare("SELECT pid,file_name FROM meeting_sponsor_receipts WHERE file_key=?").get(key);
+    const invoice=c||m||sponsor||receipt?null:db.prepare("SELECT pid,file_name FROM meeting_sponsor_invoices WHERE file_key=?").get(key);
+    const owner = m || c || sponsor || receipt || invoice;
     if (owner) {
       assertProjectVisible(ctx.user, getProject(owner.pid));
       // 单纯是项目成员的嘉宾并不自动获得合同和财务凭证的读取权限。
@@ -131,7 +135,7 @@ function register(router) {
       buffer: obj.buffer,
       mime: EXT_MIME[ext] || "application/octet-stream",
       name: owner?.file_name ? safeName(owner.file_name) : key,
-      download: ["ppt","docx", "pptx", "xlsx"].includes(ext)
+      download: ["ppt","doc","xls","docx","pptx","xlsx","csv","txt"].includes(ext)
     } };
   });
 

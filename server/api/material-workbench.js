@@ -21,9 +21,13 @@ function checkOcrMaterial(pid,id) {
 function resultFor(materialId,pid,fileKey) {
   const r=db.prepare("SELECT * FROM material_ocr_results WHERE material_id=? AND pid=? AND file_key=?")
     .get(materialId,pid,fileKey);
-  return r ? {materialId,recognizedText:r.recognized_text,suggestions:JSON.parse(r.suggestions_json),
+  if(!r)return null;
+  let rows=[];
+  // 结构化行按原文实时还原：算法改进后旧记录也能直接受益，不用重跑 OCR
+  try{rows=ocr.parseAgendaRows(r.recognized_text);}catch{rows=[];}
+  return {materialId,recognizedText:r.recognized_text,suggestions:JSON.parse(r.suggestions_json),rows,
     mode:r.mode,engine:r.engine,pages:r.pages,totalPages:r.total_pages,truncated:!!r.truncated,
-    updatedAt:r.updated_at,updatedBy:r.updated_by,reviewRequired:true} : null;
+    updatedAt:r.updated_at,updatedBy:r.updated_by,reviewRequired:true};
 }
 
 
@@ -31,15 +35,15 @@ const allowedStates = ["未提交","已提交","比对通过","不一致","待�
 const normalize = v=>String(v ?? "").trim().replace(/\s+/g,"").toLowerCase();
 function moduleRows(pid) {
   const rows=db.prepare("SELECT kind,enabled,updated_at,updated_by FROM meeting_material_modules WHERE pid=?").all(pid);
-  return MATERIAL_MODULE_KINDS.map(kind=>rows.find(r=>r.kind===kind)||{kind,enabled:1});
+  return MATERIAL_MODULE_KINDS.filter(kind=>kind!=="串场").map(kind=>rows.find(r=>r.kind===kind)||{kind,enabled:1});
 }
 function taskRows(pid) {
-  return db.prepare("SELECT t.*,m.name AS material_name,m.file_key FROM meeting_material_tasks t LEFT JOIN materials m ON m.id=t.material_id AND m.deleted_at IS NULL WHERE t.pid=? ORDER BY t.id DESC").all(pid);
+  return db.prepare("SELECT t.*,m.name AS material_name,m.file_key FROM meeting_material_tasks t LEFT JOIN materials m ON m.id=t.material_id AND m.deleted_at IS NULL WHERE t.pid=? AND t.kind<>\'串场\' ORDER BY t.id DESC").all(pid);
 }
 function assertWritable(ctx,p){
   assertProjectVisible(ctx.user,p);
   assertCan(ctx.user,"material:write","无材料管理权限");
-  assertNotFrozen(p,"材料模块与待办");
+  assertNotFrozen(p,"材料模块与待办",ctx.user,ctx.ip);
 }
 function register(router) {
   router.get("/api/projects/:id/material-workbench",async ctx=>{
@@ -63,14 +67,15 @@ function register(router) {
       throw Object.assign(new Error("OCR 当前仅可在已配置本地识别引擎的阿里云 ECS 环境运行"),{status:503,code:"OCR_NOT_CONFIGURED"});
     const material=checkOcrMaterial(p.id,ctx.body?.materialId);
     const existing=resultFor(material.id,p.id,material.file_key);
-    if(existing && ctx.body?.force!==true)return {result:existing,fromCache:true};
+    // 引擎变了（或上次是降级结果）就重跑，否则用户会以为换了引擎却没生效
+    if(existing && ctx.body?.force!==true && ocr.providerMatches(existing.engine))return {result:existing,fromCache:true};
     if(ocrRunning)throw Object.assign(new Error("OCR 正在处理另一个文件，请稍后重试"),{status:429,code:"OCR_BUSY"});
     ocrRunning=true;
     try{
       const file=await storage().get(material.file_key);
       if(!file)throw notFound("原件已不存在，请重新上传");
       const ext=material.file_key.split(".").pop();
-      const processed=await ocr.recognize(file.buffer,ext);
+      const processed=await ocr.recognize(file.buffer,ext,{kind:material.kind});
       const suggestions=["议程","终版议程"].includes(material.kind) ? ocr.parseAgenda(processed.text) : [];
       const stamp=now();
       db.prepare("INSERT INTO material_ocr_results (material_id,pid,file_key,recognized_text,suggestions_json,engine,mode,pages,total_pages,truncated,updated_at,updated_by) VALUES (?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(material_id) DO UPDATE SET file_key=excluded.file_key,recognized_text=excluded.recognized_text,suggestions_json=excluded.suggestions_json,engine=excluded.engine,mode=excluded.mode,pages=excluded.pages,total_pages=excluded.total_pages,truncated=excluded.truncated,updated_at=excluded.updated_at,updated_by=excluded.updated_by")
@@ -85,7 +90,7 @@ function register(router) {
   router.post("/api/projects/:id/material-workbench/modules",async ctx=>{
     const p=getProject(ctx.params.id);assertWritable(ctx,p);
     const {kind,enabled}=ctx.body||{};
-    if(!MATERIAL_MODULE_KINDS.includes(kind)||typeof enabled!=="boolean")throw bad("模块名称或开关不合法");
+    if(!MATERIAL_MODULE_KINDS.includes(kind)||kind==="串场"||typeof enabled!=="boolean")throw bad("模块名称或开关不合法");
     db.prepare("INSERT INTO meeting_material_modules (pid,kind,enabled,updated_at,updated_by) VALUES (?,?,?,?,?) ON CONFLICT(pid,kind) DO UPDATE SET enabled=excluded.enabled,updated_at=excluded.updated_at,updated_by=excluded.updated_by")
       .run(p.id,kind,enabled?1:0,now(),ctx.user.name);
     logAudit({user:ctx.user,module:"材料中心",action:"固定模块启停",target:p.id,detail:kind+" "+(enabled?"启用":"停用")+"；历史材料与待办均保留",ip:ctx.ip});
@@ -109,9 +114,9 @@ function register(router) {
     }
     const stamp=now();
     const insert=db.prepare("INSERT OR IGNORE INTO meeting_material_tasks (pid,kind,speaker,topic,status,updated_at,updated_by) VALUES (?,?,?,?,'未提交',?,?)");
-    for(const e of entries)for(const kind of ["课件","串场"])insert.run(p.id,kind,e.speaker.trim(),e.topic.trim(),stamp,ctx.user.name);
+    for(const e of entries)insert.run(p.id,"课件",e.speaker.trim(),e.topic.trim(),stamp,ctx.user.name);
     logAudit({user:ctx.user,module:"材料中心",action:"生成议程待办",target:p.id,detail:"终版议程 "+material.id+"；"+entries.length+" 讲者课题；旧待办保留",ip:ctx.ip});
-    return {tasks:taskRows(p.id),generated:entries.length*2,note:"依结构化条目生成待办，非图像自动识别"};
+    return {tasks:taskRows(p.id),generated:entries.length,note:"依终版议程生成课件待办；串场不再自动生成"};
   });
   router.post("/api/projects/:id/material-workbench/tasks/:taskId/compare",async ctx=>{
     const p=getProject(ctx.params.id);assertWritable(ctx,p);
