@@ -60,21 +60,43 @@ function writable(ctx,p,perm){
 /** 预览时只产生候选字段，不写入合同，不触发审批或权益确认。 */
 async function scanContract(fileKey,ledger=false){
   const ext=String(fileKey||"").split(".").pop().toLowerCase();
-  const blank={enterprise:"",amount:null,rightsContent:[]};
+  const blank={vendor:"",enterprise:"",amount:null,rightsContent:[]};
   const manual=note=>({status:"需人工补录",fields:blank,note,engine:"",truncated:false,mode:""});
   const native=office.SUPPORTED.has(ext);
   if(!native&&!["pdf","png","jpg"].includes(ext))
-    return manual("该格式尚不支持自动识别，请上传 PDF、JPG、PNG 或 DOCX 原件，或人工填写。");
-  if(!native&&(!ocr.enabled()||storage().name!=="fs"))
-    return manual("当前环境尚未启用 RapidOCR（或不是本地文件存储）；请联系管理员配置 OCR，或人工核对合同。");
+    return manual("当前格式无法提取合同文字。请上传可搜索 PDF、JPG、PNG 或带文字的 DOCX，或人工核对原件填写。");
   try{
     const file=await storage().get(fileKey);
-    if(!file?.buffer)return manual("未能读取上传文件，请重新上传原件。");
-    const result=native?office.extract(file.buffer,ext):await ocr.recognize(file.buffer,ext);
-    if(!result?.text?.trim())return manual("原件没有可提取文字，请人工查看并填写。");
-    return ledger?extractLedgerContract(result.text,result):extractSponsorContract(result.text,result);
+    if(!file?.buffer)return manual("原件未能读取，请重新上传文件。");
+    let extracted;
+    if(native){
+      extracted=office.extract(file.buffer,ext);
+    }else if(ext==="pdf"){
+      // Searchable PDFs do not need RapidOCR; otherwise previously every PDF preview
+      // was blank whenever ERP_OCR_ENABLED was unset, even if it contained a text layer.
+      let pdfText=null,readError=null;
+      try{pdfText=await ocr.extractPdfText(file.buffer);}
+      catch(e){readError=e;}
+      const text=String(pdfText?.text||"").trim();
+      if(text.length>=25||/(?:合同|协议|金额|甲方|乙方|签约方|人民币)/u.test(text)){
+        extracted=pdfText;
+      }else if(ocr.enabled()&&storage().name==="fs"){
+        extracted=await ocr.recognize(file.buffer,"pdf");
+      }else if(readError){
+        return manual("PDF 文字解析不可用（"+String(readError.code||"PDF_TEXT_ERROR")+"）。请在服务器安装 poppler-utils，扫描图片型 PDF 还需启用 RapidOCR；或先人工填写。");
+      }else{
+        return manual("该 PDF 没有可用的文字层，属于图片扫描件。请在服务器启用 RapidOCR 以识别文字，或手工填写。");
+      }
+    }else{
+      if(!ocr.enabled()||storage().name!=="fs")
+        return manual("图片 OCR 尚未启用或当前部署不支持本地 OCR。请在阿里云配置 RapidOCR（ERP_OCR_ENABLED=1），或人工核对原件填写。");
+      extracted=await ocr.recognize(file.buffer,ext);
+    }
+    if(!extracted?.text?.trim())
+      return manual("原件中没有可识别的文字，请检查是否是扫描图片、加密 PDF 或纯图片 Word；也可人工填写。");
+    return ledger?extractLedgerContract(extracted.text,extracted):extractSponsorContract(extracted.text,extracted);
   }catch(e){
-    return manual("合同自动识别未成功（"+String(e.code||"SCAN_ERROR")+"），请人工核对并填写。");
+    return manual("合同文字识别失败（"+String(e.code||"SCAN_ERROR")+"），请检查原件与服务器 OCR 配置，或手工核对后填写。");
   }
 }
 async function scanRights(fileKey){
