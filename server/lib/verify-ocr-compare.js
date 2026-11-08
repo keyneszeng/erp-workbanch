@@ -3,14 +3,14 @@
 const crypto=require("node:crypto"),{db}=require("./db"),{storage}=require("./storage");
 const {now,conflict}=require("./util"),{isDemoMode}=require("./runtime");
 const ocr=require("./ocr-engine"),{laborSheetInfo}=require("./labor-sop");
-const {contractPool}=require("./labor-contracts"),{demandSopState}=require("./meeting-demand-sop");
+const {contractPool,linkLaborContracts}=require("./labor-contracts"),{demandSopState}=require("./meeting-demand-sop");
 const {sponsorRights}=require("./sponsor-rights");
 const office=require("./verify-office-text");
 const OCR_TYPES=new Set(["jpg","png","pdf"]),MAX_FILES=32;
 const KINDS={
  1:["会议通知","招商函","串场"],2:["终版议程","签到表","讲者照片"],
  3:["签到表","在线记录","直播数据","在线时长","会议截图"],
- 4:["终版议程","课件"],5:["劳务表","劳务收集表","合同"],
+ 4:["终版议程","课件"],5:["劳务表","劳务登记表","劳务收集表"],
  6:["终版议程","会务协议","合同","发票","会务发票"],
  7:["权益照片","赞助合同","合同"]
 };
@@ -24,8 +24,10 @@ const dateContains=(text,date)=>{
 const cmp=(name,value,detail,source=[])=>({name,status:value===true?"一致":value===false?"不一致":"无法确认",detail:String(detail||"").slice(0,180),source});
 const ids=a=>a.map(x=>x.materialId);
 function materials(pid,no){
- return db.prepare("SELECT id,kind,name,version,file_key,file_name FROM materials WHERE pid=? AND (deleted_at IS NULL OR deleted_at='') AND file_key IS NOT NULL AND file_key<>'' ORDER BY id").all(pid)
- .filter(m=>(KINDS[no]||[]).includes(m.kind)&&!(m.kind==="终版议程"&&m.version==="历史版")).slice(0,MAX_FILES);
+ const docs=db.prepare("SELECT id,kind,name,version,file_key,file_name FROM materials WHERE pid=? AND (deleted_at IS NULL OR deleted_at='') AND file_key IS NOT NULL AND file_key<>'' ORDER BY id").all(pid);
+ const expertIds=no===5?new Set(contractPool(db,pid).rows.map(x=>Number(x.id))):null;
+ return docs.filter(m=>((KINDS[no]||[]).includes(m.kind)||(expertIds?.has(Number(m.id))))
+  &&!(m.kind==="终版议程"&&m.version==="历史版")).slice(0,MAX_FILES);
 }
 function cache(m,pid){
  const row=db.prepare("SELECT recognized_text,engine,mode,pages,total_pages,truncated FROM material_ocr_results WHERE material_id=? AND pid=? AND file_key=?").get(m.id,pid,m.file_key);
@@ -127,12 +129,35 @@ function report(pid,no){
   }
   if(!courses.length)add("课件原件",null,"缺少已上传课件");
  }else if(no===5){
-  const labor=[...by("劳务表"),...by("劳务收集表")],contracts=by("合同");
-  const names=[...new Set(labor.flatMap(x=>[...x.text.matchAll(/(?:姓名|讲者|专家)\s*[:：]?\s*([\u4e00-\u9fa5]{2,5})/g)].map(m=>m[1])))];
-  add("劳务原件",labor.some(x=>x.text)?true:null,"劳务表OCR只用于核验；银行账号不显示或保存到核销证据",ids(labor));
-  add("个人合同原件",contracts.length?true:null,"合同"+contracts.length+"份；须人工核对姓名、费用及银行账号",ids(contracts));
-  add("劳务姓名与个人合同",names.length?names.every(name=>contracts.some(x=>contains(x.name,name)||contains(x.fileName,name))):null,
-    names.length?"提取"+names.length+"位姓名并比对已上传个人合同登记":"未可靠提取劳务名单，需人工核查",ids([...labor,...contracts]));
+  const labor=[...by("劳务表"),...by("劳务登记表"),...by("劳务收集表")];
+  const pool=contractPool(db,pid);
+  const contractIds=new Set(pool.rows.map(x=>Number(x.id)));
+  const contracts=docs.filter(x=>contractIds.has(Number(x.materialId)));
+  const names=[...new Set(labor.flatMap(x=>{
+    const text=String(x.text||"");
+    const labeled=[...text.matchAll(/(?:姓名|讲者|专家)\s*[:：]?\s*([\u4e00-\u9fa5]{2,5})/g)].map(m=>m[1]);
+    // Native XLSX uses a tab-separated row per attendee. Only accept the
+    // explicit 姓名 column: do not extract random Chinese words from a contract.
+    const lines=text.split("\n"),header=lines.findIndex(row=>row.split("\t").some(cell=>cell.trim()==="姓名"));
+    if(header>=0){
+      const col=lines[header].split("\t").findIndex(cell=>cell.trim()==="姓名");
+      for(const line of lines.slice(header+1)){
+        if(/^工作表\s+\d+/.test(line))break;
+        const name=String(line.split("\t")[col]||"").trim();
+        if(/^[\u4e00-\u9fa5]{2,5}$/.test(name)&&name!=="姓名")labeled.push(name);
+      }
+    }
+    return labeled;
+  }))];
+  const linked=names.length?linkLaborContracts(db,pid,names):null;
+  add("劳务登记表原件",labor.some(x=>x.text)?true:null,
+    "已关联"+labor.length+"份劳务登记表；银行账号不显示或保存到核销证据",ids(labor));
+  add("劳务专家合同原件",contracts.length?true:null,
+    "仅关联劳务专家类别或明确标注专家劳务的合同，共"+contracts.length+"份",ids(contracts));
+  add("劳务姓名与专家合同",names.length?linked.missing.length===0&&linked.ambiguous.length===0:null,
+    names.length?"提取"+names.length+"位人员，匹配"+linked.linked.length+"份专家合同；缺失"+
+      linked.missing.length+"位，歧义"+linked.ambiguous.length+"位":"未可靠提取劳务名单，需人工核查",
+    ids([...labor,...contracts]));
  }else if(no===6){
   const d=demandSopState(db,pid);
   const agreements=[...by("会务协议"),...by("合同")].filter(x=>x.kind==="会务协议"||/会务协议|会务合同|会议服务合同/.test(x.name));
@@ -169,6 +194,7 @@ function report(pid,no){
   docs:docs.map(x=>[x.materialId,x.fileKey,x.version,x.state,x.mode,x.text?sha(x.text):null]),
   project:[p.name,p.assoc,p.date,p.form],
   demand:no===6?demandSopState(db,pid).signature:null,
+  laborContracts:no===5?contractPool(db,pid).signature:null,
   rights:no===7?sponsorRights(db,pid).signature:null
  };
  const token=sha({pid,no,fingerprint});
