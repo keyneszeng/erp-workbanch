@@ -120,3 +120,14 @@ test("会务合同或赞助合同变化不影响劳务专家核销签名；劳�
  assert.equal(contractPool(db,project.id).rows.length,0);
  db.close();
 });
+
+
+test("历史讲者个人合同按明确的讲者合同文件名进入专家劳务池，普通合同仍排除",()=>{
+ const {db,add}=fixture();
+ const speaker=add(project.id,"合同","测试讲者","测试讲者合同.pdf","speaker-contract.pdf");
+ add(project.id,"合同","会议服务合同","服务总合同.pdf","meeting.pdf");
+ add(project.id,"合同","企业赞助合同","企业赞助协议.pdf","sponsor.pdf");
+ assert.deepEqual(contractPool(db,project.id).rows.map(x=>x.id),[speaker]);
+ assert.equal(linkLaborContracts(db,project.id,["测试讲者"]).linked.length,1);
+ db.close();
+});
