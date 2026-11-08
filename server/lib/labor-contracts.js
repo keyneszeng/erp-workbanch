@@ -11,7 +11,7 @@ const crypto=require("node:crypto");
  * the labor verification or invalidate its evidence when they change.
  */
 const EXPERT_KINDS=new Set(["劳务专家合同","专家劳务合同","劳务合同","专家合同"]);
-const EXPLICIT_EXPERT=/(?:劳务专家|专家劳务|劳务合同|专家合同|讲课合同|讲师合同|授课合同|劳务服务合同)/u;
+const EXPLICIT_EXPERT=/(?:劳务专家|专家劳务|劳务合同|专家合同|讲课合同|讲师合同|讲者合同|授课合同|劳务服务合同)/u;
 const OTHER_BUSINESS=/(?:赞助合同|企业赞助|招商合同|会务合同|会务协议|会议服务合同|场地合同|酒店合同|采购合同|设备合同)/u;
 function isExpertDocument(m){
  if(EXPERT_KINDS.has(String(m.kind||"")))return true;
