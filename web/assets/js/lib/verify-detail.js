@@ -110,7 +110,6 @@ export function stepBody(d,no){
   const matchedContractIds=new Set(step?.evidence?.matchedContractMaterialIds||[]);
   const linkedContracts=(d.materials||[]).filter(x=>isLaborContract(x)&&
     matchedContractIds.has(Number(x.id)));
-  const expertPayments=(d.payments||[]).filter(x=>["专家费","个人报销"].includes(x.type));
   const evidence=step?.evidence;
   return `<div class="dsec"><h4>业务核验规则</h4><div class="dchk">${esc(note[no]||"请核对资料")}</div></div>
     <div class="dsec"><h4>已登记的关联材料</h4>${matList(selected,"请在材料中心补充对应原件")}</div>
@@ -123,9 +122,7 @@ export function stepBody(d,no){
     ${no===6?`<div class="dgrid">${cell("会务需求总预算",fmt(meetingDemandTotal))}${cell("已签会务合同总额",fmt(contractTotal))}${cell("会务发票核验金额",step?.invoiceAmount==null?"未核对":fmt(step.invoiceAmount))}</div>${!d.demand?.archived?"<div class=\"dhint\">会务需求尚未归档，不能完成第6项通过判定。</div>":""}`:""}
     ${no===5?`<div class="dsec"><h4>已关联劳务专家合同（材料库）</h4>
       ${matList(linkedContracts,"尚未匹配劳务专家合同，请上传对应专家的合同原件。")}
-      <div class="hint">仅关联劳务专家合同；会务合同、赞助合同不进入核销第5项。合同正文与人员信息仍需人工核对。</div>
-      <h4>专家费 / 个人报销（付款类别，核销通过后申请）</h4>
-      ${payRows(expertPayments)}</div>`:""}
+      <div class="hint">仅关联劳务专家合同；会务合同、赞助合同不进入核销第5项。合同正文与人员信息仍需人工核对。</div></div>`:""}
     <div class="dsec"><h4>OCR比对与人工判定留痕</h4>
       ${evidence?`<pre class="hint" style="white-space:pre-wrap">${esc(JSON.stringify(evidence,null,2))}</pre>`:
       '<div class="dhint">尚未核销判定；点击「判定」将直接扫描文件、提取要点并智能比对，无需再次填写表格。</div>'}</div>`;
