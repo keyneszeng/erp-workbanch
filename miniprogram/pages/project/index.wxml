@@ -7,6 +7,7 @@
    <view class="section-caption space">项目进度</view>
    <view class="progress-track"><view class="progress-fill" style="width:{{stagePercent}}%"></view></view>
    <view class="muted">{{stageLabel}} · 按项目状态机实时展示</view>
+   <view class="muted space">{{statusNote}}</view>
   </view>
   <view class="card"><view class="section-caption">会议详情</view>
    <view class="field">项目编号 <text class="field-value">{{p.id}}</text></view>
@@ -17,10 +18,10 @@
    <view class="section-caption space">议程要点</view><view class="muted whitespace">{{p.agenda||'暂无议程'}}</view>
   </view>
   <view wx:if="{{isExecutor}}" class="card">
-   <view class="section-caption">会务执行</view>
+   <view class="section-caption">我的业务协作</view>
    <view class="quick-grid">
-    <view wx:if="{{canMaterials}}" class="quick-tile quick-blue" bindtap="materials"><view class="quick-title">材料收集</view><view class="quick-sub">拍照上传与归档</view></view>
-    <view wx:if="{{canApprove}}" class="quick-tile quick-green" bindtap="approvals"><view class="quick-title">审批管理</view><view class="quick-sub">按权限处理审批</view></view>
+    <view wx:if="{{canMaterials}}" class="quick-tile quick-blue" bindtap="materials"><view class="quick-title">材料收集</view><view class="quick-sub">拍照上传 · 结算后冻结</view></view>
+    <view wx:if="{{canApprove}}" class="quick-tile quick-green" bindtap="approvals"><view class="quick-title">审批管理</view><view class="quick-sub">立项／例外／付款审批</view></view>
    </view>
   </view>
   <view class="card">
