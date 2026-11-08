@@ -67,5 +67,6 @@ test("财务 KPI 不随状态页签筛选清零且导出账户按权限脱敏",(
 });
 test("核销第6项及合同待办审批权限口径统一",()=>{
   has("web/assets/js/pages/demand.js","核销第6项");
+  has("web/assets/js/pages/project.js","例外单审批通过不等于核销通过");
   has("server/api/system.js",'a.type === "合同审批" ? can(user, "contract:approve")');
 });

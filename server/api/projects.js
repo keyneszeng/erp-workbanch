@@ -221,7 +221,7 @@ function detail(project, user) {
     materialsStatus: viewMaterials?materialsStatus(pid):{uploadedCount:0,ok:false,missing:[]},
     settlement: viewFinance?settlement:null,
     settlementBreakdown: viewFinance&&settlement ? buildSettlementBreakdown(settlement,project,payments) : null,
-    // 核销第 3 步的费用对照基准。项目详情页的核销页签读的是这个接口，
+    // 核销第 6 项的费用对照基准。项目详情页的核销页签读的是这个接口，
     // 之前只在 /verify 里返回，导致同一个第 3 步在两个页面给出不同答案。
     demand: viewDemand?demandSummary(pid):null,
     ...(viewNotice?require("../lib/project-notice").overview(project):{}),

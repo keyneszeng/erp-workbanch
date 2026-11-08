@@ -847,7 +847,7 @@ function openException(root, pid, d) {
     },
     { k: "reason", l: "例外原因", t: "textarea", req: 1, full: 1, rows: 3 }
   ];
-  const m = modal({ title: "提交例外单", body: `<div class="hint" style="margin-bottom:12px">例外单需财务审批通过后，对应步骤记为「已解例外」，方可继续核销。</div>${formHtml(fields)}`,
+  const m = modal({ title: "提交例外单", body: `<div class="hint" style="margin-bottom:12px">例外单审批通过不等于核销通过。生产流程须补充整改证据、原步骤复核通过后才能继续结算；演示模式另按演示规则执行。</div>${formHtml(fields)}`,
     footer: `<button class="btn btn-o" data-x="0">取消</button><button class="btn btn-p" data-x="1">提交</button>` });
   m.querySelector('[data-x="0"]').onclick = () => m.classList.remove("open");
   m.querySelector('[data-x="1"]').onclick = async () => {
@@ -856,7 +856,7 @@ function openException(root, pid, d) {
       const v = readForm(m);
       // readForm 已经把「自定义填入」的下拉值替换成文本框里的内容，
       // 所以这里拿到的是人写的事项名而不是 "__custom__"。
-      // 步骤是数字字段：不是 1~6 就说明选了自定义，转成 step_no = 0 + step_label。
+      // 步骤是数字字段：不是 1~7 就说明选了自定义，转成 step_no = 0 + step_label。
       const no = Number(v.step_no);
       if (!(no >= 1 && no <= 7)) {
         v.step_label = String(v.step_no || "").trim();
