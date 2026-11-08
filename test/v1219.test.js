@@ -87,17 +87,23 @@ test("第5项随劳务表真实附件出现和移除，换表后旧证据失效"
   assert.equal(verification(pid).total,5);
   assert.equal(verification(pid).steps[4].result,"待判定");
   db.prepare("INSERT INTO materials(pid,kind,name,file_name,file_key,created_at) VALUES (?,?,?,?,?,?)")
-    .run(pid,"合同","甲","甲合同.pdf","contract-proof-v1.pdf","2026-11-06");
+    .run(pid,"劳务专家合同","甲","甲合同.pdf","contract-proof-v1.pdf","2026-11-06");
   db.prepare("INSERT INTO verify_steps(pid,step_no,name,result,evidence_json) VALUES (?,?,?,?,?)")
     .run(pid,5,"劳务表五字段核验","通过",JSON.stringify({
       laborSourceSignature:laborSheetInfo(db,pid).signature,
       contractPoolSignature:contractPool(db,pid).signature
     }));
   assert.equal(verification(pid).steps[4].result,"通过");
-  db.prepare("UPDATE materials SET file_key=? WHERE pid=? AND kind='合同'")
+  db.prepare("INSERT INTO materials(pid,kind,name,file_name,file_key,created_at) VALUES (?,?,?,?,?,?)")
+    .run(pid,"合同","会务服务合同","会务服务合同.pdf","meeting-proof.pdf","2026-11-06");
+  db.prepare("INSERT INTO materials(pid,kind,name,file_name,file_key,created_at) VALUES (?,?,?,?,?,?)")
+    .run(pid,"合同","赞助合同","企业赞助合同.pdf","sponsor-proof.pdf","2026-11-06");
+  assert.equal(verification(pid).steps[4].result,"通过",
+    "会务合同和赞助合同不应改变已核销劳务来源指纹");
+  db.prepare("UPDATE materials SET file_key=? WHERE pid=? AND kind='劳务专家合同'")
     .run("contract-proof-v2.pdf",pid);
   assert.equal(verification(pid).steps[4].result,"待判定","替换个人合同应使历史核销失效");
-  db.prepare("UPDATE materials SET file_key=? WHERE pid=? AND kind='合同'")
+  db.prepare("UPDATE materials SET file_key=? WHERE pid=? AND kind='劳务专家合同'")
     .run("contract-proof-v1.pdf",pid);
   assert.equal(verification(pid).steps[4].result,"通过");
   db.prepare("INSERT INTO materials(pid,kind,name,file_key,created_at) VALUES (?,?,?,?,?)")
