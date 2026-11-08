@@ -85,7 +85,7 @@ async function renderOne(root, pid) {
       return `<div class="vstep ${cls}">
         <div class="vh"><span class="no">${s.no}</span><span class="nm">${esc(s.name)}</span><span class="who">${esc(s.who)}</span></div>
         <div class="desc">${esc(s.desc)}</div>
-        <div class="res">${badge(s.result)}
+        <div class="res">${badge(s.required===false?"不适用":s.result)}
           ${s.remark ? `<span class="rm">${esc(s.remark)}</span>` : ""}
           ${s.checked_by ? `<span style="color:var(--mute)">· ${esc(s.checked_by)} ${esc(s.checked_at)}</span>` : ""}
           ${s.evidence ? `<span class="hint">· 核验依据及人工判定已留痕</span>` : ""}
