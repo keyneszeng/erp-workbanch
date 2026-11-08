@@ -1,5 +1,5 @@
 import { api, state } from "../lib/api.js";
-import { esc, kpi, money, panel, table } from "../lib/ui.js";
+import { esc, panel, table } from "../lib/ui.js";
 
 export async function render(root) {
   const d = await api.get("/api/dashboard");
@@ -10,21 +10,14 @@ export async function render(root) {
     { s: "已立项", d: "组建团队、授权成员", gate: "审批通过" },
     { s: "筹备中", d: "合同 / 嘉宾 / 议程 / 资源", gate: "合同金额确定" },
     { s: "执行中", d: "现场执行与取证", gate: "签到与凭证留存" },
-    { s: "待核销", d: "6 步核销判定", gate: "顺序判定 + 例外闭环" },
-    { s: "已核销", d: "可付款、可结算", gate: "6/6 通过" },
+    { s: "待核销", d: "七项核销规则（第5～7项按需）", gate: "逐项核验 + 例外闭环" },
+    { s: "已核销", d: "允许付款申请和审批", gate: "全部适用核销项通过" },
     { s: "已结算", d: "结算单已生成", gate: "结论冻结" },
-    { s: "已归档", d: "数字卷宗封存", gate: "材料 8/8" }
+    { s: "已归档", d: "数字卷宗封存", gate: "结算完成、材料原件齐备" }
   ];
 
   root.innerHTML = `<div class="phead">
       <div><h2>全流程总览</h2><p>9 状态 8 流转 · 3 道硬门禁 · 每个动作写入审计</p></div>
-    </div>
-
-    <div class="grid g4">
-      ${kpi("在管会议", Object.values(c).reduce((a, b) => a + b, 0), "场")}
-      ${kpi("待核销", c["待核销"] || 0, "个", "k3")}
-      ${kpi("预算总额", `¥${money(d.budget)}`, "", "k2")}
-      ${kpi("已付款", `¥${money(d.paid)}`, "", "k4")}
     </div>
 
     <div class="panel mt">
@@ -40,9 +33,9 @@ export async function render(root) {
     ${panel("三道硬门禁", "绕过 UI 直接调接口同样会被拒", table(
       [{ t: "门禁", w: "150px" }, { t: "规则" }, { t: "拦截结果", w: "200px" }],
       [
-        { c: ["<b>付款门禁</b>", "项目必须处于「已核销 / 已结算 / 已归档」，6 步核销未通过一律不可付款", "<code>409 VERIFY_GATE</code>"] },
-        { c: ["<b>结算门禁</b>", "6 步全部判定通过、且无未审批例外单，才允许生成结算单", "<code>409 GATE_BLOCKED</code>"] },
-        { c: ["<b>归档门禁</b>", "结算单已生成 + 材料 8 类齐备，才允许归档", "<code>409 GATE_BLOCKED</code>"] }
+        { c: ["<b>付款门禁</b>", "只有「已核销」阶段可提交付款；必须完成所有适用核销项。「已结算／已归档」不能新增付款", "<code>VERIFY_GATE</code>"] },
+        { c: ["<b>结算门禁</b>", "核销已通过，付款申请与审批全部完成，已登记付款金额与已签合同额一致，满足适用核验规则", "<code>GATE_BLOCKED</code>"] },
+        { c: ["<b>归档门禁</b>", "项目已结算，至少保留一份有效材料原件，无未结付款；归档后材料封存", "<code>GATE_BLOCKED</code>"] }
       ]))}
 
     <div class="grid g2 mt">
@@ -52,16 +45,16 @@ export async function render(root) {
           { c: ["立项", "协会管理员", "审批通过 → 已立项"] },
           { c: ["筹备", "会务执行", "合同签署、议程定稿 → 执行中"] },
           { c: ["执行", "会务执行", "签到、凭证、课件齐备 → 待核销"] },
-          { c: ["核销", "财务与核销", "6 步通过 + 例外闭环 → 已核销"] },
-          { c: ["结算", "财务与核销", "结算单生成 → 已结算"] },
-          { c: ["归档", "协会管理员 / 财务", "材料 8/8 → 已归档"] }
+          { c: ["核销", "财务与核销", "七项规则全部适用项通过 + 例外闭环 → 已核销"] },
+          { c: ["结算", "财务与核销", "付款完成并核对金额后生成结算单 → 已结算"] },
+          { c: ["归档", "协会管理员 / 财务", "至少一份有效原件 + 结算完成 → 已归档"] }
         ]))}</div>
       <div>${panel("角色与数据范围", "总管理员为超级角色", table(
         [{ t: "角色", w: "130px" }, { t: "数据范围", w: "110px" }, { t: "说明" }],
         state.meta.roles.map((r) => ({ c: [`<b>${esc(r.name)}</b>`, esc(r.scope), esc(r.desc)] }))))}</div>
     </div>
 
-    ${panel("核销 6 步 SOP", "顺序不可跳过", table(
+    ${panel("七项核销 SOP", "第5～7项按条件适用 · 判定可独立进行", table(
       [{ t: "步骤", w: "52px" }, { t: "名称", w: "190px" }, { t: "核对内容" }, { t: "判定角色", w: "110px" }],
       state.meta.verifySteps.map((s) => ({ c: [`<b>${s.no}</b>`, esc(s.name), esc(s.desc), esc(s.who)] }))))}
 
