@@ -133,14 +133,10 @@ function validateSopEvidence(no, evidence, project, db, invoiceAmount) {
       if(!d.invoices.length)fail("请上传会务发票原件","SOP_MATERIAL_MISSING");
       if(e.demandReviewed!==true||e.meetingContractReviewed!==true||e.meetingInvoiceReviewed!==true)
         fail("请逐项人工检查会务需求表、已签会务合同和会务发票原件");
-      if(!Number.isFinite(invoiceAmount)||invoiceAmount<0)
-        throw bad("请输入核对后的会务发票总金额");
       if(cents(d.budgetTotal)!==cents(d.contractTotal))
         fail("会务需求总预算与已签署会务合同总金额不一致");
-      if(cents(invoiceAmount)!==cents(d.budgetTotal))
-        fail("会务发票总金额、会务需求总预算与已签署会务合同总金额不一致");
-      return {meetingMatched:true,matchedFields:3,meetingContractTotal:d.contractTotal,
-        demandBudget:d.budgetTotal,invoiceAmount,needCount:d.needCount,
+      return {meetingMatched:true,matchedFields:2,invoiceLinked:true,invoiceCount:d.invoices.length,meetingContractTotal:d.contractTotal,
+        demandBudget:d.budgetTotal,needCount:d.needCount,
         demandSopSignature:d.signature,comparedWith:"会务需求表+会务合同+会务发票"};
     }
     case 7: return validateRightsEvidence(db,pid,e);
