@@ -27,7 +27,7 @@ export async function render(root) {
       ${table([{ t: "项目" }, { t: "状态", w: "84px" }, { t: "上传原件", w: "110px" }, { t: "类别数" }, { t: "操作", w: "90px" }],
         d.projects.map((p) => ({
           c: [`<a class="link" data-go="projects/${p.id}">${esc(p.name)}</a>`,
-            p.status, `<b class="${p.uploadedCount ? "pos" : "neg"}">${p.uploadedCount || 0} 份</b>`,
+            esc(p.status), `<b class="${p.uploadedCount ? "pos" : "neg"}">${p.uploadedCount || 0} 份</b>`,
             esc(String(p.have?.length || 0))+" 类 · "+(p.uploadedCount ? "已满足材料条件" : "待上传附件"),
             `<button class="link" data-go="projects/${p.id}">查看</button>`]
         })), { empty: "暂无项目" })}
@@ -103,15 +103,23 @@ export function openMaterialRegistration(root, projects, kinds, defaultPid="", o
   const rightField=rightSelect.closest(".fld");
   const pidSelect=m.querySelector('[name="pid"]');
   let availableRights=[];
+  let rightsRequestId=0;
   const loadRights=async()=>{
+    const requestId=++rightsRequestId;
+    const pid=pidSelect.value;
     availableRights=[];
-    if(!pidSelect.value)return;
+    rightSelect.innerHTML='<option value="">正在加载权益二级类目…</option>';
+    if(!pid){rightSelect.innerHTML='<option value="">请先选择所属项目</option>';return;}
     try{
-      const data=await api.get("/api/projects/"+encodeURIComponent(pidSelect.value)+"/sponsor-rights");
+      const data=await api.get("/api/projects/"+encodeURIComponent(pid)+"/sponsor-rights");
+      if(requestId!==rightsRequestId||pidSelect.value!==pid)return;
       const sponsors=new Map((data.contracts||[]).filter(c=>c.status!=="已驳回").map(c=>[c.id,c]));
       availableRights=(data.rights||[]).filter(x=>sponsors.has(x.sponsor_id))
         .map(x=>({...x,enterprise:sponsors.get(x.sponsor_id).enterprise}));
-    }catch(err){if(kindSelect.value==="权益照片")toast("读取权益二级类目失败："+err.message,"warn");}
+    }catch(err){
+      if(requestId!==rightsRequestId||pidSelect.value!==pid)return;
+      if(kindSelect.value==="权益照片")toast("读取权益二级类目失败："+err.message,"warn");
+    }
     const old=rightSelect.value;
     rightSelect.innerHTML='<option value="">选择赞助合同 → 权益二级类目</option>'+
       availableRights.map(x=>'<option value="'+x.id+'">'+esc(x.enterprise)+" · "+esc(x.category)+(x.confirmed?"":"（待确认）")+'</option>').join("");
