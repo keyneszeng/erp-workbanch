@@ -44,10 +44,10 @@ export function sopEvidenceForm(no,p,rightsData=null){
        +`<div class="hint">只核对两点：材料库已有课件原件；所填每个课件主题都能在已确认的终版议程中找到。终版议程可以包含其他未上传课件的主题。无需核对串场、Logo 或赞助商展示页面。请从原件人工摘录主题。</div>`,
     5:area("collectionRecords","劳务表（每行：姓名|时间|角色|金额|银行账号|开户行（可选））","张老师|2026-11-01|讲者|1000|6222...")
        +`<div class="hint">第5项只关联劳务登记表（含劳务表、劳务收集表）和劳务专家合同。每位专家须有一份姓名对应的劳务专家合同；会务合同、赞助合同及其他总合同不得参与核验。银行账号不写入核销证据。</div><div data-labor-contract-preview></div>`,
-    6: `<div class="hint">有已建立的会务需求表即必核。只关联会务需求表、已签署「会务需求」类别合同及会务发票；核对三方总金额是否一致。原件真实性须人工检查。</div>`
+    6: `<div class="hint">有已建立的会务需求表即必核。只关联会务需求表、已签署「会务需求」类别合同及会务发票；只核对会务需求预算与会务合同总额一致，以及是否已关联会务发票原件；无需核对发票金额。原件真实性须人工检查。</div>`
        +ck("demandReviewed","已检查本项目已归档的会务需求表")
        +ck("meetingContractReviewed","已逐份检查对应会务需求合同原件")
-       +ck("meetingInvoiceReviewed","已检查对应会务发票原件及金额"),
+       +ck("meetingInvoiceReviewed","已确认关联会务发票原件"),
     7:rightsChecklist(rightsData)
   };
   return head+(s[no]||"");
