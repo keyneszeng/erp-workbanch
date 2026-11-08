@@ -37,7 +37,7 @@ function saveLabor(pid,records){
  return {saved:true,count:records.length};
 }
 function options(pid){
- const contracts=db.prepare("SELECT id,vendor,amount,category FROM contracts WHERE pid=? AND status='已签署' ORDER BY id").all(pid);
+ const contracts=db.prepare("SELECT id,vendor,amount,category FROM contracts WHERE pid=? AND status='已签署' AND COALESCE(category,'')<>'企业赞助' ORDER BY id").all(pid);
  const rows=contracts.map(x=>({id:"contract:"+x.id,label:x.vendor+"（"+x.category+"合同）",payee:x.vendor,amount:x.amount,source:"contract",bank:"",maskedAccount:""}));
  const s=laborSheetInfo(db,pid);
  const v=db.prepare("SELECT result,evidence_json FROM verify_steps WHERE pid=? AND step_no=5").get(pid);
@@ -54,7 +54,7 @@ function options(pid){
 function resolve(pid,id){
  const value=String(id||"");
  if(value.startsWith("contract:")){
-  const x=db.prepare("SELECT vendor,amount FROM contracts WHERE id=? AND pid=? AND status='已签署'").get(value.slice(9),pid);
+  const x=db.prepare("SELECT vendor,amount FROM contracts WHERE id=? AND pid=? AND status='已签署' AND COALESCE(category,'')<>'企业赞助'").get(value.slice(9),pid);
   if(!x)throw bad("选择的合同收款方不存在或未签署");
   return {name:x.vendor,amount:x.amount,bank:"",account:"",source:"contract"};
  }

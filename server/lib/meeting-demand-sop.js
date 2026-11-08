@@ -17,7 +17,7 @@ function demandSopState(db,pid){
   ).all(pid);
   const contracts=db.prepare(
     "SELECT id,name,category,amount,status,file_key FROM contracts WHERE pid=? AND status='已签署' "+
-    "AND COALESCE(category,'')<>'劳务专家' ORDER BY id"
+    "AND COALESCE(category,'') NOT IN ('劳务专家','企业赞助') ORDER BY id"
   ).all(pid);
   const materials=db.prepare(
     "SELECT id,kind,name,file_name,file_key,version,deleted_at FROM materials WHERE pid=? "+
