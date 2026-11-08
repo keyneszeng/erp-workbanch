@@ -66,21 +66,33 @@ function check(env = process.env) {
     fail("ERP_FINANCIAL_DATA_KEY 必须为独立 32 字节随机密钥（64 位十六进制）");
   if(env.ERP_REQUIRE_VERIFIED_PAYEES==="1" && !/^[0-9a-f]{64}$/i.test(String(env.ERP_FINANCIAL_DATA_KEY||"")))
     fail("启用强制核销收款人选择必须先配置 ERP_FINANCIAL_DATA_KEY");
-  if (env.ERP_OCR_ENABLED && !["0","1"].includes(env.ERP_OCR_ENABLED))
-    fail("ERP_OCR_ENABLED 必须为 0 或 1");
-  if (env.ERP_OCR_ENABLED === "1") {
+  // RapidOCR + Poppler 共用预检；不再依赖 Tesseract 语言包。
+  try { require("./rapidocr-preflight.cjs").checkRapidOcr(env); }
+  catch (err) { fail(err.message); }
+  // Office 原件在线预览依赖 LibreOffice（缺失不阻断启动：预览会退化为下载入口）。
+  {
     const { spawnSync } = require("node:child_process");
-    for(const cmd of ["tesseract","pdfinfo","pdftotext","pdftoppm"]){
-      const args = cmd === "tesseract" ? ["--list-langs"] : ["-v"];
-      const res=spawnSync(cmd,args,{encoding:"utf8",timeout:5000,maxBuffer:65536});
-      if(res.error || res.status!==0)fail("已启用 OCR 但缺少可执行依赖 "+cmd+"，请先安装 tesseract-ocr 和 poppler-utils");
-      if(cmd==="tesseract") {
-        const langs=(String(res.stdout||"")+"\n"+String(res.stderr||"")).split(/\s+/);
-        if(!langs.includes("chi_sim") || !langs.includes("eng"))
-          fail("OCR 必须安装 chi_sim 和 eng 两种语言模型");
-      }
+    const lo = spawnSync("soffice", ["--version"], { encoding: "utf8", timeout: 8000, maxBuffer: 65536 });
+    if (lo.error || lo.status !== 0) {
+      console.warn("[warn] 未检测到 LibreOffice（soffice）：Office 原件将无法在线预览，只能下载");
+    } else {
+      const fonts = spawnSync("fc-list", [], { encoding: "utf8", timeout: 8000, maxBuffer: 8 * 1024 * 1024 });
+      if (!/wqy|noto.*cjk|source han/i.test(String(fonts.stdout || "")))
+        console.warn("[warn] 未检测到中文字体：Office 转 PDF 后中文可能显示为方框");
     }
   }
+
+  // 超大附件自动压缩依赖（PDF 用 gs，图片用 convert）。缺失不阻断启动：
+  // >20MB 的文件会被拒绝并提示用户本地压缩，不会静默丢数据。
+  {
+    const { spawnSync } = require("node:child_process");
+    for (const [cmd, label] of [["gs", "Ghostscript"], ["convert", "ImageMagick"], ["zip", "zip"], ["unzip", "unzip"]]) {
+      const res = spawnSync(cmd, ["-version"], { encoding: "utf8", timeout: 8000, maxBuffer: 65536 });
+      if (res.error || res.status !== 0)
+        console.warn(`[warn] 未检测到 ${label}（${cmd}）：超过 20 MB 的原件将无法自动压缩`);
+    }
+  }
+
   return { target: "aliyun-ecs", domain };
 }
 if (require.main === module) {
