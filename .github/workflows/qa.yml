@@ -160,6 +160,8 @@ jobs:
         run: ERP_DEMO_MODE=1 node test/ui/settlement-breakdown.js
       - name: "Black-box initiation form tax-fee preview"
         run: ERP_DEMO_MODE=1 node test/ui/budget-fee.js
+      - name: "Black-box project material batch: concurrent uploads, original filenames, per-file retry"
+        run: ERP_DEMO_MODE=1 node test/ui/material-batch-upload.js
       - name: "Black-box legacy XLS upload from material register"
         run: ERP_DEMO_MODE=1 node test/ui/xls-upload.js
       - name: "Black-box contract sign confirmation and replacement"
