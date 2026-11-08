@@ -1,0 +1,33 @@
+<view class="wrap">
+ <view wx:if="{{error}}" class="card error">{{error}}</view>
+ <block wx:if="{{p}}">
+  <view class="card">
+   <view class="heading">{{p.name}}</view>
+   <view class="row"><text class="muted">{{p.date}} · {{p.form}}</text><text class="tag">{{p.status}}</text></view>
+   <view class="section-caption space">项目进度</view>
+   <view class="progress-track"><view class="progress-fill" style="width:{{stagePercent}}%"></view></view>
+   <view class="muted">{{stageLabel}} · 按项目状态机实时展示</view>
+   <view class="muted space">{{statusNote}}</view>
+  </view>
+  <view class="card"><view class="section-caption">会议详情</view>
+   <view class="field">项目编号 <text class="field-value">{{p.id}}</text></view>
+   <view class="field">协会 <text class="field-value">{{p.assoc}}</text></view>
+   <view class="field">会议日期 <text class="field-value">{{p.date}}</text></view>
+   <view class="field">负责人 <text class="field-value">{{p.owner||'—'}}</text></view>
+   <view class="field">预计参会人数 <text class="field-value">{{p.people||0}} 人</text></view>
+   <view class="section-caption space">议程要点</view><view class="muted whitespace">{{p.agenda||'暂无议程'}}</view>
+  </view>
+  <view wx:if="{{isExecutor}}" class="card">
+   <view class="section-caption">我的业务协作</view>
+   <view class="quick-grid">
+    <view wx:if="{{canMaterials}}" class="quick-tile quick-blue" bindtap="materials"><view class="quick-title">材料收集</view><view class="quick-sub">拍照上传 · 结算后冻结</view></view>
+    <view wx:if="{{canApprove}}" class="quick-tile quick-green" bindtap="approvals"><view class="quick-title">审批管理</view><view class="quick-sub">按已授权类型处理审批</view></view>
+   </view>
+  </view>
+  <view class="card">
+   <view class="section-caption">会议分享</view>
+   <view class="muted">仅已登录且属于此项目数据范围的成员可查看会议；不公开预算、合同、财务或个人资料。</view>
+   <button class="btn ghost" open-type="share">分享给授权成员</button>
+  </view>
+ </block>
+</view>

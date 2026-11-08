@@ -19,7 +19,7 @@ const { isDemoMode } = require("./runtime");
 const HERE = typeof __dirname === "string" ? __dirname : "";
 const WEB_DIR = path.join(HERE, "..", "..", "web");
 
-const PUBLIC = new Set(["/api/auth/login", "/api/health", "/api/auth/me", "/api/public/prep-invitation", "/api/public/prep-invitation-pdf", "/api/public/prep-invitation/respond"]);
+const PUBLIC = new Set(["/api/mini/auth/login", "/api/mini/auth/sms/send", "/api/mini/auth/bind", "/api/auth/login", "/api/auth/password/reset/request", "/api/auth/password/reset/confirm", "/api/health", "/api/auth/me", "/api/public/prep-invitation", "/api/public/prep-invitation-pdf", "/api/public/prep-invitation/respond"]);
 
 /**
  * 安全响应头 —— V1.2.17 SEC-03。
@@ -62,7 +62,7 @@ function isSecureRequest(req, url) {
  * 照片走这条路，不经过 JSON 解析——3 MB 的 JPEG 转成 JSON base64 会膨胀到 4 MB 且毫无必要。
  */
 const UPLOAD_PATH = "/api/uploads";
-const UPLOAD_LIMIT = 10 * 1024 * 1024;
+const UPLOAD_LIMIT = 21 * 1024 * 1024; // 20 MB data plus request overhead
 
 function buildRouter() {
   const router = new Router();
@@ -70,12 +70,18 @@ function buildRouter() {
   // "Dynamic require is not supported"，Worker 启动即失败。
   const modules = [
     require("../api/auth"),
+    require("../api/mini"),
+    require("../api/mini-applications"),
     require("../api/projects"),
+    require("../api/project-notice"),
     require("../api/verify"),
     require("../api/finance"),
+    require("../api/income"),
     require("../api/system"),
+    require("../api/user-access"),
     require("../api/demand"),
     require("../api/files"),
+    require("../api/material-workbench"),
     require("../api/archive-pdf"),
     require("../api/prep-invitations"),
     require("../api/prep-admin"),
@@ -94,6 +100,7 @@ async function handle(req, res) {
 
   // 每个响应都带安全头（setHeader 与后续 writeHead 的 headers 会合并，writeHead 优先）
   for (const [k, v] of Object.entries(SECURITY_HEADERS)) res.setHeader(k, v);
+  if (pathname.startsWith("/api/auth/")) res.setHeader("Cache-Control", "no-store");
 
   if (req.method === "OPTIONS") {
     res.writeHead(204, { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET,POST,PATCH,DELETE", "Access-Control-Allow-Headers": "Content-Type" }).end();
@@ -125,7 +132,10 @@ async function handle(req, res) {
   }
 
   const cookies = parseCookies(req.headers.cookie || "");
-  const token = cookies[COOKIE];
+  const authorization = String(req.headers.authorization || "");
+  const bearer = /^Bearer ([A-Za-z0-9._-]{16,300})$/.exec(authorization);
+  // A supplied Authorization header must never silently fall back to a browser cookie.
+  const token = authorization ? (bearer ? bearer[1] : "") : cookies[COOKIE];
   const user = userByToken(token);
 
   if (!PUBLIC.has(pathname) && !user) {
@@ -135,7 +145,7 @@ async function handle(req, res) {
 
   // 生产初始密码仅用于进入短信改密流程，任何业务接口均禁止绕过。
   if (!isDemoMode() && user && user.must_change_password &&
-      !new Set(["/api/auth/me", "/api/auth/logout", "/api/auth/password", "/api/auth/sms/send"]).has(pathname)) {
+      !new Set(["/api/auth/me", "/api/auth/logout", "/api/auth/password", "/api/auth/sms/send", "/api/mini/auth/me", "/api/mini/auth/logout", "/api/mini/auth/sms/send-password", "/api/mini/auth/password"]).has(pathname)) {
     sendJson(res, 403, { error: { code: "PASSWORD_CHANGE_REQUIRED", message: "请先验证手机号并修改初始密码" } });
     return;
   }

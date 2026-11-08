@@ -1,0 +1,16 @@
+<view class="wrap">
+ <view class="card">
+  <view class="heading">会议项目</view>
+  <view class="tab-row"><view wx:for="{{tabs}}" wx:key="key" class="tab-item {{tab===item.key?'selected':''}}"
+   data-tab="{{item.key}}" bindtap="changeTab">{{item.label}}</view></view>
+  <view class="muted">{{tab==='mine'?'按本人创建记录查询草稿、审批与执行进度':'仅列出当前角色权限范围内的会议'}} · 共 {{total}} 条</view>
+  <view wx:if="{{error}}" class="error">{{error}}</view>
+  <view class="meeting-item" wx:for="{{rows}}" wx:key="id" data-id="{{item.id}}" data-draft="{{tab==='mine' && item.ownDraft?'yes':'no'}}" bindtap="open">
+   <view class="row"><view class="meeting-name">{{item.name}}</view><text class="tag">{{item.status}}</text></view>
+   <view class="muted">{{item.date}} · {{item.assoc}}</view>
+   <view class="muted">{{item.id}}{{tab==='mine'&&item.ownDraft?' · 点击继续完善草稿':''}}</view>
+  </view>
+  <view wx:if="{{!loading && !rows.length}}" class="empty-state">暂无记录。会议申请提交后将在这里显示审批进度。</view>
+  <view wx:if="{{loading}}" class="muted">正在加载…</view>
+ </view>
+</view>

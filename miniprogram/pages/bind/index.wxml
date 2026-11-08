@@ -1,0 +1,11 @@
+<view class="wrap"><view class="card"><view class="heading">绑定企业白名单账号</view>
+<view class="muted">仅限管理员已登记的手机号。首次登录必须短信验证并修改初始密码。</view>
+<input class="field" placeholder="白名单手机号" type="number" maxlength="11" data-key="phone" bindinput="input" value="{{phone}}"/>
+<input class="field" placeholder="账号密码" password data-key="password" bindinput="input" value="{{password}}"/>
+<input class="field" placeholder="6 位短信验证码" type="number" maxlength="6" data-key="smsCode" bindinput="input" value="{{smsCode}}"/>
+<button class="btn" bindtap="send">发送验证码到登记手机</button>
+<input class="field" placeholder="首次登录：设置新密码（字母+数字，至少8位）" password data-key="newPassword" bindinput="input" value="{{newPassword}}"/>
+<view class="muted">如果已经在 Web 端修改过初始密码，新密码一栏可留空。</view>
+<view wx:if="{{error}}" class="error">{{error}}</view>
+<button class="btn primary" loading="{{busy}}" disabled="{{busy}}" bindtap="bind">验证并绑定微信</button>
+</view></view>
