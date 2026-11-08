@@ -39,7 +39,7 @@ export async function render(root, [pid]) {
     TABS.filter(([key])=>key==="overview" || (key==="payments"?sections.finance:
       key==="timeline"?sections.audit:!!sections[key]));
   if (!visibleTabs.some(([k])=>k===tab)) tab="overview";
-  const canEdit = can("project:edit") && (p.status !== "已归档" || state.super);
+  const canEdit = can("project:edit") && !["已结算", "已归档"].includes(p.status);
 
   root.innerHTML = `
   <div class="crumb"><a data-go="projects">会议项目</a> / 会议编号：<span class="mono">${esc(p.id)}</span></div>
@@ -68,7 +68,7 @@ export async function render(root, [pid]) {
     ${!participant ? `<div class="ux-checkpoints">
        ${sections.demand? `<button type="button" data-tab="demand"><strong>${d.demand?.archived?"已确认":"待确认"}</strong><span>会务需求</span></button>`:""}
        ${sections.materials? `<button type="button" data-tab="materials"><strong>${d.materialsStatus.uploadedCount || 0} 份</strong><span>归档材料</span></button>`:""}
-       ${sections.verify? `<button type="button" data-tab="verify"><strong>${d.verification.passed}/${d.verification.total}</strong><span>七步核销</span></button>`:""}
+       ${sections.verify? `<button type="button" data-tab="verify"><strong>${d.verification.passed}/${d.verification.total}</strong><span>七项核销（按需）</span></button>`:""}
        ${sections.finance? `<button type="button" data-tab="payments"><strong>${d.settlement?"已生成":"未生成"}</strong><span>财务结算</span></button>`:""}
      </div>` : '<p class="ux-public-hint">会议审批与执行状态公开给有权查看本项目的成员；财务明细仅限授权角色。</p>'}
   </div>
@@ -192,6 +192,8 @@ function tabOverview(d, p) {
   const settle = d.settlement;
   const v = d.verification;
   const ms = d.materialsStatus;
+  const demandRequired = v.steps.some((s) => s.no === 6 && s.required);
+  const paymentComplete = !!settle;
   return `<div class="grid g2">
     <div>${panel("会议信息", "", kv([
       ["项目编号", `<span class="mono">${p.id}</span>`],
@@ -216,20 +218,20 @@ function tabOverview(d, p) {
       </div>
       <div style="margin-top:12px">${settle
         ? `<div class="gate ok"><b>结算单 ${settle.id} 已生成</b>
-             收入 ¥${money(settle.income)} · 支出 ¥${money(settle.expense)} · 结余 ¥${money(settle.profit)}（${settle.created_at}）
+             项目预算 ¥${money(settle.income)} · 已付支出 ¥${money(settle.expense)} · 预算结余 ¥${money(settle.profit)}（${settle.created_at}）
              <div style="margin-top:4px">收款方 ${esc(settle.payee || "—")}${
-               settle.payee_account ? ` · ${esc(settle.payee_bank || "")} <span class="mono">${esc(settle.payee_account)}</span>` : " · 未登记收款账户"
+               settle.payee_account ? ` · ${esc(settle.payee_bank || "")} <span class="mono">${esc("尾号 " + String(settle.payee_account).slice(-4))}</span>` : " · 未登记收款账户"
              }</div></div>`
-        : `<div class="gate"><b>结算单未生成</b>适用核销项全部通过后，由财务生成结算单；生成后核销结论冻结。</div>`}</div>
+        : `<div class="gate"><b>结算单未生成</b>适用核销项通过后，还须完成付款申请、审批和付款登记，并核对合同与实际付款金额后才能结算；生成后资料冻结。</div>`}</div>
       <div style="margin-top:10px">${PAYABLE.includes(p.status)
         ? `<div class="gate ok"><b>付款门禁已放行</b>项目已完成核销，可提交付款申请。</div>`
         : `<div class="gate"><b>付款门禁锁定</b>当前状态「${p.status}」，适用核销项全部通过（已核销）后才可付款${p.status === "已结算" ? "；结算后账目已封账" : p.status === "已归档" ? "；归档后卷宗已封存" : ""}。</div>`}</div>
       `)}
       ${panel("流程门禁", "系统实时校验", `<div style="display:flex;flex-direction:column;gap:8px;font-size:12.5px">
-        <div>${d.demand && d.demand.archived ? "✅" : "⛔"} 会务需求：${d.demand ? (d.demand.archived ? `已归档（${d.demand.needCount} 项 · ¥${money(d.demand.budgetTotal)}）` : "草稿未归档") : "未建单"}</div>
-        <div>${ms.ok ? "✅" : "⛔"} 材料（核销前置）：${8 - ms.missing.length}/8${ms.missing.length ? "，缺 " + ms.missing.join("、") : ""}</div>
-        <div>${v.complete ? "✅" : "⛔"} 核销：${ms.ok ? "" : "材料未齐不可判定 · "}${v.passed}/${v.total} 通过${v.openExceptions ? `，${v.openExceptions} 张例外单待审批` : ""}</div>
-        <div>${payBlocked ? "⛔" : "✅"} 付款：${payDone} 笔已付 · ¥${money(d.paidTotal)}${payBlocked ? `，${payBlocked} 笔未完成（待审批 / 已审批）` : ""}</div>
+        <div>${!demandRequired ? "—" : d.demand?.archived ? "✅" : "⛔"} 会务需求（第6项）：${!demandRequired ? "不适用（无实际需要执行的会务需求）" : d.demand?.archived ? `已确认归档（${d.demand.needCount} 项 · ¥${money(d.demand.budgetTotal)}）` : d.demand ? "尚未确认归档" : "需先填写并确认需求单"}</div>
+        <div>${ms.ok ? "✅" : "⛔"} 材料（核销前置）：已上传 ${ms.uploadedCount || 0} 份有效附件 · ${ms.ok ? "满足至少一份的门槛" : "还需至少上传一份原件"}</div>
+        <div>${v.complete ? "✅" : "⛔"} 核销：${v.passed}/${v.total} 项适用检查通过（七项规则，第5～7项按需）${ms.ok ? "" : " · 尚无有效原件"}${v.openExceptions ? ` · ${v.openExceptions} 张例外单待处理` : ""}</div>
+        <div>${paymentComplete ? "✅" : payBlocked ? "⛔" : "—"} 付款（系统登记）：${payDone} 笔已付 · ¥${money(d.paidTotal)}${payBlocked ? ` · ${payBlocked} 笔待审批／待付款` : payDone ? " · 以实际银行回单为准" : " · 尚无已完成付款"}</div>
         <div>${settle ? "✅" : "⛔"} 结算：${settle ? "已生成 " + settle.id : "未生成"}</div>
       </div>`)}
     </div>
@@ -377,9 +379,9 @@ function tabPayments(d, p) {
       c: [`<span class="mono">${y.id}</span>`, esc(y.type),
         `${esc(y.payee)}<div style="font-size:11px;color:var(--mute)">
           ${y.payee_account
-            ? `${esc(y.payee_bank || "")} · <span class="mono">${esc(y.payee_account)}</span>`
+            ? `${esc(y.payee_bank || "")} · <span class="mono">${esc(can("payment:pay") ? y.payee_account : "尾号 " + String(y.payee_account).slice(-4))}</span>`
             : '<span style="color:var(--warn)">未登记收款账户</span>'}
-        </div>`, `¥${money(y.amount)}`,
+        </div>`, `¥${money(y.amount)}${y.period ? `<div class="hint">期次：${esc(y.period)}</div>` : ""}`,
         `<span class="mono">${esc(y.invoice_no || "—")}</span>`, esc(y.req_user || ""), badge(y.status),
         `<div class="tacts">
           ${y.status === "待审批" && can("payment:approve") ? `<button class="link" data-pay-approve="${y.id}">审批</button>` : ""}
@@ -407,7 +409,7 @@ function tabVerify(d, p) {
   return `${banner}
   ${panel("核销 7 步 SOP", `已通过 ${v.passed}/${v.total} 项必核 · ${v.openExceptions ? v.openExceptions + " 张例外单待审批" : "无未决例外"}`,
     `<div class="vsteps">${v.steps.map((s) => {
-      const cls = s.result === "通过" || s.result === "已解例外" ? "s-pass" : s.result === "不通过" ? "s-fail" : "s-wait";
+      const cls = s.required === false ? "s-na" : s.result === "通过" || s.result === "已解例外" ? "s-pass" : s.result === "不通过" ? "s-fail" : "s-wait";
       const canJudge = can("verify:check") && !frozen && materialReady
         && (p.status === "待核销" || (p.status === "已核销" && state.super));
       return `<div class="vstep ${cls}">
@@ -465,7 +467,7 @@ function tabMaterials(d, p) {
         ]
       })),
       { empty: "暂无材料" })}`,
-    can("material:write") && p.status !== "已归档" ? '<button class="btn btn-p btn-sm" id="addMat">+ 登记材料</button>' : "");
+    can("material:write") && p.status !== "已归档" && !d.settlement ? '<button class="btn btn-p btn-sm" id="addMat">+ 登记材料</button>' : "");
 }
 
 /* ---------------- 成员 ---------------- */
@@ -506,8 +508,8 @@ function wire(root, pid, d, body) {
     render(root, [pid]);
   });
   body.querySelectorAll("[data-judge]").forEach((b) => b.onclick = () => openJudge(root, pid, Number(b.dataset.judge), d));
-  // 核销 6 步的「详情」：判定前先把该核对的原始数据摆出来（与核销看板共用同一份实现）
-  const canJudgeHere = can("verify:check") && !d.settlement
+  // 七项核销的「详情」：判定前先把该核对的原始数据摆出来（与核销看板共用同一份实现）
+  const canJudgeHere = can("verify:check") && !d.settlement && d.materialsStatus.ok
     && (d.project.status === "待核销" || (d.project.status === "已核销" && state.super));
   body.querySelectorAll("[data-detail]").forEach((b) => b.onclick = () =>
     openStepDetail(d, Number(b.dataset.detail), {
@@ -626,7 +628,7 @@ async function doTransition(root, pid, action, project) {
   if (["archive", "verify_pass"].includes(action)) {
     const ok = await confirmBox(
       action === "archive" ? "归档后数字卷宗封存，材料不可再修改，确认继续？"
-        : "确认核销通过？通过后项目可进入结算与付款。",
+        : "确认核销通过？通过后须先完成付款申请、审批与财务付款登记，金额核对后才能结算。",
       { ok: "确认", danger: action !== "verify_pass" });
     if (!ok) return;
   }
