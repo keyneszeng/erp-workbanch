@@ -47,6 +47,7 @@ async function run(){
  await form.locator('input[name="date"]').fill("2027-07-12");
  await form.locator('textarea[name="agenda"]').fill("09:00 开幕式，10:00 专题报告");
  await form.locator('select[name="owner_id"]').selectOption({index:1});
+ await form.locator('select[name="dept"]').selectOption("秘书处");
  await form.locator('[data-a="draft"]').click();
  await page.waitForURL(/#\/projects\/MP-/, {timeout:20000});
  const id=page.url().split("/").pop();
