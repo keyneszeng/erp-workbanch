@@ -161,6 +161,8 @@ table tr.clickable{cursor:pointer}
 .vstep.s-pass{border-color:#7bc394;background:#f4fbf6}
 .vstep.s-fail{border-color:#e0a072;background:#fdf6f0}
 .vstep.s-wait{border-color:#d5dbe4;background:#fafbfd}
+.vstep.s-na{border-color:#e1e5eb;background:#f7f8fa;opacity:.87}
+.vstep.s-na .no{background:#8793a4}
 .vstep .vh{display:flex;align-items:center;gap:9px;margin-bottom:6px}
 .vstep .no{width:22px;height:22px;border-radius:50%;display:grid;place-items:center;
   font-size:12px;font-weight:700;color:#fff;flex:0 0 22px;background:var(--mute)}

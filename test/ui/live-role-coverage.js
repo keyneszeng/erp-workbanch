@@ -11,7 +11,14 @@ const path = require("node:path");
 const BASE = (process.env.ERP_BASE || "https://erp.aibuild.work").replace(/\/$/, "");
 const OUTPUT = path.join(process.cwd(), "artifacts", "live-regression");
 fs.mkdirSync(OUTPUT, { recursive: true });
-const ROLES = ["admin", "assoc", "exec", "finance", "guest"];
+// The Aliyun test run uses real whitelisted users; credentials MUST come from env, not Git.
+const ALIYUN_TEST = process.env.ERP_QA_TARGET === "aliyun-test";
+const ROLES = ALIYUN_TEST ? ["admin", "exec", "finance"] : ["admin", "assoc", "exec", "finance", "guest"];
+const ALIYUN_ACCOUNT_ENV = {
+  admin: ["ERP_QA_ADMIN_USER", "ERP_QA_ADMIN_PASSWORD"],
+  exec: ["ERP_QA_EXEC_USER", "ERP_QA_EXEC_PASSWORD"],
+  finance: ["ERP_QA_FINANCE_USER", "ERP_QA_FINANCE_PASSWORD"]
+};
 const PRIVATE_ROUTES = ["users", "approvals", "finance", "verify", "demand", "contracts", "materials", "audit", "archive"];
 const TITLE_BY_ROUTE = {
   dashboard: "我的工作台", flow: "全流程总览", projects: "会议项目",
@@ -144,7 +151,7 @@ async function inspectRoute(page, role, route) {
     await testExports(page, role, route);
     if (route === "users") {
       check(role, route, "权限矩阵显示", /角色权限矩阵/.test(await page.locator("#content").innerText()));
-      check(role, route, "重置危险操作入口", (await page.locator("#resetAll").count()) === 1);
+      check(role, route, "重置危险操作入口符合环境边界", (await page.locator("#resetAll").count()) === (ALIYUN_TEST ? 0 : 1));
     }
   } catch (err) {
     check(role, route, "页面流程异常", false, err.message);
@@ -214,15 +221,19 @@ async function oneRole(browser, role) {
   try {
     await page.goto(BASE, { waitUntil: "domcontentloaded", timeout: 50000 });
     await page.locator("#lform").waitFor({ timeout: 25000 });
-    await page.fill('input[name="username"]', role);
-    await page.fill('input[name="password"]', "123456");
+    const [userEnv, passEnv] = ALIYUN_ACCOUNT_ENV[role] || [];
+    const username = ALIYUN_TEST ? process.env[userEnv] : role;
+    const password = ALIYUN_TEST ? process.env[passEnv] : "123456";
+    if (!username || !password) throw new Error("缺少角色 " + role + " 的登录环境变量，未运行该角色的测试");
+    await page.fill('input[name="username"]', username);
+    await page.fill('input[name="password"]', password);
     await page.locator("#lbtn").click();
     await page.waitForSelector("#app:not([hidden])", { timeout: 25000 });
     await loaded(page);
     check(role, "auth", "真实浏览器登录", true);
     const roleInfo = await page.evaluate(async () => (await (await fetch("/api/auth/me")).json()));
-    check(role, "auth", "角色身份与授权读取", roleInfo.user?.username === role && !!roleInfo.role?.name, roleInfo.user?.username);
-    if (role === "exec") {
+    check(role, "auth", "角色身份与授权读取", roleInfo.user?.username === username && roleInfo.user?.role === (role === "guest" ? "user" : role) && !!roleInfo.role?.name, roleInfo.user?.role || "unauthenticated");
+    if (role === "exec" && (!ALIYUN_TEST || process.env.ERP_QA_ALLOW_UPLOAD === "1")) {
       // Separate material metadata registration from real Cloudflare object storage readiness.
       const cap = await page.evaluate(async () => {
         const res = await fetch("/api/uploads/capability", { credentials: "same-origin" });
@@ -254,10 +265,25 @@ async function oneRole(browser, role) {
         }
       }
     }
+    if (role === "exec" && ALIYUN_TEST && process.env.ERP_QA_ALLOW_UPLOAD !== "1") {
+      check(role, "attachments", "上传真实文件", null, "只读巡检默认不改动服务器数据；可使用 ERP_QA_ALLOW_UPLOAD=1 开启");
+    }
     const nav = await page.locator("#nav button[data-go]").evaluateAll(els => els.map(e => e.dataset.go));
     check(role, "navigation", "侧栏菜单已加载", nav.length >= 2, nav.join(","));
     await page.screenshot({ path: path.join(OUTPUT, role + "-dashboard.png") });
     for (const route of [...new Set(nav)]) {
+      // Click the actual sidebar button, not only a manually-constructed hash URL.
+      const navButton = page.locator('#nav button[data-go="' + route + '"]').first();
+      if (await navButton.count()) {
+        try {
+          await navButton.click({ timeout: 10000 });
+          await loaded(page);
+          check(role, "navigation", "侧栏点击 " + route,
+            new URL(page.url()).hash.startsWith("#/" + route), new URL(page.url()).hash);
+        } catch (err) {
+          check(role, "navigation", "侧栏点击 " + route, false, err.message);
+        }
+      }
       await inspectRoute(page, role, route);
     }
     if (nav.includes("projects")) await inspectDetail(page, role);
@@ -279,6 +305,16 @@ async function oneRole(browser, role) {
   }
 }
 (async () => {
+  if (ALIYUN_TEST) {
+    if (!process.env.ERP_BASE) {
+      throw new Error("阿里云测试必须明确设置 ERP_BASE，避免真实账号误发到演示站");
+    }
+    const target = new URL(BASE);
+    const loopback = ["localhost", "127.0.0.1", "::1", "[::1]"].includes(target.hostname);
+    if (target.protocol !== "https:" && !loopback) {
+      throw new Error("禁止通过公网明文 HTTP 发送真实账号；请在 ECS 本机或 SSH 端口转发运行");
+    }
+  }
   const b = await chromium.launch({ headless: true });
   try {
     for (const role of ROLES) await oneRole(b, role);
