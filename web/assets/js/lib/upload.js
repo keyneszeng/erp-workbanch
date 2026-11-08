@@ -7,7 +7,7 @@
  *   浏览器 canvas 做同样的事几乎零成本，还能把上传时间从 12 秒降到 3 秒。
  */
 
-export const MAX_UPLOAD_BYTES = 8 * 1024 * 1024;
+export const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
 
 export function formatBytes(n) {
   const v = Number(n) || 0;
@@ -58,27 +58,21 @@ export async function compressImage(file, { maxEdge = 2000, quality = 0.85, skip
   return new File([blob], `${base}.jpg`, { type: "image/jpeg", lastModified: Date.now() });
 }
 
-/** 客户端预检，避免传完 8 MB 才被服务端拒 */
+/** 所有通用上传窗口共用扩展名；同时保留 MIME 供老浏览器与现有 UI 使用。 */
+const ACCEPTED_EXTS = ["jpg","jpeg","png","webp","gif","pdf","doc","docx","ppt","pptx","xls","xlsx","csv","txt"];
+export const UPLOAD_ACCEPT = ACCEPTED_EXTS.map(ext=>"."+ext).join(",")+",application/pdf,image/jpeg,image/png,image/webp,image/gif";
+export const UPLOAD_FORMATS = "JPG / PNG / WebP / GIF / PDF / DOC / DOCX / PPT / PPTX / XLS / XLSX / CSV / TXT";
+export const UPLOAD_TIP = "支持图片、PDF、Word、PowerPoint、Excel（包括老版 XLS）及 CSV/TXT，单个不超过 20 MB。旧版 Office 文件只提供安全下载，不执行宏。";
+
 export function checkFile(file) {
-  const office = {
-    ppt: "application/vnd.ms-powerpoint",
-    docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-    xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-  };
-  // macOS/部分微信 WebView 可能不给 Office 文件提供 MIME，仅作前端体验兼容；
-  // 服务端始终检查 ZIP 内部结构与实际类型，不相信扩展名。
-  const ext = String(file.name || "").split(".").pop().toLowerCase();
-  const type = (!file.type || file.type === "application/octet-stream") && office[ext]
-    ? office[ext] : file.type;
-  const ok = ["image/jpeg", "image/png", "image/webp", "image/gif", "application/pdf",
-    ...Object.values(office)];
-  if (!ok.includes(type)) {
-    return `不支持的文件类型：${file.type || "未知"}（仅支持 JPG / PNG / WebP / GIF / PDF / PPT / DOCX / PPTX / XLSX）`;
-  }
-  if (file.size > MAX_UPLOAD_BYTES) {
-    return `文件不能超过 ${formatBytes(MAX_UPLOAD_BYTES)}，当前 ${formatBytes(file.size)}`;
-  }
+  const ext=String(file?.name||"").split(".").pop().toLowerCase();
+  const allowed=new Set(ACCEPTED_EXTS);
+  if(!allowed.has(ext))return "不支持该文件类型；可上传 "+UPLOAD_FORMATS;
+  if(file.size===0)return "不能上传空文件";
+  if(file.size>MAX_UPLOAD_BYTES)
+    return "文件不能超过 "+formatBytes(MAX_UPLOAD_BYTES)+"，当前 "+formatBytes(file.size);
+  // 浏览器识别旧版 Excel 时可能使用 application/vnd.ms-excel、application/octet-stream
+  // 或不返回 MIME；这里按扩展名放行，服务端会按 CFB 目录结构核实真伪。
   return null;
 }
 
