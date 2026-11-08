@@ -165,3 +165,53 @@ test("无实际会务需求，第6项不适用；不再以拟结算单金额替�
    prepare(){return {all(){return [];},get(){return null;}};}
  },1000),err=>err.code==="SOP_NOT_APPLICABLE");
 });
+
+test("核销第6项仅要求关联会务发票原件，不依赖发票OCR金额",()=>{
+ const makeDb=(linked=true,contractAmount=1000)=>({
+  prepare(sql){
+   return {
+    get(){return sql.includes("FROM demand_sheets")?
+      {created_at:"2026-11-08",updated_at:"2026-11-08",confirmed:1}:null;},
+    all(){
+     if(sql.includes("FROM demand_items"))return [
+      {id:1,grp:"会务",item:"会议服务",need:"需要",budget:1000,quantity:1,unit_price:1000}
+     ];
+     if(sql.includes("FROM contracts")&&sql.includes("status='已签署'"))return [
+      {id:"HT1",name:"会务合同",category:"会务需求",amount:contractAmount,
+       status:"已签署",file_key:"agreement.pdf"}
+     ];
+     if(sql.includes("FROM contracts"))return [
+      {id:"HT1",category:"会务需求",file_key:"agreement.pdf"}
+     ];
+     if(sql.includes("FROM materials"))return [
+      {id:1,kind:"会务协议",name:"会务合同",file_name:"agreement.pdf",
+       file_key:"agreement.pdf",version:"终版",deleted_at:null},
+      ...(linked?[{id:2,kind:"会务发票",name:"会务发票",file_name:"invoice.pdf",
+       file_key:"invoice.pdf",version:"v1",deleted_at:null}]:[])
+     ];
+     return [];
+    }
+   };
+  }
+ });
+ const evidence={demandReviewed:true,meetingContractReviewed:true,meetingInvoiceReviewed:true};
+ const result=validateSopEvidence(6,evidence,project,makeDb(),undefined);
+ assert.equal(result.invoiceLinked,true);
+ assert.equal(result.invoiceCount,1);
+ assert.equal(result.meetingMatched,true);
+ assert.equal(result.invoiceAmount,undefined);
+ assert.throws(()=>validateSopEvidence(6,evidence,project,makeDb(false),1000),
+  err=>err.code==="SOP_MATERIAL_MISSING");
+ assert.throws(()=>validateSopEvidence(6,evidence,project,makeDb(true,900),1000),
+  /会务需求总预算与已签署会务合同总金额不一致/);
+});
+test("核销第6项判定表不再比较发票金额，改为关联发票",()=>{
+ const fs=require("node:fs"),path=require("node:path"),root=path.resolve(__dirname,"..");
+ const ocr=fs.readFileSync(path.join(root,"server/lib/verify-ocr-compare.js"),"utf8");
+ const detail=fs.readFileSync(path.join(root,"web/assets/js/lib/verify-detail.js"),"utf8");
+ const constants=fs.readFileSync(path.join(root,"server/lib/constants.js"),"utf8");
+ assert.doesNotMatch(ocr,/add\("会务发票与合同和需求表金额一致"/);
+ assert.match(ocr,/add\("已关联会务发票原件"/);
+ assert.doesNotMatch(detail,/cell\("会务发票核验金额"/);
+ assert.match(constants,/不校验发票金额/);
+});
