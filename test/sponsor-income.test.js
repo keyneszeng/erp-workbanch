@@ -9,6 +9,25 @@ async function request(method,url,body,cookie){
 }
 async function login(name){const x=await request("POST","/api/auth/login",{username:name,password:"123456"});assert.equal(x.status,200,JSON.stringify(x.data));return x.cookie;}
 const pdf=Buffer.from("%PDF-1.4\n1 0 obj\n<<>>\nendobj\n%%EOF");
+function docxBytes(){
+ const PizZip=require("pizzip");
+ const zip=new PizZip();
+ zip.file("[Content_Types].xml",'<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"/>');
+ zip.file("_rels/.rels",'<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"/>');
+ const lines=["赞助企业名称：广州睿康医疗科技有限公司","合同总金额：人民币12000元","权益内容：",
+   "1. 主会场背景板LOGO露出","2. 企业展位展示","付款约定：合同签署后支付"];
+ zip.file("word/document.xml",
+   '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>'+
+   lines.map(x=>'<w:p><w:r><w:t>'+x+'</w:t></w:r></w:p>').join("")+'</w:body></w:document>');
+ return zip.generate({type:"nodebuffer",compression:"DEFLATE"});
+}
+async function uploadDocx(cookie,pid){
+ const r=await fetch(base+"/api/uploads?pid="+encodeURIComponent(pid),{
+   method:"POST",headers:{Cookie:cookie,"Content-Type":"application/octet-stream","X-File-Name":"sponsor.docx"},
+   body:docxBytes()
+ });
+ const data=await r.json();assert.equal(r.status,200,JSON.stringify(data));return data.key;
+}
 async function upload(cookie,pid){
  const r=await fetch(base+"/api/uploads?pid="+encodeURIComponent(pid),{method:"POST",headers:{Cookie:cookie,"Content-Type":"application/octet-stream","X-File-Name":"sponsor.pdf"},body:pdf});
  const v=await r.json();assert.equal(r.status,200,JSON.stringify(v));return v.key;
@@ -29,9 +48,23 @@ test("赞助合同/到账凭证/开票逐笔登记、授权与预算差额",asyn
  assert.equal(p.status,200,JSON.stringify(p.data));const pid=p.data.project.id;
  const initial=await request("GET","/api/projects/"+pid+"/income",undefined,admin);assert.equal(initial.status,200);assert.equal(initial.data.summary.budget,10000);
  const forbidden=await request("GET","/api/projects/"+pid+"/income");assert.equal(forbidden.status,401);
+ const docxKey=await uploadDocx(exec,pid);
+ const preview=await request("POST","/api/projects/"+pid+"/income/contracts/scan",{file_key:docxKey},exec);
+ assert.equal(preview.status,200,JSON.stringify(preview.data));
+ assert.equal(preview.data.fields.enterprise,"广州睿康医疗科技有限公司");
+ assert.equal(preview.data.fields.amount,12000);
+ assert.deepEqual(preview.data.fields.rightsContent,["主会场背景板LOGO露出","企业展位展示"]);
+ assert.equal((await request("GET","/api/projects/"+pid+"/income",undefined,admin)).data.contracts.length,0,
+   "扫描只能预填，不得提前创建赞助合同");
+ const badPreview=await request("POST","/api/projects/"+pid+"/income/contracts/scan",{file_key:"invalid.pdf"},exec);
+ assert.equal(badPreview.status,400,"扫描接口必须验证已上传文件归属");
  const contractKey=await upload(exec,pid);
- const c=await request("POST","/api/projects/"+pid+"/income/contracts",{enterprise:"测试赞助企业",contractNo:"SP-2027-001",amount:10000,file_key:contractKey,file_name:"sponsor.pdf"},exec);
+ const c=await request("POST","/api/projects/"+pid+"/income/contracts",{enterprise:"测试赞助企业",contractNo:"FORGED-NO",amount:10000,file_key:contractKey,file_name:"sponsor.pdf"},exec);
  assert.equal(c.status,200,JSON.stringify(c.data));
+ assert.match(c.data.contractNo,/^SC-\d{4}-\d{3,}$/);
+ assert.equal(c.data.contractNo,c.data.id,"合同编号由后端创建，并忽略客户端自行填写的编号");
+ const contractDetails=await request("GET","/api/projects/"+pid+"/income",undefined,admin);
+ assert.equal(contractDetails.data.contracts[0].contract_no,c.data.contractNo);
  assert.equal(c.data.summary.contracted,0);
  const over=await request("POST","/api/projects/"+pid+"/income/contracts/"+c.data.id+"/decide",{approve:true},exec);
  assert.equal(over.status,403,"execution role cannot approve sponsor contract");
