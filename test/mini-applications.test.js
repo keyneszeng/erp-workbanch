@@ -18,7 +18,7 @@ before(async()=>{
     ERP_DB_BACKEND:"",ERP_HOST:"127.0.0.1",ERP_PORT:String(port),ERP_BOOTSTRAP_ADMIN_PHONE:"13800138000",
     ERP_SESSION_FALLBACK:"0",ERP_SMS_PROVIDER:"test",ERP_SMS_TEST_MODE:"1",ERP_MINIPROGRAM_ENABLED:"1"}});
  let errors="";child.stderr.on("data",b=>errors+=String(b));
- for(let i=0;i<160;i++){
+ for(let i=0;i<750;i++){
   if(child.exitCode!==null)throw Error("Server crashed: "+errors);
   try{if((await req("GET","/api/health")).status===200)return;}catch{}
   await new Promise(r=>setTimeout(r,80));
@@ -37,6 +37,12 @@ test("mobile participant application: own-association draft, edit, submit and ma
  const a=await req("POST","/api/users",{phone:"13900139000",name:"参会发起者",role:"user",assoc:ASSOCS[0]},adminCookie);
  const b=await req("POST","/api/users",{phone:"13700137000",name:"其他协会用户",role:"user",assoc:ASSOCS[1]},adminCookie);
  assert.equal(a.status,200,JSON.stringify(a.body));assert.equal(b.status,200,JSON.stringify(b.body));
+ // 正式环境的新账号默认0权限；由总管理员明确启用小程序立项和本人项目查看。
+ for(const id of [a.body.user.id,b.body.user.id]){
+  const grant=await req("PATCH","/api/users/"+id+"/access",
+    {modules:["projects"],permissions:["mini:apply"]},adminCookie);
+  assert.equal(grant.status,200,JSON.stringify(grant.body));
+ }
  async function auth(phone){
   let r=await req("POST","/api/auth/login",{username:phone,password:"123456"});
   assert.equal(r.status,200);
