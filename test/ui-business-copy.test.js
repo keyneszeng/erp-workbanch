@@ -31,6 +31,10 @@ test("被冻结项目不会显示可修改入口，移动协作角色仅展示�
   assert.match(src("web/assets/js/pages/project.js"),/!\["已结算", "已归档"\]\.includes\(p\.status\)/);
   const mini=src("miniprogram/pages/project/index.js");
   assert.match(mini,/verify:exception_approve/);
+  assert.match(mini,/contract:approve/);
+  assert.match(src("miniprogram/pages/home/index.js"),/contract:approve/);
+  assert.match(src("web/assets/js/lib/nav.js"),/contract:approve/);
+  assert.match(src("server/lib/rbac.js"),/can\(user, "contract:approve"\)/);
   assert.match(mini,/statusNotes/);
   assert.match(mini,/canMaterials\|\|canApprove/);
 });

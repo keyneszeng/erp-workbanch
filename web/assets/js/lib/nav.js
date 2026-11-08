@@ -16,7 +16,7 @@ export const NAV = [
   { k: "dashboard", n: "工作台", items: [{ k: "dashboard", n: "我的工作台" }, { k: "flow", n: "全流程总览", need: () => state.role?.modules?.includes("dashboard") }] },
   { k: "projects", n: "项目管理", items: [
     { k: "projects", n: "会议项目" },
-    { k: "approvals", n: "审批中心", need: () => can("project:approve") || can("verify:exception_approve") || can("payment:approve") },
+    { k: "approvals", n: "审批中心", need: () => can("project:approve") || can("verify:exception_approve") || can("payment:approve") || can("contract:approve") },
     { k: "contracts", n: "合同台账", need: () => state.role.modules.includes("prep") },
     { k: "prep-invitations", n: "企业邀请（招商）/嘉宾邀请", need: () => can("invite:manage") }
   ] },

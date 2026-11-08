@@ -218,7 +218,7 @@ function tabOverview(d, p) {
       </div>
       <div style="margin-top:12px">${settle
         ? `<div class="gate ok"><b>结算单 ${settle.id} 已生成</b>
-             收入 ¥${money(settle.income)} · 支出 ¥${money(settle.expense)} · 结余 ¥${money(settle.profit)}（${settle.created_at}）
+             项目预算 ¥${money(settle.income)} · 已付支出 ¥${money(settle.expense)} · 预算结余 ¥${money(settle.profit)}（${settle.created_at}）
              <div style="margin-top:4px">收款方 ${esc(settle.payee || "—")}${
                settle.payee_account ? ` · ${esc(settle.payee_bank || "")} <span class="mono">${esc("尾号 " + String(settle.payee_account).slice(-4))}</span>` : " · 未登记收款账户"
              }</div></div>`

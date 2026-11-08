@@ -114,7 +114,7 @@ function canVisitNav(user, nav) {
   // 是同一张表里唯一漏掉的动作条件：补上后三处口径才真正一致。
   if (nav === "invitation-config") return can(user, "setting:write");
   if (nav === "approvals") {
-    return can(user, "project:approve") || can(user, "verify:exception_approve") || can(user, "payment:approve");
+    return can(user, "project:approve") || can(user, "verify:exception_approve") || can(user, "payment:approve") || can(user, "contract:approve");
   }
   return true;
 }
