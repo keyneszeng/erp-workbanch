@@ -9,6 +9,21 @@ function clean(s){
  return String(s||"").normalize("NFKC").replace(/\r/g,"").replace(/\0/g,"")
    .replace(/[\u200b-\u200d\ufeff]/g,"").trim().slice(0,30000);
 }
+/**
+ * OCR（尤其扫描件）常把中文逐字断开："合 同 金 额 ：" "广 州 康 泰 有 限 公 司"。
+ * 这类文本直接解析会同时丢掉金额标签和公司名后缀，签约方还会被错认成乙方。
+ *
+ * 但不能无条件去空格：同一行并排的「甲方：A 公司    乙方：B 公司」靠空格分界，
+ * 压掉就把两个签约方粘成一个。所以只在常规解析拿不到关键字段时，才用这份
+ * 「汉字间无空格」的文本重试，两者取字段更全的结果。
+ */
+function despace(text){
+ return String(text||"").replace(/([\u4e00-\u9fa5])[ \t\u00a0\u3000]+(?=[\u4e00-\u9fa5])/g,"$1");
+}
+function filledCount(r){
+ const f=r?.fields||{};
+ return [f.vendor,f.enterprise,f.amount].filter(v=>v!==null&&v!==undefined&&v!=="").length;
+}
 function normalizedLine(raw){
  return String(raw||"").replace(/\u00a0/g," ")
    .replace(/([甲乙])[\t ]+方/gu,"$1方").trim();
@@ -132,8 +147,8 @@ function extractAmount(text){
  const values=[...new Set(tagged.filter(x=>x.rank===high).map(x=>x.value))];
  return values.length===1?values[0]:null;
 }
-function extractSponsorContract(text,meta={}){
- const source=clean(text),fields={
+function sponsorOnce(source,meta){
+ const fields={
    enterprise:extractEnterprise(source),amount:extractAmount(source),
    rightsContent:parseSponsorRights(source)};
  const missing=[];
@@ -142,6 +157,13 @@ function extractSponsorContract(text,meta={}){
  if(!fields.rightsContent.length)missing.push("权益内容");
  return result(meta,fields,missing);
 }
+function extractSponsorContract(text,meta={}){
+ const source=clean(text);
+ const once=sponsorOnce(source,meta);
+ if(once.fields.enterprise&&once.fields.amount!==null)return once;
+ const alt=despace(source);
+ return alt===source?once:(filledCount(sponsorOnce(alt,meta))>filledCount(once)?sponsorOnce(alt,meta):once);
+}
 function result(meta,fields,missing){
  const truncated=!!meta.truncated;
  const note=(missing.length?"未能可靠识别，请对照原件补全："+missing.join("、")+"。":"已识别并预填，请核对原件。")+
@@ -149,13 +171,20 @@ function result(meta,fields,missing){
  return {status:missing.length?"待人工补全":"待人工确认",fields,note,
    engine:String(meta.engine||""),truncated,mode:String(meta.mode||"")};
 }
-function extractLedgerContract(text,meta={}){
- const source=clean(text),enterprise=extractEnterprise(source);
+function ledgerOnce(source,meta){
+ const enterprise=extractEnterprise(source);
  const vendor=extractCounterparty(source)||enterprise;
  const amount=extractAmount(source),rightsContent=parseSponsorRights(source);
  const missing=[];
  if(!vendor)missing.push("签约方");
  if(amount===null)missing.push("合同金额");
  return result(meta,{vendor,enterprise,amount,rightsContent},missing);
+}
+function extractLedgerContract(text,meta={}){
+ const source=clean(text);
+ const once=ledgerOnce(source,meta);
+ if(once.fields.vendor&&once.fields.amount!==null)return once;
+ const alt=despace(source);
+ return alt===source?once:(filledCount(ledgerOnce(alt,meta))>filledCount(once)?ledgerOnce(alt,meta):once);
 }
 module.exports={extractSponsorContract,extractEnterprise,extractCounterparty,extractAmount,extractLedgerContract,moneyValue};
