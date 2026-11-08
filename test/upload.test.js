@@ -94,7 +94,7 @@ test("上传能力探测：本地磁盘后端可用", async () => {
   assert.equal(r.status, 200);
   assert.equal(r.data.enabled, true);
   assert.equal(r.data.backend, "fs");
-  assert.equal(r.data.maxBytes, 8 * 1024 * 1024);
+  assert.equal(r.data.maxBytes, 20 * 1024 * 1024);
 });
 
 test("未登录不能上传", async () => {
@@ -125,8 +125,8 @@ test("伪造扩展名被文件头嗅探拦下", async () => {
   assert.match(r.data.error.message, /无法识别文件类型/);
 });
 
-test("超过 8 MB 被拒绝", async () => {
-  const big = Buffer.concat([JPEG, Buffer.alloc(8 * 1024 * 1024)]);
+test("超过 20 MB 被拒绝", async () => {
+  const big = Buffer.concat([JPEG, Buffer.alloc(20 * 1024 * 1024)]);
   const r = await upload(exec, big);
   assert.equal(r.status, 413);
 });
@@ -155,7 +155,7 @@ test("非法 key 返回 400，不存在的 key 返回 404", async () => {
   assert.equal(missing.status, 404);
 });
 
-test("材料登记带附件，删除材料时附件一并删除", async () => {
+test("材料软删保留附件与历史证据", async () => {
   const c = client(exec);
   const list = await c("GET", "/api/projects");
   const p = list.data.rows.find((x) => x.status !== "已归档");
@@ -182,7 +182,7 @@ test("材料登记带附件，删除材料时附件一并删除", async () => {
   assert.equal(del.status, 200);
 
   const gone = await fetch(`${BASE}/api/uploads/${up.data.key}`, { headers: { cookie: exec } });
-  assert.equal(gone.status, 404, "删除材料后附件文件应同时删除");
+  assert.equal(gone.status, 200, "软删历史材料必须保留原件，不得销毁证据");
 });
 
 test("非法 file_key 被拒绝", async () => {

@@ -22,3 +22,6 @@ node_modules/
 coverage/
 /tmp/
 .DS_Store?
+
+# 现场巡检截图、角色按钮清单和业务数据快照（不得入库）
+artifacts/

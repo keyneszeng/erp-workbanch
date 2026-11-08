@@ -25,6 +25,11 @@ const DB_FILE =
   (typeof process !== "undefined" && process.env && process.env.ERP_DB) || DEFAULT_DB_FILE;
 
 const SCHEMA = `
+CREATE TABLE IF NOT EXISTS associations (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL UNIQUE,
+  active INTEGER NOT NULL DEFAULT 1
+);
 CREATE TABLE IF NOT EXISTS users (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,
   username    TEXT UNIQUE NOT NULL,
@@ -37,8 +42,26 @@ CREATE TABLE IF NOT EXISTS users (
   pass_hash   TEXT NOT NULL,
   active      INTEGER NOT NULL DEFAULT 1,
   token_ver   INTEGER NOT NULL DEFAULT 0,
+  material_file_replace INTEGER NOT NULL DEFAULT 0,
   created_at  TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS user_module_grants (
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  module TEXT NOT NULL,
+  PRIMARY KEY(user_id,module)
+);
+CREATE TABLE IF NOT EXISTS user_permission_grants (
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  permission TEXT NOT NULL,
+  PRIMARY KEY(user_id,permission)
+);
+CREATE TABLE IF NOT EXISTS user_associations (
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  assoc TEXT NOT NULL,
+  PRIMARY KEY (user_id,assoc)
+);
+CREATE INDEX IF NOT EXISTS idx_user_associations_assoc ON user_associations(assoc);
 
 CREATE TABLE IF NOT EXISTS password_reset_limits (
   rate_key TEXT PRIMARY KEY,
@@ -85,6 +108,7 @@ CREATE TABLE IF NOT EXISTS projects (
   date        TEXT NOT NULL,
   days        INTEGER NOT NULL DEFAULT 1,
   budget      REAL NOT NULL DEFAULT 0,
+  tax_fee_rate REAL NOT NULL DEFAULT 0,
   people      INTEGER NOT NULL DEFAULT 0,
   owner       TEXT,
   phone       TEXT,
@@ -146,6 +170,74 @@ CREATE TABLE IF NOT EXISTS contracts (
 );
 CREATE INDEX IF NOT EXISTS idx_contracts_pid ON contracts(pid);
 
+-- 企业赞助收入独立于会务支出合同，避免错误计入核销合同费用。
+CREATE TABLE IF NOT EXISTS meeting_sponsor_contracts (
+  id TEXT PRIMARY KEY,
+  pid TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  enterprise TEXT NOT NULL,
+  contract_no TEXT NOT NULL,
+  amount REAL NOT NULL,
+  status TEXT NOT NULL DEFAULT '待确认',
+  file_key TEXT NOT NULL,
+  file_name TEXT,
+  created_by INTEGER REFERENCES users(id),
+  created_at TEXT NOT NULL,
+  approved_by INTEGER REFERENCES users(id),
+  approved_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_sponsor_contracts_pid ON meeting_sponsor_contracts(pid);
+-- 赞助权益按「合同 → 权益二级类目 → 权益照片」逐级关联。
+CREATE TABLE IF NOT EXISTS sponsor_rights (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  pid TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  sponsor_id TEXT NOT NULL REFERENCES meeting_sponsor_contracts(id) ON DELETE CASCADE,
+  category TEXT NOT NULL,
+  source TEXT NOT NULL DEFAULT 'manual',
+  confirmed INTEGER NOT NULL DEFAULT 0,
+  updated_at TEXT NOT NULL,
+  UNIQUE(sponsor_id,category)
+);
+CREATE INDEX IF NOT EXISTS idx_sponsor_rights_pid ON sponsor_rights(pid);
+
+CREATE TABLE IF NOT EXISTS meeting_sponsor_receipts (
+  id TEXT PRIMARY KEY,
+  pid TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  sponsor_id TEXT NOT NULL REFERENCES meeting_sponsor_contracts(id),
+  amount REAL NOT NULL,
+  payment_ref TEXT NOT NULL,
+  received_date TEXT NOT NULL,
+  file_key TEXT NOT NULL,
+  file_name TEXT,
+  created_by INTEGER REFERENCES users(id),
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_sponsor_receipts_pid ON meeting_sponsor_receipts(pid);
+CREATE TABLE IF NOT EXISTS meeting_sponsor_invoices (
+  id TEXT PRIMARY KEY,
+  pid TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  sponsor_id TEXT NOT NULL REFERENCES meeting_sponsor_contracts(id),
+  amount REAL NOT NULL,
+  invoice_no TEXT NOT NULL UNIQUE,
+  issued_date TEXT NOT NULL,
+  file_key TEXT NOT NULL,
+  file_name TEXT,
+  created_by INTEGER REFERENCES users(id),
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_sponsor_invoices_pid ON meeting_sponsor_invoices(pid);
+
+CREATE TABLE IF NOT EXISTS verified_labor_payees (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  pid TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  bank TEXT NOT NULL DEFAULT '',
+  account_cipher TEXT NOT NULL,
+  amount REAL NOT NULL,
+  confirmed_at TEXT NOT NULL,
+  UNIQUE(pid,name,account_cipher)
+);
+CREATE INDEX IF NOT EXISTS idx_verified_labor_payees_pid ON verified_labor_payees(pid);
+
 CREATE TABLE IF NOT EXISTS payments (
   id          TEXT PRIMARY KEY,
   pid         TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
@@ -155,6 +247,8 @@ CREATE TABLE IF NOT EXISTS payments (
   payee_account TEXT,
   amount      REAL NOT NULL DEFAULT 0,
   invoice_no  TEXT,
+  dedupe_key  TEXT,
+  period      TEXT,
   req_user    TEXT,
   status      TEXT NOT NULL DEFAULT '待审批',
   paid_at     TEXT,
@@ -170,6 +264,7 @@ CREATE TABLE IF NOT EXISTS verify_steps (
   name        TEXT NOT NULL,
   result      TEXT NOT NULL DEFAULT '待判定',
   remark      TEXT,
+  invoice_amount REAL,
   checked_by  TEXT,
   checked_at  TEXT,
   PRIMARY KEY (pid, step_no)
@@ -195,6 +290,7 @@ CREATE TABLE IF NOT EXISTS settlements (
   income      REAL NOT NULL DEFAULT 0,
   expense     REAL NOT NULL DEFAULT 0,
   profit      REAL NOT NULL DEFAULT 0,
+  tax_fee_rate REAL,
   payee       TEXT,
   payee_bank  TEXT,
   payee_account TEXT,
@@ -218,6 +314,57 @@ CREATE TABLE IF NOT EXISTS materials (
 );
 CREATE INDEX IF NOT EXISTS idx_materials_pid ON materials(pid);
 
+-- 固定材料模块启停与议程结构化待办，历史不物理删除。
+CREATE TABLE IF NOT EXISTS meeting_material_modules (
+  pid TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL,
+  enabled INTEGER NOT NULL DEFAULT 1,
+  updated_at TEXT NOT NULL,
+  updated_by TEXT,
+  PRIMARY KEY(pid,kind)
+);
+CREATE TABLE IF NOT EXISTS meeting_material_tasks (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  pid TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL,
+  speaker TEXT NOT NULL,
+  topic TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT '未提交',
+  material_id INTEGER,
+  updated_at TEXT NOT NULL,
+  updated_by TEXT,
+  UNIQUE(pid,kind,speaker,topic)
+);
+CREATE INDEX IF NOT EXISTS idx_meeting_material_tasks_pid ON meeting_material_tasks(pid);
+-- OCR 结果仅关联已有材料原件；人名课题为待审阅建议，不直接产生通过结论。
+CREATE TABLE IF NOT EXISTS material_ocr_results (
+  material_id INTEGER PRIMARY KEY REFERENCES materials(id) ON DELETE CASCADE,
+  pid TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  file_key TEXT NOT NULL,
+  recognized_text TEXT NOT NULL,
+  suggestions_json TEXT NOT NULL,
+  engine TEXT NOT NULL,
+  mode TEXT NOT NULL,
+  pages INTEGER NOT NULL,
+  total_pages INTEGER NOT NULL,
+  truncated INTEGER NOT NULL DEFAULT 0,
+  updated_at TEXT NOT NULL,
+  updated_by TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_material_ocr_results_pid ON material_ocr_results(pid);
+
+CREATE TABLE IF NOT EXISTS demand_revisions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  pid TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  before_json TEXT NOT NULL,
+  after_json TEXT NOT NULL,
+  changed_by TEXT NOT NULL,
+  changed_at TEXT NOT NULL,
+  action TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_demand_revisions_pid ON demand_revisions(pid);
+
+
 CREATE TABLE IF NOT EXISTS guests (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,
   pid         TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
@@ -235,6 +382,7 @@ CREATE TABLE IF NOT EXISTS tasks (
   pid         TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
   name        TEXT NOT NULL,
   owner       TEXT,
+  owner_id    INTEGER,
   due         TEXT,
   status      TEXT NOT NULL DEFAULT '待开始',
   priority    TEXT DEFAULT '中',
@@ -280,11 +428,13 @@ CREATE TABLE IF NOT EXISTS demand_items (
   grp         TEXT NOT NULL,
   item        TEXT NOT NULL,
   note        TEXT,
-  need        TEXT NOT NULL DEFAULT '需要',
+  need        TEXT NOT NULL DEFAULT '不需要',
   spec        TEXT,
   owner       TEXT,
   due         TEXT,
   budget      TEXT,
+  quantity    TEXT NOT NULL DEFAULT '',
+  unit_price  TEXT NOT NULL DEFAULT '',
   attach      TEXT,
   status      TEXT NOT NULL DEFAULT '未开始',
   ordering    INTEGER NOT NULL DEFAULT 0,
@@ -315,6 +465,39 @@ CREATE TABLE IF NOT EXISTS uploaded_files (
   created_at  TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_uploaded_files_user ON uploaded_files(user_id);
+
+-- 立项函可编辑草稿：审批通过后禁止修改原始函件文本。
+CREATE TABLE IF NOT EXISTS project_initiation_letters (
+  pid TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
+  title TEXT NOT NULL,
+  body TEXT NOT NULL,
+  updated_by INTEGER,
+  updated_at TEXT NOT NULL
+);
+
+-- 协会级 Word 模板。替换时版本递增，旧文件保留用于已批准项目。
+CREATE TABLE IF NOT EXISTS project_notice_templates (
+  assoc TEXT PRIMARY KEY,
+  file_key TEXT NOT NULL UNIQUE,
+  file_name TEXT NOT NULL,
+  version INTEGER NOT NULL DEFAULT 1,
+  updated_by INTEGER,
+  updated_at TEXT NOT NULL
+);
+
+-- 正式通知函内容与模板引用在「立项通过」的同一个同步业务流中冻结。
+CREATE TABLE IF NOT EXISTS project_notices (
+  pid TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
+  approval_id TEXT,
+  template_key TEXT,
+  template_version INTEGER NOT NULL DEFAULT 0,
+  template_name TEXT NOT NULL,
+  snapshot_json TEXT NOT NULL,
+  approved_by TEXT,
+  approved_at TEXT NOT NULL,
+  backfilled INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL
+);
 
 -- 项目筹备邀请函：内置固定模板、已生成 PDF 的快照与发送/回复追踪。
 CREATE TABLE IF NOT EXISTS prep_invitations (
@@ -482,11 +665,49 @@ function migrate() {
     }
   };
 
+  addColumn("materials","sponsor_right_id","sponsor_right_id INTEGER");
+  addColumn("meeting_sponsor_contracts","rights_scan_status","rights_scan_status TEXT NOT NULL DEFAULT '未识别'");
+  addColumn("meeting_sponsor_contracts","rights_scan_note","rights_scan_note TEXT");
+  // Existing projects keep historical evidence, only the displayed SOP labels are corrected.
+  db.exec("UPDATE verify_steps SET name='盖章函件与立项信息核验' WHERE step_no=1 AND name='盖章通知／招商函核验'");
+  db.exec("UPDATE verify_steps SET name='课件与串场内容核验' WHERE step_no=4 AND name='课件／串场一致性'");
+  addColumn("verify_steps", "invoice_amount", "invoice_amount REAL");
+  addColumn("verify_steps", "evidence_json", "evidence_json TEXT");
+  addColumn("materials", "deleted_at", "deleted_at TEXT");
+  addColumn("materials", "deleted_by", "deleted_by TEXT");
+  addColumn("demand_items", "owner_id", "owner_id INTEGER");
+  addColumn("demand_items", "budget_owner", "budget_owner TEXT");
+  // 旧单的 budget 属历史手填金额，不作破坏性重算；新输入按数量×单价自动更新。
+  addColumn("demand_items", "quantity", "quantity TEXT NOT NULL DEFAULT ''");
+  addColumn("demand_items", "unit_price", "unit_price TEXT NOT NULL DEFAULT ''");
   // 生产白名单：所有新用户初次登录必须通过短信验证并修改默认密码。
   addColumn("users", "must_change_password", "must_change_password INTEGER NOT NULL DEFAULT 0");
   addColumn("users", "phone_verified_at", "phone_verified_at TEXT");
   // V1.0.3：跨实例吊销签名令牌
   addColumn("users", "token_ver", "token_ver INTEGER NOT NULL DEFAULT 0");
+  // 显式按用户授权；迁移时不会将旧角色权限自动转为用户授权。
+  db.exec("CREATE TABLE IF NOT EXISTS user_module_grants (user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,module TEXT NOT NULL,PRIMARY KEY(user_id,module))");
+  db.exec("CREATE TABLE IF NOT EXISTS user_permission_grants (user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,permission TEXT NOT NULL,PRIMARY KEY(user_id,permission))");
+  // 旧 material_file_replace 只作为兼容字段，新权限以独立表为准.
+  // 合同材料替换为总管理员按账号单独授予，历史账号默认无此权限。
+  //
+  // 补列必须排在下面的授权迁移之前：从 main 线升级上来的库没有这个字段，
+  // 先执行 INSERT...WHERE material_file_replace=1 会直接
+  // 「no such column: material_file_replace」导致服务起不来。
+  addColumn("users", "material_file_replace", "material_file_replace INTEGER NOT NULL DEFAULT 0");
+  // 仅迁移旧版由总管理员逐账号授予的材料替换权，不继承任何角色固定权限。
+  // 标记只执行一次，后续人工撤销的权限不会在下一次启动时复活。
+  if(!db.prepare("SELECT 1 FROM settings WHERE k=?").get("explicit_grants_migration_v1")){
+    db.exec("INSERT OR IGNORE INTO user_permission_grants (user_id,permission) SELECT id,'material:file:replace' FROM users WHERE material_file_replace=1 AND role<>'admin'");
+    db.prepare("INSERT OR REPLACE INTO settings(k,v) VALUES (?,?)").run("explicit_grants_migration_v1","done");
+  }
+  // 立项税费管理费按百分比保存。历史项目默认0%，不改变既有可用额度。
+  addColumn("projects", "tax_fee_rate", "tax_fee_rate REAL NOT NULL DEFAULT 0");
+  // 付款申请去重：旧付款行保持不变，新付款受唯一索引保护。
+  addColumn("payments", "dedupe_key", "dedupe_key TEXT");
+  // 付款期次：分期付款常常两期金额相同，只靠「类型+收款方+金额」去重会把第二期误判成重复。
+  addColumn("payments", "period", "period TEXT");
+  db.exec("CREATE UNIQUE INDEX IF NOT EXISTS ux_payments_active_dedupe ON payments(pid,dedupe_key) WHERE dedupe_key IS NOT NULL AND status <> '已驳回'");
   // V1.2.0：材料附件
   addColumn("materials", "file_key", "file_key TEXT");
   addColumn("materials", "file_name", "file_name TEXT");
@@ -512,6 +733,10 @@ function migrate() {
   addColumn("contracts", "category", "category TEXT");
   // V1.2.13：例外单自定义步骤名 —— 不属于 6 步中任何一步的问题也能登记（step_no = 0）
   addColumn("exceptions", "step_label", "step_label TEXT");
+  addColumn("exceptions", "resolution", "resolution TEXT");
+  addColumn("exceptions", "evidence_material_id", "evidence_material_id INTEGER");
+  addColumn("exceptions", "resolved_by", "resolved_by TEXT");
+  addColumn("exceptions", "resolved_at", "resolved_at TEXT");
   /**
    * V1.2.18：收款方银行信息。
    *
@@ -523,6 +748,8 @@ function migrate() {
    */
   addColumn("payments", "payee_bank", "payee_bank TEXT");
   addColumn("payments", "payee_account", "payee_account TEXT");
+  // 结算时锁定税费管理费率；旧单NULL按历史项目现存税率兼容展示。
+  addColumn("settlements", "tax_fee_rate", "tax_fee_rate REAL");
   addColumn("settlements", "payee", "payee TEXT");
   addColumn("settlements", "payee_bank", "payee_bank TEXT");
   addColumn("settlements", "payee_account", "payee_account TEXT");
@@ -629,6 +856,16 @@ function migrate() {
     /* 旧库没有 settlements 表，忽略 */
   }
 
+  // 兼容历史合同：只为有原件、尚未在同项目材料中心出现的合同建立引用。
+  // 原始文件不会复制、移动或修改，迁移可重复执行。
+  try {
+    db.exec(`INSERT INTO materials(pid,kind,name,version,uploader,created_at,file_key,file_name,file_size,file_mime)
+      SELECT c.pid,'合同',c.id || ' · ' || c.name,c.status,'历史合同自动归档',c.created_at,
+             c.file_key,c.file_name,c.file_size,c.file_mime
+      FROM contracts c
+      WHERE c.file_key IS NOT NULL AND c.file_key<>''
+        AND NOT EXISTS (SELECT 1 FROM materials m WHERE m.pid=c.pid AND m.file_key=c.file_key)`);
+  }catch{/* 旧库表结构不完整时，保持安全降级 */}
   // V1.2.15：审批单 ↔ 业务单据脱钩（老种子把 ref_id 写成了项目号）
   try {
     repairApprovals();

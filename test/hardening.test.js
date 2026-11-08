@@ -245,7 +245,7 @@ async function buildVerifyProject(tag) {
     const r = await assoc("POST", `/api/projects/${pid}/transition`, { action: a });
     assert.equal(r.status, 200, `${a} 失败`);
   }
-  for (let no = 1; no <= 6; no++) {
+  for (const no of [1,2,3,4]) {
     const r = await exec("POST", `/api/projects/${pid}/verify/steps/${no}`, { result: "通过" });
     assert.equal(r.status, 200, `第 ${no} 步失败`);
   }
