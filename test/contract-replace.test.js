@@ -12,7 +12,7 @@ const PDF1=Buffer.from("%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Version (original)
 const PDF2=Buffer.from("%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Version (replacement) >>\nendobj\n%%EOF\n");
 let processServer,users={},cid,firstKey,secondKey;
 async function waitReady(){
-  for(let i=0;i<160;i++){
+  for(let i=0;i<400;i++){
     try{if((await fetch(BASE+"/api/health")).ok)return;}catch{}
     await new Promise(resolve=>setTimeout(resolve,150));
   }
