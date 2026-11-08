@@ -13,7 +13,7 @@ const { sendPasswordCode, consumePasswordCode } = require("../lib/sms");
 const { createSession, destroySession, hashPassword, verifyPassword, validatePassword,
   publicUser, isThrottled, noteFailure, clearFailures, SESSION_TTL_MS } = require("../lib/auth");
 const { logAudit } = require("../lib/audit");
-const { ROLES, can, PERMS } = require("../lib/rbac");
+const { ROLES, can, PERMS, MODULES, hasModule } = require("../lib/rbac");
 const { HttpError, bad } = require("../lib/util");
 
 function enabled() {
@@ -69,10 +69,13 @@ function account(phone, password, ip) {
   clearFailures(ip, normalized);
   return user;
 }
+function sessionRole(user) {
+  return { ...ROLES[user.role], modules: MODULES.filter(m=>hasModule(user,m.k)).map(m=>m.k) };
+}
 function session(user, ip) {
   const s = createSession(user.id, ip);
   return { accessToken: s.token, expiresIn: Math.floor(SESSION_TTL_MS / 1000),
-    user: publicUser(user), role: ROLES[user.role],
+    user: publicUser(user), role: sessionRole(user),
     perms: Object.keys(PERMS).filter(k => can(user, k)) };
 }
 function register(router) {
@@ -128,7 +131,7 @@ function register(router) {
   });
   router.get("/api/mini/auth/me", async ctx => {
     requireEnabled();
-    return { user: publicUser(ctx.user), role: ROLES[ctx.user.role],
+    return { user: publicUser(ctx.user), role: sessionRole(ctx.user),
       perms: Object.keys(PERMS).filter(k => can(ctx.user, k)) };
   });
   router.post("/api/mini/auth/sms/send-password", async ctx => {
