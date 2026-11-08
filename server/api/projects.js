@@ -284,7 +284,7 @@ function register(router) {
       `INSERT INTO projects (id,name,assoc,form,date,days,budget,tax_fee_rate,people,owner,owner_id,phone,dept,agenda,status,status_at,created_by,created_at,updated_at)
        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
     ).run(id, b.name, b.assoc, b.form, b.date, Number(b.days) || 1, Number(b.budget), parseTaxFeeRate(b.tax_fee_rate), Number(b.people) || 0,
-      b.owner, ownerId, b.phone || "", b.dept || "会务部", b.agenda, "草稿", at, ctx.user.id, at, at);
+      b.owner, ownerId, b.phone || "", b.dept || "", b.agenda, "草稿", at, ctx.user.id, at, at);
     db.prepare("INSERT OR IGNORE INTO project_members (project_id,user_id,role) VALUES (?,?,?)").run(id, ctx.user.id, "创建人");
     // 注意：不要在这里把负责人自动写进 project_members。
     // 数据范围同时认 owner_id 和成员表，一旦入库，换负责人时旧负责人仍能靠成员关系看到项目
@@ -351,7 +351,10 @@ function register(router) {
     const patch = {};
     for (const k of EDITABLE) if (k in b && String(b[k] ?? "") !== String(p[k] ?? "")) patch[k] = b[k];
     if (!Object.keys(patch).length) return { project: p, message: "没有需要修改的字段" };
-    validate({ ...p, ...patch }, true);
+    // 历史立项可能仍保存旧部门；不修改部门时允许编辑其他资料，避免误迁移历史归属。
+    const toValidate = { ...p, ...patch };
+    if (!("dept" in patch) && toValidate.dept && !DEPTS.includes(toValidate.dept)) delete toValidate.dept;
+    validate(toValidate, true);
 
     // 预算/税费管理费变更后必须确保「可用预算」仍覆盖已占用支出。
     // 预算下调到低于已占用金额（待审批 + 已审批 + 已付款）会让账实直接打架：

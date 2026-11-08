@@ -28,7 +28,7 @@ function formFor(ctx,b){
     form:String(b.form||"线下"),date:String(b.date||""),
     days:b.days===undefined?1:b.days,budget:b.budget,people:b.people===undefined?0:b.people,
     owner:actor.name,owner_id:actor.id,phone:String(b.phone||""),
-    dept:String(b.dept||"会务部"),agenda:String(b.agenda||"").trim()
+    dept:String(b.dept||"").trim(),agenda:String(b.agenda||"").trim()
   };
   validate(v);
   return v;
