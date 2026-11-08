@@ -29,6 +29,8 @@ export async function render(root, params = []) {
     api.get("/api/projects")
   ]);
   const payableProjects = proj.rows.filter((p) => PAYABLE.includes(p.status));
+  // Income API is permission protected: do not request it or offer navigation to unauthorized accounts.
+  const incomeReadable = ["contract:write","contract:approve","payment:pay","payment:approve"].some(perm=>can(perm));
   // KPI 全部用后端全量汇总：pay.rows 只是当前页
   const s = pay.summary || { pending: 0, approved: 0, pendingAmount: 0, approvedAmount: 0, paidAmount: 0 };
   const blocked = proj.rows.filter((p) => ["待核销", "执行中", "筹备中"].includes(p.status)).length;
@@ -58,10 +60,10 @@ export async function render(root, params = []) {
         <div style="font-size:12px;color:var(--sub);margin-top:4px">按当前项目列表页统计</div></div>
     </div>
 
-    <div id="incomeWorkbench"></div>
+    ${incomeReadable ? '<div id="incomeWorkbench"></div>' : ""}
     <div class="ux-finance-tabs" role="navigation" aria-label="财务业务分区">
-       <button class="ux-finance-tab active" data-finance-jump="incomeWorkbench">会议收入 · 企业赞助</button>
-       <button class="ux-finance-tab" data-finance-jump="fin-payments">付款申请与执行</button>
+       ${incomeReadable ? '<button class="ux-finance-tab active" data-finance-jump="incomeWorkbench">会议收入 · 企业赞助</button>' : ""}
+       <button class="ux-finance-tab ${incomeReadable ? "" : "active"}" data-finance-jump="fin-payments">付款申请与执行</button>
        <button class="ux-finance-tab" data-finance-jump="fin-settlements">结算与归档</button>
      </div>
     <div class="ux-finance-rule">七项核销规则（第5～7项按需）通过 → 付款申请 → 协会审批 → 财务登记已付款 → 合同金额核对 → 结算；发票应在核销环节核验。</div>
@@ -123,7 +125,7 @@ export async function render(root, params = []) {
     <div class="foot-note">门禁说明：七项核销规则中所有适用项通过后才可申请付款，否则接口返回 <code>VERIFY_GATE</code>；
       「已付款」指内部系统记录，不是自动发起银行转账。结算后相关账目和原件被冻结。</div>`;
 
-  renderIncomeWorkbench(root.querySelector("#incomeWorkbench"),
+  if (incomeReadable) renderIncomeWorkbench(root.querySelector("#incomeWorkbench"),
     proj.rows.filter(p=>!["已归档"].includes(p.status)),focusPid).catch(e=>toast(e.message,"warn"));
   bindPager(root, (n) => { curPage = n; render(root, params); });
   root.querySelectorAll("[data-st]").forEach((b) => b.onclick = () => { filterStatus = b.dataset.st; curPage = 1; render(root, params); });
