@@ -109,8 +109,12 @@ function canVisitNav(user, nav) {
   if (nav === "project-ledger") return can(user,"ledger:read");
   if (nav === "prep-invitations") return can(user, "invite:manage");
   if (nav === "users") return isSuper(user) || can(user,"user:manage");
+  // 前端 NAV 对「邀请函上线配置」要求 setting:write，接口层 prep-admin.js 的
+  // admin() 也用 assertCan("setting:write")。这里原来只查 system 模块就放行，
+  // 是同一张表里唯一漏掉的动作条件：补上后三处口径才真正一致。
+  if (nav === "invitation-config") return can(user, "setting:write");
   if (nav === "approvals") {
-    return can(user, "project:approve") || can(user, "verify:exception_approve") || can(user, "payment:approve");
+    return can(user, "project:approve") || can(user, "verify:exception_approve") || can(user, "payment:approve") || can(user, "contract:approve");
   }
   return true;
 }

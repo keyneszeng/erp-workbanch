@@ -79,6 +79,31 @@ test("金额、付款类型或收款方不同属于其他付款，可正常申�
   const r=await send(entry);assert.equal(r.status,200,JSON.stringify(r.data));
  }
 });
+test("同额分期按不同期次可分别申请，同期次仍判重复",async()=>{
+ // 合同 12 万分两期各 6 万是常见做法。只按「类型+收款方+金额」去重会把第二期
+ // 误判成重复，逼用户改收款方名称（如「（尾款）」）绕过 —— 那是脏数据。
+ const base=payload("分期供应商",100);
+ const p1=await send({...base,period:"第1期"});
+ assert.equal(p1.status,200,JSON.stringify(p1.data));
+ const p2=await send({...base,period:"第2期"});
+ assert.equal(p2.status,200,JSON.stringify(p2.data));
+ assert.notEqual(p1.data.payment.id,p2.data.payment.id,"两期应各自成单");
+ assert.equal(p2.data.payment.period,"第2期","期次应落库");
+ const dup=await send({...base,period:"第1期"});
+ assert.equal(dup.status,409,JSON.stringify(dup.data));
+ assert.equal(dup.data.error.code,"DUPLICATE_PAYMENT");
+ // 不填期次与填「第1期」不是同一笔，但两笔空期次之间仍互相拦截
+ const blank=await send(base);
+ assert.equal(blank.status,200,JSON.stringify(blank.data));
+ const blankDup=await send(base);
+ assert.equal(blankDup.status,409);
+ assert.equal(blankDup.data.error.code,"DUPLICATE_PAYMENT");
+});
+test("期次超过 20 字被拒",async()=>{
+ const r=await send({...payload("超长期次供应商",101),period:"第一期（合同签订后三个工作日内支付首付款）"});
+ assert.equal(r.status,400,JSON.stringify(r.data));
+ assert.match(r.data.error.message,/期次不能超过 20 字/);
+});
 test("五个请求并行提交同笔只产生一个付款单和审批单",async()=>{
  const input=payload("多窗口双击提交供应商",127.27);
  const all=await Promise.all(Array.from({length:5},()=>send(input)));

@@ -8,7 +8,7 @@ Page({
    const state=await app.resume();if(!state)return;
    if(state.user?.mustChangePassword){wx.navigateTo({url:"/pages/account/index"});return;}
    const ps=app.globalData.perms||[],user=app.globalData.user;
-   const canApprove=ps.some(p=>["project:approve","verify:exception_approve","payment:approve"].includes(p));
+   const canApprove=ps.some(p=>["project:approve","verify:exception_approve","payment:approve","contract:approve"].includes(p));
    const canMaterials=ps.includes("material:write");
    const canApply=!!user?.assoc || user?.role==="admin";
    const dashboard=await app.api("/dashboard");
