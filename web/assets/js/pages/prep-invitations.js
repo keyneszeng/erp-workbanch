@@ -14,9 +14,9 @@ function emptyMsg(text) {
  * 现在未就绪时置灰 + title 说明去哪配，用户不用先踩一次坑。
  * PDF 下载不受影响 —— 渠道没开也能导出后手动发送。
  */
-function recordHtml(x, channels) {
+function recordHtml(x, channels, canCreate) {
   const target = x.recipient_org || x.recipient_name || "—";
-  const closed = ["已确认", "已拒绝", "已撤销"].includes(x.status);
+  const closed = !canCreate || ["已确认", "已拒绝", "已撤销"].includes(x.status);
   const emailBtn = channels.email
     ? ' <button class="link" data-email="' + esc(x.id) + '">邮件发送</button>'
     : ' <button class="link" disabled title="邮件渠道未启用：请总管理员在「邀请函上线配置」中设置加密凭证、发件邮箱与 HTTPS 公开地址">邮件发送</button>';
@@ -76,7 +76,7 @@ export async function render(root) {
     (selectedPid ? '<div class="panel"><div class="panel-h"><h2>历史邀请函与发送记录</h2></div>' +
       channelNote(channels) +
       '<div class="table-wrap"><table><thead><tr><th>邀请编号</th><th>模板</th><th>受邀对象</th><th>状态</th><th>发送时间</th><th>操作</th></tr></thead><tbody>' +
-      items.map(x=>recordHtml(x,channels)).join("") + '</tbody></table></div></div>' : "");
+      items.map(x=>recordHtml(x,channels,canCreate)).join("") + '</tbody></table></div></div>' : "");
   if (!selectedPid) return;
   root.querySelector("#prepPid")?.addEventListener("change",e=>{ selectedPid=e.target.value;render(root); });
   const typeSelect=root.querySelector("#templateType");
