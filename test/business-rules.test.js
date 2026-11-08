@@ -304,7 +304,7 @@ test("已结算项目提交例外单返回 FROZEN", async () => {
 test("参数错误优先于阶段错误（步骤越界先报 400）", async () => {
   const r = await admin("POST", "/api/projects/MP-2026-018/exceptions", { step_no: 9, reason: "x" });
   assert.equal(r.status, 400, "参数本身错就该 400，不该被阶段 409 盖掉");
-  assert.match(r.msg, /1~6/);
+  assert.match(r.msg, /1~7/);
 });
 
 /* ---------------- 结算单一致性基线 ---------------- */
