@@ -1,10 +1,11 @@
 import { api, can, state } from "../lib/api.js";
-import { badge, confirmBox, promptBox, esc, formHtml, modal, money, panel, readForm, table, toast, validate } from "../lib/ui.js";
+import { badge, bindSearchRefresh, confirmBox, promptBox, esc, formHtml, modal, money, panel, readForm, table, toast, validate } from "../lib/ui.js";
 import { bindFilePicker, UPLOAD_ACCEPT, UPLOAD_TIP } from "../lib/upload.js";
 import { flowHint, flowOf, openContractDetail } from "../lib/contract-detail.js";
 import { openContractMaterialReplace } from "../lib/contract-material-replace.js";
 
 let q = "";
+let renderSeq = 0;
 
 /**
  * 合同状态流转按钮：草稿 → 待签署（提交）→ 已签署（确认）。
@@ -34,14 +35,16 @@ function fileCell(c) {
 }
 
 export async function render(root) {
+  const seq = ++renderSeq;
   const [c, proj] = await Promise.all([api.get("/api/contracts"), api.get("/api/projects")]);
+  if (seq !== renderSeq) return;
   const rows = c.rows.filter((r) => !q || (r.name + r.vendor + r.pname + r.id).includes(q));
-  const total = rows.reduce((s, r) => s + r.amount, 0);
-  const signed = rows.filter((r) => r.status === "已签署").reduce((s, r) => s + r.amount, 0);
+  const total = rows.reduce((s, r) => s + Number(r.amount || 0), 0);
+  const signed = rows.filter((r) => r.status === "已签署").reduce((s, r) => s + Number(r.amount || 0), 0);
   const withFile = rows.filter((r) => r.file_key).length;
 
   root.innerHTML = `<div class="phead">
-      <div><h2>合同台账</h2><p>合同金额是核销第 6 步与付款金额的比对基准</p></div>
+      <div><h2>合同台账</h2><p>合同按类别归集；会务费用在核销第6项与需求预算、发票比对；劳务个人合同在材料库按姓名核验</p></div>
       <div class="acts">
         ${can("export:any") ? '<button class="btn btn-o" id="exp">导出 CSV</button>' : ""}
         ${can("contract:write") ? '<button class="btn btn-p" id="newC">+ 录入合同</button>' : ""}
@@ -71,7 +74,7 @@ export async function render(root) {
         })), { empty: "暂无合同" })}
     </div>`;
 
-  root.querySelector("#q").addEventListener("input", (e) => { q = e.target.value.trim(); render(root); });
+  bindSearchRefresh(root, "#q", value => { q = value; }, () => render(root));
   const expBtn = root.querySelector("#exp");
   if (expBtn) expBtn.onclick = async () => {
     try { const r = await api.download("/api/export/contracts"); toast(`已导出 ${r.name}`, "ok"); }
@@ -129,11 +132,11 @@ function openCreate(root, projects) {
     { k: "vendor", l: "签约方", req: 1 },
     { k: "amount", l: "合同金额（元）", t: "number", req: 1 },
     { k: "category", l: "合同类别", t: "select", opts: state.meta.contractCategories || [],
-      tip: "核销第 5 步「劳务与专家费核对」只列「劳务专家」类，其余类别在第 6 步全量对照里核" },
+      tip: "合同类别用于台账和会务费用核对；第5项需在材料库按完整姓名匹配个人劳务合同，不能用台账合同替代。第6项核对实际会务需求、已签会务合同和会务发票。" },
     { k: "sign_date", l: "签署日期", t: "date" },
     // 录入只能选草稿 / 待签署：已签署必须走「确认签署」，
     // 否则两步流转等于没做，台账上的「已签署金额」也没有可信来源
-    { k: "status", l: "状态", t: "select", opts: ["草稿", "待签署", "已签署"], tip: "已签署需管理员审批确认；新录入选择已签署会自动转为待签署，不能跳过审批" },
+    { k: "status", l: "状态", t: "select", opts: ["草稿", "待签署"], tip: "录入后必须由有权人员确认签署，不能在新建时跳过确认流程" },
     {
       k: "file", l: "合同原件", t: "file", full: 1,
       accept: UPLOAD_ACCEPT,

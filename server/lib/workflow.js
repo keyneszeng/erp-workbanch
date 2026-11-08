@@ -11,6 +11,7 @@ const { can, isSuper, ROLES } = require("./rbac");
 const { logAudit } = require("./audit");
 const { FLOW, VERIFY_STEPS } = require("./constants");
 const { isDemoMode } = require("./runtime");
+const verifyOcr=require("./verify-ocr-compare");
 
 function getProject(id) {
   const p = db.prepare("SELECT * FROM projects WHERE id = ?").get(id);
@@ -31,6 +32,7 @@ function verification(pid) {
       (def.no!==7 || sponsor.required);
     const evidence=r?.evidence_json?JSON.parse(r.evidence_json):null;
     const stale=required && r?.result==="通过" && (
+      (evidence?.origin==="ocr-assisted-human-review" && evidence.scanToken!==verifyOcr.report(pid,def.no).token) ||
       (def.no===5 && (evidence?.laborSourceSignature!==labor.signature ||
         !evidence?.contractPoolSignature || evidence.contractPoolSignature!==contractPool(db,pid).signature)) ||
       (def.no===2 && !isDemoMode() && (

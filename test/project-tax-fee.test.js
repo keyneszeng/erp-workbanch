@@ -16,7 +16,7 @@ before(async()=>{
  ERP_PORT:String(port),ERP_DB:path.join(dir,"erp.db"),ERP_UPLOAD_DIR:path.join(dir,"uploads")},stdio:["ignore","pipe","pipe"]});
  proc.stderr.on("data",c=>{if(!String(c).includes("ExperimentalWarning"))process.stderr.write(c)});
  let good=false;
- for(let i=0;i<160;i++){try{if((await fetch(base+"/api/health")).ok){good=true;break;}}catch{}
+ for(let i=0;i<400;i++){try{if((await fetch(base+"/api/health")).ok){good=true;break;}}catch{}
  await new Promise(r=>setTimeout(r,150));}
  assert.ok(good,"server must become ready");
  const login=await fetch(base+"/api/auth/login",{method:"POST",headers:{"content-type":"application/json"},

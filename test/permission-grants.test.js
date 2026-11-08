@@ -29,7 +29,7 @@ before(async()=>{
  stdio:["ignore","pipe","pipe"]});
  let error="";proc.stderr.on("data",c=>error+=String(c));
  let ready=false;
- for(let i=0;i<200;i++){
+ for(let i=0;i<400;i++){
   try{if((await fetch(base+"/api/health")).ok){ready=true;break;}}catch{}
   if(proc.exitCode!==null)throw Error("server died "+error);
   await new Promise(r=>setTimeout(r,150));
@@ -237,6 +237,56 @@ test("已获功能授权的财务和执行账号不再因角色名称被遗漏�
  assert.equal(exec.status,200,JSON.stringify(exec.body));
  assert.ok(exec.body.todos.some(x=>x.kind==="待核销"&&x.pid==="MP-2026-003"),
   "张伟有verify:check权限且为待核销项目负责人，应看到核销任务");
+});
+test("编辑项目资料权不能顺带读取合同、付款、审计和材料原件",async()=>{
+ const reader=await call("admin","GET","/api/users");
+ const u=reader.body.rows.find(x=>x.username==="qa_viewonly");
+ assert.ok(u);
+ const grant=await call("admin","PATCH","/api/users/"+u.id+"/access",{
+  modules:["projects"],permissions:["project:edit"]
+ });
+ assert.equal(grant.status,200,JSON.stringify(grant.body));
+ await login("qa_viewonly","ReadOnly2026!");
+ const detail=await call("qa_viewonly","GET","/api/projects/MP-2026-001");
+ assert.equal(detail.status,200,JSON.stringify(detail.body));
+ assert.ok(detail.body.project.budget>0,"编辑项目预算的账号可以查看所需预算字段");
+ assert.equal(detail.body.sectionAccess.finance,false);
+ assert.equal(detail.body.sectionAccess.contracts,false);
+ assert.equal(detail.body.sectionAccess.audit,false);
+ assert.equal(detail.body.sectionAccess.materials,false);
+ for(const key of ["payments","contracts","timeline","members","materials","approvals"]){
+  assert.deepEqual(detail.body[key],[],key+"不应因project:edit被间接授权");
+ }
+ assert.equal(detail.body.settlement,null);
+ assert.equal(detail.body.paidTotal,null);
+ assert.deepEqual(detail.body.sponsorRights.contracts,[]);
+ const list=await call("qa_viewonly","GET","/api/projects");
+ assert.equal(list.status,200,JSON.stringify(list.body));
+ assert.equal(list.body.rows[0].paid_amt,undefined);
+ assert.equal(list.body.rows[0].pay_cnt,undefined);
+ assert.ok(list.body.rows.some(x=>Number(x.budget)>0));
+ assert.equal((await call("qa_viewonly","GET","/api/payments")).status,403);
+});
+test("仅授予材料模块和上传权限时项目预算、合同和付款仍不可见",async()=>{
+ const users=await call("admin","GET","/api/users");
+ const u=users.body.rows.find(x=>x.username==="qa_viewonly");
+ const grant=await call("admin","PATCH","/api/users/"+u.id+"/access",{
+  modules:["projects","materials"],permissions:["material:write"]
+ });
+ assert.equal(grant.status,200,JSON.stringify(grant.body));
+ await login("qa_viewonly","ReadOnly2026!");
+ const detail=await call("qa_viewonly","GET","/api/projects/MP-2026-001");
+ assert.equal(detail.status,200,JSON.stringify(detail.body));
+ assert.equal(detail.body.project.budget,undefined);
+ assert.equal(detail.body.project.phone,undefined);
+ assert.equal(detail.body.sectionAccess.materials,true);
+ assert.equal(detail.body.sectionAccess.finance,false);
+ assert.equal(detail.body.payments.length,0);
+ assert.equal(detail.body.contracts.length,0);
+ const list=await call("qa_viewonly","GET","/api/projects");
+ assert.equal(list.status,200);
+ assert.equal(list.body.rows[0].budget,undefined);
+ assert.ok(list.body.summary?.budget==null,"无预算权不得附带预算汇总");
 });
 test("撤销后立即失效；重新登录也不能访问已经撤销的模块",async()=>{
  const revoke=await call("admin","PATCH","/api/users/"+userId+"/access",{
