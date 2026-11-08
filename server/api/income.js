@@ -14,6 +14,7 @@ const {extractSponsorContract,extractLedgerContract}=require("../lib/sponsor-con
 const office=require("../lib/verify-office-text");
 const {linkedSponsor}=require("../lib/sponsor-ledger");
 const {extractInvoice}=require("../lib/invoice-extract");
+const {extractBankReceipt}=require("../lib/bank-receipt-extract");
 
 const KEY=/^[a-f0-9]{32}\.(jpg|png|webp|gif|pdf|ppt|doc|docx|xls|xlsx|pptx|csv|txt)$/;
 function amount(v) {
@@ -105,40 +106,45 @@ async function scanContract(fileKey,ledger=false){
  * contracts, but an invoice-specific parser (price = tax-inclusive total).
  * An OCR preview is read-only and never registers an invoice.
  */
-async function scanInvoice(fileKey){
+async function scanFinancialEvidence(fileKey,kind){
+ const receipt=kind==="receipt",name=receipt?"银行转账单":"发票";
  const ext=String(fileKey||"").split(".").pop().toLowerCase();
- const empty=note=>({status:"需人工补录",fields:{invoiceNo:"",amount:null},
-   note,engine:"",mode:"",truncated:false});
+ const fields=receipt?{paymentRef:"",amount:null}:{invoiceNo:"",amount:null};
+ const empty=note=>({status:"需人工补录",fields,note,engine:"",mode:"",truncated:false});
  const native=office.SUPPORTED.has(ext);
  if(!native&&!["pdf","png","jpg"].includes(ext))
-  return empty("该格式不支持自动读取，请上传 PDF、JPG、PNG 或带文字的 DOCX。");
+  return empty("不支持从该格式读取文字，请上传 PDF、JPG、PNG 或带文字的 DOCX 原件。");
  try{
   const file=await storage().get(fileKey);
-  if(!file?.buffer)return empty("文件读取失败，请重新上传发票。");
+  if(!file?.buffer)return empty(name+"文件读取失败，请重新上传原件。");
   let result;
   if(native)result=office.extract(file.buffer,ext);
   else if(ext==="pdf"){
    let pdf=null,readError=null;
    try{pdf=await ocr.extractPdfText(file.buffer);}catch(e){readError=e;}
    const text=String(pdf?.text||"").trim();
-   if(text.length>=30||/(?:发票号码|价税合计|开票金额|发票金额)/u.test(text))
+   const looksUseful=receipt?/(?:银行流水|交易流水|流水号|回单编号|转款金额|转账金额|到账金额|交易金额)/u:
+     /(?:发票号码|价税合计|开票金额|发票金额)/u;
+   if(text.length>=30||looksUseful.test(text))
     result=pdf;
    else if(ocr.enabled()&&storage().name==="fs")
     result=await ocr.recognize(file.buffer,"pdf");
    else if(readError)
-    return empty("PDF 文字解析不可用（"+String(readError.code||"PDF_TEXT_ERROR")+"），请安装 poppler-utils；扫描件还需要 RapidOCR。");
-   else return empty("这是没有文字层的扫描 PDF，请在阿里云启用内置 RapidOCR，或人工填写发票信息。");
+    return empty("PDF 文字解析不可用（"+String(readError.code||"PDF_TEXT_ERROR")+"），请安装 poppler-utils；扫描 PDF 还需要启用 RapidOCR。");
+   else return empty("该 PDF 没有可用文字层，请启用服务器内置 RapidOCR 识别扫描图片，或人工填写。");
   }else{
    if(!ocr.enabled()||storage().name!=="fs")
-    return empty("图片发票识别需要服务器启用 RapidOCR（ERP_OCR_ENABLED=1）并使用本地文件存储。");
+    return empty(name+"图片识别需要阿里云服务器启用 RapidOCR（ERP_OCR_ENABLED=1）及本地文件存储。");
    result=await ocr.recognize(file.buffer,ext);
   }
-  if(!result?.text?.trim())return empty("发票原件没有可提取的文字，请更换清晰原件或人工填写。");
-  return extractInvoice(result.text,result);
+  if(!result?.text?.trim())return empty(name+"原件没有可提取的文字，请更换清晰原件或人工填写。");
+  return receipt?extractBankReceipt(result.text,result):extractInvoice(result.text,result);
  }catch(e){
-  return empty("发票 OCR 未完成（"+String(e.code||"SCAN_ERROR")+"），请检查原件和服务器 OCR 配置并人工核对。");
+  return empty(name+" OCR 未完成（"+String(e.code||"SCAN_ERROR")+"），请检查原件、RapidOCR 服务与配置并人工核对。");
  }
 }
+async function scanInvoice(fileKey){return scanFinancialEvidence(fileKey,"invoice");}
+async function scanBankReceipt(fileKey){return scanFinancialEvidence(fileKey,"receipt");}
 async function scanRights(fileKey){
   const scanned=await scanContract(fileKey);
   const categories=scanned.fields.rightsContent;
@@ -168,6 +174,14 @@ function register(router){
     const key=evidence(ctx,p,ctx.body?.file_key);
     const preview=await scanContract(key);
     return {...preview,file_key:key,contractNoNote:"合同编号将在保存时由系统自动生成"};
+  });
+  router.post("/api/projects/:id/income/receipts/scan",async ctx=>{
+    const p=getProject(ctx.params.id);
+    writable(ctx,p,"payment:pay");
+    const key=evidence(ctx,p,ctx.body?.file_key);
+    // Preview never writes a financial receipt; registration stays in the original endpoint.
+    const preview=await scanBankReceipt(key);
+    return {...preview,file_key:key};
   });
   router.post("/api/projects/:id/income/invoices/scan",async ctx=>{
     const p=getProject(ctx.params.id);
@@ -312,4 +326,4 @@ function register(router){
     return {id,summary:incomeSummary(p.id,p.budget)};
   });
 }
-module.exports={register,incomeSummary,scanContract,scanInvoice};
+module.exports={register,incomeSummary,scanContract,scanInvoice,scanBankReceipt};
