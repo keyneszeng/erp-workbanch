@@ -15,12 +15,20 @@
    <view bindtap="chooseCustom" class="select-chip {{custom?'chip-selected':''}}">＋ 自定义类别</view>
   </view>
   <input wx:if="{{custom}}" class="field" value="{{customKind}}" data-key="customKind" bindinput="input" placeholder="请输入自定义材料类别"/>
+  <view wx:if="{{!custom&&kind==='权益照片'}}" class="field">
+   <view class="section-caption">赞助合同 · 权益二级类目（必选）</view>
+   <picker mode="selector" range="{{sponsorRights}}" range-key="label" value="{{rightIndex}}" bindchange="pickRight">
+    <view class="field-value">{{sponsorRights[rightIndex].label}} ▾</view>
+   </picker>
+   <view class="muted">权益类目需先在 Web 端确认，才能按赞助合同关联照片。</view>
+  </view>
   <view class="section-caption space">02 · 材料记录</view>
-  <input class="field" placeholder="材料名称，例如：张老师课件／签到照片" data-key="name" value="{{name}}" bindinput="input"/>
+  <input wx:if="{{custom||kind!=='终版议程'}}" class="field" placeholder="材料名称，例如：张老师课件／签到照片" data-key="name" value="{{name}}" bindinput="input"/>
+  <view wx:if="{{!custom&&kind==='终版议程'}}" class="muted">只需选择一个终版议程文件上传，即自动确认为终版；无需填写名称或生成待办。</view>
   <view wx:if="{{error}}" class="error">{{error}}</view>
   <view wx:if="{{uploaded}}" class="success-note">{{uploaded}}</view>
-  <button class="btn primary" loading="{{busy}}" disabled="{{busy||locked||!pid}}" bindtap="addPhoto">拍照或从相册选择并归档</button>
-  <button class="btn ghost" loading="{{busy}}" disabled="{{busy||locked||!pid}}" bindtap="addFile">选择 Excel XLS / XLSX、Word、PPT、PDF、CSV / TXT 附件</button>
+  <button class="btn primary" loading="{{busy}}" disabled="{{busy||locked||!pid||(!custom&&kind==='权益照片'&&!rightId)}}" bindtap="addPhoto">拍照或从相册选择并归档</button>
+  <button class="btn ghost" loading="{{busy}}" disabled="{{busy||locked||!pid||(!custom&&kind==='权益照片'&&!rightId)}}" bindtap="addFile">选择 Excel XLS / XLSX、Word、PPT、PDF、CSV / TXT 附件</button>
   <view class="muted">每次上传 1 个附件、最多 20 MB。支持旧版 Excel XLS、Word DOC；Office 文件作为附件存储下载，不在小程序内执行宏，OCR 识别不等于核销通过。</view>
  </view>
 </view>
