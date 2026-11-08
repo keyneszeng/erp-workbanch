@@ -63,8 +63,10 @@ async function scan(pid,no,operator){
  // Native Office files (including XLSX attendance) never require RapidOCR.
  // On demo installs do not simulate image recognition, but do read real Office bytes.
  const officePresent=docs.some(m=>office.SUPPORTED.has(m.file_key.split(".").pop().toLowerCase()));
- if(!isDemoMode()&&!available&&!officePresent)
+ if(!isDemoMode()&&!available&&!officePresent&&no!==7)
   throw Object.assign(new Error("当前部署未启用 RapidOCR，请在阿里云 ECS 配置 ERP_OCR_ENABLED=1，安装 RapidOCR (ONNX Runtime CPU) 和 Poppler；Excel原生表格可不依赖 RapidOCR 解析"),{status:503,code:"OCR_NOT_CONFIGURED"});
+ // Step 7 can always be reviewed from the original signed sponsor agreements
+ // and photos; image OCR cannot prove that contractual rights were delivered.
  let processed=0;
  for(const m of docs){
   if(cache(m,pid))continue;
