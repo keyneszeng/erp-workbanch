@@ -46,15 +46,10 @@ export function sopEvidenceForm(no,p,rightsData=null){
        +`<div class="hint">只核对两点：材料库已有课件原件；所填每个课件主题都能在已确认的终版议程中找到。终版议程可以包含其他未上传课件的主题。无需核对串场、Logo 或赞助商展示页面。请从原件人工摘录主题。</div>`,
     5:area("collectionRecords","劳务表（每行：姓名|时间|角色|金额|银行账号|开户行（可选））","张老师|2026-11-01|讲者|1000|6222...")
        +`<div class="hint">第5项只关联劳务登记表（含劳务表、劳务收集表）和劳务专家合同。每位专家须有一份姓名对应的劳务专家合同；会务合同、赞助合同及其他总合同不得参与核验。银行账号不写入核销证据。</div><div data-labor-contract-preview></div>`,
-    6: `<div class="hint">第6项仅有实际标记「需要」的会务需求时核销。请分别从材料库「终版议程」与终版「会务协议」原件录入下列字段，并核对实际会务需求预算、已签署会务合同及发票三方金额一致。系统当前不自动 OCR 提取字段。</div>`
-       +input("agendaTitle","终版议程 · 会议主题",p.name)
-       +input("agendaTime","终版议程 · 会议时间",p.date)
-       +input("agendaFormat","终版议程 · 会议形式（线下/线上/混合）",p.form)
-       +input("agreementTitle","会务协议 · 会议主题")
-       +input("agreementTime","会务协议 · 会议时间")
-       +input("agreementFormat","会务协议 · 会议形式（线下/线上/混合）")
-       +input("agreementPartyA","会务协议 · 甲方（须等于协会主体）",p.assoc)
-       +ck("agreementFinal","已核验当前会务协议为终版，且字段来自所上传的协议原件"),
+    6: `<div class="hint">有已建立的会务需求表即必核。只关联会务需求表、已签署「会务需求」类别合同及会务发票；核对三方总金额是否一致。原件真实性须人工检查。</div>`
+       +ck("demandReviewed","已检查本项目已归档的会务需求表")
+       +ck("meetingContractReviewed","已逐份检查对应会务需求合同原件")
+       +ck("meetingInvoiceReviewed","已检查对应会务发票原件及金额"),
     7:rightsChecklist(rightsData)
   };
   return head+(s[no]||"");
@@ -75,10 +70,9 @@ export function collectSopEvidence(no,m){
       hostTitleMatches:checked("hostTitleMatches"),hostNameLogoMatches:checked("hostNameLogoMatches"),
       sponsorLogoPages:["首页","尾页","鸣谢页"].filter(x=>checked("logo"+x))};
     case 5:return {collectionRecords:labor(get("collectionRecords"))};
-    case 6:return {agendaTitle:get("agendaTitle"),agendaTime:get("agendaTime"),agendaFormat:get("agendaFormat"),
-      agreementTitle:get("agreementTitle"),agreementTime:get("agreementTime"),
-      agreementFormat:get("agreementFormat"),agreementPartyA:get("agreementPartyA"),
-      agreementFinal:checked("agreementFinal")};
+    case 6:return {demandReviewed:checked("demandReviewed"),
+      meetingContractReviewed:checked("meetingContractReviewed"),
+      meetingInvoiceReviewed:checked("meetingInvoiceReviewed")};
     case 7:return {verifiedRights:[...m.querySelectorAll('input[name="rightReviewed"]:checked')].map(x=>Number(x.value))};
     default:return {};
   }

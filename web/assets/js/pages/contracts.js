@@ -133,7 +133,7 @@ function openCreate(root, projects) {
     { k:"name",l:"合同名称",req:1,full:1 },
     { k:"vendor",l:"签约方",req:1 },
     { k:"amount",l:"合同金额（元）",t:"number",req:1 },
-    { k:"category",l:"合同类别",t:"select",opts:state.meta.contractCategories||[],
+    { k:"category",l:"合同类别",t:"select",req:1,opts:["会务需求","劳务专家","企业赞助"],
       tip:"企业赞助属于会议收入，不计入会务支出、付款或核销第6项合同金额。" },
     { k:"rightsCategories",l:"权益内容（每行一项）",t:"textarea",rows:4,full:1,
       ph:"主会场背景板 LOGO 露出\n企业展位展示" },

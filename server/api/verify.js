@@ -112,15 +112,15 @@ function register(router) {
     const v = verification(p.id);
     const def = v.steps.find((s) => s.no === no);
     if(no===5 && !v.laborRequired)throw conflict("材料库无劳务表，第5项自动不适用，无需核销","SOP_NOT_APPLICABLE");
-    if(no===6 && !v.demandRequired)throw conflict("没有实际需要的会务需求，第6项自动不适用，无需核销","SOP_NOT_APPLICABLE");
-    if(no===7 && !v.rightsRequired)throw conflict("没有已签署赞助合同，第7项自动不适用","SOP_NOT_APPLICABLE");
+    if(no===6 && !v.demandRequired)throw conflict("尚未建立会务需求表，第6项不适用","SOP_NOT_APPLICABLE");
+    if(no===7 && !v.rightsRequired)throw conflict("当前没有赞助权益内容或权益照片，第7项不适用","SOP_NOT_APPLICABLE");
     let invoiceAmount = null;
     if (!isDemoMode() && no===6 && result==="通过") {
       const demand=require("../lib/meeting-demand-sop").demandSopState(db,p.id);
       if(!demand.confirmed)throw conflict("请先确认并归档会务需求","DEMAND_NOT_CONFIRMED");
       if(!demand.contractCount)throw conflict("没有已签署的会务合同","CONTRACT_NOT_SIGNED");
-      if(!demand.agreements.length || !demand.agenda.length || !demand.invoices.length)
-        throw conflict("需上传终版议程、终版会务协议及会务发票原件","SOP_MATERIAL_MISSING");
+      if(!demand.agreements.length || !demand.invoices.length)
+        throw conflict("需上传会务需求类别合同对应原件及会务发票，不关联终版议程","SOP_MATERIAL_MISSING");
       invoiceAmount=isAuto?ocrReport.invoiceAmount:Number(ctx.body?.invoiceAmount);
       if((!isAuto&&(ctx.body?.invoiceAmount===""||ctx.body?.invoiceAmount==null))||invoiceAmount==null||!Number.isFinite(invoiceAmount)||
          invoiceAmount<0||Number(invoiceAmount.toFixed(2))!==invoiceAmount)

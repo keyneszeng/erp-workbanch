@@ -44,7 +44,18 @@ export async function openOcrJudge(pid,no,d,onDone){
   const rows=(r.checks||[]).map(x=>'<div style="border-bottom:1px solid var(--line);padding:9px 0">'+
     '<div style="display:flex;gap:8px;align-items:center;justify-content:space-between"><b>'+esc(x.name)+'</b>'+fmtStatus(x.status)+'</div>'+
     '<div class="hint" style="margin-top:4px">'+esc(x.detail)+'</div></div>').join("");
-  area.innerHTML='<div class="grid g3" style="margin-bottom:12px">'+
+  const financialSource=no===6&&r.demandSheet?
+    '<div class="panel" style="padding:12px;margin-bottom:12px"><b>会务需求表（结构化业务原件）</b><div class="hint">'+
+    '归档状态：'+(r.demandSheet.confirmed?'已确认':'未确认')+
+    ' · 需求预算：'+esc(String(r.demandSheet.budgetTotal))+' 元 · 会务合同：'+
+    esc(String(r.demandSheet.contractTotal))+' 元</div></div>':'';
+  const sponsorSources=no===7&&(r.sponsorContracts||[]).length?
+    '<div class="panel" style="padding:12px;margin-bottom:12px"><b>关联的赞助合同</b>'+
+    r.sponsorContracts.map(s=>'<div class="hint"><b>'+esc(s.enterprise||s.id)+'</b> · '+esc(s.status||'未确认')+
+      (s.fileKey?' · <a class="link" href="/api/uploads/'+encodeURIComponent(s.fileKey)+
+        '" target="_blank" rel="noopener">'+esc(s.fileName||'查看合同原件')+'</a>':' · 原件缺失')+
+      '</div>').join('')+'</div>':'';
+  area.innerHTML=financialSource+sponsorSources+'<div class="grid g3" style="margin-bottom:12px">'+
     '<div class="kpi k2"><div class="t">OCR识别原件</div><div class="v">'+r.scanned+'/'+r.total+'</div></div>'+
     '<div class="kpi k3"><div class="t">自动比对一致</div><div class="v">'+n.match+'</div></div>'+
     '<div class="kpi k4"><div class="t">异常/待确认</div><div class="v">'+(n.mismatch+n.uncertain)+'</div></div></div>'+

@@ -33,12 +33,18 @@ test("无已签赞助合同第7项不适用；待签合同不触发",()=>{
  assert.throws(()=>validateRightsEvidence(db,"P1",{}),e=>e.code==="SOP_NOT_APPLICABLE");
  db.close();
 });
-test("合同明确人工确认没有权益时，第7项不应强制上传不存在的权益照片",()=>{
- const {db,addSponsor}=fixture();
+test("第7项由真实权益内容或权益照片触发，单纯签署无权益的赞助合同不触发",()=>{
+ const {db,addSponsor,addRight,addPhoto}=fixture();
  addSponsor("A");
- assert.equal(sponsorRights(db,"P1").required,true);
- db.prepare("UPDATE meeting_sponsor_contracts SET rights_scan_status='确认无权益' WHERE id='A'").run();
  assert.equal(sponsorRights(db,"P1").required,false);
+ const r=addRight("A","赞助背景板权益");
+ assert.equal(sponsorRights(db,"P1").required,true);
+ db.prepare("DELETE FROM sponsor_rights WHERE id=?").run(r);
+ assert.equal(sponsorRights(db,"P1").required,false);
+ addPhoto(null,"P1","unlinked.jpg");
+ assert.equal(sponsorRights(db,"P1").required,true);
+ assert.throws(()=>validateRightsEvidence(db,"P1",{verifiedRights:[]}),
+  e=>e.code==="SPONSOR_RIGHTS_UNLINKED");
  db.close();
 });
 test("签署合同权益必须经人工确认，OCR建议不得直接视为权益交付",()=>{
@@ -75,5 +81,16 @@ test("跨项目照片不算目标项目权益交付；更新照片或权益后�
  const evidence=validateRightsEvidence(db,"P1",{verifiedRights:[r]});
  db.prepare("UPDATE materials SET file_key='replacement.jpg' WHERE pid='P1'").run();
  assert.notEqual(sponsorRights(db,"P1").signature,evidence.rightsSignature);
+ db.close();
+});
+
+test("待确认赞助合同已有权益内容时第7项仍需处理，但未签署前不能通过",()=>{
+ const {db,addSponsor,addRight,addPhoto}=fixture();
+ addSponsor("A","P1","待确认");
+ const r=addRight("A","赞助背景板展示");
+ addPhoto(r);
+ assert.equal(sponsorRights(db,"P1").required,true);
+ assert.throws(()=>validateRightsEvidence(db,"P1",{verifiedRights:[r]}),
+  e=>e.code==="SPONSOR_CONTRACT_REQUIRED");
  db.close();
 });
