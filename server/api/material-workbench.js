@@ -21,9 +21,13 @@ function checkOcrMaterial(pid,id) {
 function resultFor(materialId,pid,fileKey) {
   const r=db.prepare("SELECT * FROM material_ocr_results WHERE material_id=? AND pid=? AND file_key=?")
     .get(materialId,pid,fileKey);
-  return r ? {materialId,recognizedText:r.recognized_text,suggestions:JSON.parse(r.suggestions_json),
+  if(!r)return null;
+  let rows=[];
+  // 结构化行按原文实时还原：算法改进后旧记录也能直接受益，不用重跑 OCR
+  try{rows=ocr.parseAgendaRows(r.recognized_text);}catch{rows=[];}
+  return {materialId,recognizedText:r.recognized_text,suggestions:JSON.parse(r.suggestions_json),rows,
     mode:r.mode,engine:r.engine,pages:r.pages,totalPages:r.total_pages,truncated:!!r.truncated,
-    updatedAt:r.updated_at,updatedBy:r.updated_by,reviewRequired:true} : null;
+    updatedAt:r.updated_at,updatedBy:r.updated_by,reviewRequired:true};
 }
 
 
@@ -39,7 +43,7 @@ function taskRows(pid) {
 function assertWritable(ctx,p){
   assertProjectVisible(ctx.user,p);
   assertCan(ctx.user,"material:write","无材料管理权限");
-  assertNotFrozen(p,"材料模块与待办");
+  assertNotFrozen(p,"材料模块与待办",ctx.user,ctx.ip);
 }
 function register(router) {
   router.get("/api/projects/:id/material-workbench",async ctx=>{
@@ -63,14 +67,15 @@ function register(router) {
       throw Object.assign(new Error("OCR 当前仅可在已配置本地识别引擎的阿里云 ECS 环境运行"),{status:503,code:"OCR_NOT_CONFIGURED"});
     const material=checkOcrMaterial(p.id,ctx.body?.materialId);
     const existing=resultFor(material.id,p.id,material.file_key);
-    if(existing && ctx.body?.force!==true)return {result:existing,fromCache:true};
+    // 引擎变了（或上次是降级结果）就重跑，否则用户会以为换了引擎却没生效
+    if(existing && ctx.body?.force!==true && ocr.providerMatches(existing.engine))return {result:existing,fromCache:true};
     if(ocrRunning)throw Object.assign(new Error("OCR 正在处理另一个文件，请稍后重试"),{status:429,code:"OCR_BUSY"});
     ocrRunning=true;
     try{
       const file=await storage().get(material.file_key);
       if(!file)throw notFound("原件已不存在，请重新上传");
       const ext=material.file_key.split(".").pop();
-      const processed=await ocr.recognize(file.buffer,ext);
+      const processed=await ocr.recognize(file.buffer,ext,{kind:material.kind});
       const suggestions=["议程","终版议程"].includes(material.kind) ? ocr.parseAgenda(processed.text) : [];
       const stamp=now();
       db.prepare("INSERT INTO material_ocr_results (material_id,pid,file_key,recognized_text,suggestions_json,engine,mode,pages,total_pages,truncated,updated_at,updated_by) VALUES (?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(material_id) DO UPDATE SET file_key=excluded.file_key,recognized_text=excluded.recognized_text,suggestions_json=excluded.suggestions_json,engine=excluded.engine,mode=excluded.mode,pages=excluded.pages,total_pages=excluded.total_pages,truncated=excluded.truncated,updated_at=excluded.updated_at,updated_by=excluded.updated_by")

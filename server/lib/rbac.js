@@ -1,6 +1,5 @@
 "use strict";
 const { forbidden } = require("./util");
-const { isDemoMode } = require("./runtime");
 
 /**
  * 角色定义 —— 与演示版 V1.0.2 一致
@@ -14,61 +13,58 @@ const ROLES = {
   },
   assoc: {
     name: "协会管理员", short: "协会", scope: "本协会", super: false,
-    modules: ["dashboard", "projects", "prep", "demand", "exec", "materials", "verify", "finance", "archive", "audit"],
+    modules: [],
     desc: "本协会项目全流程 + 审计查阅"
   },
   exec: {
     name: "会务执行人员", short: "执行", scope: "授权会议", super: false,
-    modules: ["dashboard", "projects", "prep", "demand", "exec", "materials", "verify"],
+    modules: [],
     desc: "被授权会议的执行、材料与核销取证"
   },
   finance: {
     name: "财务与核销", short: "财务", scope: "授权项目", super: false,
-    modules: ["dashboard", "projects", "prep", "exec", "materials", "verify", "finance", "archive"],
+    modules: [],
     desc: "核销判定、付款审批、结算与归档"
   },
   user: {
     name: "普通用户 / 嘉宾", short: "用户", scope: "本人数据", super: false,
-    modules: ["dashboard", "projects"],
+    modules: [],
     desc: "仅本人相关的会议与材料"
   }
 };
 
 /** 动作级权限：动作 -> 允许的角色（admin 恒通过） */
+/** 权限目录：各业务角色默认无权限，总管理员恒拥有全部。 */
 const PERMS = {
-  "project:create": ["assoc", "exec"],
-  "project:approve": ["assoc"],
-  "project:transition": ["assoc", "exec", "finance"],
-  "project:change": ["assoc", "exec"],
-  /**
-   * 变更落账：把已审批的变更真正写进项目（含预算）。
-   *
-   * 单独一个权限，是因为它必须能交给「申请人 / 审批人以外」的人 ——
-   * 老板要求的双人复核是「批的人不落账、提的人不落账」。
-   * 如果沿用 project:approve（只有协会 + 超管），
-   * 「协会提交 → 超管审批」这种最常见的组合就没人能落账了，流程会卡死。
-   */
-  "change:execute": ["assoc", "exec", "finance"],
-  "project:member": ["assoc"],
-  "contract:write": ["assoc", "exec"],
-  "invite:manage": ["assoc", "exec"],
-  "contract:approve": ["assoc"],
-  "demand:write": ["assoc", "exec"],
-  "payment:create": ["assoc", "exec", "finance"],
-  "payment:approve": ["assoc"],
-  "payment:pay": ["finance"],
-  "verify:check": ["assoc", "exec", "finance"],
-  "verify:exception": ["assoc", "exec"],
-  "verify:exception_approve": ["finance"],
-  "verify:conclude": ["finance"],
-  "settle:create": ["finance"],
-  "archive:write": ["assoc", "finance"],
-  "material:write": ["assoc", "exec", "finance"],
-  "audit:read": ["assoc"],
-  "export:any": ["assoc", "exec", "finance"],
+  "project:create": [],
+  "project:approve": [],
+  "project:transition": [],
+  "project:change": [],
+  "project:edit": [],
+  "mini:apply": [],
+  "change:execute": [],
+  "project:member": [],
+  "contract:write": [],
+  "invite:manage": [],
+  "contract:approve": [],
+  "demand:write": [],
+  "payment:create": [],
+  "payment:approve": [],
+  "payment:pay": [],
+  "verify:check": [],
+  "verify:exception": [],
+  "verify:exception_approve": [],
+  "verify:conclude": [],
+  "settle:create": [],
+  "archive:write": [],
+  "material:write": [],
+  "material:file:replace": [],
+  "audit:read": [],
+  "export:any": [],
   "user:manage": [],
   "setting:write": [],
-  "ledger:read": []
+  "ledger:read": [],
+  "archive:download": [],
 };
 
 const MODULES = [
@@ -76,9 +72,9 @@ const MODULES = [
   { k: "projects", n: "项目管理", d: "会议列表、立项与阶段推进" },
   { k: "prep", n: "筹备管理", d: "合同 / 招商 / 嘉宾 / 议程 / 资源 / 任务" },
   { k: "demand", n: "会务需求", d: "设计 / 制作 / 现场执行 / 其他" },
-  { k: "exec", n: "会务执行", d: "报名签到 / 嘉宾邀请 / 任务 / 异常" },
+  { k: "exec", n: "会务执行", d: "嘉宾邀请 / 会务协作 / 现场资料与异常" },
   { k: "materials", n: "材料中心", d: "课件 / 串场 / 劳务表 / 协议 / 照片" },
-  { k: "verify", n: "会后核销", d: "6 步 SOP + 例外单（付款唯一前置门）" },
+  { k: "verify", n: "会后核销", d: "七项核销（第5～7项按需）+ 例外单；付款前置门" },
   { k: "finance", n: "财务结算", d: "公付 / 报销 / 厂家款 / 发票 / 结算单" },
   { k: "archive", n: "档案中心", d: "数字卷宗检索 / 归档 / 导出" },
   { k: "audit", n: "审计日志", d: "跨模块全量操作留痕 · 4W" },
@@ -103,16 +99,37 @@ const NAV_MODULE = {
   materials: "materials", archive: "archive", audit: "audit", users: "system", "invitation-config": "system"
 };
 
+/**
+ * 业务模块需要用会议项目作为上下文：只读可达性不等于编辑或跨协会访问。
+ * scopeFilter、项目详情按字段/模块裁剪仍然必须执行。
+ */
+const PROJECT_CONTEXT_MODULES = ["projects","prep","demand","exec","materials","verify","finance","archive"];
+const PROJECT_CONTEXT_PERMS = ["project:create","project:approve","project:transition","project:change",
+  "project:edit","project:member","mini:apply","contract:write","contract:approve","invite:manage",
+  "demand:write","material:write","payment:create","payment:approve","payment:pay","settle:create",
+  "verify:check","verify:exception","verify:exception_approve","verify:conclude","archive:write",
+  "archive:download","ledger:read"];
+function canReadProjects(user) {
+  return PROJECT_CONTEXT_MODULES.some(m=>hasModule(user,m)) || PROJECT_CONTEXT_PERMS.some(p=>can(user,p));
+}
+
 /** 这个角色能不能打开某个页面（含审批中心的动作级条件） */
 function canVisitNav(user, nav) {
   if (!user || !ROLES[user.role]) return false;
   const need = NAV_MODULE[nav];
   if (!need) return false;
-  if (!ROLES[user.role].modules.includes(need)) return false;
-  if (nav === "project-ledger") return isSuper(user);
+  if (nav === "dashboard" && !hasModule(user,"dashboard")) return true; // 安全待授权页
+  if (nav === "projects" && canReadProjects(user)) return true;
+  if (!hasModule(user,need)) return false;
+  if (nav === "project-ledger") return can(user,"ledger:read");
   if (nav === "prep-invitations") return can(user, "invite:manage");
+  if (nav === "users") return isSuper(user) || can(user,"user:manage");
+  // 前端 NAV 对「邀请函上线配置」要求 setting:write，接口层 prep-admin.js 的
+  // admin() 也用 assertCan("setting:write")。这里原来只查 system 模块就放行，
+  // 是同一张表里唯一漏掉的动作条件：补上后三处口径才真正一致。
+  if (nav === "invitation-config") return can(user, "setting:write");
   if (nav === "approvals") {
-    return can(user, "project:approve") || can(user, "verify:exception_approve") || can(user, "payment:approve");
+    return can(user, "project:approve") || can(user, "verify:exception_approve") || can(user, "payment:approve") || can(user, "contract:approve");
   }
   return true;
 }
@@ -121,7 +138,8 @@ function canVisitNav(user, nav) {
 function hasModule(user, key) {
   if (!user || !ROLES[user.role]) return false;
   if (isSuper(user)) return true;
-  return ROLES[user.role].modules.includes(key);
+  if (!MODULES.some(m=>m.k===key)) return false;
+  return !!require("./db").db.prepare("SELECT 1 FROM user_module_grants WHERE user_id=? AND module=?").get(user.id,key);
 }
 
 /**
@@ -145,12 +163,12 @@ function assertModule(user, key, perm, msg) {
 const isSuper = (user) => !!(user && ROLES[user.role] && ROLES[user.role].super);
 
 function can(user, perm) {
-  if (!user) return false;
-  if (isSuper(user)) return true;
-  // Historical demo finance approvals stay available for QA; production approval belongs to association managers.
-  if (perm === "payment:approve" && isDemoMode() && user.role === "finance") return true;
-  const allow = PERMS[perm];
-  return Array.isArray(allow) && allow.includes(user.role);
+  if (!user || !ROLES[user.role] || !Object.prototype.hasOwnProperty.call(PERMS,perm))return false;
+  if (isSuper(user))return true;
+  // 后端实时查询，不能通过旧登录状态或直接访问API绕过新授权。
+  return !!require("./db").db.prepare(
+    "SELECT 1 FROM user_permission_grants WHERE user_id=? AND permission=?"
+  ).get(user.id,perm);
 }
 
 function assertCan(user, perm, msg) {
@@ -164,7 +182,6 @@ function scopeFilter(user) {
     case "assoc":
       return { sql: "(p.assoc = ? OR EXISTS (SELECT 1 FROM user_associations ua WHERE ua.user_id=? AND ua.assoc=p.assoc))", params: [user.assoc || "", user.id] };
     case "exec":
-    case "finance":
       // 「本人负责」按 user_id 认人，不再比对姓名 ——
       // 姓名可以重名（新建一个同名账号就能看到别人名下的项目），
       // 也可以被改（负责人一改名，名下项目全部从视野消失）。
@@ -174,6 +191,24 @@ function scopeFilter(user) {
           "(p.owner_id = ? OR (p.owner_id IS NULL AND p.owner = ?)" +
           " OR EXISTS (SELECT 1 FROM project_members m WHERE m.project_id = p.id AND m.user_id = ?))",
         params: [user.id, user.name, user.id]
+      };
+    case "finance":
+      /**
+       * 财务与核销：协会范围 **并上** 本人负责/参与的项目。
+       *
+       * 原来 finance 和 exec 共用「本人负责」分支，结果是财务登录后一场会都看不到
+       * （他既不是负责人也不在成员表），工作台「待核销」永远为空——核销、付款、
+       * 结算整条财务链路直接断掉。财务是协会级角色，处理的是本协会全部会议。
+       *
+       * 保留本人负责/参与这一档，是为了不把历史项目从财务视野里摘掉
+       * （跨协会借调、演示数据里财务恰好是负责人的情况）。
+       */
+      return {
+        sql:
+          "(p.assoc = ? OR EXISTS (SELECT 1 FROM user_associations ua WHERE ua.user_id=? AND ua.assoc=p.assoc)" +
+          " OR p.owner_id = ? OR (p.owner_id IS NULL AND p.owner = ?)" +
+          " OR EXISTS (SELECT 1 FROM project_members m WHERE m.project_id = p.id AND m.user_id = ?))",
+        params: [user.assoc || "", user.id, user.id, user.name, user.id]
       };
     case "user":
       /**
@@ -209,4 +244,4 @@ function assertProjectVisible(user, project) {
   if (!row) throw forbidden("该项目不在你的数据范围内");
 }
 
-module.exports = { ROLES, PERMS, MODULES, STATUSES, isSuper, can, assertCan, assertModule, hasModule, scopeFilter, assertProjectVisible, canVisitNav };
+module.exports = { ROLES, PERMS, MODULES, STATUSES, isSuper, can, assertCan, assertModule, hasModule, scopeFilter, assertProjectVisible, canVisitNav, canReadProjects };
