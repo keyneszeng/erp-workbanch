@@ -1,11 +1,39 @@
-<view class="wrap"><view class="card">
-<view class="heading">会议执行工作台</view>
-<view wx:if="{{user}}">{{user.name}} · {{role}}</view>
-<view class="muted">同一套阿里云 ERP 数据和权限，手机端仅展示有权访问的内容。</view>
-<view wx:if="{{error}}" class="error">{{error}}</view>
+<view class="wrap">
+ <view class="home-hero"><view class="hero-eyebrow">会规化会务执行系统 · 移动协同</view>
+  <view class="hero-heading">连接专家 · 促进交流</view>
+  <view class="hero-sub">项目申请、会议执行、材料留痕，一站完成</view>
+ </view>
+ <view class="card"><view class="row"><view class="heading">我的工作台</view><text class="muted">{{role}}</text></view>
+  <view wx:if="{{user}}" class="muted">{{user.name}} · 仅展示已获授权的数据</view>
+  <view wx:if="{{error}}" class="error">{{error}}</view>
+  <view class="metric-strip"><view wx:for="{{stats}}" wx:key="label" class="metric">
+   <view class="metric-num">{{item.value}}</view><view class="muted">{{item.label}}</view>
+  </view></view>
+  <view wx:if="{{!stats.length}}" class="muted">当前账号未获得工作台统计权限，已隐藏业务数据。</view>
+ </view>
+ <view class="quick-grid">
+  <view wx:if="{{canApply}}" class="quick-tile quick-blue" data-page="apply" bindtap="go">
+   <view class="quick-icon">＋</view><view class="quick-title">立项申请</view><view class="quick-sub">发起会议项目</view>
+  </view>
+  <view wx:if="{{canApply}}" class="quick-tile quick-green" bindtap="myApplications">
+   <view class="quick-icon">◉</view><view class="quick-title">我的申请</view><view class="quick-sub">查看审批进度</view>
+  </view>
+  <view wx:if="{{canMeetings}}" class="quick-tile quick-orange" bindtap="meetingList">
+   <view class="quick-icon">▤</view><view class="quick-title">我的会议</view><view class="quick-sub">会议与项目详情</view>
+  </view>
+  <view wx:if="{{canApprove}}" class="quick-tile quick-purple" data-page="approvals" bindtap="go">
+   <view class="quick-icon">✓</view><view class="quick-title">待我审批</view><view class="quick-sub">有权处理的审批单</view>
+  </view>
+  <view wx:if="{{canMaterials}}" class="quick-tile quick-purple" data-page="materials" bindtap="go">
+   <view class="quick-icon">▣</view><view class="quick-title">材料收集</view><view class="quick-sub">按模块上传归档</view>
+  </view>
+  <view class="quick-tile quick-light" data-page="account" bindtap="go">
+   <view class="quick-icon">♙</view><view class="quick-title">账户安全</view><view class="quick-sub">身份验证与退出</view>
+  </view>
+ </view>
+ <view wx:if="{{isExecutor}}" class="card">
+  <view class="section-caption">会务执行工作区</view>
+  <view class="muted">材料收集、审批与项目进度都来自同一 ERP；付款和核销权限由服务器判定。</view>
+  <button class="btn primary" bindtap="meetingList">查看授权会议</button>
+ </view>
 </view>
-<view class="card"><button class="btn primary" data-page="projects" bindtap="go">我的会议项目</button>
-<button wx:if="{{canApprove}}" class="btn" data-page="approvals" bindtap="go">待我审批</button>
-<button wx:if="{{canMaterials}}" class="btn" data-page="materials" bindtap="go">会议材料与照片</button>
-<button class="btn" data-page="account" bindtap="go">账户安全 / 退出</button>
-</view></view>

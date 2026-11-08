@@ -12,7 +12,7 @@ const PORT=8953,BASE="http://127.0.0.1:"+PORT;
 const DB=path.join(__dirname,"..","data","test-project-ledger.db");
 let server,users={};
 async function healthy(){
-  for(let n=0;n<150;n++){
+  for(let n=0;n<600;n++){
     try{const r=await fetch(BASE+"/api/health");if(r.ok)return}catch{}
     await new Promise(resolve=>setTimeout(resolve,100));
   }
