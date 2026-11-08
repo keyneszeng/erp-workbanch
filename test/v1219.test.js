@@ -1,212 +1,118 @@
 "use strict";
 /**
- * V1.2.19 回归：材料 8 类齐备才能开启核销
- * 运行：node --experimental-sqlite --test test/v1219.test.js
- *
- * 老板 2026-10-28：「必须完成 材料 8 项录入，才能开启 核销功能。
- *                   所以项目详情页里 材料 应该在 核销 前面。」
- *
- * 这条规则落在三个地方，缺一处就能绕过去：
- *   1. 提交核销（执行中 → 待核销）：材料不齐直接拦 —— 这是「开启核销」的入口；
- *   2. 单步判定：再拦一次 —— 防历史数据（门禁是这一版才加的）与判定后删材料；
- *   3. 核销通过：6 步判完但材料被删，仍然不许通过。
- *
- * 另外验一条「没有被削弱」的：归档仍然要求材料 8/8。
+ * 归档材料柔性流程回归。直接在独立数据库上检验生产模式的材料门禁：
+ * 无原件阻止进入核销；任意类别含一个文件即放行；不需要旧八类齐全。
+ * HTTP 上传的字节与权限完整性由 test/office-material.test.js 等独立回归验证。
  */
-const { test, before, after } = require("node:test");
-const assert = require("node:assert/strict");
-const { spawn } = require("node:child_process");
-const fs = require("node:fs");
-const path = require("node:path");
-const { fillMaterials } = require("./helpers/materials");
-const { MATERIAL_KINDS } = require("../server/lib/constants");
+const {test}=require("node:test");
+const assert=require("node:assert/strict");
+const fs=require("node:fs"),os=require("node:os"),path=require("node:path");
 
-const PORT = 8828;
-const BASE = `http://127.0.0.1:${PORT}`;
-const DB = path.join(__dirname, "..", "data", "test28.db");
-const UP = path.join(__dirname, "..", "data", "test28-uploads");
-let proc;
-let admin;
+const dir=fs.mkdtempSync(path.join(os.tmpdir(),"erp-flexible-material-"));
+process.env.ERP_DB=path.join(dir,"flexible.db");
+process.env.ERP_DEMO_MODE="0";
+const {db,migrate}=require("../server/lib/db");
+const {materialsStatus,GUARDS}=require("../server/lib/workflow");
+const {MATERIAL_KINDS}=require("../server/lib/constants");
+migrate();
+const pid="MP-TEST-FLEXIBLE-MATERIALS";
+db.prepare("INSERT INTO projects(id,name,assoc,form,date,created_at,updated_at,status) VALUES(?,?,?,?,?,?,?,?)")
+  .run(pid,"自由材料测试会议","华东医学会","线下","2027-12-12","2026-11-06","2026-11-06","执行中");
+const project={id:pid,status:"执行中"};
 
-function clean() {
-  for (const f of [DB, DB + "-wal", DB + "-shm"]) if (fs.existsSync(f)) fs.renameSync(f, f + ".old");
-  if (fs.existsSync(UP)) fs.rmSync(UP, { recursive: true, force: true });
-}
-async function waitHealth(timeout = 40000) {
-  const t0 = Date.now();
-  while (Date.now() - t0 < timeout) {
-    try { const r = await fetch(`${BASE}/api/health`); if (r.ok) return; } catch {}
-    await new Promise((r) => setTimeout(r, 200));
-  }
-  throw new Error("测试服务启动超时");
-}
-async function login(username, password = "123456") {
-  const r = await fetch(`${BASE}/api/auth/login`, {
-    method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ username, password })
-  });
-  assert.equal(r.status, 200, `${username} 登录失败`);
-  return r.headers.get("set-cookie").split(";")[0];
-}
-function client(cookie) {
-  return async (method, url, body) => {
-    const r = await fetch(BASE + url, {
-      method, headers: { "Content-Type": "application/json", cookie },
-      body: body ? JSON.stringify(body) : undefined
-    });
-    const text = await r.text();
-    let data = null; try { data = JSON.parse(text); } catch { data = text; }
-    return { status: r.status, data };
-  };
-}
-
-/** 造一个「执行中」项目：材料一类都没登记 */
-async function execProject(name) {
-  const mk = await admin("POST", "/api/projects", {
-    name: `${name}-${Date.now()}`, assoc: "华东医学会", form: "线下",
-    date: "2027-12-12", budget: 30000, people: 20, owner: "王敏", agenda: "09:00 开幕"
-  });
-  assert.equal(mk.status, 200, JSON.stringify(mk.data));
-  const pid = mk.data.project.id;
-  for (const action of ["submit", "approve", "prep", "exec"]) {
-    const r = await admin("POST", `/api/projects/${pid}/transition`, { action });
-    assert.equal(r.status, 200, `${action} 失败：${JSON.stringify(r.data)}`);
-  }
-  return pid;
-}
-
-before(async () => {
-  clean();
-  proc = spawn(process.execPath, ["--experimental-sqlite", "server/index.js"], {
-    cwd: path.join(__dirname, ".."),
-    env: { ...process.env, ERP_PORT: String(PORT), ERP_DB: DB, ERP_UPLOAD_DIR: UP },
-    stdio: ["ignore", "pipe", "pipe"]
-  });
-  proc.stderr.on("data", (d) => {
-    const s = d.toString();
-    if (!s.includes("ExperimentalWarning") && !s.includes("trace-warnings")) process.stderr.write("[srv] " + s);
-  });
-  await waitHealth();
-  admin = client(await login("admin"));
+test("生产模式：归档材料无需八类固定清单，权益照片为可选类别",()=>{
+  assert.ok(MATERIAL_KINDS.includes("权益照片"));
+  const st=materialsStatus(pid);
+  assert.deepEqual(st.required,[]);
+  assert.deepEqual(st.have,[]);
+  assert.deepEqual(st.missing,["至少上传1份材料附件"]);
+  assert.equal(st.uploadedCount,0);
+  assert.equal(st.ok,false);
+  assert.match(GUARDS.request_verify(project),/至少.*一份/);
+  assert.match(GUARDS.archive(project),/至少保留一份/);
 });
 
-after(() => { if (proc) proc.kill("SIGTERM"); });
-
-test("材料不齐：提交核销被拦，并说清缺哪几类", async () => {
-  const pid = await execProject("材料门禁-提交核销");
-  const r = await admin("POST", `/api/projects/${pid}/transition`, { action: "request_verify" });
-  assert.equal(r.status, 409, `应 409，实际 ${r.status}`);
-  assert.equal(r.data.error.code, "MATERIAL_GATE");
-  assert.match(r.data.error.message, /还缺 8 类/);
-  // 8 类名字要点出来，否则用户不知道该补什么
-  for (const k of MATERIAL_KINDS) assert.ok(r.data.error.message.includes(k), `提示里应包含「${k}」`);
-
-  // 状态没有被推走
-  const d = await admin("GET", `/api/projects/${pid}`);
-  assert.equal(d.data.project.status, "执行中");
+test("只登记文字、不上传文件，无法推进（不是随意填名称就通过）",()=>{
+  db.prepare("INSERT INTO materials(pid,kind,name,created_at) VALUES (?,?,?,?)")
+    .run(pid,"会务说明","只有材料登记文字","2026-11-06");
+  const st=materialsStatus(pid);
+  assert.equal(st.count,1);
+  assert.equal(st.uploadedCount,0);
+  assert.equal(st.ok,false);
+  assert.match(GUARDS.request_verify(project),/上传至少一份/);
 });
 
-test("补到 7 类仍然拦，补满 8 类才放行", async () => {
-  const pid = await execProject("材料门禁-补到 7 类");
-  for (const kind of MATERIAL_KINDS.slice(0, 7)) {
-    const r = await admin("POST", `/api/projects/${pid}/materials`, { kind, name: `${kind}.pdf` });
-    assert.equal(r.status, 200);
-  }
-  const seven = await admin("POST", `/api/projects/${pid}/transition`, { action: "request_verify" });
-  assert.equal(seven.status, 409, "差一类也不该放行");
-  assert.equal(seven.data.error.code, "MATERIAL_GATE");
-  assert.match(seven.data.error.message, /还缺 1 类/);
-
-  const last = MATERIAL_KINDS[7];
-  await admin("POST", `/api/projects/${pid}/materials`, { kind: last, name: `${last}.pdf` });
-  const ok = await admin("POST", `/api/projects/${pid}/transition`, { action: "request_verify" });
-  assert.equal(ok.status, 200, JSON.stringify(ok.data));
-  assert.equal(ok.data.project.status, "待核销");
+test("上传任意一种权益照片附件即可进入下一阶段，原先其余类别全部缺席也不会挡",()=>{
+  db.prepare("INSERT INTO materials(pid,kind,name,created_at,file_key,file_name,file_mime) VALUES (?,?,?,?,?,?,?)")
+    .run(pid,"权益照片","权益交付记录","2026-11-06",
+      "11111111111111111111111111111111.jpg","权益照片.jpg","image/jpeg");
+  const st=materialsStatus(pid);
+  assert.equal(st.count,2);
+  assert.equal(st.uploadedCount,1);
+  assert.equal(st.ok,true);
+  assert.deepEqual(st.required,[]);
+  assert.deepEqual(st.missing,[]);
+  assert.ok(st.have.includes("权益照片"));
+  assert.equal(GUARDS.request_verify(project),null);
+  assert.match(GUARDS.verify_pass(project),/项必核步骤未判定/,"无劳务表和会务需求时仅四项必核");
+  assert.match(GUARDS.archive(project),/结算单未生成/,"仍必须完成结算");
 });
 
-test("已提交核销但材料被删（历史数据）：判定仍被拦", async () => {
-  const pid = await execProject("材料门禁-判定兜底");
-  await fillMaterials(admin, pid);
-  const rv = await admin("POST", `/api/projects/${pid}/transition`, { action: "request_verify" });
-  assert.equal(rv.status, 200);
-
-  // 模拟「门禁上线前就已提交核销、材料却缺」的历史项目
-  const d = await admin("GET", `/api/projects/${pid}`);
-  const target = d.data.materials.find((m) => m.kind === "现场照片");
-  const del = await admin("DELETE", `/api/materials/${target.id}`);
-  assert.equal(del.status, 200, JSON.stringify(del.data));
-
-  const judge = await admin("POST", `/api/projects/${pid}/verify/steps/1`, { result: "通过" });
-  assert.equal(judge.status, 409, `缺料不该能判定，实际 ${judge.status}`);
-  assert.equal(judge.data.error.code, "MATERIAL_GATE");
-  assert.match(judge.data.error.message, /现场照片/);
-
-  // 补回来就能判定
-  await admin("POST", `/api/projects/${pid}/materials`, { kind: "现场照片", name: "现场照片-补.pdf" });
-  const judge2 = await admin("POST", `/api/projects/${pid}/verify/steps/1`, { result: "通过" });
-  assert.equal(judge2.status, 200, JSON.stringify(judge2.data));
+test("唯一一份上传原件被删除时，继续推进再次被拦；再传任意自定义类即可恢复",()=>{
+  db.prepare("UPDATE materials SET deleted_at=? WHERE pid=? AND kind='权益照片'")
+    .run("2026-11-06",pid);
+  assert.equal(materialsStatus(pid).uploadedCount,0);
+  assert.equal(materialsStatus(pid).ok,false);
+  assert.match(GUARDS.verify_pass(project),/至少保留一份/);
+  db.prepare("INSERT INTO materials(pid,kind,name,created_at,file_key) VALUES (?,?,?,?,?)")
+    .run(pid,"自选会场资料","任意自定义文件","2026-11-06",
+      "22222222222222222222222222222222.pdf");
+  assert.equal(materialsStatus(pid).uploadedCount,1);
+  assert.equal(materialsStatus(pid).ok,true);
+  assert.equal(GUARDS.request_verify(project),null);
 });
 
-test("6 步判完但材料被删：核销通过被拦", async () => {
-  const pid = await execProject("材料门禁-核销通过");
-  await fillMaterials(admin, pid);
-  await admin("POST", `/api/projects/${pid}/transition`, { action: "request_verify" });
-  for (let no = 1; no <= 6; no++) {
-    const r = await admin("POST", `/api/projects/${pid}/verify/steps/${no}`, { result: "通过" });
-    assert.equal(r.status, 200, `第 ${no} 步失败：${JSON.stringify(r.data)}`);
-  }
-
-  const d = await admin("GET", `/api/projects/${pid}`);
-  const target = d.data.materials.find((m) => m.kind === "发票");
-  await admin("DELETE", `/api/materials/${target.id}`);
-
-  const pass = await admin("POST", `/api/projects/${pid}/transition`, { action: "verify_pass" });
-  assert.equal(pass.status, 409, `缺料不该能核销通过，实际 ${pass.status}`);
-  assert.match(pass.data.error.message, /发票/);
-
-  await admin("POST", `/api/projects/${pid}/materials`, { kind: "发票", name: "发票-补.pdf" });
-  const pass2 = await admin("POST", `/api/projects/${pid}/transition`, { action: "verify_pass" });
-  assert.equal(pass2.status, 200, JSON.stringify(pass2.data));
-  assert.equal(pass2.data.project.status, "已核销");
+test("第5项随劳务表真实附件出现和移除，换表后旧证据失效",()=>{
+  const {verification}=require("../server/lib/workflow");
+  const {laborSheetInfo}=require("../server/lib/labor-sop");
+  const {contractPool}=require("../server/lib/labor-contracts");
+  assert.equal(verification(pid).total,4);
+  assert.equal(verification(pid).steps[5].result,"不适用");
+  assert.equal(verification(pid).steps[4].result,"不适用");
+  db.prepare("INSERT INTO materials(pid,kind,name,created_at) VALUES (?,?,?,?)")
+    .run(pid,"劳务表","未上传仅登记","2026-11-06");
+  assert.equal(verification(pid).total,4);
+  db.prepare("INSERT INTO materials(pid,kind,name,file_key,created_at) VALUES (?,?,?,?,?)")
+    .run(pid,"劳务表","新劳务表","labor-proof-v1.pdf","2026-11-06");
+  assert.equal(verification(pid).total,5);
+  assert.equal(verification(pid).steps[4].result,"待判定");
+  db.prepare("INSERT INTO materials(pid,kind,name,file_name,file_key,created_at) VALUES (?,?,?,?,?,?)")
+    .run(pid,"合同","甲","甲合同.pdf","contract-proof-v1.pdf","2026-11-06");
+  db.prepare("INSERT INTO verify_steps(pid,step_no,name,result,evidence_json) VALUES (?,?,?,?,?)")
+    .run(pid,5,"劳务表五字段核验","通过",JSON.stringify({
+      laborSourceSignature:laborSheetInfo(db,pid).signature,
+      contractPoolSignature:contractPool(db,pid).signature
+    }));
+  assert.equal(verification(pid).steps[4].result,"通过");
+  db.prepare("UPDATE materials SET file_key=? WHERE pid=? AND kind='合同'")
+    .run("contract-proof-v2.pdf",pid);
+  assert.equal(verification(pid).steps[4].result,"待判定","替换个人合同应使历史核销失效");
+  db.prepare("UPDATE materials SET file_key=? WHERE pid=? AND kind='合同'")
+    .run("contract-proof-v1.pdf",pid);
+  assert.equal(verification(pid).steps[4].result,"通过");
+  db.prepare("INSERT INTO materials(pid,kind,name,file_key,created_at) VALUES (?,?,?,?,?)")
+    .run(pid,"劳务表","替换的新劳务表","labor-proof-v2.pdf","2026-11-06");
+  assert.equal(verification(pid).steps[4].result,"待判定","换表后旧通过结果必须失效");
+  db.prepare("UPDATE materials SET deleted_at=? WHERE pid=? AND kind='劳务表' AND file_key IS NOT NULL")
+    .run("2026-11-06",pid);
+  assert.equal(verification(pid).total,4);
+  assert.equal(verification(pid).steps[4].result,"不适用");
 });
-
-test("归档门禁没被削弱：结算前删掉一类材料，归档仍被拦", async () => {
-  const pid = await execProject("材料门禁-归档仍生效");
-  await fillMaterials(admin, pid);
-  await admin("POST", `/api/projects/${pid}/transition`, { action: "request_verify" });
-  for (let no = 1; no <= 6; no++) {
-    await admin("POST", `/api/projects/${pid}/verify/steps/${no}`, { result: "通过" });
-  }
-  await admin("POST", `/api/projects/${pid}/transition`, { action: "verify_pass" });
-
-  // 核销通过后、结算之前删掉一类材料（结算后材料就冻结了，删不动）
-  const d = await admin("GET", `/api/projects/${pid}`);
-  const target = d.data.materials.find((m) => m.kind === "签到表");
-  assert.equal((await admin("DELETE", `/api/materials/${target.id}`)).status, 200);
-
-  const st = await admin("POST", `/api/projects/${pid}/transition`, {
-    action: "settle", payee_bank: "中国银行北京分行", payee_account: "3210987654321098"
-  });
-  assert.equal(st.status, 200, "结算不检查材料（材料是核销与归档的门槛）");
-
-  const ar = await admin("POST", `/api/projects/${pid}/transition`, { action: "archive" });
-  assert.equal(ar.status, 409, `材料缺一类不该能归档，实际 ${ar.status}`);
-  assert.match(ar.data.error.message, /归档材料缺/);
-
-  await admin("POST", `/api/projects/${pid}/materials`, { kind: "签到表", name: "签到表-补.pdf" });
-  const ar2 = await admin("POST", `/api/projects/${pid}/transition`, { action: "archive" });
-  assert.equal(ar2.status, 200, JSON.stringify(ar2.data));
-});
-
-test("接口把材料状态一并给前端，项目详情与核销看板同源", async () => {
-  const pid = await execProject("材料状态同源");
-  const d1 = await admin("GET", `/api/projects/${pid}`);
-  const d2 = await admin("GET", `/api/projects/${pid}/verify`);
-  assert.deepEqual(d1.data.materialsStatus, d2.data.materialsStatus, "两个接口的材料齐备度必须一致");
-  assert.equal(d1.data.materialsStatus.ok, false);
-
-  await fillMaterials(admin, pid);
-  const d3 = await admin("GET", `/api/projects/${pid}`);
-  assert.equal(d3.data.materialsStatus.ok, true);
-  assert.deepEqual(d3.data.materialsStatus.missing, []);
+test("自定义材料分类没有数量上限，仍保留归档后冻结及财务审批等独立门禁",()=>{
+  const st=materialsStatus(pid);
+  assert.ok(st.have.includes("自选会场资料"));
+  assert.deepEqual(st.required,[]);
+  const reason=GUARDS.archive(project);
+  assert.match(reason,/结算单未生成/);
+  fs.rmSync(dir,{recursive:true,force:true});
 });

@@ -24,9 +24,25 @@ function check(env = process.env) {
   if (!/^1[3-9]\d{9}$/.test(required(env, "ERP_BOOTSTRAP_ADMIN_PHONE")))
     fail("ERP_BOOTSTRAP_ADMIN_PHONE 必须是有效的中国大陆手机号");
 
-  if (env.ERP_SMS_PROVIDER !== "tencent") fail("正式短信提供商必须配置 ERP_SMS_PROVIDER=tencent");
-  for (const key of ["ERP_TENCENT_SECRET_ID","ERP_TENCENT_SECRET_KEY","ERP_TENCENT_SMS_APP_ID",
-    "ERP_TENCENT_SMS_SIGN","ERP_TENCENT_SMS_TEMPLATE_ID"]) required(env, key);
+  const smsProvider = required(env, "ERP_SMS_PROVIDER");
+  if (smsProvider === "aliyun") {
+    for (const key of ["ERP_ALIYUN_SMS_ACCESS_KEY_ID","ERP_ALIYUN_SMS_ACCESS_KEY_SECRET",
+      "ERP_ALIYUN_SMS_SIGN_NAME","ERP_ALIYUN_SMS_TEMPLATE_CODE"]) required(env, key);
+  } else if (smsProvider === "tencent") {
+    for (const key of ["ERP_TENCENT_SECRET_ID","ERP_TENCENT_SECRET_KEY","ERP_TENCENT_SMS_APP_ID",
+      "ERP_TENCENT_SMS_SIGN","ERP_TENCENT_SMS_TEMPLATE_ID"]) required(env, key);
+  } else {
+    fail("正式短信提供商必须配置 ERP_SMS_PROVIDER=tencent 或 aliyun");
+  }
+  // WeChat is optional until Mini Program launch; enabling it requires actual credentials.
+  if (env.ERP_MINIPROGRAM_ENABLED === "1") {
+    if (!/^wx[0-9a-f]{16}$/i.test(required(env, "ERP_WECHAT_APP_ID")))
+      fail("ERP_WECHAT_APP_ID 不是有效微信小程序 AppID");
+    required(env, "ERP_WECHAT_APP_SECRET");
+    if (env.ERP_WECHAT_TEST_MODE === "1") fail("生产环境不可启用微信测试身份");
+  } else if (env.ERP_MINIPROGRAM_ENABLED && env.ERP_MINIPROGRAM_ENABLED !== "0") {
+    fail("ERP_MINIPROGRAM_ENABLED 必须为 0 或 1");
+  }
   const secret = required(env, "ERP_SECRET");
   if (secret.length < 32 || new Set(secret).size < 8) fail("ERP_SECRET 必须是独立的高熵随机长密钥，至少 32 字符");
 
@@ -44,6 +60,39 @@ function check(env = process.env) {
   if (String(env.ERP_PORT) !== "8787") fail("ERP_PORT 必须为 8787，与 Nginx 配置保持一致");
   if (env.ERP_TRUST_PROXY !== "1") fail("ERP_TRUST_PROXY 必须为 1（只信任本机 Nginx）");
   if (env.ERP_SESSION_FALLBACK === "1") fail("正式持久化 SQLite 不允许无状态会话回退");
+  if(env.ERP_REQUIRE_VERIFIED_PAYEES && !["0","1"].includes(env.ERP_REQUIRE_VERIFIED_PAYEES))
+    fail("ERP_REQUIRE_VERIFIED_PAYEES 必须为 0 或 1");
+  if(env.ERP_FINANCIAL_DATA_KEY && !/^[0-9a-f]{64}$/i.test(env.ERP_FINANCIAL_DATA_KEY))
+    fail("ERP_FINANCIAL_DATA_KEY 必须为独立 32 字节随机密钥（64 位十六进制）");
+  if(env.ERP_REQUIRE_VERIFIED_PAYEES==="1" && !/^[0-9a-f]{64}$/i.test(String(env.ERP_FINANCIAL_DATA_KEY||"")))
+    fail("启用强制核销收款人选择必须先配置 ERP_FINANCIAL_DATA_KEY");
+  // RapidOCR + Poppler 共用预检；不再依赖 Tesseract 语言包。
+  try { require("./rapidocr-preflight.cjs").checkRapidOcr(env); }
+  catch (err) { fail(err.message); }
+  // Office 原件在线预览依赖 LibreOffice（缺失不阻断启动：预览会退化为下载入口）。
+  {
+    const { spawnSync } = require("node:child_process");
+    const lo = spawnSync("soffice", ["--version"], { encoding: "utf8", timeout: 8000, maxBuffer: 65536 });
+    if (lo.error || lo.status !== 0) {
+      console.warn("[warn] 未检测到 LibreOffice（soffice）：Office 原件将无法在线预览，只能下载");
+    } else {
+      const fonts = spawnSync("fc-list", [], { encoding: "utf8", timeout: 8000, maxBuffer: 8 * 1024 * 1024 });
+      if (!/wqy|noto.*cjk|source han/i.test(String(fonts.stdout || "")))
+        console.warn("[warn] 未检测到中文字体：Office 转 PDF 后中文可能显示为方框");
+    }
+  }
+
+  // 超大附件自动压缩依赖（PDF 用 gs，图片用 convert）。缺失不阻断启动：
+  // >20MB 的文件会被拒绝并提示用户本地压缩，不会静默丢数据。
+  {
+    const { spawnSync } = require("node:child_process");
+    for (const [cmd, label] of [["gs", "Ghostscript"], ["convert", "ImageMagick"], ["zip", "zip"], ["unzip", "unzip"]]) {
+      const res = spawnSync(cmd, ["-version"], { encoding: "utf8", timeout: 8000, maxBuffer: 65536 });
+      if (res.error || res.status !== 0)
+        console.warn(`[warn] 未检测到 ${label}（${cmd}）：超过 20 MB 的原件将无法自动压缩`);
+    }
+  }
+
   return { target: "aliyun-ecs", domain };
 }
 if (require.main === module) {
