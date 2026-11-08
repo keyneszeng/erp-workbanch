@@ -5,7 +5,7 @@ import { badge, bindPager, esc, formHtml, modal, money, pager, panel, readForm, 
 
 const TABS = [
   { k: "", n: "全部" },
-  { k: "draft", n: "待审批" },
+  { k: "draft", n: "草稿／待审批" },
   { k: "prep", n: "筹备中" },
   { k: "exec", n: "执行中" },
   { k: "verify", n: "待核销" },
