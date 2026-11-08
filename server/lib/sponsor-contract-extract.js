@@ -11,7 +11,7 @@ function clean(s){
 }
 function normalizedLine(raw){
  return String(raw||"").replace(/\u00a0/g," ")
-   .replace(/(?<=[\u4e00-\u9fa5])[\t ]+(?=[\u4e00-\u9fa5])/gu,"").trim();
+   .replace(/([甲乙])[\t ]+方/gu,"$1方").trim();
 }
 function company(raw){
  const text=String(raw||"").replace(/^[\s"'“”【】\[（(]+/u,"")
