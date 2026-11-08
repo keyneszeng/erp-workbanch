@@ -19,7 +19,9 @@ function defaults(){
     org_header:"协会会议执行 · 邀请函",
     org_footer:"",
     mail_from:"",
-    public_base_url:"https://erp.aibuild.work",
+    // 邀请函里的公开链接前缀。硬编码演示域名会让测试/生产环境发出的邀请函
+    // 把人带到 Cloudflare 演示站，所以改为部署时注入（ERP_PUBLIC_BASE_URL）。
+    public_base_url: String(process.env.ERP_PUBLIC_BASE_URL || "https://erp.aibuild.work"),
     mini_appid:"",
     mini_program_verified:false,
     templates:Object.fromEntries(Object.entries(TEMPLATES).map(([key,t])=>[key,{
@@ -53,7 +55,21 @@ function validateConfig(raw){
   c.mail_from=safeText(c.mail_from,"发件人邮箱",254);
   if(c.mail_from && !/^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(c.mail_from))throw bad("发件人邮箱格式不正确");
   c.public_base_url=safeText(c.public_base_url,"公开邀请页面地址",250).replace(/\/$/,"");
-  if(!/^https:\/\/[a-zA-Z0-9.-]+(?::443)?$/.test(c.public_base_url))throw bad("公开邀请页面应为 HTTPS 域名地址，不支持路径或查询参数");
+  /**
+   * 生产只接受 HTTPS 域名 —— 邀请函会通过邮件/微信发给外部受邀人，
+   * 明文 HTTP 会把参会人姓名、会议信息暴露在链路上。
+   *
+   * 但云服务器测试环境没有域名和证书（未备案阶段），只能 http://IP:8080。
+   * 所以按部署目标放宽：仅 ERP_DEPLOY_TARGET=aliyun-ecs-test 允许 http + IP + 端口。
+   */
+  const isTestTarget = String(process.env.ERP_DEPLOY_TARGET || "") === "aliyun-ecs-test";
+  const baseUrlRe = isTestTarget
+    ? /^https?:\/\/(?:[a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)+|\d{1,3}(?:\.\d{1,3}){3})(?::\d{1,5})?$/
+    : /^https:\/\/[a-zA-Z0-9.-]+(?::443)?$/;
+  if(!baseUrlRe.test(c.public_base_url))
+    throw bad(isTestTarget
+      ? "公开邀请页面地址格式不正确（测试环境可用 http://IP:端口）"
+      : "公开邀请页面应为 HTTPS 域名地址，不支持路径或查询参数");
   c.mini_appid=safeText(c.mini_appid,"小程序 AppID",32);
   if(c.mini_appid && !/^wx[a-fA-F0-9]{16}$/.test(c.mini_appid))
     throw bad("小程序 AppID 应为 wx 开头的18位标识");
