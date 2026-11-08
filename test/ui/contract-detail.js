@@ -285,6 +285,32 @@ async function openDetailFromLedger(page, cid) {
   const barTxt = (await assoc.page.textContent("#modal .mf")) || "";
   check("底部切换成行内二次确认", /签署日期记为今天/.test(barTxt) && /确认签署/.test(barTxt), barTxt);
   check("确认时详情内容还在（没被覆盖）", (await assoc.page.locator("#modal iframe.cdpdf").count()) === 1);
+  check("确认签署窗口新增「更新合同」按钮",
+    (await assoc.page.locator('#modal [data-replace="1"]').count())===1,"");
+  await assoc.page.click('#modal [data-replace="1"]');
+  check("更新合同窗口提示旧版原件将删除",
+    /旧文件|自动删除/.test((await assoc.page.textContent("#modal .mb"))||""),"");
+  const updatedPdf=Buffer.from(
+    "%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Version (updated signed original) >>\nendobj\n%%EOF\n"
+  );
+  await assoc.page.locator("#contractReplaceFile").setInputFiles({
+    name:"确认签署-新版合同.pdf",mimeType:"application/pdf",buffer:updatedPdf
+  });
+  await assoc.page.click('#modal [data-x="1"]');
+  await assoc.page.waitForTimeout(1900);
+  const afterUpdate=await apiCall(execCk,"GET","/api/contracts?pid="+PID);
+  const updatedRow=afterUpdate.data.rows.find(r=>r.id===cidPdf);
+  check("上传后合同原件变为新版，状态仍待签署",
+    updatedRow?.file_key && updatedRow.file_key!==row.file_key && updatedRow.status==="待签署",
+    JSON.stringify(updatedRow));
+  const oldPdf=await fetch(BASE+"/api/uploads/"+row.file_key,{headers:{cookie:execCk}});
+  check("旧合同原件不可再下载",oldPdf.status===404,String(oldPdf.status));
+  const newPdf=await fetch(BASE+"/api/uploads/"+updatedRow.file_key,{headers:{cookie:execCk}});
+  check("新合同附件下载内容正确",newPdf.status===200 &&
+    Buffer.from(await newPdf.arrayBuffer()).equals(updatedPdf),String(newPdf.status));
+  check("更新后返回确认签署复核而非自动落章",
+    (await assoc.page.locator('#modal [data-ok="1"]').count())===1 &&
+    (await assoc.page.locator('#modal iframe.cdpdf').count())===1,"");
   // 先点取消，验证能退回详情而不是把弹窗关掉
   await assoc.page.click('#modal [data-back="1"]');
   await assoc.page.waitForTimeout(400);
