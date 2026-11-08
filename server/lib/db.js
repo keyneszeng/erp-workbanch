@@ -248,6 +248,7 @@ CREATE TABLE IF NOT EXISTS payments (
   amount      REAL NOT NULL DEFAULT 0,
   invoice_no  TEXT,
   dedupe_key  TEXT,
+  period      TEXT,
   req_user    TEXT,
   status      TEXT NOT NULL DEFAULT '待审批',
   paid_at     TEXT,
@@ -704,6 +705,8 @@ function migrate() {
   addColumn("projects", "tax_fee_rate", "tax_fee_rate REAL NOT NULL DEFAULT 0");
   // 付款申请去重：旧付款行保持不变，新付款受唯一索引保护。
   addColumn("payments", "dedupe_key", "dedupe_key TEXT");
+  // 付款期次：分期付款常常两期金额相同，只靠「类型+收款方+金额」去重会把第二期误判成重复。
+  addColumn("payments", "period", "period TEXT");
   db.exec("CREATE UNIQUE INDEX IF NOT EXISTS ux_payments_active_dedupe ON payments(pid,dedupe_key) WHERE dedupe_key IS NOT NULL AND status <> '已驳回'");
   // V1.2.0：材料附件
   addColumn("materials", "file_key", "file_key TEXT");
