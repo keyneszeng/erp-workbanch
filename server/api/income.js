@@ -1,7 +1,7 @@
 "use strict";
 /** 赞助收入与会务支出严格分账。原件、银行回单和开票证据分别归档。 */
-const {db}=require("../lib/db");
-const {now,nextId,bad,conflict,notFound,cents}=require("../lib/util");
+const {db,transaction}=require("../lib/db");
+const {now,today,nextId,bad,conflict,notFound,cents}=require("../lib/util");
 const {getProject,assertNotFrozen}=require("../lib/workflow");
 const {assertProjectVisible,assertCan,assertModule,isSuper,can}=require("../lib/rbac");
 const {assertUploadAttachable}=require("../lib/upload-ownership");
@@ -12,6 +12,7 @@ const ocr=require("../lib/ocr-engine");
 const {normalizedCategories,sponsorRights}=require("../lib/sponsor-rights");
 const {extractSponsorContract,extractLedgerContract}=require("../lib/sponsor-contract-extract");
 const office=require("../lib/verify-office-text");
+const {linkedSponsor}=require("../lib/sponsor-ledger");
 
 const KEY=/^[a-f0-9]{32}\.(jpg|png|webp|gif|pdf|ppt|doc|docx|xls|xlsx|pptx|csv|txt)$/;
 function amount(v) {
@@ -181,8 +182,27 @@ function register(router){
         throw conflict("已签赞助合同累计金额不能高于会议预算，请先调整赞助方案","SPONSOR_BUDGET_EXCEEDED");
     }
     const status=approve?"已签署":"已驳回";
-    db.prepare("UPDATE meeting_sponsor_contracts SET status=?,approved_by=?,approved_at=? WHERE id=?")
-      .run(status,ctx.user.id,now(),s.id);
+    const ledger=s.ledger_contract_id
+      ? db.prepare("SELECT id,pid,status,category FROM contracts WHERE id=? AND pid=?").get(s.ledger_contract_id,p.id)
+      : null;
+    if(s.ledger_contract_id&&(!ledger||ledger.category!=="企业赞助"))
+      throw conflict("关联合同台账记录缺失，请联系管理员修复","SPONSOR_LEDGER_MISSING");
+    if(ledger&&ledger.status!=="待签署")
+      throw conflict("合同台账还没有提交签署审批，不能从会议收入直接确认","SPONSOR_LEDGER_NOT_SUBMITTED");
+    if(ledger&&!isDemoMode()){
+      const pending=db.prepare("SELECT id FROM approvals WHERE type='合同审批' AND ref_id=? AND status='待审批'").get(ledger.id);
+      if(!pending)throw conflict("请先在合同台账提交有效签署审批","SIGN_APPROVAL_REQUIRED");
+    }
+    transaction(()=>{
+      db.prepare("UPDATE meeting_sponsor_contracts SET status=?,approved_by=?,approved_at=? WHERE id=?")
+        .run(status,ctx.user.id,now(),s.id);
+      if(ledger){
+        db.prepare("UPDATE contracts SET status=?,sign_date=? WHERE id=?")
+          .run(approve?"已签署":"草稿",approve?today():"",ledger.id);
+        db.prepare("UPDATE approvals SET status=?,decided_by=?,decided_at=?,comment=? WHERE type='合同审批' AND ref_id=? AND status='待审批'")
+          .run(approve?"已通过":"已驳回",ctx.user.name,now(),approve?"会议收入确认赞助合同已签署":String(ctx.body.reason).trim(),ledger.id);
+      }
+    });
     logAudit({user:ctx.user,module:"会议收入",action:approve?"确认赞助合同":"驳回赞助合同",target:p.id,
       detail:s.id+(approve?"；预算核对通过":"；原因："+String(ctx.body.reason).trim()),ip:ctx.ip});
     return {id:s.id,status,summary:incomeSummary(p.id,p.budget)};
