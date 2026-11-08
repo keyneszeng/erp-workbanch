@@ -89,3 +89,19 @@ test("console 通道无法混入生产：生产门禁必须拒绝", () => {
     ERP_ALIYUN_SMS_SIGN_NAME: "签名", ERP_ALIYUN_SMS_TEMPLATE_CODE: "SMS_1"
   }), /erp-test|持久/);
 });
+
+test("ECS deployment defaults to the correct branch and rejects unsynced production code", () => {
+  const fs = require("node:fs");
+  const path = require("node:path");
+  const { spawnSync } = require("node:child_process");
+  const script = path.join(__dirname, "../deploy/aliyun/deploy.sh");
+  const shell = fs.readFileSync(script, "utf8");
+  assert.match(shell, /REF="\$\{ERP_REF:-\}"/);
+  assert.match(shell, /REF="云服务器测试版本"/);
+  assert.match(shell, /REF="main"/);
+  assert.match(shell, /测试部署只允许 云服务器测试版本 分支/);
+  assert.match(shell, /生产部署只允许已同步测试版功能的 main 分支/);
+  assert.match(shell, /git -C "\$RELEASE_DIR" diff --quiet refs\/remotes\/origin\/erp-test-baseline HEAD/);
+  const parsed = spawnSync("bash", ["-n", script], { encoding: "utf8", timeout: 5000 });
+  assert.equal(parsed.status, 0, parsed.stderr);
+});

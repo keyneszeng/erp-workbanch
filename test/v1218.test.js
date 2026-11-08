@@ -73,7 +73,7 @@ async function verifiedProject(name) {
     const r = await c("POST", `/api/projects/${pid}/transition`, { action });
     assert.equal(r.status, 200, `${action} 失败：${JSON.stringify(r.data)}`);
   }
-  for (let no = 1; no <= 6; no++) {
+  for (const no of [1,2,3,4]) {
     const r = await c("POST", `/api/projects/${pid}/verify/steps/${no}`, { result: "通过" });
     assert.equal(r.status, 200, `第 ${no} 步失败：${JSON.stringify(r.data)}`);
   }

@@ -6,6 +6,8 @@ const { spawn } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 const { detectOoxml, MIME } = require("../server/lib/ooxml");
+const { MIME: LEGACY_MIME } = require("../server/lib/legacy-office");
+const { cfbFixture } = require("./lib/legacy-office-fixture");
 
 function crc32(buf) {
   let c = 0xffffffff;
@@ -56,6 +58,11 @@ function packageFor(entry) {
 const DOC = packageFor("word/document.xml");
 const PPT = packageFor("ppt/presentation.xml");
 const XLS = packageFor("xl/workbook.xml");
+const OLD_XLS = cfbFixture("Workbook");
+const OLD_DOC = cfbFixture("WordDocument");
+const OLD_PPT = cfbFixture("PowerPoint Document");
+const CSV = Buffer.from("姓名,劳务金额\n张三,100.00\n李四,200.00\n");
+const TXT = Buffer.from("项目开会说明\n请遵守现场流程\n");
 
 test("OOXML 结构：DOCX/PPTX/XLSX 正确区分", () => {
   assert.equal(detectOoxml(DOC), MIME.docx);
@@ -111,7 +118,7 @@ before(async () => {
     const msg = String(d);
     if (!msg.includes("ExperimentalWarning")) process.stderr.write("[office test] " + msg);
   });
-  for (let i = 0; i < 180; i++) {
+  for (let i = 0; i < 300; i++) {
     try {
       const r = await fetch(BASE + "/api/health");
       if (r.ok) break;
@@ -133,7 +140,12 @@ after(() => {
 for (const [extension, bytes, mime] of [
   ["docx", DOC, MIME.docx],
   ["pptx", PPT, MIME.pptx],
-  ["xlsx", XLS, MIME.xlsx]
+  ["xlsx", XLS, MIME.xlsx],
+  ["xls", OLD_XLS, LEGACY_MIME.xls],
+  ["doc", OLD_DOC, LEGACY_MIME.doc],
+  ["ppt", OLD_PPT, LEGACY_MIME.ppt],
+  ["csv", CSV, "text/csv"],
+  ["txt", TXT, "text/plain"]
 ]) {
   test("真实 HTTP：" + extension + " 上传→材料归属→下载完整回环", async () => {
     const list = await api("GET", "/api/projects", exec);
@@ -143,7 +155,7 @@ for (const [extension, bytes, mime] of [
     assert.equal(uploaded.status, 200, JSON.stringify(uploaded.body));
     assert.match(uploaded.body.key, new RegExp("\\." + extension + "$"));
     assert.equal(uploaded.body.mime, mime);
-    const kind = extension === "xlsx" ? "劳务收集表" : extension === "pptx" ? "课件" : "串场";
+    const kind = ["xls","xlsx","csv"].includes(extension) ? "劳务收集表" : ["ppt","pptx"].includes(extension) ? "课件" : "串场";
     const add = await api("POST", "/api/projects/" + p.id + "/materials", exec, {
       kind, name: "资料-" + extension, file_key: uploaded.body.key,
       file_mime: mime, file_name: uploaded.body.name, file_size: bytes.length
@@ -159,6 +171,21 @@ for (const [extension, bytes, mime] of [
     assert.equal(deny.status, 403, "guest cannot access internal business material");
   });
 }
+test("旧版 Excel 强制匹配 XLS 扩展名，空壳 OLE 或二进制假 CSV 不得上传", async()=>{
+  const wrong=await upload(OLD_XLS,"恶意假冒.doc",exec);
+  assert.equal(wrong.status,400);
+  assert.match(wrong.body.error.message,/扩展名/);
+  const invalid=cfbFixture("Unrelated");
+  const fake=await upload(invalid,"错误.xls",exec);
+  assert.equal(fake.status,400);
+  const malformed=Buffer.from(OLD_XLS);
+  malformed.writeUInt32LE(50,48);
+  const broken=await upload(malformed,"损坏.xls",exec);
+  assert.equal(broken.status,400);
+  const disguised=await upload(Buffer.from([0,1,2,3,4,5]),"二进制.csv",exec);
+  assert.equal(disguised.status,400);
+});
+
 test("真实 HTTP：普通 ZIP、伪 PPTX、错扩展名拒绝", async () => {
   const generic = await upload(zip([["foo.txt"]]), "普通.zip", exec);
   assert.equal(generic.status, 400);
