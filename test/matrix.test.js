@@ -125,13 +125,14 @@ test("归档项目：协会管理员改资料被拒，总管理员可改", async
   assert.equal(b.data.project.people, 500);
 });
 
-test("材料类别：自定义可登记但不顶替必备 8 类，空/超长被拒", async () => {
+test("材料类别：自定义登记不受固定清单限制，空/超长被拒", async () => {
   // V1.2.13 起不再要求必须是 8 类之一 —— 会议纪要、专家简历这类东西以前只能
   // 硬塞进 8 类凑数，反而让「齐备」不可信。自定义类别能登记，但不算必备那 8 类。
-  const before = (await apis.admin("GET", "/api/projects/MP-2026-001")).data.materialsStatus.missing.length;
+  const before = (await apis.admin("GET", "/api/projects/MP-2026-001")).data.materialsStatus.count;
   const ok = await apis.assoc("POST", "/api/projects/MP-2026-001/materials", { kind: "会议纪要", name: "自定义类别.pdf" });
   assert.equal(ok.status, 200, JSON.stringify(ok.data));
-  assert.equal(ok.data.materialsStatus.missing.length, before, "自定义类别不应减少必备 8 类的缺口");
+  assert.equal(ok.data.materialsStatus.count, before+1, "自定义材料应计入已登记数量");
+  assert.deepEqual(ok.data.materialsStatus.required, [], "不应还有固定必备类别");
 
   const blank = await apis.assoc("POST", "/api/projects/MP-2026-001/materials", { kind: "   ", name: "x.pdf" });
   assert.equal(blank.status, 400, "空类别应被拒");

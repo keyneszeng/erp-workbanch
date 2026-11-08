@@ -11,7 +11,7 @@
  *      合同清单 / 三方金额）
  *   3. 材料原件链接指向 /api/uploads/<key> 且真能取到文件
  *   4. 详情弹窗底部可直接进「判定」，不必关掉再回列表找按钮
- *   5. 必须按顺序判定时（前面还有未判定的步骤），详情里不给判定入口
+ *   5. 任意步骤可判定，前面的步骤即使尚未完成，也允许从详情直接判定
  *   6. 项目详情页的核销页签也有同样的「详情」
  *   7. 第 3 步把「归档预算 / 已申请费用 / 其中已付款 / 超支或结余」摆在一起
  *   8. 第 2 步报名人数为 0 时显示「无法核算」，不给「≥ 0」这种永远成立的门槛
@@ -300,16 +300,16 @@ const closeModal = async (page) => {
     if (judgeInModal) {
       await judgeInModal.click();
       await page.waitForTimeout(500);
-      check("切到判定弹窗", /判定结果/.test(await modalBody(page)));
+      check("进入无需二次录入的OCR核销弹窗", /直接扫描已上传的原件/.test(await modalBody(page)));
+      check("不再出现结构化人工核销表单", !(await page.$("#modal [name=agendaTopics],#modal [name=collectionRecords],#modal [name=invoiceAmount],#modal [name=remark]")));
       await closeModal(page);
     }
 
-    /* ---------- 顺序限制 ---------- */
-    console.log("\n[11] 前面步骤未判定时，详情里不给判定入口");
-    // 第 6 步前面还有未判定的步骤（种子数据里第 5、6 步待判定）
+    /* ---------- 任意顺序核销 ---------- */
+    console.log("\n[11] 前面步骤未判定时，第 6 步仍可判定");
     await openDetail(page, 6);
     const j6 = await page.$('#modal [data-x="1"]');
-    check("第 6 步详情无判定入口", !j6);
+    check("第 6 步详情有判定入口", !!j6);
     await closeModal(page);
 
     /* ---------- 项目详情页 ---------- */
