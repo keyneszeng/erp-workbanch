@@ -1,6 +1,6 @@
 "use strict";
 /**
- * 图示 2026-11-01：会后核销六步结构化人工核验。
+ * 图示 2026-11-01：会后核销七步结构化人工核验。
  * 数据来源目前是人工确认/结构化录入，不声称具有 OCR、图像识别能力。
  * 银行账户和参会人员明细只在内存里进行等值比较，绝不写入 verify_steps 或审计日志。
  */
@@ -9,6 +9,7 @@ const {laborSheetInfo}=require("./labor-sop");
 const {linkLaborContracts}=require("./labor-contracts");
 const {demandSopState}=require("./meeting-demand-sop");
 const {validateRightsEvidence}=require("./sponsor-rights");
+const {photoName,compareNames,speakerName}=require("./verify-agenda-evidence");
 const eq = (a,b) => String(a ?? "").trim().replace(/\s+/g,"") === String(b ?? "").trim().replace(/\s+/g,"");
 const list = (a) => Array.isArray(a) ? a.map(x=>String(x ?? "").trim()).filter(Boolean) : [];
 function sameNames(a,b) {
@@ -47,25 +48,24 @@ function validateSopEvidence(no, evidence, project, db, invoiceAmount) {
         comparedWith:"串场"};
     }
     case 2: {
-      // 以当前终版议程讲者名单为唯一基准：只核对签到表及讲者照片。
-      // 不引用劳务表、个人合同或其他台账中的名单。
-      const baseline=list(e.agendaSpeakers);
+      // 核销第2项：当前终版议程的讲者 ↔ 讲者照片原始文件名。
+      // 签到表仅供核销第3项使用；OCR模式从终版议程提取人名。
+      const baseline=list(e.agendaSpeakers).map(speakerName);
       if(!sameNames(baseline,baseline))
         fail("终版议程讲者名单不能为空或有重复姓名");
-      if(!sameNames(baseline,e.attendanceSpeakers))
-        fail("签到表中的讲者姓名与终版议程不一致，请核对缺失、多余或重复姓名");
-      if(!sameNames(baseline,e.photoSpeakers))
-        fail("讲者照片填写的姓名与终版议程不一致，请核对缺失、多余或重复姓名");
-      for(const kind of ["终版议程","签到表","讲者照片"])
+      for(const kind of ["终版议程","讲者照片"])
         if(!materialExists(db,pid,[kind],true))
           fail("第二步缺少已上传的 "+kind+" 原件","SOP_MATERIAL_MISSING");
       const current=db.prepare("SELECT COUNT(*) AS n FROM materials WHERE pid=? AND kind='终版议程' AND version='终版' AND (deleted_at IS NULL OR deleted_at='') AND file_key IS NOT NULL AND file_key<>''").get(pid);
       if(!Number(current?.n))fail("请上传并确认当前终版议程原件，历史版不能用于核销","SOP_MATERIAL_MISSING");
-      const photos=db.prepare("SELECT name FROM materials WHERE pid=? AND kind='讲者照片' AND (deleted_at IS NULL OR deleted_at='') AND file_key IS NOT NULL AND file_key<>''").all(pid).map(x=>String(x.name||"").trim());
-      if(!sameNames(baseline,photos))
-        fail("材料库讲者照片登记姓名与终版议程讲者名单不一致：请逐人上传照片并核对缺失、多余或重复");
-      if(e.noOmissions!==true)fail("须人工确认签到表与讲者照片名单均与终版议程一致，无漏项、冒名或重复");
-      return {matchedPeople:baseline.length,matchedSources:["终版议程","签到表","讲者照片"],
+      const photos=db.prepare("SELECT name,file_name FROM materials WHERE pid=? AND kind='讲者照片' AND (deleted_at IS NULL OR deleted_at='') AND file_key IS NOT NULL AND file_key<>''").all(pid);
+      const matched=compareNames(baseline,photos.map(photoName));
+      if(!matched.matched||matched.photoCount!==photos.length)
+        fail("讲者照片原始文件名与终版议程名单不一致，请检查缺失、多余、重复或无法识别姓名的照片");
+      if(Array.isArray(e.photoSpeakers)&&e.photoSpeakers.length&&!sameNames(baseline,e.photoSpeakers.map(speakerName)))
+        fail("人工录入的照片讲者名单与终版议程不一致");
+      if(e.noOmissions!==true)fail("须人工确认终版议程与讲者照片逐人一致，无漏项、冒名或重复");
+      return {matchedPeople:baseline.length,matchedSources:["终版议程","讲者照片"],
         photoRecordsMatched:photos.length,noOmissions:true};
     }
     case 3: {
