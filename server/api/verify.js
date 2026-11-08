@@ -8,8 +8,14 @@ const { getProject, verification, materialsStatus, settlementOf, demandSummary }
 const { MATERIAL_KINDS, MATERIAL_MODULE_KINDS } = require("../lib/constants");
 const { readPaging, countOf } = require("../lib/paginate");
 const { storage } = require("../lib/storage");
+const { sniffMime, safeName, ALLOWED_MIME, MAX_BYTES } = require("../lib/storage");
 const { assertUploadAttachable } = require("../lib/upload-ownership");
 const { validateSopEvidence } = require("../lib/meeting-sop");
+const {sponsorRights}=require("../lib/sponsor-rights");
+const {buildSettlementBreakdown}=require("../lib/settlement-breakdown");
+const verifyOcr=require("../lib/verify-ocr-compare");
+const {sponsorRights:currentSponsorRights,validateRightsEvidence}=require("../lib/sponsor-rights");
+let scanningVerification=false;
 
 function register(router) {
   /**
@@ -38,9 +44,33 @@ function register(router) {
       payments,
       // 归档的会务需求单 —— 核销第 3 步的费用对照基准（与项目详情页同源）
       demand: demandSummary(p.id),
+      sponsorRights:sponsorRights(db,p.id),
       // 逐笔 reduce 会累积浮点尾巴，收敛到「分」再给前端
       paidTotal: yuan(payments.filter((y) => y.status === "已付款").reduce((s, y) => s + Number(y.amount), 0))
     };
+  });
+
+  /**
+   * OCR 扫描→关键字段提取→跨材料比较。只生成“建议”，从不自动改核销状态。
+   * 复用 material_ocr_results 缓存，按 file_key 版本严格绑定，改件即失效。
+   */
+  router.post("/api/projects/:id/verify/steps/:no/scan",async ctx=>{
+    assertCan(ctx.user,"verify:check","没有核销OCR比对权限");
+    const p=getProject(ctx.params.id);
+    assertProjectVisible(ctx.user,p);
+    const no=Number(ctx.params.no);
+    if(!Number.isInteger(no)||no<1||no>7)throw bad("核销步骤编号必须为1~7");
+    const step=verification(p.id).steps.find(x=>x.no===no);
+    if(step?.required===false)throw conflict("本项目该核销项不适用","SOP_NOT_APPLICABLE");
+    if(scanningVerification)throw Object.assign(new Error("另一个核销文件正在OCR处理中，请稍后重新扫描"),{status:429,code:"OCR_BUSY"});
+    scanningVerification=true;
+    try{
+      const result=await verifyOcr.scan(p.id,no,ctx.user.name);
+      logAudit({user:ctx.user,module:"会后核销",action:"OCR智能比对",target:p.id,
+        detail:"步骤"+no+"；关联材料"+result.total+"份，实际可识别"+result.scanned+"份；相符"+result.summary.match+"，疑点"+result.summary.mismatch+"，待人工确认"+result.summary.uncertain,
+        ip:ctx.ip});
+      return {report:result};
+    }finally{scanningVerification=false;}
   });
 
   /** 单步判定 */
@@ -49,7 +79,7 @@ function register(router) {
     assertProjectVisible(ctx.user, p);
     assertCan(ctx.user, "verify:check", "当前角色无核销判定权限");
     const no = Number(ctx.params.no);
-    if (!(no >= 1 && no <= 6)) throw bad("步骤编号应为 1~6");
+    if (!(no >= 1 && no <= 7)) throw bad("步骤编号应为 1~7");
     const settled = settlementOf(p.id);
     if (settled && !isSuper(ctx.user)) throw conflict("结算单已生成，核销结论已冻结，不可修改", "FROZEN");
     if (!["待核销"].includes(p.status) && !(p.status === "已核销" && isSuper(ctx.user))) {
@@ -61,7 +91,18 @@ function register(router) {
       throw conflict("请先上传至少一份会议材料附件，再进行核销判定","MATERIAL_GATE",
         { missing: ms.missing });
 
-    const { result, remark } = ctx.body || {};
+    const { result } = ctx.body || {};
+    const isAuto=ctx.body?.auto===true;
+    // 防止绕过UI直接构造“已OCR一致”的请求；每次判定验证材料版本与缓存哈希。
+    const ocrReport=isAuto?verifyOcr.verifiedReport(p.id,no,ctx.body?.scanToken):null;
+    if(isAuto && result==="通过" && (!ocrReport.total || (!ocrReport.scanned && ![3,7].includes(no))))
+      throw conflict("未取得有效的OCR比对资料，不能直接判定通过；请先上传可识别的PDF或图片原件","OCR_EVIDENCE_REQUIRED");
+    let remark=isAuto
+      ?(result==="不通过"?
+        "OCR比对异常/人工未认可："+(ocrReport.checks.filter(x=>x.status!=="一致").slice(0,3)
+         .map(x=>x.name+"（"+x.detail+"）").join("；")||"原件复核不通过")
+        :"OCR比对后由人工核验通过；OCR疑点"+ocrReport.summary.mismatch+"项，待确认"+ocrReport.summary.uncertain+"项")
+      :String(ctx.body?.remark||"");
     if (!["通过", "不通过"].includes(result)) throw bad("判定结果只能是「通过」或「不通过」");
     if (String(remark || "").length > 1000) throw bad(`问题描述不能超过 1000 字（当前 ${String(remark).length} 字）`);
     if (result === "不通过" && !String(remark || "").trim()) throw bad("判定不通过必须填写问题描述");
@@ -71,21 +112,21 @@ function register(router) {
     const v = verification(p.id);
     const def = v.steps.find((s) => s.no === no);
     if(no===5 && !v.laborRequired)throw conflict("材料库无劳务表，第5项自动不适用，无需核销","SOP_NOT_APPLICABLE");
+    if(no===6 && !v.demandRequired)throw conflict("没有实际需要的会务需求，第6项自动不适用，无需核销","SOP_NOT_APPLICABLE");
+    if(no===7 && !v.rightsRequired)throw conflict("没有已签署赞助合同，第7项自动不适用","SOP_NOT_APPLICABLE");
     let invoiceAmount = null;
-    if (!isDemoMode() && no === 6 && result === "通过") {
-      const signed = db.prepare("SELECT COUNT(*) AS n, COALESCE(SUM(amount),0) AS total FROM contracts WHERE pid=? AND status='已签署'").get(p.id);
-      if (!signed.n) throw conflict("核票前必须有经协会管理员审批的已签署合同", "CONTRACT_NOT_SIGNED");
-      // 专家劳务依据已签署合同和按需核验的劳务表；不再另设协议材料。
-      // 非劳务合同仍要求：发票总额 = 应开票合同总额；总拟请款 = 全部合同总额。
-      const billable=db.prepare("SELECT COALESCE(SUM(amount),0) AS total FROM contracts WHERE pid=? AND status='已签署' AND COALESCE(category,'')<>'劳务专家'").get(p.id).total;
-      const invoiceMaterial=db.prepare("SELECT COUNT(*) AS n FROM materials WHERE pid=? AND kind='发票' AND file_key IS NOT NULL AND deleted_at IS NULL").get(p.id);
-      if(cents(billable)>0 && !invoiceMaterial.n)throw conflict("非劳务合同请先上传发票原件","INVOICE_EVIDENCE_REQUIRED");
-      invoiceAmount=Number(ctx.body?.invoiceAmount);
-      if(ctx.body?.invoiceAmount===""||ctx.body?.invoiceAmount==null||!Number.isFinite(invoiceAmount)||
+    if (!isDemoMode() && no===6 && result==="通过") {
+      const demand=require("../lib/meeting-demand-sop").demandSopState(db,p.id);
+      if(!demand.confirmed)throw conflict("请先确认并归档会务需求","DEMAND_NOT_CONFIRMED");
+      if(!demand.contractCount)throw conflict("没有已签署的会务合同","CONTRACT_NOT_SIGNED");
+      if(!demand.agreements.length || !demand.agenda.length || !demand.invoices.length)
+        throw conflict("需上传终版议程、终版会务协议及会务发票原件","SOP_MATERIAL_MISSING");
+      invoiceAmount=isAuto?ocrReport.invoiceAmount:Number(ctx.body?.invoiceAmount);
+      if((!isAuto&&(ctx.body?.invoiceAmount===""||ctx.body?.invoiceAmount==null))||invoiceAmount==null||!Number.isFinite(invoiceAmount)||
          invoiceAmount<0||Number(invoiceAmount.toFixed(2))!==invoiceAmount)
-        throw bad("请输入发票总金额（无开票合同可为 0）");
-      if(cents(invoiceAmount)!==cents(billable))
-        throw conflict(`发票金额 ¥${yuan(invoiceAmount)} 与需开票合同总额 ¥${yuan(billable)} 不符；专家劳务合同按核验劳务表另行请款`,"INVOICE_CONTRACT_MISMATCH");
+        throw bad(isAuto?"OCR未能从会务发票唯一可靠识别金额，请补充清晰的发票PDF/图片后重新扫描":"请输入会务发票总金额（精确到分）");
+      if(cents(demand.budgetTotal)!==cents(demand.contractTotal)||cents(invoiceAmount)!==cents(demand.budgetTotal))
+        throw conflict("会务需求总预算、会务合同总金额、会务发票金额三方必须一致","MEETING_THREE_WAY_MISMATCH");
     }
     if (!isDemoMode() && result==="通过") {
       const outstanding = db.prepare("SELECT id,resolved_at,evidence_material_id FROM exceptions WHERE pid=? AND step_no=? AND status='待复核'").all(p.id,no);
@@ -95,8 +136,13 @@ function register(router) {
     const pending = db.prepare("SELECT COUNT(*) AS n FROM exceptions WHERE pid=? AND step_no=? AND status='待审批'").get(p.id,no).n;
     if (!isDemoMode() && result==="通过" && pending)
       throw conflict("此步骤存在未处理例外单，请先完成例外处理，再返回原步骤复核", "EXCEPTION_NOT_HANDLED");
-    const validated = !isDemoMode() && result==="通过"
-      ? validateSopEvidence(no,ctx.body?.evidence,p,db,invoiceAmount) : null;
+    // 第7项仍要求确认完整权益目录，并关联每项照片；OCR不能替代真实照片的人工审核。
+    if(isAuto && no===7 && result==="通过"){
+      const snap=currentSponsorRights(db,p.id);
+      validateRightsEvidence(db,p.id,{verifiedRights:snap.requiredRights.map(r=>r.id)});
+    }
+    const validated=isAuto ? ocrReport.evidence : (!isDemoMode() && result==="通过"
+      ? validateSopEvidence(no,ctx.body?.evidence,p,db,invoiceAmount) : null);
     const at = now();
     // 重新核验仅更新当前步骤；不清除其他步骤的判定、依据或发票核对结果。
     db.prepare(
@@ -106,7 +152,7 @@ function register(router) {
     // 第五步通过后保留 AES-GCM 加密的已核验劳务收款资料供财务选用。
     // 如未配置服务器专用密钥，不落地敏感账号，仍需手工登记。
     if(!isDemoMode() && no===5){
-      if(result!=="通过") db.prepare("DELETE FROM verified_labor_payees WHERE pid=?").run(p.id);
+      if(result!=="通过"||isAuto) db.prepare("DELETE FROM verified_labor_payees WHERE pid=?").run(p.id);
       else require("../lib/verified-payees").saveLabor(p.id,ctx.body.evidence.collectionRecords);
     }
     if (!isDemoMode() && result==="通过") {
@@ -196,8 +242,8 @@ function register(router) {
     if (no === 0) {
       if (!label) throw bad("选「其他」时必须填写具体事项");
       if (label.length > 60) throw bad(`具体事项不能超过 60 字（当前 ${label.length} 字）`);
-    } else if (!(no >= 1 && no <= 6)) {
-      throw bad("例外步骤应为第 1~6 步，或选「其他」自行填写具体事项");
+    } else if (!(no >= 1 && no <= 7)) {
+      throw bad("例外步骤应为第 1~7 步，或选「其他」自行填写具体事项");
     }
     if (!String(reason || "").trim()) throw bad("必须说明例外原因");
     if (String(reason).trim().length > 500) throw bad(`例外原因不能超过 500 字（当前 ${String(reason).trim().length} 字）`);
@@ -310,16 +356,16 @@ function register(router) {
     const { sql, params } = require("../lib/rbac").scopeFilter(ctx.user);
     const paging = readPaging(ctx.query);
 
-    const base = `FROM materials m JOIN projects p ON p.id = m.pid WHERE ${sql} AND m.deleted_at IS NULL`;
+    const base = `FROM materials m JOIN projects p ON p.id = m.pid LEFT JOIN sponsor_rights sr ON sr.id=m.sponsor_right_id LEFT JOIN meeting_sponsor_contracts sc ON sc.id=sr.sponsor_id WHERE ${sql} AND m.deleted_at IS NULL`;
     let rows;
     let total;
     if (paging) {
       total = countOf(db.prepare(`SELECT COUNT(*) AS c ${base}`).get(...params));
       rows = db.prepare(
-        `SELECT m.*, p.name AS pname, p.status AS pstatus ${base} ORDER BY m.id DESC LIMIT ? OFFSET ?`
+        `SELECT m.*, p.name AS pname, p.status AS pstatus, p.assoc AS passoc, sr.category AS sponsor_right_category, sc.enterprise AS sponsor_enterprise ${base} ORDER BY m.id DESC LIMIT ? OFFSET ?`
       ).all(...params, paging.size, paging.offset);
     } else {
-      rows = db.prepare(`SELECT m.*, p.name AS pname, p.status AS pstatus ${base} ORDER BY m.id DESC`).all(...params);
+      rows = db.prepare(`SELECT m.*, p.name AS pname, p.status AS pstatus, p.assoc AS passoc, sr.category AS sponsor_right_category, sc.enterprise AS sponsor_enterprise ${base} ORDER BY m.id DESC`).all(...params);
       total = rows.length;
     }
 
@@ -361,7 +407,7 @@ function register(router) {
     assertCan(ctx.user, "material:write", "当前角色无材料登记权限");
     if (p.status === "已归档") throw conflict("项目已归档，材料清单已封存，不可再登记", "ARCHIVED", { status: p.status });
     if (settlementOf(p.id)) throw conflict("结算单已生成，材料证据已冻结，不可追加或修改", "FROZEN");
-    const { kind: rawKind, name, version, file_key, file_name, file_size, file_mime } = ctx.body || {};
+    const { kind: rawKind, name, version, file_key, file_name, file_size, file_mime, sponsor_right_id } = ctx.body || {};
     // 材料类别全部自选；推荐类目仅供快速选择，不影响推进权限。
     const kind = String(rawKind || "").trim();
     if (!kind) throw bad("请选择或填写材料类别");
@@ -390,6 +436,16 @@ function register(router) {
       throw bad("终版议程必须上传一份文件，保存即确认，不需要其他操作");
     // “讲者照片”是独立的照片类目，不允许仅填名称标记已收，
     // 也不能将 PPT/Excel 文件伪装成讲者肖像。
+    if (kind === "权益照片" && (!fk || !/\.(jpg|png|webp)$/i.test(fk)))
+      throw bad("权益照片必须上传 JPG/PNG/WebP 图片并选择来自赞助合同的权益二级类目");
+    let sponsorRightId=null;
+    if(kind==="权益照片"){
+      sponsorRightId=Number(sponsor_right_id);
+      if(!Number.isSafeInteger(sponsorRightId)||sponsorRightId<1)
+        throw bad("必须选择与当前项目赞助合同对应的权益二级类目");
+      const right=db.prepare("SELECT id FROM sponsor_rights WHERE id=? AND pid=?").get(sponsorRightId,p.id);
+      if(!right)throw conflict("所选权益二级类目不存在或不属于当前项目","RIGHT_CATEGORY_INVALID");
+    }else if(sponsor_right_id!=null && sponsor_right_id!=="")throw bad("只有权益照片可关联赞助权益二级类目");
     if (kind === "讲者照片" && (!fk || !/\.(jpg|png|webp)$/i.test(fk))) {
       throw bad("讲者照片必须上传 JPG、PNG 或 WebP 图片，名称请填写讲者姓名");
     }
@@ -401,12 +457,13 @@ function register(router) {
         db.prepare("UPDATE materials SET version='历史版' WHERE pid=? AND kind='终版议程' AND version='终版' AND deleted_at IS NULL")
           .run(p.id);
       db.prepare(
-        `INSERT INTO materials (pid,kind,name,version,uploader,created_at,file_key,file_name,file_size,file_mime)
-         VALUES (?,?,?,?,?,?,?,?,?,?)`
+        `INSERT INTO materials (pid,kind,name,version,uploader,created_at,file_key,file_name,file_size,file_mime,sponsor_right_id)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?)`
       ).run(
         p.id, kind, materialName, finalAgenda ? "终版" : (version || "v1"), ctx.user.name, now(),
         fk, fk ? String(file_name || "").slice(0, 120) : null,
-        fk ? Number(file_size) || null : null, fk ? String(file_mime || "").slice(0, 60) : null
+        fk ? Number(file_size) || null : null, fk ? String(file_mime || "").slice(0, 60) : null,
+        sponsorRightId
       );
     });
 
@@ -417,6 +474,104 @@ function register(router) {
     return { materialsStatus: materialsStatus(p.id),
       finalAgendaConfirmed: finalAgenda,
       message: finalAgenda ? "终版议程已上传并确认，无需额外操作" : `${kind} 已登记` };
+  });
+
+  /** 合同及其他材料原件替换：总管理员按账号授权，来源变化须重核；关联合同台账必须重签。 */
+  router.patch("/api/materials/:id/file", async (ctx) => {
+    const id=Number(ctx.params.id);
+    if(!Number.isSafeInteger(id)||id<1)throw bad("材料编号不合法");
+    const m=db.prepare("SELECT * FROM materials WHERE id=?").get(id);
+    if(!m || m.deleted_at)throw notFound("材料不存在或已删除");
+    const p=getProject(m.pid);
+    assertProjectVisible(ctx.user,p);
+    assertCan(ctx.user,"material:file:replace","没有合同及材料修改授权，请联系总管理员在用户与权限中开通");
+    if(!m.file_key)throw bad("该材料尚未上传原件，请先登记文件");
+    if(["已核销","已结算","已归档"].includes(p.status)||settlementOf(p.id))
+      throw conflict("项目已核销、结算或归档，合同材料已冻结，不允许替换","FROZEN");
+    const body=ctx.body||{}, oldKey=String(m.file_key);
+    const expected=String(body.expected_file_key||"");
+    if(expected!==oldKey)throw conflict("材料文件已被其他人更新，请刷新页面后重试","MATERIAL_CHANGED");
+    const newKey=String(body.file_key||"");
+    if(!/^[a-f0-9]{32}\.(jpg|png|webp|gif|pdf|ppt|doc|docx|xls|xlsx|pptx|csv|txt)$/.test(newKey))
+      throw bad("请先上传合法的新材料文件");
+    if(newKey===oldKey)throw conflict("新旧材料文件相同，请重新上传新文件","SAME_FILE");
+    assertUploadAttachable(newKey,p.id,ctx.user);
+    const uploaded=await storage().get(newKey);
+    if(!uploaded?.buffer?.length)throw notFound("新文件不存在，请重新上传");
+    if(uploaded.buffer.length>MAX_BYTES)throw bad("新文件超出20MB限制");
+    const mime=sniffMime(uploaded.buffer,newKey);
+    if(!mime || ALLOWED_MIME[mime]!==newKey.split(".").pop())
+      throw bad("上传文件格式与实际内容不一致");
+    if(["讲者照片","权益照片"].includes(m.kind) && !["jpg","png","webp"].includes(newKey.split(".").pop()))
+      throw bad("讲者照片和权益照片仅可使用 JPG/PNG/WebP 图片替换");
+    const filename=safeName(body.file_name||newKey),fileSize=uploaded.buffer.length;
+    const at=now();
+    const cleanup=transaction(()=>{
+      const current=db.prepare("SELECT file_key,kind,deleted_at FROM materials WHERE id=?").get(id);
+      if(!current||current.deleted_at||current.kind!==m.kind||current.file_key!==oldKey)
+        throw conflict("原合同材料在上传期间已发生变化，请刷新后重试","MATERIAL_CHANGED");
+      if(settlementOf(p.id)||["已核销","已结算","已归档"].includes(getProject(p.id).status))
+        throw conflict("项目状态发生变化，合同材料不可替换","FROZEN");
+      assertUploadAttachable(newKey,p.id,ctx.user);
+      const linked=m.kind==="合同"?db.prepare("SELECT id,status FROM contracts WHERE pid=? AND file_key=?").all(p.id,oldKey):[];
+      if(linked.length>1)throw conflict("旧原件关联多个合同，必须由管理员人工处理","SHARED_CONTRACT_FILE");
+      db.prepare("UPDATE materials SET file_key=?,file_name=?,file_size=?,file_mime=? WHERE id=?")
+        .run(newKey,filename,fileSize,mime,id);
+      if(linked.length){
+        const contract=linked[0];
+        // 替换原件后必须重新提交签署、重新取得审批；旧批准绝不自动继承到新文件。
+        db.prepare("UPDATE contracts SET file_key=?,file_name=?,file_size=?,file_mime=?,status='草稿',sign_date=NULL WHERE id=? AND file_key=?")
+          .run(newKey,filename,fileSize,mime,contract.id,oldKey);
+        db.prepare("UPDATE materials SET version='草稿' WHERE id=?").run(id);
+        db.prepare("UPDATE approvals SET status='已撤销',decided_by=?,decided_at=?,comment='合同原件替换，原签署申请失效' WHERE type='合同审批' AND ref_id=? AND status='待审批'")
+          .run(ctx.user.name,at,contract.id);
+      }
+      db.prepare("DELETE FROM material_ocr_results WHERE material_id=?").run(id);
+      // 已人工确认的材料比对任务不能把旧原件的通过结论延用至新文件。
+      db.prepare("UPDATE meeting_material_tasks SET status='未提交',material_id=NULL,updated_at=?,updated_by=? WHERE material_id=?")
+        .run(at,ctx.user.name,id);
+      const stepsByKind={
+        "会议通知":[1],"招商函":[1],"串场":[1],
+        "终版议程":[2,4,6],"签到表":[2,3],"讲者照片":[2],
+        "课件":[4],"劳务表":[5],"劳务收集表":[5],
+        "合同":[5,6],"会务协议":[6],"发票":[6],"会务发票":[6],
+        "权益照片":[7]
+      };
+      const affected=stepsByKind[m.kind]||[];
+      // 不在合同签署环节以外隐式继承旧核验：只重置与当前材料关联的步骤。
+      if(affected.length){
+        const placeholders=affected.map(()=>"?").join(",");
+        db.prepare("UPDATE verify_steps SET result='待判定',remark='原始材料已替换，请重新核验', "+
+          "evidence_json=NULL,invoice_amount=NULL,checked_by=NULL,checked_at=NULL "+
+          "WHERE pid=? AND step_no IN ("+placeholders+") AND result IN ('通过','已解例外')")
+          .run(p.id,...affected);
+      }
+      const refs=db.prepare(
+        "SELECT 1 FROM contracts WHERE file_key=? UNION SELECT 1 FROM materials WHERE file_key=? "+
+        "UNION SELECT 1 FROM meeting_sponsor_contracts WHERE file_key=? "+
+        "UNION SELECT 1 FROM meeting_sponsor_receipts WHERE file_key=? "+
+        "UNION SELECT 1 FROM meeting_sponsor_invoices WHERE file_key=? "+
+        "UNION SELECT 1 FROM project_notice_templates WHERE file_key=? "+
+        "UNION SELECT 1 FROM project_notices WHERE template_key=?"
+      ).get(oldKey,oldKey,oldKey,oldKey,oldKey,oldKey,oldKey);
+      if(!refs)db.prepare("DELETE FROM uploaded_files WHERE file_key=?").run(oldKey);
+      return {linkedContract:linked[0]?.id||null,canDelete:!refs,oldKey,affected:stepsByKind[m.kind]||[]};
+    });
+    let oldDeleted=false,warning="";
+    if(cleanup.canDelete){
+      try{
+        await storage().del(oldKey);
+        oldDeleted=!(await storage().stat(oldKey));
+        if(!oldDeleted)warning="新文件已生效，但旧文件存储清理未完成，请管理员检查";
+      }catch{warning="新文件已生效，但旧文件物理删除失败，请管理员检查";}
+    }else warning="旧文件仍被其他业务记录引用，已安全保留共享文件";
+    logAudit({user:ctx.user,module:"材料中心",action:"替换材料文件",target:p.id,
+      detail:"材料#"+id+"；"+oldKey+" → "+newKey+
+        (cleanup.linkedContract?"；关联台账合同 "+cleanup.linkedContract+" 已退回草稿待重新签署":"")+
+        "；相关核销步骤需复核："+(cleanup.affected.join("、")||"无")+"；旧文件清理："+(oldDeleted?"已删除":warning||"保留"),ip:ctx.ip});
+    return {replaced:true,oldDeleted,warning,linkedContract:cleanup.linkedContract,
+      material:db.prepare("SELECT * FROM materials WHERE id=?").get(id),
+      message:cleanup.linkedContract?"材料已替换，关联合同已退回草稿，须重新走签署审批":"材料文件已替换，相关核销步骤须重新确认"};
   });
 
   router.delete("/api/materials/:id", async (ctx) => {
@@ -440,6 +595,17 @@ function register(router) {
 
     logAudit({ user: ctx.user, module: "材料中心", action: "软删冻结", target: p.id, detail: `历史保留 ${m.kind}：${m.name}`, ip: ctx.ip });
     return { materialsStatus: materialsStatus(p.id), message: "已软删并保留历史记录" };
+  });
+
+  /** 已生成结算单的四项汇总和四类已付款明细，必须先财务授权再校验项目范围。 */
+  router.get("/api/settlements/:id/breakdown", async (ctx) => {
+    assertModule(ctx.user,"finance","settle:create");
+    const settlement=db.prepare("SELECT * FROM settlements WHERE id=?").get(ctx.params.id);
+    if(!settlement)throw notFound("结算单不存在");
+    const project=getProject(settlement.pid);
+    assertProjectVisible(ctx.user,project);
+    const payments=db.prepare("SELECT * FROM payments WHERE pid=? AND status='已付款' ORDER BY paid_at DESC, id DESC").all(project.id);
+    return buildSettlementBreakdown(settlement,project,payments);
   });
 
   router.get("/api/settlements", async (ctx) => {

@@ -164,7 +164,7 @@ function register(router) {
     return {
       user: publicUser(ctx.user),
       demo: isDemoMode(),
-      role: { ...role, key: ctx.user.role },
+      role: { ...role, key: ctx.user.role, modules: MODULES.filter(m=>require("../lib/rbac").hasModule(ctx.user,m.k)).map(m=>m.k) },
       perms: Object.keys(PERMS).filter((p) => can(ctx.user, p)),
       super: isSuper(ctx.user)
     };
@@ -175,6 +175,7 @@ function register(router) {
     return {
       org: org ? org.v : "会规化会务执行系统",
       roles: Object.entries(ROLES).map(([k, v]) => ({ key: k, ...v })),
+      permissions: Object.keys(PERMS),
       modules: MODULES,
       statuses: STATUSES,
       statusDesc: STATUS_DESC,

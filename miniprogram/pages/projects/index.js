@@ -1,7 +1,8 @@
 const app=getApp();
 Page({
  data:{rows:[],error:"",loading:false,page:1,total:0,tab:"all",tabs:[{key:"all",label:"我的会议"},{key:"mine",label:"我的申请"}]},
- onLoad(q){if(q.tab==="mine")this.setData({tab:"mine"});},
+ onLoad(q){const ps=getApp().globalData.perms||[];const canApply=ps.includes("mini:apply");
+  this.setData({tabs:canApply?[{key:"all",label:"我的会议"},{key:"mine",label:"我的申请"}]:[{key:"all",label:"我的会议"}],tab:q.tab==="mine"&&canApply?"mine":"all"});},
  onShow(){this.load(true);},
  changeTab(e){const tab=e.currentTarget.dataset.tab;if(tab!==this.data.tab){this.setData({tab});this.load(true);}},
  async load(reset){

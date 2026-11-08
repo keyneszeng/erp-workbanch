@@ -85,7 +85,7 @@ async function makeProject(name, target, { materials = false } = {}) {
 /** 走到「已核销」——需要材料 8/8 + 6 步判定 */
 async function verifiedProject(name) {
   const pid = await makeProject(name, "request_verify", { materials: true });
-  for (const no of [1,2,3,4,6]) {
+  for (const no of [1,2,3,4]) {
     const r = await admin("POST", `/api/projects/${pid}/verify/steps/${no}`, { result: "通过" });
     assert.equal(r.status, 200, `第 ${no} 步失败：${JSON.stringify(r.data)}`);
   }
@@ -123,7 +123,7 @@ test("NEW-01 未核销项目付款：先给 VERIFY_GATE，而不是「开户行�
   });
   assert.equal(r.status, 409, `应 409，实际 ${r.status}：${JSON.stringify(r.data)}`);
   assert.equal(r.data.error.code, "VERIFY_GATE");
-  assert.match(r.data.error.message, /必须先完成 6 步核销/);
+  assert.match(r.data.error.message, /必须完成所有适用核销项/);
 });
 
 test("NEW-01 已结算项目付款：先给 SETTLED，而不是「开户行必填」", async () => {

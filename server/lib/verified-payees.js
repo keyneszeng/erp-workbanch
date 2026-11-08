@@ -5,6 +5,7 @@ const {now,bad}=require("./util");
 const {cents}=require("./util");
 const {isDemoMode}=require("./runtime");
 const {laborSheetInfo}=require("./labor-sop");
+const {contractPool}=require("./labor-contracts");
 // Encryption key is deliberately not stored in SQLite or returned to a browser.
 function key(){
  const v=String(process?.env?.ERP_FINANCIAL_DATA_KEY||"");
@@ -41,7 +42,7 @@ function options(pid){
  const s=laborSheetInfo(db,pid);
  const v=db.prepare("SELECT result,evidence_json FROM verify_steps WHERE pid=? AND step_no=5").get(pid);
  let valid=false;
- try{valid=s.required&&v?.result==="通过"&&JSON.parse(v.evidence_json||"{}").laborSourceSignature===s.signature;}catch{}
+ try{valid=s.required&&v?.result==="通过"&&JSON.parse(v.evidence_json||"{}").laborSourceSignature===s.signature && JSON.parse(v.evidence_json||"{}").contractPoolSignature===contractPool(db,pid).signature;}catch{}
  const labor=valid?db.prepare("SELECT id,name,bank,account_cipher,amount FROM verified_labor_payees WHERE pid=? ORDER BY id").all(pid):[];
  for(const x of labor){
   const account=reveal(x.account_cipher);
@@ -61,8 +62,8 @@ function resolve(pid,id){
   const s=laborSheetInfo(db,pid);
   const v=db.prepare("SELECT result,evidence_json FROM verify_steps WHERE pid=? AND step_no=5").get(pid);
   let valid=false;
-  try{valid=s.required&&v?.result==="通过"&&JSON.parse(v.evidence_json||"{}").laborSourceSignature===s.signature;}catch{}
-  if(!valid)throw bad("劳务表已删除或更新，请重新核验第5项");
+  try{valid=s.required&&v?.result==="通过"&&JSON.parse(v.evidence_json||"{}").laborSourceSignature===s.signature && JSON.parse(v.evidence_json||"{}").contractPoolSignature===contractPool(db,pid).signature;}catch{}
+  if(!valid)throw bad("劳务表或个人合同发生变化，请重新核验第5项");
   const x=db.prepare("SELECT * FROM verified_labor_payees WHERE id=? AND pid=?").get(Number(value.slice(6)),pid);
   if(!x)throw bad("核销劳务收款人不存在");
   const account=reveal(x.account_cipher);
