@@ -130,3 +130,62 @@ test("现代Office可直接提取原生文字，旧式XLS不冒充OCR成功",()=
  assert.match(extract(xlsx,"xlsx").text,/会务预算/);
  assert.equal(extract(Buffer.from("dummy"),"xls"),null);
 });
+
+
+test("核销第2项：真实XLSX签到表上传后按实际单元格比对，旧缓存自动失效且无需RapidOCR",async()=>{
+ const makeAttendance=(used,unused)=>{
+  const z=new PizZip();
+  z.file("[Content_Types].xml",'<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"/>');
+  z.file("_rels/.rels",'<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"/>');
+  z.file("xl/workbook.xml","<workbook><sheets><sheet name='专家签到表' sheetId='1'/></sheets></workbook>");
+  z.file("xl/sharedStrings.xml",'<sst>'+
+   "<si><t>姓名</t></si>"+
+   "<si><t>"+used+"</t></si>"+
+   "<si><t>"+unused+"</t></si>"+
+   "</sst>");
+  z.file("xl/worksheets/sheet1.xml",
+   '<worksheet><sheetData><row r="1"><c r="A1" t="s"><v>0</v></c></row>'+
+   '<row r="2"><c r="A2" t="s"><v>1</v></c></row></sheetData></worksheet>');
+  return z.generate({type:"nodebuffer",compression:"DEFLATE"});
+ };
+ const uploadXlsx=async(buffer,filename)=>{
+  const response=await fetch(base+"/api/uploads?pid="+pid,{
+   method:"POST",
+   headers:{cookie:cookies.admin,"content-type":"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "x-file-name":encodeURIComponent(filename)},
+   body:buffer
+  });
+  const data=await response.json();
+  assert.equal(response.status,200,JSON.stringify(data));
+  return data;
+ };
+ // Old extractor mistakenly included every entry in sharedStrings.xml, even
+ // names never selected by worksheet cells; this caused false attendance matches.
+ const first=await uploadXlsx(makeAttendance("李四主任","张三教授"),"签到表-不符.xlsx");
+ const reg=await call("admin","POST","/api/projects/"+pid+"/materials",{
+  kind:"签到表",name:"签到表-不符.xlsx",
+  file_key:first.key,file_name:first.name,file_size:first.size,file_mime:first.mime
+ });
+ assert.equal(reg.status,200,JSON.stringify(reg.data));
+ const row=db.prepare("SELECT id FROM materials WHERE pid=? AND file_key=?").get(pid,first.key);
+ assert.ok(row?.id,"xlsx material must be registered");
+ // Simulate a prior release cache with the wrong extraction model. It must be
+ // invalidated and replaced by the actual worksheet bytes on next scan.
+ db.prepare("INSERT INTO material_ocr_results(material_id,pid,file_key,recognized_text,suggestions_json,engine,mode,pages,total_pages,truncated,updated_at,updated_by) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)")
+  .run(row.id,pid,first.key,"张三教授","[]","Office原生文本提取","office-text",0,0,0,"2026-11-08 12:00","旧版");
+ const firstScan=await call("admin","POST",pathStep(2)+"/scan",{});
+ assert.equal(firstScan.status,200,JSON.stringify(firstScan.data));
+ const check=r=>r.data.report.checks.find(c=>c.name==="签到表讲者信息");
+ assert.equal(check(firstScan)?.status,"不一致",JSON.stringify(firstScan.data.report.checks));
+ assert.ok(firstScan.data.report.files.some(x=>x.kind==="签到表"&&x.state==="recognized"),
+  "Excel must be scanned even in demo runtime without RapidOCR");
+ assert.equal(db.prepare("SELECT engine FROM material_ocr_results WHERE material_id=?").get(row.id).engine,
+  require("../server/lib/verify-office-text").XLSX_ENGINE);
+ const second=await uploadXlsx(makeAttendance("张三教授","李四主任"),"签到表-匹配.xlsx");
+ db.prepare("UPDATE materials SET file_key=?,file_name=? WHERE id=?").run(second.key,second.name,row.id);
+ const secondScan=await call("admin","POST",pathStep(2)+"/scan",{});
+ assert.equal(secondScan.status,200,JSON.stringify(secondScan.data));
+ assert.equal(check(secondScan)?.status,"一致",JSON.stringify(secondScan.data.report.checks));
+ assert.notEqual(secondScan.data.report.token,firstScan.data.report.token,"changed original must change scan token");
+ assert.ok(secondScan.data.report.files.some(x=>x.kind==="签到表"&&x.mode==="office-text"));
+});
