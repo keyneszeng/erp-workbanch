@@ -45,7 +45,7 @@ export function sopEvidenceForm(no,p,rightsData=null){
        +area("courseTopics","已上传课件的主题（逗号或换行）","主题甲")
        +`<div class="hint">只核对两点：材料库已有课件原件；所填每个课件主题都能在已确认的终版议程中找到。终版议程可以包含其他未上传课件的主题。无需核对串场、Logo 或赞助商展示页面。请从原件人工摘录主题。</div>`,
     5:area("collectionRecords","劳务表（每行：姓名|时间|角色|金额|银行账号|开户行（可选））","张老师|2026-11-01|讲者|1000|6222...")
-       +`<div class="hint">仅上传劳务表原件后需要判定。每个人员须在本项目材料库“合同”类有一份完整姓名对应的个人合同附件；不能使用合同台账总合同代替。银行账号不写入核销证据。</div><div data-labor-contract-preview></div>`,
+       +`<div class="hint">第5项只关联劳务登记表（含劳务表、劳务收集表）和劳务专家合同。每位专家须有一份姓名对应的劳务专家合同；会务合同、赞助合同及其他总合同不得参与核验。银行账号不写入核销证据。</div><div data-labor-contract-preview></div>`,
     6: `<div class="hint">第6项仅有实际标记「需要」的会务需求时核销。请分别从材料库「终版议程」与终版「会务协议」原件录入下列字段，并核对实际会务需求预算、已签署会务合同及发票三方金额一致。系统当前不自动 OCR 提取字段。</div>`
        +input("agendaTitle","终版议程 · 会议主题",p.name)
        +input("agendaTime","终版议程 · 会议时间",p.date)
