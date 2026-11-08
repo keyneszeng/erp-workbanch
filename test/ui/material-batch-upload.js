@@ -109,7 +109,7 @@ async function ready(){
   };
   await page.route("**/api/uploads?pid=*",flaky);
   await second.locator('[data-x="1"]').click();
-  await second.locator("[data-material-batch-status]").getByText(/成功登记 1 份，失败 1 份/).waitFor({timeout:20000});
+  await page.waitForFunction(()=>document.querySelector("#modal.open [data-material-batch-status]")?.textContent?.includes("成功登记 1 份，失败 1 份"),null,{timeout:20000});
   assert.equal(await second.locator('[data-material-name]').count(),2);
   assert.match(await second.locator('[data-material-status]').nth(1).innerText(),/失败/);
   await second.locator('[data-x="1"]').click();
