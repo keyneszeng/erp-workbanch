@@ -34,7 +34,9 @@ export async function openOcrJudge(pid,no,d,onDone){
   const fileRows=(r.files||[]).map(f=>
    '<div style="border-bottom:1px solid var(--line);padding:8px 0">'+
     '<b>'+esc(f.kind+" · "+f.name)+'</b>　'+sourceLink(f)+
-    '<div class="hint">'+(f.state==="recognized"?"已识别 "+f.pages+"/"+f.totalPages+" 页":
+    '<div class="hint">'+(f.state==="recognized"?(f.mode==="office-text"?
+      (/\.xlsx$/i.test(f.fileName||f.name)?"Excel 工作表内容已提取":"Office 文档文字已提取"):
+      f.mode==="native-text"?"文本内容已提取":"已识别 "+f.pages+"/"+f.totalPages+" 页"):
       f.state==="unsupported"?"格式不支持直接OCR":"识别失败或内容为空")+
       (f.truncated?" · 有未扫描页":"")+'</div>'+
     (f.preview?'<div class="hint" style="overflow-wrap:anywhere">识别摘录：'+esc(f.preview)+'</div>':"")+'</div>'
