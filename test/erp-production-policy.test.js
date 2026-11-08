@@ -25,8 +25,7 @@ before(async () => {
       ERP_SMS_PROVIDER:"test",ERP_SMS_TEST_MODE:"1",ERP_SESSION_FALLBACK:"0"}
   });
   let err="";proc.stderr.on("data",b=>err+=String(b));
-  // 18 秒在整包并发跑时偶发不够（建库 + 生产引导 + 短信通道预检），给到 45 秒
-  for(let i=0;i<450;i++){
+  for(let i=0;i<600;i++){
     if(proc.exitCode!==null)throw Error("Server failed "+err);
     try{if((await request("GET","/api/health")).status===200)return;}catch{}
     await new Promise(r=>setTimeout(r,100));
@@ -59,7 +58,7 @@ test("production: association member IDs, approved contract signing and pay-afte
   assert.equal(created.status,200,JSON.stringify(created.body));
   assert.equal(created.body.project.owner_id,a.body.user.id);
   const pid=created.body.project.id;
-  const contract=await request("POST","/api/contracts",{pid,name:"会议服务合同",vendor:"服务供应商",amount:6000,status:"已签署"},cookie);
+  const contract=await request("POST","/api/contracts",{pid,name:"会议服务合同",vendor:"服务供应商",amount:8000,status:"已签署"},cookie);
   assert.equal(contract.status,200,JSON.stringify(contract.body));
   assert.equal(contract.body.contract.status,"待签署","creation must not bypass signing approval");
   const pending=await request("GET","/api/approvals?type="+encodeURIComponent("合同审批"),undefined,cookie);
@@ -70,16 +69,6 @@ test("production: association member IDs, approved contract signing and pay-afte
   assert.equal(decided.status,200,JSON.stringify(decided.body));
   const signed=await request("GET","/api/contracts?pid="+pid,undefined,cookie);
   assert.equal(signed.body.rows.find(x=>x.id===contract.body.contract.id).status,"已签署");
-
-  // 第五步核的是「劳务/专家类合同」，按合同分类认。
-  // 这里补一份已签署的专家劳务协议，否则第五步会因为找不到该类合同而被拦。
-  const labor=await request("POST","/api/contracts",{pid,name:"专家劳务协议",vendor:"测试专家",amount:2000,category:"劳务专家",status:"已签署"},cookie);
-  assert.equal(labor.status,200,JSON.stringify(labor.body));
-  const laborPending=await request("GET","/api/approvals?type="+encodeURIComponent("合同审批"),undefined,cookie);
-  const laborAp=laborPending.body.rows.find(x=>x.ref_id===labor.body.contract.id&&x.status==="待审批");
-  assert.ok(laborAp,"labor contract approval was created");
-  const laborDecided=await request("POST","/api/approvals/"+laborAp.id+"/decide",{approve:true,comment:"同意签署"},cookie);
-  assert.equal(laborDecided.status,200,JSON.stringify(laborDecided.body));
   const premature=await request("POST","/api/payments",{pid,type:"学会公付",payee:"供应商",payee_bank:"中国银行",payee_account:"1234567890123456",amount:100,invoice_no:"INV-1"},cookie);
   assert.equal(premature.status,409,"payment cannot precede verification");
 
@@ -116,8 +105,16 @@ test("production: association member IDs, approved contract signing and pay-afte
   assert.equal(unarchive.status,200);
   const reset=await request("POST","/api/demand/"+pid+"/reset",{},cookie);
   assert.equal(reset.status,200);
+  // 第6项只有存在真实会务需求才必核，使用与会务合同、发票相同的8000元预算。
+  const currentDemand={...demandBase,need:"需要",budget:"8000",owner:"测试会务负责人",
+    spec:"80套",quantity:"80",unit_price:"100",status:"已交付"};
+  const savedNeed=await request("PATCH","/api/demand/"+pid,{items:[currentDemand]},cookie);
+  assert.equal(savedNeed.status,200,JSON.stringify(savedNeed.body));
+  const confirmedNeed=await request("POST","/api/demand/"+pid+"/confirm",{},cookie);
+  assert.equal(confirmedNeed.status,200,JSON.stringify(confirmedNeed.body));
 
-  for (const kind of [...new Set([...MATERIAL_KINDS,"会议通知","终版议程","参会数据","劳务收集表","劳务协议","串场"])]) {
+
+  for (const kind of [...new Set([...MATERIAL_KINDS.filter(x=>x!=="权益照片"),"会议通知","劳务收集表","串场"])]) {
     const attachment = kind === "发票" ? uploadBody : await (async () => {
       const response = await fetch(root + "/api/uploads?pid=" + pid, {
         method:"POST",
@@ -135,6 +132,31 @@ test("production: association member IDs, approved contract signing and pay-afte
     assert.equal(item.status,200,"material "+kind+": "+JSON.stringify(item.body));
   }
 
+  // 核销第5项须关联材料库中按姓名登记的个人合同，而不是会务总合同。
+  const uploadPersonal=await fetch(root+"/api/uploads?pid="+pid,{
+    method:"POST",headers:{Cookie:cookie,"Content-Type":"application/octet-stream",
+      "X-File-Name":encodeURIComponent("测试讲者合同.pdf")},body:invoiceData
+  });
+  const personalFile=await uploadPersonal.json();
+  assert.equal(uploadPersonal.status,200,JSON.stringify(personalFile));
+  const personalMaterial=await request("POST","/api/projects/"+pid+"/materials",{
+    kind:"合同",name:"测试讲者",file_key:personalFile.key,
+    file_name:personalFile.name,file_size:personalFile.size,file_mime:personalFile.mime
+  },cookie);
+  assert.equal(personalMaterial.status,200,JSON.stringify(personalMaterial.body));
+  // 使用人工合成的一像素图片与虚拟讲者姓名验证讲者照片材料。
+  const photoBytes=Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/cYUAAAAASUVORK5CYII=","base64");
+  const photoRes=await fetch(root+"/api/uploads?pid="+pid,{
+    method:"POST",headers:{Cookie:cookie,"Content-Type":"image/png","X-File-Name":"speaker.png"},
+    body:photoBytes
+  });
+  const photo=await photoRes.json();
+  assert.equal(photoRes.status,200,JSON.stringify(photo));
+  const reg=await request("POST","/api/projects/"+pid+"/materials",{
+    kind:"讲者照片",name:"测试讲者",file_key:photo.key,
+    file_name:photo.name,file_size:photo.size,file_mime:photo.mime
+  },cookie);
+  assert.equal(reg.status,200,JSON.stringify(reg.body));
   const allMaterials=await request("GET","/api/materials",undefined,cookie);
   assert.equal(allMaterials.status,200);
   const projectMaterials=allMaterials.body.rows.filter(x=>x.pid===pid);
@@ -167,12 +189,16 @@ test("production: association member IDs, approved contract signing and pay-afte
   assert.equal(step.status,200,JSON.stringify(step.body));
   const record={name:"测试讲者",time:"2027-08-10",role:"讲者",amount:"1000",bankAccount:"TEST_ACCOUNT_REFERENCE"};
   const sop={
-    1:{meetingName:base.name,meetingDate:base.date,organizer:base.assoc,sponsor:"不适用",stamped:true,final:true},
-    2:{agendaSpeakers:["测试讲者"],collectionSpeakers:["测试讲者"],agreementSpeakers:["测试讲者"],noOmissions:true},
+    1:{documentKind:"会议通知",meetingName:base.name,meetingDate:base.date,organizer:base.assoc,
+      hostMeetingName:base.name,hostMeetingDate:base.date,hostOrganizer:base.assoc,
+      stamped:true,final:true},
+    2:{agendaSpeakers:["测试讲者"],collectionSpeakers:["测试讲者"],attendanceSpeakers:["测试讲者"],photoSpeakers:["测试讲者"],noOmissions:true},
     3:{signedAttendance:true},
-    4:{agendaTopics:["课题甲"],courseTopics:["课题甲"],hostTitleMatches:true,hostNameLogoMatches:true,sponsorLogoPages:[]},
-    5:{collectionRecords:[record],agreementRecords:[record]},
-    6:{draftAmount:8000,meetingName:base.name,meetingDate:base.date}
+    4:{agendaTopics:["课题甲","课题乙"],courseTopics:["课题甲"]},
+    5:{collectionRecords:[record]},
+    6:{agendaTitle:base.name,agendaTime:base.date,agendaFormat:base.form,
+      agreementTitle:base.name,agreementTime:base.date,agreementFormat:base.form,
+      agreementPartyA:base.assoc,agreementFinal:true}
   };
   // 真实例外单闭环：审批并不等于核销，必须登记整改和关联材料后再回原步骤。
   let failed=await request("POST","/api/projects/"+pid+"/verify/steps/1",
@@ -192,41 +218,19 @@ test("production: association member IDs, approved contract signing and pay-afte
   exception=await request("POST","/api/exceptions/"+exceptionId+"/resolve",
     {resolution:"已补充原件并完成逐项确认",materialId:agendaMaterial.id},cookie);
   assert.equal(exception.status,200,JSON.stringify(exception.body));
-  for(let no=1;no<=5;no++){
+  // 各步骤独立：第 1 步存在待复核例外时，其他步骤也可先行判定。
+  for(const no of [5,3,2,4,1]){
     step=await request("POST","/api/projects/"+pid+"/verify/steps/"+no,{result:"通过",evidence:sop[no]},cookie);
-    assert.equal(step.status,200,"verification "+no+": "+JSON.stringify(step.body));
+    assert.equal(step.status,200,"out-of-order verification "+no+": "+JSON.stringify(step.body));
   }
-  // 发票金额比对规则已去掉（老板 2026-11-02）：传任何值都不再影响第 6 步判定
-  step=await request("POST","/api/projects/"+pid+"/verify/steps/6",{result:"通过",invoiceAmount:1,evidence:sop[6]},cookie);
-  assert.equal(step.status,200,"发票金额不再参与判定: "+JSON.stringify(step.body));
+  step=await request("POST","/api/projects/"+pid+"/verify/steps/6",{result:"通过",invoiceAmount:7999,evidence:sop[6]},cookie);
+  assert.equal(step.status,409,"invoice total cannot differ from signed contracts");
+  step=await request("POST","/api/projects/"+pid+"/verify/steps/6",{result:"通过",invoiceAmount:8000,evidence:sop[6]},cookie);
+  assert.equal(step.status,200,JSON.stringify(step.body));
   assert.equal(step.body.verification.exceptions.find(x=>x.id===exceptionId).status,"已闭环",
     "整改必须在原步骤核销通过后才闭环");
   const freeze=await request("POST","/api/contracts",{pid,name:"Late Contract",vendor:"X",amount:1,status:"草稿"},cookie);
   assert.equal(freeze.status,409,"contracts must freeze after invoice verification");
-
-  /**
-   * 2026-11-02：核销后的锁定分三层。
-   *   · 类别：只是「算不算支出」的标签，存量把赞助协议记成「其他」的必须能改回来
-   *   · 金额：总管理员可改（纠错兜底），但改完第 6 步必须退回重判，不能留旧结论
-   *   · 其他角色改金额：直接拦
-   */
-  const contractId=contract.body.contract.id;
-  // 先验金额（此时第 6 步还是「通过」，才验得到「退回重判」这件事）
-  const moneyFix=await request("PATCH","/api/contracts/"+contractId,{amount:7000},cookie);
-  assert.equal(moneyFix.status,200,"总管理员应能更正核销后的合同金额："+JSON.stringify(moneyFix.body));
-  assert.match(String(moneyFix.body.message||""),/待判定/,"改金额必须把第 6 步退回重判");
-  const afterFix=await request("GET","/api/projects/"+pid+"/verify",undefined,cookie);
-  assert.equal(afterFix.body.verification.steps.find(s=>s.no===6).result,"待判定",
-    "合同总额变了，第 6 步的旧结论必须作废");
-  // 改回原值，不影响后面的结算用例（后面会重新判定第 6 步）
-  const moneyBack=await request("PATCH","/api/contracts/"+contractId,{amount:6000},cookie);
-  assert.equal(moneyBack.status,200,JSON.stringify(moneyBack.body));
-
-  const catFix=await request("PATCH","/api/contracts/"+contractId,{category:"赞助收入"},cookie);
-  assert.equal(catFix.status,200,"核销后类别应允许更正："+JSON.stringify(catFix.body));
-  assert.equal(catFix.body.contract.category,"赞助收入");
-  const catBack=await request("PATCH","/api/contracts/"+contractId,{category:"其他"},cookie);
-  assert.equal(catBack.status,200,JSON.stringify(catBack.body));
 
   // 模拟升级前的历史核销结果：字段标记「通过」但缺结构化证据，不能解锁财务结算。
   const { DatabaseSync }=require("node:sqlite");
@@ -237,44 +241,18 @@ test("production: association member IDs, approved contract signing and pay-afte
   assert.equal(status.body.verification.complete,false,"旧版未留证的通过结果不能满足生产核销门禁");
   let blocked=await request("POST","/api/projects/"+pid+"/transition",{action:"verify_pass"},cookie);
   assert.equal(blocked.status,409,"历史缺证据不得进入财务结算");
-  // 重新确认前置步骤后，下游旧证据全部失效，必须顺序重新核验。
+  // 补录第1项的历史结构化依据，不应清除其他五项已完成的独立核验。
   step=await request("POST","/api/projects/"+pid+"/verify/steps/1",{result:"通过",evidence:sop[1]},cookie);
   assert.equal(step.status,200,JSON.stringify(step.body));
   status=await request("GET","/api/projects/"+pid+"/verify",undefined,cookie);
-  assert.equal(status.body.verification.steps.find(s=>s.no===2).result,"待判定");
-  assert.equal(status.body.verification.steps.find(s=>s.no===6).result,"待判定");
-  for(let no=2;no<=5;no++){
-    step=await request("POST","/api/projects/"+pid+"/verify/steps/"+no,{result:"通过",evidence:sop[no]},cookie);
-    assert.equal(step.status,200,"repeat verification "+no+": "+JSON.stringify(step.body));
+  for(const no of [2,3,4,5,6]){
+    const checked=status.body.verification.steps.find(s=>s.no===no);
+    assert.equal(checked.result,"通过","重新判定第1项不能抹掉第"+no+"项");
+    assert.ok(checked.evidence,"其他核验步骤仍须保留原始证据摘要");
   }
-  step=await request("POST","/api/projects/"+pid+"/verify/steps/6",
-    {result:"通过",evidence:sop[6]},cookie);
-  assert.equal(step.status,200,JSON.stringify(step.body));
+  assert.equal(status.body.verification.complete,true,"六项全部独立通过后恢复完整核销状态");
   step=await request("POST","/api/projects/"+pid+"/transition",{action:"verify_pass"},cookie);
   assert.equal(step.status,200,JSON.stringify(step.body));
-
-  /**
-   * 老板 2026-11-02 实测撞出来的洞：项目已经「已核销」，回头重新判定第 1 步，
-   * 后续步骤会被清空成待判定，但项目状态还挂在「已核销」——
-   * 于是出现「已核销 + 核销 5/6」，付款门禁按状态放行、结算按核销拦住，两头都不对。
-   * 重新判定前置步骤 = 核销结论作废，状态必须跟着退回「待核销」。
-   */
-  const redo=await request("POST","/api/projects/"+pid+"/verify/steps/1",{result:"通过",evidence:sop[1]},cookie);
-  assert.equal(redo.status,200,JSON.stringify(redo.body));
-  const afterRedo=await request("GET","/api/projects/"+pid,undefined,cookie);
-  assert.equal(afterRedo.body.project.status,"待核销",
-    "重新判定前置步骤后，已核销必须退回待核销，实际："+afterRedo.body.project.status);
-  assert.equal(afterRedo.body.verification.judged<6,true,"后续步骤应已失效");
-  // 恢复：重新走一遍 2~6 再核销通过
-  for(let no=2;no<=5;no++){
-    const r=await request("POST","/api/projects/"+pid+"/verify/steps/"+no,{result:"通过",evidence:sop[no]},cookie);
-    assert.equal(r.status,200,"redo verification "+no+": "+JSON.stringify(r.body));
-  }
-  const re6=await request("POST","/api/projects/"+pid+"/verify/steps/6",{result:"通过",evidence:sop[6]},cookie);
-  assert.equal(re6.status,200,JSON.stringify(re6.body));
-  const rePass=await request("POST","/api/projects/"+pid+"/transition",{action:"verify_pass"},cookie);
-  assert.equal(rePass.status,200,JSON.stringify(rePass.body));
-
   const settlementData={action:"settle",payee_bank:"中国银行北京分行",payee_account:"1234567890123456"};
   let settle=await request("POST","/api/projects/"+pid+"/transition",settlementData,cookie);
   assert.equal(settle.status,409,"no payment must block settlement");

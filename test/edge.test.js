@@ -151,7 +151,7 @@ test("校验：合同金额 0 被拒", async () => {
 });
 
 test("校验：核销步骤号越界被拒", async () => {
-  const r = await finance("POST", "/api/projects/MP-2026-003/verify/steps/7", { result: "通过" });
+  const r = await finance("POST", "/api/projects/MP-2026-003/verify/steps/8", { result: "通过" });
   assert.equal(r.status, 400);
 });
 

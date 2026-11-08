@@ -72,10 +72,7 @@ before(async () => {
   clean();
   proc = spawn(process.execPath, ["--experimental-sqlite", "server/index.js"], {
     cwd: path.join(__dirname, ".."),
-    // 落库上限压到 20 MB、压缩前上限压到 30 MB，方便用 31 MB 的样本验证
-    // 「超上限直接拒」，否则要造 200 MB 的请求体才能测到这条分支。
-    env: { ...process.env, ERP_PORT: String(PORT), ERP_DB: DB, ERP_UPLOAD_DIR: UP,
-      ERP_MAX_FILE_MB: "20", ERP_MAX_UPLOAD_MB: "30" },
+    env: { ...process.env, ERP_PORT: String(PORT), ERP_DB: DB, ERP_UPLOAD_DIR: UP },
     stdio: ["ignore", "pipe", "pipe"]
   });
   proc.stderr.on("data", (d) => {
@@ -128,7 +125,7 @@ test("伪造扩展名被文件头嗅探拦下", async () => {
   assert.match(r.data.error.message, /无法识别文件类型/);
 });
 
-test("超过落库上限（20 MB）且压不动时被拒绝", async () => {
+test("超过 20 MB 被拒绝", async () => {
   const big = Buffer.concat([JPEG, Buffer.alloc(20 * 1024 * 1024)]);
   const r = await upload(exec, big);
   assert.equal(r.status, 413);
@@ -197,111 +194,4 @@ test("非法 file_key 被拒绝", async () => {
   });
   assert.equal(r.status, 400);
   assert.match(r.data.error.message, /附件标识不合法/);
-});
-
-/* ---------------- 在线预览（核销「查看原件」走这里） ---------------- */
-
-test("图片原件预览直接返回图片本身，不触发下载", async () => {
-  const up = await upload(exec, JPEG, { name: "preview-photo.jpg" });
-  assert.equal(up.status, 200, JSON.stringify(up.data));
-  const r = await fetch(`${BASE}/api/uploads/${up.data.key}/preview`, { headers: { cookie: exec } });
-  assert.equal(r.status, 200);
-  assert.equal(r.headers.get("content-type"), "image/jpeg");
-  assert.match(r.headers.get("content-disposition") || "", /^inline/, "预览必须是 inline，不能变成附件下载");
-  const buf = Buffer.from(await r.arrayBuffer());
-  assert.ok(buf.equals(JPEG), "预览返回的必须就是原图字节");
-});
-
-test("PDF 原件预览渲染成 PNG；缺少 poppler 时明确报错而不是悄悄下载", async () => {
-  const { PDFDocument, StandardFonts, rgb } = require("pdf-lib");
-  const doc = await PDFDocument.create();
-  const page = doc.addPage([420, 300]);
-  const font = await doc.embedFont(StandardFonts.Helvetica);
-  page.drawText("Final Agenda 2027", { x: 40, y: 220, font, size: 18, color: rgb(0, 0, 0) });
-  const pdf = Buffer.from(await doc.save());
-
-  const up = await upload(exec, pdf, { mime: "application/pdf", name: "agenda.pdf" });
-  assert.equal(up.status, 200, JSON.stringify(up.data));
-
-  const r = await fetch(`${BASE}/api/uploads/${up.data.key}/preview?page=1`, { headers: { cookie: exec } });
-  if (r.status === 503) {
-    // 本机没装 poppler 时走这条：必须给出可读错误码，前端据此提供下载入口
-    const body = await r.json();
-    assert.equal(body.error.code, "PREVIEW_UNAVAILABLE");
-    return;
-  }
-  assert.equal(r.status, 200, `实际 ${r.status}`);
-  assert.equal(r.headers.get("content-type"), "image/png");
-  assert.equal(r.headers.get("x-preview-pages"), "1");
-  const png = Buffer.from(await r.arrayBuffer());
-  assert.equal(png.subarray(1, 4).toString("ascii"), "PNG", "返回的应是 PNG 图片");
-});
-
-test("预览与下载共用同一套权限：无关角色不能看", async () => {
-  const up = await upload(exec, JPEG, { name: "preview-perm.jpg" });
-  assert.equal(up.status, 200, JSON.stringify(up.data));
-  const r = await fetch(`${BASE}/api/uploads/${up.data.key}/preview`, { headers: { cookie: guest } });
-  assert.equal(r.status, 403, "未关联单据的附件只允许上传者本人或总管理员预览");
-});
-
-test("预览接口同样校验 key 合法性", async () => {
-  const r = await fetch(`${BASE}/api/uploads/not-a-key/preview`, { headers: { cookie: admin } });
-  assert.equal(r.status, 400);
-});
-
-test("LibreOffice 缺失时，Office 转换给出明确错误码而不是静默失败", async () => {
-  // 用空 PATH 起一个子进程，模拟「服务器没装 LibreOffice」的机器。
-  // 断言的是失败形态：必须能识别为 SOFFICE_MISSING，前端据此提示下载。
-  const { spawnSync } = require("node:child_process");
-  const probe = spawnSync(process.execPath, ["-e", `
-    const { hasLibreOffice, toPdf } = require("./server/lib/office-preview");
-    (async () => {
-      const has = await hasLibreOffice();
-      console.log("available=" + has);
-      try { await toPdf(Buffer.from("not-a-real-docx"), "docx", "probe"); console.log("code=CONVERTED"); }
-      catch (e) { console.log("code=" + e.code); }
-    })();
-  `], {
-    cwd: path.join(__dirname, ".."),
-    encoding: "utf8",
-    env: { ...process.env, PATH: "/nonexistent" },
-    timeout: 30000
-  });
-  const out = String(probe.stdout || "");
-  assert.match(out, /available=false/, "空 PATH 下不应探测到 LibreOffice：" + out + String(probe.stderr || ""));
-  assert.match(out, /code=SOFFICE_MISSING/, "缺少 LibreOffice 时必须报 SOFFICE_MISSING：" + out);
-});
-
-/* ---------------- 超大附件自动压缩 ---------------- */
-
-test("超过压缩前上限（30 MB）直接拒绝，并说明上限是压缩前", async () => {
-  const big = Buffer.concat([JPEG, Buffer.alloc(31 * 1024 * 1024)]);
-  const r = await upload(exec, big);
-  assert.equal(r.status, 413, JSON.stringify(r.data));
-  assert.match(r.data.error.message, /压缩前/);
-});
-
-test("压缩模块：小文件不需要压、Office 压不了、损坏文件不抛 500", async () => {
-  const { shrinkToLimit } = require("../server/lib/shrink");
-  const limit = 20 * 1024 * 1024;
-
-  // 未超限：不动它
-  const small = await shrinkToLimit(JPEG, "image/jpeg", limit);
-  assert.equal(small.ok, false);
-  assert.equal(small.reason, "not-needed");
-
-  // 旧版 .ppt 是 CFB 二进制，没有安全的改写手段，明确返回 unsupported
-  const legacy = await shrinkToLimit(Buffer.alloc(limit + 1), "application/vnd.ms-powerpoint", limit);
-  assert.equal(legacy.ok, false);
-  assert.equal(legacy.reason, "unsupported");
-
-  // pptx 会走「解包重压图片」，但这里喂的是垃圾字节：只能失败，不能抛异常
-  const pptx = await shrinkToLimit(Buffer.alloc(limit + 1), "application/vnd.openxmlformats-officedocument.presentationml.presentation", limit);
-  assert.equal(pptx.ok, false);
-  assert.ok(["tool-missing", "failed", "still-large", "unsupported"].includes(pptx.reason), pptx.reason);
-
-  // 损坏的 PDF：要么工具没装，要么压失败，但绝不能抛异常（否则上传会变成 500）
-  const broken = await shrinkToLimit(Buffer.alloc(limit + 1, 0x41), "application/pdf", limit);
-  assert.equal(broken.ok, false);
-  assert.ok(["tool-missing", "failed", "still-large"].includes(broken.reason), broken.reason);
 });

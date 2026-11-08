@@ -62,10 +62,7 @@ function isSecureRequest(req, url) {
  * 照片走这条路，不经过 JSON 解析——3 MB 的 JPEG 转成 JSON base64 会膨胀到 4 MB 且毫无必要。
  */
 const UPLOAD_PATH = "/api/uploads";
-// 上传入口按「压缩前的上限」收字节：超过落库上限（默认 50 MB）的扫描件先收进来，压缩后再落库。
-// 这里多留 1 MB 给请求头，真正的业务校验在 files.js 里做。
-const { MAX_UPLOAD_BYTES } = require("./storage");
-const UPLOAD_LIMIT = MAX_UPLOAD_BYTES + 2 * 1024 * 1024;
+const UPLOAD_LIMIT = 21 * 1024 * 1024; // 20 MB data plus request overhead
 
 function buildRouter() {
   const router = new Router();
@@ -76,10 +73,12 @@ function buildRouter() {
     require("../api/mini"),
     require("../api/mini-applications"),
     require("../api/projects"),
+    require("../api/project-notice"),
     require("../api/verify"),
     require("../api/finance"),
     require("../api/income"),
     require("../api/system"),
+    require("../api/user-access"),
     require("../api/demand"),
     require("../api/files"),
     require("../api/material-workbench"),
@@ -166,8 +165,7 @@ async function handle(req, res) {
     if (out && out.__file !== undefined) {
       const f = out.__file;
       sendBinary(res, 200, f.buffer, { mime: f.mime, name: f.name,
-        cache: f.cache || "private, max-age=86400", disposition: f.download ? "attachment" : "inline",
-        headers: f.headers });
+        cache: f.cache || "private, max-age=86400", disposition: f.download ? "attachment" : "inline" });
       return;
     }
     if (out && out.__csv !== undefined) {

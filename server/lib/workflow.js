@@ -1,69 +1,80 @@
 "use strict";
+const {laborSheetInfo}=require("./labor-sop");
+const {contractPool}=require("./labor-contracts");
+const {demandSopState}=require("./meeting-demand-sop");
+const {sponsorRights}=require("./sponsor-rights");
 const { db } = require("./db");
-const { now, nextId, conflict, forbidden, notFound, bad, cents, yuan } = require("./util");
+const {parseTaxFeeRate}=require("./budget-fee");
+const {withBudgetFee}=require("./budget-fee");
+const { now, nextId, conflict, forbidden, notFound, bad, cents, yuan, parseBankAccount, parseBankName } = require("./util");
 const { can, isSuper, ROLES } = require("./rbac");
 const { logAudit } = require("./audit");
-const { FLOW, VERIFY_STEPS, MATERIAL_KINDS, EXPENSE_CONTRACT_SQL } = require("./constants");
+const { FLOW, VERIFY_STEPS } = require("./constants");
 const { isDemoMode } = require("./runtime");
+const verifyOcr=require("./verify-ocr-compare");
 
 function getProject(id) {
   const p = db.prepare("SELECT * FROM projects WHERE id = ?").get(id);
   if (!p) throw notFound(`项目 ${id} 不存在`);
-  return p;
+  return withBudgetFee(p);
 }
 
 /** 核销进度 */
 function verification(pid) {
-  const rows = db.prepare("SELECT * FROM verify_steps WHERE pid = ? ORDER BY step_no").all(pid);
-  const map = new Map(rows.map((r) => [r.step_no, r]));
-  const steps = VERIFY_STEPS.map((def) => {
-    const r = map.get(def.no);
-    return {
-      ...def,
-      result: r ? r.result : "待判定",
-      remark: r ? r.remark : "",
-      invoiceAmount: r ? r.invoice_amount : null,
-      checked_by: r ? r.checked_by : "",
-      checked_at: r ? r.checked_at : "",
-      evidence: r && r.evidence_json ? JSON.parse(r.evidence_json) : null
-    };
+  const rows=db.prepare("SELECT * FROM verify_steps WHERE pid = ? ORDER BY step_no").all(pid);
+  const map=new Map(rows.map(r=>[r.step_no,r]));
+  const labor=laborSheetInfo(db,pid);
+  const demand=demandSopState(db,pid);
+  const sponsor=sponsorRights(db,pid);
+  const steps=VERIFY_STEPS.map(def=>{
+    const r=map.get(def.no);
+    const required=(def.no!==5 || labor.required) && (def.no!==6 || demand.required) &&
+      (def.no!==7 || sponsor.required);
+    const evidence=r?.evidence_json?JSON.parse(r.evidence_json):null;
+    const stale=required && r?.result==="通过" && (
+      (evidence?.origin==="ocr-assisted-human-review" && evidence.scanToken!==verifyOcr.report(pid,def.no).token) ||
+      (def.no===5 && (evidence?.laborSourceSignature!==labor.signature ||
+        !evidence?.contractPoolSignature || evidence.contractPoolSignature!==contractPool(db,pid).signature)) ||
+      (def.no===2 && !isDemoMode() && (
+        !Array.isArray(evidence?.matchedSources) ||
+        evidence.matchedSources.join("|")!=="终版议程|签到表|讲者照片"
+      )) ||
+      (def.no===6 && !isDemoMode() && evidence?.demandSopSignature!==demand.signature) ||
+      (def.no===7 && !isDemoMode() && evidence?.rightsSignature!==sponsor.signature)
+    );
+    return {...def,required,
+      result:!required?"不适用":stale?"待判定":(r?r.result:"待判定"),
+      remark:!required||stale?"":(r?r.remark:""),
+      invoiceAmount:r?r.invoice_amount:null,
+      checked_by:!required||stale?"":(r?r.checked_by:""),
+      checked_at:!required||stale?"":(r?r.checked_at:""),
+      evidence:!required||stale?null:evidence};
   });
-  const judged = steps.filter((s) => s.result !== "待判定").length;
-  const passed = steps.filter((s) => (s.result === "通过" && (isDemoMode() || !!s.evidence)) || (isDemoMode() && s.result === "已解例外")).length;
-  const failedSteps = steps.filter((s) => s.result === "不通过").map((s) => s.no);
-  const openExceptions = db
-    .prepare("SELECT COUNT(*) AS c FROM exceptions WHERE pid = ? AND status IN ('待审批','待复核')")
-    .get(pid).c;
-  const exceptions = db.prepare("SELECT * FROM exceptions WHERE pid = ? ORDER BY created_at DESC").all(pid);
-  return {
-    steps,
-    judged,
-    passed,
-    total: VERIFY_STEPS.length,
-    failedSteps,
-    openExceptions,
-    exceptions,
-    complete: passed === VERIFY_STEPS.length && openExceptions === 0 && (isDemoMode() || failedSteps.length===0)
-  };
+  const active=steps.filter(s=>s.required);
+  const judged=active.filter(s=>s.result!=="待判定").length;
+  const passed=active.filter(s=>(s.result==="通过" && (isDemoMode()||!!s.evidence)) || (isDemoMode() && s.result==="已解例外")).length;
+  const failedSteps=active.filter(s=>s.result==="不通过").map(s=>s.no);
+  const openExceptions=db.prepare("SELECT COUNT(*) AS c FROM exceptions WHERE pid = ? AND status IN ('待审批','待复核')").get(pid).c;
+  const exceptions=db.prepare("SELECT * FROM exceptions WHERE pid = ? ORDER BY created_at DESC").all(pid);
+  return {steps,judged,passed,total:active.length,laborRequired:labor.required,demandRequired:demand.required,rightsRequired:sponsor.required,failedSteps,openExceptions,exceptions,
+    complete:passed===active.length && openExceptions===0 && (isDemoMode() || failedSteps.length===0)};
 }
 
-/** 归档材料 8 类齐备情况 */
+/** 归档材料改为自由类别：任意一份有效附件即可进入后续核销/归档，不要求固定8类。 */
 function materialsStatus(pid) {
-  const rows = db.prepare("SELECT DISTINCT kind FROM materials WHERE pid = ? AND deleted_at IS NULL").all(pid);
-  const have = rows.map((r) => r.kind);
+  const rows = db.prepare(
+    "SELECT kind,file_key FROM materials WHERE pid=? AND (deleted_at IS NULL OR deleted_at='')"
+  ).all(pid);
+  const have=[...new Set(rows.map(r=>r.kind))];
+  const uploaded=rows.filter(r=>r.file_key && String(r.file_key).trim()).length;
+  // 仅演示环境兼容早期测试数据：旧测试用无附件的材料登记记录模拟整套清单。
+  // 生产/阿里云真实环境仍严格要求至少一份已上传附件，不能仅凭名称推进。
+  const hasEvidence=uploaded>0 || (isDemoMode() && rows.length>0);
   const toggles=db.prepare("SELECT kind,enabled FROM meeting_material_modules WHERE pid=?").all(pid);
   const disabled=new Set(toggles.filter(m=>m.enabled===0).map(m=>m.kind));
-  // 固定模块可以停用待办入口，但不能豁免归档必备 8 类（尤其课件）。
-  const required=MATERIAL_KINDS;
-  /**
-   * 等价类别：同一份材料在不同环节叫法不同，不该逼人传两遍。
-   *   议程   ← 终版议程（核销第 1/2/4 步要的是终版议程，归档清单写的是「议程」）
-   *   签到表 ← 参会数据（线上会议没有签到表，参会数据就是它的等价物）
-   *   劳务表 ← 劳务收集表（《劳务费发放汇总表》在核销里叫收集表，归档清单里叫劳务表）
-   */
-  const EQUIV={ "议程":["终版议程"], "签到表":["参会数据"], "劳务表":["劳务收集表"] };
-  const missing = required.filter(k=>!have.includes(k) && !(EQUIV[k]||[]).some(x=>have.includes(x)));
-  return { have, missing, ok: missing.length === 0, required, disabled:[...disabled] };
+  return { have, missing: hasEvidence ? [] : ["至少上传1份材料附件"],
+    ok: hasEvidence, required: [], count:rows.length, uploadedCount:uploaded,
+    disabled:[...disabled] };
 }
 
 function settlementOf(pid) {
@@ -85,7 +96,7 @@ function demandSummary(pid) {
   const sheet = db.prepare("SELECT * FROM demand_sheets WHERE pid = ?").get(pid);
   if (!sheet) return null;
   const items = db.prepare(
-    "SELECT grp,item,need,budget FROM demand_items WHERE pid = ? ORDER BY ordering, id"
+    "SELECT grp,item,note,need,spec,quantity,unit_price,budget,owner,due FROM demand_items WHERE pid = ? ORDER BY ordering, id"
   ).all(pid);
   if (!items.length) return null;
   const need = items.filter((x) => x.need === "需要");
@@ -97,7 +108,14 @@ function demandSummary(pid) {
     needCount: need.length,
     // 逐条累加会留浮点尾巴，收敛到「分」
     budgetTotal: yuan(need.reduce((s, x) => s + (Number(x.budget) || 0), 0)),
-    items: need.map((x) => ({ grp: x.grp, item: x.item, budget: x.budget || "" }))
+    // 会议项目详情与核销共用该摘要：仅暴露「需要」项，但补齐展示所需的
+    // 业务提示、规格、负责人、交付时间；保留原有数量/单价/金额字段口径及排序。
+    // 「不需要」项仍留在原始需求单与数据库中，不进入本清单或核销汇总。
+    items: need.map((x) => ({
+      grp: x.grp, item: x.item, note: x.note || "", need: x.need,
+      spec: x.spec || "", quantity: x.quantity || "", unit_price: x.unit_price || "",
+      budget: x.budget || "", owner: x.owner || "", due: x.due || ""
+    }))
   };
 }
 
@@ -107,47 +125,14 @@ function demandSummary(pid) {
  * 用「有没有结算单」而不是只看 status —— 状态可能被人为改过，
  * 但结算单存在与否是硬事实。材料删除、需求单、项目成员等
  * 「结算后不该再动」的写操作统一走这里，避免每个接口各写一套判断。
- *
- * 总管理员例外放行（老板 2026-11-02：处于历史冻结状态的内容总管理员也要能改）。
- * 冻结是为了防误改，不是为了把纠错的路堵死 —— 归档后发现材料传错、
- * 结算后金额录错，只有总管理员能兜底。放行必须留痕：
- * 事后查「谁在封账之后动过这笔账」，得查得到。
  */
-function assertNotFrozen(p, what = "业务数据", user = null, ip = "") {
-  const archived = p.status === "已归档";
-  const settled = archived ? false : !!settlementOf(p.id);
-  if (!archived && !settled) return;
-  if (isSuper(user)) {
-    logAudit({
-      user, module: "系统配置", action: "冻结放行", target: p.id,
-      detail: `${what}：${archived ? "已归档（卷宗封存）" : "已结算（账目封账）"}状态下由总管理员例外修改`,
-      ip
-    });
-    return;
-  }
-  if (archived) {
+function assertNotFrozen(p, what = "业务数据") {
+  if (p.status === "已归档") {
     throw conflict(`项目已归档，${what}已封存，不可修改`, "ARCHIVED", { status: p.status });
   }
-  throw conflict(`结算单已生成，${what}已冻结，不可修改`, "FROZEN", { status: p.status });
-}
-
-/**
- * 冻结门禁的统一出口：命中冻结时，总管理员放行并留痕，其他人照旧报错。
- *
- * 有些接口的冻结条件比「已归档 / 有结算单」更细（合同台账封账、收入凭证冻结、
- * 核销后金额锁定），没法全塞进 assertNotFrozen。但它们必须遵循同一条规则：
- * **总管理员是纠错兜底，冻结挡的是误改，不是挡他。** 放行一律写审计。
- */
-function frozenGate(ctx, p, blocked, message, code, what) {
-  if (!blocked) return;
-  if (isSuper(ctx.user)) {
-    logAudit({
-      user: ctx.user, module: "系统配置", action: "冻结放行", target: p.id,
-      detail: `${what}：${message}（总管理员例外操作）`, ip: ctx.ip
-    });
-    return;
+  if (settlementOf(p.id)) {
+    throw conflict(`结算单已生成，${what}已冻结，不可修改`, "FROZEN", { status: p.status });
   }
-  throw conflict(message, code, { status: p.status });
 }
 
 /**
@@ -163,104 +148,52 @@ function committed(pid) {
   ).get(pid).s);
 }
 
-/**
- * 结算账目：已付款、已签支出合同总额、代扣税差额。
- *
- * 劳务表记的是**含税**金额，实付给专家的是税后：刘志华 ¥2,300 含税，
- * 劳务报酬个税 (2300−800)×20% = ¥300 代扣，实付 ¥2,000。
- * 所以「已付款 = 合同总额」在有代扣税时天然不成立 —— 硬要求相等，财务就永远结不了账。
- *
- * 这里把差额定性为代扣税，并给它一个上限：劳务报酬个税预扣最高档 40%
- * （20% / 30% / 40% 三档，加上 20% 费用扣除后最高约为合同额的 32%）。
- * 超过这个比例就不再是税，而是真的有款没付，必须拦住。
- */
-const TAX_CAP_RATE = 0.4;
-function settlementLedger(pid, database = db) {
-  const paid = yuan(database.prepare(
-    "SELECT COALESCE(ROUND(SUM(amount),2),0) AS total FROM payments WHERE pid=? AND status='已付款'"
-  ).get(pid).total);
-  const signedTotal = yuan(database.prepare(
-    "SELECT COALESCE(ROUND(SUM(amount),2),0) AS total FROM contracts WHERE pid=? AND status='已签署' AND " + EXPENSE_CONTRACT_SQL
-  ).get(pid).total);
-  const laborTotal = yuan(database.prepare(
-    "SELECT COALESCE(ROUND(SUM(amount),2),0) AS total FROM contracts WHERE pid=? AND status='已签署' AND category='劳务专家' AND " + EXPENSE_CONTRACT_SQL
-  ).get(pid).total);
-  const gap = yuan((cents(signedTotal) - cents(paid)) / 100); // 正数 = 合同总额比实付多
-  const taxCap = yuan((cents(laborTotal) * TAX_CAP_RATE) / 100);
-  return {
-    paid, signedTotal, laborTotal, taxCap,
-    over: gap < 0 ? yuan(-gap) : 0,          // 付多了（重复付款 / 无合同付款）
-    tax: gap > 0 && gap <= taxCap ? gap : 0, // 认定为劳务代扣税
-    shortfall: gap > taxCap ? gap : 0        // 超出税上限，视为仍有款未付
-  };
-}
-
 /** 门禁：所有前置条件 */
-const GUARDS = {  submit(p) {
+const GUARDS = {
+  submit(p) {
     if (!p.agenda || String(p.agenda).trim().length < 4) return "立项必须填写初版议程要点";
     if (!(p.budget > 0)) return "预算必须大于 0";
     return null;
   },
-  /**
-   * V1.2.19：材料 8 类齐备才能「开启核销」。
-   *
-   * 老板 2026-10-28：「必须完成 材料 8 项录入，才能开启 核销功能」。
-   * 原来材料只是**归档**的前置，核销 6 步可以先判、材料后补 ——
-   * 于是判定人手里没有签到表、没有票据，只能凭印象点「通过」，核销就退化成橡皮图章。
-   * 现在把材料前置到核销入口：材料不齐，提交核销直接拦。
-   */
+  // 只要求登记并上传至少一份材料原件；不限制类别、数量或固定清单。
   request_verify(p) {
-    const m = materialsStatus(p.id);
-    if (!m.ok) {
-      return `核销材料还缺 ${m.missing.length} 类：${m.missing.join("、")}。` +
-        `材料 8 类齐备后才能开启核销（材料页签可逐类登记）`;
-    }
+    if (!materialsStatus(p.id).ok) return "请先上传至少一份会议材料附件，再开启核销";
     return null;
   },
   verify_pass(p) {
-    const m = materialsStatus(p.id);
-    if (!m.ok) return `核销材料缺 ${m.missing.length} 类：${m.missing.join("、")}，补齐后才能核销通过`;
+    if (!materialsStatus(p.id).ok) return "会议材料附件已全部删除，请至少保留一份上传附件";
     const v = verification(p.id);
-    if (v.judged < v.total) return `还有 ${v.total - v.judged} 步未判定，6 步必须全部判定`;
+    if (v.judged < v.total) return `还有 ${v.total - v.judged} 项必核步骤未判定，第5项看劳务表、第6项看会务需求、第7项看已签赞助合同`;
     if (v.failedSteps.length) return `第 ${v.failedSteps.join("、")} 步不通过，需提交例外单并获批`;
     if (v.openExceptions > 0) return `存在 ${v.openExceptions} 张未完成处理或待复核的例外单`;
-    if (!v.complete) return "六步须全部复核通过；生产环境不接受缺少结构化证据的旧结论或以例外审批代替核销";
+    if (!v.complete) return "适用核销项须全部通过；不接受缺少证据的旧结论或以例外审批代替核销";
     return null;
   },
   settle(p) {
     const v = verification(p.id);
-    if (!v.complete) return "核销未通过（6 步未全过或存在未决例外），不能结算";
+    if (!v.complete) return "核销未通过（适用项目未全过或存在未决例外），不能结算";
     if (settlementOf(p.id)) return "结算单已存在，不可重复生成";
     const pending = db
       .prepare("SELECT COUNT(*) AS c FROM payments WHERE pid = ? AND status IN ('待审批','已审批')")
       .get(p.id).c;
     if (pending) return `还有 ${pending} 笔付款未完成（待审批 / 已审批），需先处理完才能结算`;
     if (!isDemoMode()) {
-      const paid = db.prepare("SELECT COUNT(*) AS n FROM payments WHERE pid=? AND status='已付款'").get(p.id);
+      const paid = db.prepare("SELECT COUNT(*) AS n, COALESCE(SUM(amount),0) AS total FROM payments WHERE pid=? AND status='已付款'").get(p.id);
       if (!paid.n) return "结算前必须先申请付款并由财务完成实际付款，不能跳过付款直接结算";
-      // 发票金额比对规则已去掉（老板 2026-11-02）：改为要求第 6 步已通过并留有依据
-      const matched = db.prepare("SELECT result, evidence_json FROM verify_steps WHERE pid=? AND step_no=6 AND result='通过'").get(p.id);
-      if (!matched || !matched.evidence_json)
-        return "会务三单核验（第 6 步）尚未完成，不允许结算";
-      /**
-       * 老板 2026-11-02：劳务表是含税金额，实付是税后，两者本来就不相等。
-       * 所以不再要求「已付款 = 合同总额」，而是拆成三种情况：
-       *   付多了       → 重复付款或没有合同的付款，拦住
-       *   差额 ≤ 税上限 → 认定为劳务代扣税，放行，并记进结算单
-       *   差额 > 税上限 → 还有款没付，拦住
-       */
-      const L = settlementLedger(p.id);
-      if (L.over > 0)
-        return `已付款总额 ¥${L.paid} 超出已核销合同总额 ¥${L.signedTotal} ¥${L.over}，不能结算；请先核对是否有重复付款或无合同付款`;
-      if (L.shortfall > 0)
-        return `已付款总额 ¥${L.paid} 比合同总额 ¥${L.signedTotal} 少 ¥${L.shortfall}，` +
-          `已超出劳务代扣税上限 ¥${L.taxCap}（劳务合同合计 ¥${L.laborTotal} × 40%），可能仍有款未付`;
+      if (v.demandRequired) {
+        const step=v.steps.find(s=>s.no===6);
+        if(step?.result!=="通过" || !Number.isFinite(step.invoiceAmount))
+          return "会务需求存在时必须完成第6项会务协议、预算、合同及发票核对，才能结算";
+      }
+      const signedTotal=db.prepare("SELECT COALESCE(SUM(amount),0) AS total FROM contracts WHERE pid=? AND status='已签署'").get(p.id).total;
+      if(cents(paid.total)!==cents(signedTotal))
+        return `已付款总额 ¥${yuan(paid.total)} 与已核销合同请款总额 ¥${yuan(signedTotal)} 不一致，不能结算；含免票专家劳务费`;
     }
     return null;
   },
   archive(p) {
     const m = materialsStatus(p.id);
-    if (!m.ok) return `归档材料缺 ${m.missing.length} 类：${m.missing.join("、")}`;
+    if (!m.ok) return "归档前至少保留一份已上传材料附件";
     if (!settlementOf(p.id)) return "结算单未生成，不能归档";
     const pending = db
       .prepare("SELECT COUNT(*) AS c FROM payments WHERE pid = ? AND status IN ('待审批','已审批')")
@@ -365,6 +298,9 @@ function transition(projectId, action, user, payload = {}, ip = "") {
       const ap = db
         .prepare("SELECT * FROM approvals WHERE pid = ? AND type = '立项审批' AND status = '待审批' ORDER BY created_at DESC")
         .get(p.id);
+      // 审批的同一同步业务动作中冻结函件正文和当前协会 Word 模板引用。
+      // Word 字节可在下载时由快照生成，之后模板更换也不会改变本项目通知函。
+      require("./project-notice").freeze(p,user,ap?.id||null,{approvedAt:now()});
       if (ap) {
         db.prepare("UPDATE approvals SET status = '已通过', decided_by = ?, decided_at = ?, comment = ? WHERE id = ?")
           .run(user.name, now(), String(payload.comment || "同意立项"), ap.id);
@@ -375,44 +311,42 @@ function transition(projectId, action, user, payload = {}, ip = "") {
     case "settle": {
       const at = now();
       /**
-       * 老板 2026-11-02：结算单只是业务资金结算结果的看板，不承担付款职能 ——
-       * 钱在「付款」环节已经付完了，结算单不再需要「收款方 / 开户行 / 银行账号」。
-       * 所以这三个字段既不校验也不写入；历史结算单上已有的值保留不动（只读留档）。
+       * V1.2.18：结算单必须有收款方与收款账户。
+       *
+       * 老板 2026-10-28：「生成结算单 / 付款两个功能板块缺少了收款方和银行账号信息」。
+       * 结算单原来只有收入 / 支出 / 结余三个数，结余打给谁、打到哪个账户纸上一个字没有，
+       * 财务拿到单子还得回头问人。
+       *
+       * 收款方不传时默认取项目负责人（结余通常归负责人所属协会），
+       * 但开户行与账号必须显式填 —— 这个没法猜，猜错就是打错钱。
        */
-      const payee = null, payeeBank = null, payeeAccount = null;
+      const payee = String((payload && payload.payee) || p.owner || "").trim();
+      if (!payee) throw bad("结算单收款方为必填项");
+      if (payee.length > 60) throw bad("收款方不能超过 60 字");
+      const payeeBank = parseBankName(payload && payload.payee_bank, "收款开户行");
+      const payeeAccount = parseBankAccount(payload && payload.payee_account, "收款账号");
 
       // 三个数都必须落在「分」上：140000 - 135580.6 = 4419.399999999994，
       // 不收敛的话结算单 profit 会带着 12 位小数入库，导出 CSV 也是这个数。
       const income = yuan(p.budget);
-      /**
-       * 支出取「已签支出合同总额」，而不是「已付款合计」。
-       *
-       * 劳务表是含税金额，实付给专家的是税后，中间那笔代扣税同样是协会的支出
-       * （要交给税务局）。只按已付款算支出，结算单会少记一笔税，结余虚高。
-       * 差额（代扣税）单独存进 tax_withheld，账上分得清「付给谁」和「代扣多少」。
-       */
-      const L = isDemoMode() ? null : settlementLedger(p.id);
-      const paid = yuan(
+      const expense = yuan(
         db.prepare("SELECT COALESCE(ROUND(SUM(amount),2),0) AS s FROM payments WHERE pid = ? AND status = '已付款'")
           .get(p.id).s
       );
-      const taxWithheld = L ? yuan(L.tax) : 0;
-      const expense = yuan(paid + taxWithheld);
       const profit = yuan(income - expense);
       const id = nextId(db, "settlements", "id", "ST");
       db.prepare(
-        "INSERT INTO settlements (id,pid,income,expense,profit,tax_withheld,payee,payee_bank,payee_account,status,created_by,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)"
-      ).run(id, p.id, income, expense, profit, taxWithheld, payee, payeeBank, payeeAccount, "已生成", user.name, at);
+        "INSERT INTO settlements (id,pid,income,expense,profit,tax_fee_rate,payee,payee_bank,payee_account,status,created_by,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)"
+      ).run(id, p.id, income, expense, profit, parseTaxFeeRate(p.tax_fee_rate), payee, payeeBank, payeeAccount, "已生成", user.name, at);
       setStatus(p, "已结算", user, ip,
-        `生成结算单 ${id}：收入 ¥${income.toLocaleString("zh-CN")} / 支出 ¥${expense.toLocaleString("zh-CN")}` +
-        `${taxWithheld > 0 ? `（实付 ¥${paid.toLocaleString("zh-CN")} + 代扣税 ¥${taxWithheld.toLocaleString("zh-CN")}）` : ""} / ` +
-        `结余 ¥${profit.toLocaleString("zh-CN")}`);
+        `生成结算单 ${id}：收入 ¥${income.toLocaleString("zh-CN")} / 支出 ¥${expense.toLocaleString("zh-CN")} / ` +
+        `结余 ¥${profit.toLocaleString("zh-CN")}；收款方 ${payee}（${payeeBank} 尾号 ${payeeAccount.slice(-4)}）`);
       return { project: getProject(p.id), message: `结算单 ${id} 已生成，结论冻结` };
     }
     case "archive": {
       const at = now();
       db.prepare("UPDATE projects SET status = '已归档', status_at = ?, updated_at = ? WHERE id = ?").run(at, at, p.id);
-      logAudit({ user, module: "档案中心", action: "归档", target: p.id, detail: "数字卷宗封存，材料 8/8 齐备", ip });
+      logAudit({ user, module: "档案中心", action: "归档", target: p.id, detail: "数字卷宗封存，材料按自由类别归档，至少保留一份附件", ip });
       return { project: getProject(p.id), message: "已归档，卷宗封存" };
     }
     default: {
@@ -458,4 +392,4 @@ function grantFinanceMember(p, user, ip) {
   });
 }
 
-module.exports = { getProject, verification, materialsStatus, settlementOf, demandSummary, assertNotFrozen, frozenGate, committed, settlementLedger, availableActions, transition, GUARDS };
+module.exports = { getProject, verification, materialsStatus, settlementOf, demandSummary, assertNotFrozen, committed, availableActions, transition, GUARDS };

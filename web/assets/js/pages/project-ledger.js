@@ -1,6 +1,5 @@
-import {api,state} from "../lib/api.js";
+import {api,can} from "../lib/api.js";
 import {esc,money,table,pager,bindPager,toast,badge} from "../lib/ui.js";
-import {fileLink} from "../lib/file-preview.js";
 
 /**
  * 仅总管理员：依会议编号聚合原始合同、付款、发票资料、结算记录。
@@ -11,10 +10,11 @@ let search="",page=1,selected="";
 const num=v=>"¥"+money(v==null?0:v);
 const td=s=>esc(s==null?"—":s);
 const anchor=(pid)=>'<button class="link" data-open-ledger="'+esc(pid)+'">'+esc(pid)+'</button>';
-const file=(row)=>row.file_key ? fileLink(row.file_key,row.file_name||"","在线查看原件") : "未关联文件";
+const file=(row)=>row.file_key ?
+  '<a class="link" href="/api/uploads/'+encodeURIComponent(row.file_key)+'" target="_blank" rel="noopener noreferrer">'+esc(row.file_name||"查看原件")+'</a>':"未关联文件";
 
 export async function render(root,params=[]){
-  if(!state.super){
+  if(!can("ledger:read")){
     root.innerHTML='<div class="panel">项目台账仅总管理员可以查看。</div>';return;
   }
   selected=params[0]||selected;
@@ -84,7 +84,7 @@ async function open(root,pid){
     ' · 厂家/付款凭证文件 '+d.document_coverage.payment_voucher_files+'</p>'+
     table([{t:"材料ID"},{t:"材料类别"},{t:"资料名称"},{t:"版本"},{t:"原件"}],docs,{empty:"暂无已关联的财务资料"})+
     '<h3 style="margin:22px 0 10px">结算单</h3>'+
-    (d.settlement?'<p>结算编号 <strong>'+td(d.settlement.id)+'</strong>　收入 '+num(d.settlement.income)+
+    (d.settlement?'<p>结算编号 <strong>'+td(d.settlement.id)+'</strong>　项目预算 '+num(d.settlement.income)+
       '　支出 '+num(d.settlement.expense)+'　结余 '+num(d.settlement.profit)+'</p>':'<p class="hint">本项目尚未生成结算单。</p>')+
     '<h3 style="margin:22px 0 10px">核对提醒</h3>'+
     (d.warnings.length?'<div class="gate">'+d.warnings.map(x=>'<p>• '+esc(x)+'</p>').join("")+'</div>':

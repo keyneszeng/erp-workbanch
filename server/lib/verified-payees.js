@@ -4,7 +4,8 @@ const {db}=require("./db");
 const {now,bad}=require("./util");
 const {cents}=require("./util");
 const {isDemoMode}=require("./runtime");
-const {EXPENSE_CONTRACT_SQL}=require("./constants");
+const {laborSheetInfo}=require("./labor-sop");
+const {contractPool}=require("./labor-contracts");
 // Encryption key is deliberately not stored in SQLite or returned to a browser.
 function key(){
  const v=String(process?.env?.ERP_FINANCIAL_DATA_KEY||"");
@@ -31,50 +32,38 @@ function saveLabor(pid,records){
  db.prepare("DELETE FROM verified_labor_payees WHERE pid=?").run(pid);
  for(const x of records){
   const account=String(x.bankAccount||"").replace(/\s/g,"");
-  const cipher=seal(account);
-  // 写完立刻回读一次：密钥写错/换过时能当场发现，而不是等到付款时才报「账号解不开」
-  if(!cipher||reveal(cipher)!==account) return {saved:false,reason:"账号加密后无法回读，请检查 ERP_FINANCIAL_DATA_KEY"};
-  insert.run(pid,String(x.name).trim(),String(x.bankName||"").trim(),cipher,Number(x.amount),now());
+  insert.run(pid,String(x.name).trim(),String(x.bankName||"").trim(),seal(account),Number(x.amount),now());
  }
  return {saved:true,count:records.length};
 }
 function options(pid){
- // 收入类（赞助）合同不进收款方候选：赞助是我们收钱，不是付给企业。
- // 混进来会让人误以为要付一笔 15000 给赞助商，也会虚增可请款额度。
- const contracts=db.prepare(
-  "SELECT id,vendor,amount,category,payee_bank,payee_account_cipher FROM contracts WHERE pid=? AND status='已签署' AND " +
-  EXPENSE_CONTRACT_SQL + " ORDER BY id"
- ).all(pid);
- const rows=contracts.map(x=>{
-  const account=reveal(x.payee_account_cipher);
-  return {id:"contract:"+x.id,label:x.vendor+"（"+x.category+"合同）",payee:x.vendor,
-    amount:x.amount,source:"contract",bank:x.payee_bank||"",
-    maskedAccount:account?"尾号 "+account.slice(-4):""};
- });
- const labor=db.prepare("SELECT id,name,bank,account_cipher,amount FROM verified_labor_payees WHERE pid=? ORDER BY id").all(pid);
+ const contracts=db.prepare("SELECT id,vendor,amount,category FROM contracts WHERE pid=? AND status='已签署' ORDER BY id").all(pid);
+ const rows=contracts.map(x=>({id:"contract:"+x.id,label:x.vendor+"（"+x.category+"合同）",payee:x.vendor,amount:x.amount,source:"contract",bank:"",maskedAccount:""}));
+ const s=laborSheetInfo(db,pid);
+ const v=db.prepare("SELECT result,evidence_json FROM verify_steps WHERE pid=? AND step_no=5").get(pid);
+ let valid=false;
+ try{valid=s.required&&v?.result==="通过"&&JSON.parse(v.evidence_json||"{}").laborSourceSignature===s.signature && JSON.parse(v.evidence_json||"{}").contractPoolSignature===contractPool(db,pid).signature;}catch{}
+ const labor=valid?db.prepare("SELECT id,name,bank,account_cipher,amount FROM verified_labor_payees WHERE pid=? ORDER BY id").all(pid):[];
  for(const x of labor){
   const account=reveal(x.account_cipher);
-  // 解不开也要列出来：静默丢掉会让人以为「核销没录过这个人」，
-  // 实际是密钥变更过，需要重新核验第 5 步把账号重新加密入库。
-  rows.push({id:"labor:"+x.id,label:x.name+"（核销劳务表）",payee:x.name,
-    amount:x.amount,source:"labor",bank:x.bank||"",
-    maskedAccount:account?"尾号 "+account.slice(-4):"",
-    accountUnavailable:!account});
+  if(account)rows.push({id:"labor:"+x.id,label:x.name+"（核销劳务表）",payee:x.name,
+    amount:x.amount,source:"labor",bank:x.bank,maskedAccount:"尾号 "+account.slice(-4)});
  }
  return rows;
 }
 function resolve(pid,id){
  const value=String(id||"");
  if(value.startsWith("contract:")){
-  const x=db.prepare(
-   "SELECT vendor,amount,payee_bank,payee_account_cipher FROM contracts WHERE id=? AND pid=? AND status='已签署' AND " +
-   EXPENSE_CONTRACT_SQL
-  ).get(value.slice(9),pid);
-  if(!x)throw bad("选择的合同收款方不存在、未签署，或属于收入类（赞助）合同（赞助是收款，不产生付款）");
-  return {name:x.vendor,amount:x.amount,bank:x.payee_bank||"",
-    account:reveal(x.payee_account_cipher)||"",source:"contract"};
+  const x=db.prepare("SELECT vendor,amount FROM contracts WHERE id=? AND pid=? AND status='已签署'").get(value.slice(9),pid);
+  if(!x)throw bad("选择的合同收款方不存在或未签署");
+  return {name:x.vendor,amount:x.amount,bank:"",account:"",source:"contract"};
  }
  if(value.startsWith("labor:")){
+  const s=laborSheetInfo(db,pid);
+  const v=db.prepare("SELECT result,evidence_json FROM verify_steps WHERE pid=? AND step_no=5").get(pid);
+  let valid=false;
+  try{valid=s.required&&v?.result==="通过"&&JSON.parse(v.evidence_json||"{}").laborSourceSignature===s.signature && JSON.parse(v.evidence_json||"{}").contractPoolSignature===contractPool(db,pid).signature;}catch{}
+  if(!valid)throw bad("劳务表或个人合同发生变化，请重新核验第5项");
   const x=db.prepare("SELECT * FROM verified_labor_payees WHERE id=? AND pid=?").get(Number(value.slice(6)),pid);
   if(!x)throw bad("核销劳务收款人不存在");
   const account=reveal(x.account_cipher);
@@ -83,4 +72,4 @@ function resolve(pid,id){
  }
  throw bad("请选择合同或已核销的劳务收款记录");
 }
-module.exports={options,resolve,saveLabor,sealAccount:seal,revealAccount:reveal,keyAvailable:()=>!!key()};
+module.exports={options,resolve,saveLabor};
