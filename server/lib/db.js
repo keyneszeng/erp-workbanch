@@ -46,6 +46,16 @@ CREATE TABLE IF NOT EXISTS users (
   created_at  TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS user_module_grants (
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  module TEXT NOT NULL,
+  PRIMARY KEY(user_id,module)
+);
+CREATE TABLE IF NOT EXISTS user_permission_grants (
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  permission TEXT NOT NULL,
+  PRIMARY KEY(user_id,permission)
+);
 CREATE TABLE IF NOT EXISTS user_associations (
   user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   assoc TEXT NOT NULL,
@@ -238,6 +248,7 @@ CREATE TABLE IF NOT EXISTS payments (
   amount      REAL NOT NULL DEFAULT 0,
   invoice_no  TEXT,
   dedupe_key  TEXT,
+  period      TEXT,
   req_user    TEXT,
   status      TEXT NOT NULL DEFAULT '待审批',
   paid_at     TEXT,
@@ -279,6 +290,7 @@ CREATE TABLE IF NOT EXISTS settlements (
   income      REAL NOT NULL DEFAULT 0,
   expense     REAL NOT NULL DEFAULT 0,
   profit      REAL NOT NULL DEFAULT 0,
+  tax_fee_rate REAL,
   payee       TEXT,
   payee_bank  TEXT,
   payee_account TEXT,
@@ -673,12 +685,28 @@ function migrate() {
   addColumn("users", "phone_verified_at", "phone_verified_at TEXT");
   // V1.0.3：跨实例吊销签名令牌
   addColumn("users", "token_ver", "token_ver INTEGER NOT NULL DEFAULT 0");
+  // 显式按用户授权；迁移时不会将旧角色权限自动转为用户授权。
+  db.exec("CREATE TABLE IF NOT EXISTS user_module_grants (user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,module TEXT NOT NULL,PRIMARY KEY(user_id,module))");
+  db.exec("CREATE TABLE IF NOT EXISTS user_permission_grants (user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,permission TEXT NOT NULL,PRIMARY KEY(user_id,permission))");
+  // 旧 material_file_replace 只作为兼容字段，新权限以独立表为准.
   // 合同材料替换为总管理员按账号单独授予，历史账号默认无此权限。
+  //
+  // 补列必须排在下面的授权迁移之前：从 main 线升级上来的库没有这个字段，
+  // 先执行 INSERT...WHERE material_file_replace=1 会直接
+  // 「no such column: material_file_replace」导致服务起不来。
   addColumn("users", "material_file_replace", "material_file_replace INTEGER NOT NULL DEFAULT 0");
+  // 仅迁移旧版由总管理员逐账号授予的材料替换权，不继承任何角色固定权限。
+  // 标记只执行一次，后续人工撤销的权限不会在下一次启动时复活。
+  if(!db.prepare("SELECT 1 FROM settings WHERE k=?").get("explicit_grants_migration_v1")){
+    db.exec("INSERT OR IGNORE INTO user_permission_grants (user_id,permission) SELECT id,'material:file:replace' FROM users WHERE material_file_replace=1 AND role<>'admin'");
+    db.prepare("INSERT OR REPLACE INTO settings(k,v) VALUES (?,?)").run("explicit_grants_migration_v1","done");
+  }
   // 立项税费管理费按百分比保存。历史项目默认0%，不改变既有可用额度。
   addColumn("projects", "tax_fee_rate", "tax_fee_rate REAL NOT NULL DEFAULT 0");
   // 付款申请去重：旧付款行保持不变，新付款受唯一索引保护。
   addColumn("payments", "dedupe_key", "dedupe_key TEXT");
+  // 付款期次：分期付款常常两期金额相同，只靠「类型+收款方+金额」去重会把第二期误判成重复。
+  addColumn("payments", "period", "period TEXT");
   db.exec("CREATE UNIQUE INDEX IF NOT EXISTS ux_payments_active_dedupe ON payments(pid,dedupe_key) WHERE dedupe_key IS NOT NULL AND status <> '已驳回'");
   // V1.2.0：材料附件
   addColumn("materials", "file_key", "file_key TEXT");
@@ -720,6 +748,8 @@ function migrate() {
    */
   addColumn("payments", "payee_bank", "payee_bank TEXT");
   addColumn("payments", "payee_account", "payee_account TEXT");
+  // 结算时锁定税费管理费率；旧单NULL按历史项目现存税率兼容展示。
+  addColumn("settlements", "tax_fee_rate", "tax_fee_rate REAL");
   addColumn("settlements", "payee", "payee TEXT");
   addColumn("settlements", "payee_bank", "payee_bank TEXT");
   addColumn("settlements", "payee_account", "payee_account TEXT");

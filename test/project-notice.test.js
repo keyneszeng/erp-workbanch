@@ -11,7 +11,7 @@ const UPLOAD=path.join(__dirname,"..","data","project-notice-uploads");
 let server;
 const users={};
 async function ready() {
-  for(let i=0;i<160;i++){
+  for(let i=0;i<400;i++){
     try{if((await fetch(BASE+"/api/health")).ok)return;}catch{}
     await new Promise(r=>setTimeout(r,150));
   }

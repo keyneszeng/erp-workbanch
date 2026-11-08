@@ -1,13 +1,14 @@
 "use strict";
 const { db } = require("../lib/db");
 const { now, nextId, bad, notFound, conflict, forbidden, cents, yuan } = require("../lib/util");
-const { assertCan, assertProjectVisible, can, isSuper, scopeFilter, ROLES } = require("../lib/rbac");
+const { assertCan, assertModule, assertProjectVisible, can, isSuper, hasModule, scopeFilter, ROLES, canReadProjects } = require("../lib/rbac");
 const { logAudit } = require("../lib/audit");
 const { getProject, verification, materialsStatus, settlementOf, demandSummary, assertNotFrozen, committed, availableActions, transition } = require("../lib/workflow");
 const { ASSOCS, FORMS, DEPTS } = require("../lib/constants");
 const { readPaging, countOf } = require("../lib/paginate");
 const { isDemoMode } = require("../lib/runtime");
 const {parseTaxFeeRate,availableBudget,withBudgetFee}=require("../lib/budget-fee");
+const {buildSettlementBreakdown}=require("../lib/settlement-breakdown");
 const { assignedMember } = require("../lib/member-directory");
 
 const EDITABLE = ["name", "assoc", "form", "date", "days", "budget", "tax_fee_rate", "people", "owner", "owner_id", "phone", "dept", "agenda"];
@@ -159,12 +160,32 @@ function listProjects(user, { status, q, assoc, stage, page, size } = {}) {
 function detail(project, user) {
   // 普通用户/嘉宾只可查看会议公开信息；项目成员资格不等于财务、合同和审计权限。
   // 必须在 API 层裁剪，不能仅隐藏前端页签（直接请求仍会读取原始 JSON）。
-  if (user.role === "user") {
+  // 仅有项目列表浏览权并不意味着可读取合同、付款、人员或操作审计。
+  // 与岗位名称无关，任何角色均要显式获得内部业务模块或具体操作授权。
+  if (!isSuper(user) && !["project:transition","project:approve","project:edit","project:change",
+    "contract:write","contract:approve","demand:write",
+    "payment:create","payment:approve","payment:pay","settle:create",
+    "verify:check","verify:exception","verify:exception_approve","verify:conclude",
+    "material:write","archive:write","audit:read","ledger:read"].some(k=>can(user,k)) &&
+      !["prep","demand","exec","materials","verify","finance","archive","audit"].some(k=>hasModule(user,k))) {
     const { id, name, assoc, form, date, days, people, owner, agenda, status } = project;
     return { project: { id, name, assoc, form, date, days, people, owner, agenda, status },
       actions: [], visibility: "participant" };
   }
   const pid = project.id;
+  const permitted=(mods,actions)=>isSuper(user)||mods.some(m=>hasModule(user,m))||actions.some(a=>can(user,a));
+  const viewFinance=permitted(["finance"],["payment:create","payment:approve","payment:pay","settle:create","ledger:read"]);
+  const viewContracts=permitted(["prep","finance"],["contract:write","contract:approve","verify:check","verify:conclude"]);
+  const viewMaterials=permitted(["materials","verify"],["material:write","archive:write","archive:download","verify:check","verify:conclude"]);
+  const viewVerify=permitted(["verify","finance"],["verify:check","verify:exception","verify:exception_approve","verify:conclude","settle:create"]);
+  const viewDemand=permitted(["demand","verify"],["demand:write","verify:check","verify:conclude"]);
+  const viewTeam=permitted(["exec"],["project:member","user:manage","project:transition"]);
+  const viewExec=permitted(["exec"],["project:transition","invite:manage"]);
+  const viewApprovals=permitted(["audit"],["project:approve","payment:approve","verify:exception_approve","change:execute","audit:read"]);
+  const viewAudit=permitted(["audit"],["audit:read"]);
+  const viewBudget=viewFinance||["project:create","project:edit","project:change","project:approve","verify:check","verify:conclude"].some(k=>can(user,k));
+  const viewNotice=permitted(["prep"],["project:create","project:edit","project:change","project:approve"]);
+  const publicProject=()=>{const {budget,available_budget,tax_fee_rate,phone,...rest}=project;return rest;};
   const members = db.prepare(
     `SELECT u.id, u.name, u.username, u.role, m.role AS member_role FROM project_members m
      JOIN users u ON u.id = m.user_id WHERE m.project_id = ?`
@@ -175,6 +196,7 @@ function detail(project, user) {
     "SELECT c.*, u.name AS created_by_name FROM contracts c LEFT JOIN users u ON u.id = c.created_by WHERE c.pid = ? ORDER BY c.id"
   ).all(pid);
   const payments = db.prepare("SELECT * FROM payments WHERE pid = ? ORDER BY created_at DESC, id DESC").all(pid);
+  const settlement = settlementOf(pid);
   const guests = db.prepare("SELECT * FROM guests WHERE pid = ? ORDER BY id").all(pid);
   const tasks = db.prepare("SELECT * FROM tasks WHERE pid = ? ORDER BY id").all(pid);
   const issues = db.prepare("SELECT * FROM issues WHERE pid = ? ORDER BY id").all(pid);
@@ -184,44 +206,64 @@ function detail(project, user) {
   ).all(pid);
 
   return {
-    project,
-    members,
-    approvals,
-    contracts,
-    payments,
-    guests,
-    tasks,
-    issues,
-    materials,
-    verification: verification(pid),
-    sponsorRights:require("../lib/sponsor-rights").sponsorRights(db,pid),
-    materialsStatus: materialsStatus(pid),
-    settlement: settlementOf(pid),
-    // 核销第 3 步的费用对照基准。项目详情页的核销页签读的是这个接口，
+    project:viewBudget?project:publicProject(),
+    sectionAccess:{finance:viewFinance,contracts:viewContracts,materials:viewMaterials,verify:viewVerify,demand:viewDemand,team:viewTeam,exec:viewExec,approvals:viewApprovals,audit:viewAudit,budget:viewBudget,notice:viewNotice},
+    members: viewTeam?members:[],
+    approvals: viewApprovals?approvals:[],
+    contracts: viewContracts?contracts:[],
+    payments: viewFinance?payments:[],
+    guests: viewExec?guests:[],
+    tasks: viewExec?tasks:[],
+    issues: viewExec?issues:[],
+    materials: viewMaterials?materials:[],
+    verification: viewVerify?verification(pid):{passed:0,total:0,complete:false,openExceptions:0,steps:[]},
+    sponsorRights:viewContracts?require("../lib/sponsor-rights").sponsorRights(db,pid):{required:false,contracts:[],rights:[],photos:[],activeContracts:[]},
+    materialsStatus: viewMaterials?materialsStatus(pid):{uploadedCount:0,ok:false,missing:[]},
+    settlement: viewFinance?settlement:null,
+    settlementBreakdown: viewFinance&&settlement ? buildSettlementBreakdown(settlement,project,payments) : null,
+    // 核销第 6 项的费用对照基准。项目详情页的核销页签读的是这个接口，
     // 之前只在 /verify 里返回，导致同一个第 3 步在两个页面给出不同答案。
-    demand: demandSummary(pid),
-    ...require("../lib/project-notice").overview(project),
+    demand: viewDemand?demandSummary(pid):null,
+    ...(viewNotice?require("../lib/project-notice").overview(project):{}),
     actions: availableActions(project, user),
-    timeline,
+    timeline: viewAudit?timeline:[],
     // 与 /verify 的 paidTotal 必须同口径：裸 reduce 会留浮点尾巴（0.1+0.2 → 0.30000000000000004），
     // 而核销页签第 3 步的「其中已付款」直接显示这个数 —— 两个页面就会给出不同金额。
-    paidTotal: yuan(payments.filter((p) => p.status === "已付款").reduce((s, p) => s + Number(p.amount), 0))
+    paidTotal: viewFinance?yuan(payments.filter((p) => p.status === "已付款").reduce((s, p) => s + Number(p.amount), 0)):null
   };
 }
 
 function register(router) {
   router.get("/api/projects", async (ctx) => {
+    if(!canReadProjects(ctx.user)) assertModule(ctx.user,"projects");
     const r = listProjects(ctx.user, ctx.query);
     // 参会者只能看到会议信息，不能通过列表取得预算、电话或已付款统计。
-    if (ctx.user.role === "user") {
+    if (!isSuper(ctx.user) && !["project:transition","project:approve","project:edit","project:change",
+    "contract:write","contract:approve","demand:write",
+    "payment:create","payment:approve","payment:pay","settle:create",
+    "verify:check","verify:exception","verify:exception_approve","verify:conclude",
+    "material:write","archive:write","audit:read","ledger:read"].some(k=>can(ctx.user,k)) &&
+        !["prep","demand","exec","materials","verify","finance","archive","audit"].some(k=>hasModule(ctx.user,k))) {
       const participantRow = ({ id, name, assoc, form, date, days, people, owner, status }) =>
         ({ id, name, assoc, form, date, days, people, owner, status });
       if (Array.isArray(r)) return { rows: r.map(participantRow), total: r.length };
       return { ...r, rows: r.rows.map(participantRow), summary: null };
     }
-    // 未请求分页时 listProjects 返回数组，保持旧返回结构
-    if (Array.isArray(r)) return { rows: r, total: r.length };
-    return r;
+    // 项目编辑权不自动包含财务付款查看权；避免列表 pay_cnt/paid_amt 等字段穿透。
+    const financial=isSuper(ctx.user)||hasModule(ctx.user,"finance")||
+      ["payment:create","payment:approve","payment:pay","settle:create","ledger:read"].some(k=>can(ctx.user,k));
+    const budgetVisible=financial||
+      ["project:create","project:edit","project:change","project:approve","verify:check","verify:conclude"].some(k=>can(ctx.user,k));
+    const sanitize=row=>{
+      const {pay_cnt,paid_amt,st_id,...other}=row;
+      if(budgetVisible)return other;
+      const {budget,available_budget,tax_fee_rate,phone,...publicFields}=other;
+      return publicFields;
+    };
+    if(Array.isArray(r))return {rows:financial?r:r.map(sanitize),total:r.length};
+    if(financial)return r;
+    return {...r,rows:r.rows.map(sanitize),
+      summary:r.summary?{budget:budgetVisible?r.summary.budget:null,paid:null}:null};
   });
 
   router.post("/api/projects", async (ctx) => {
@@ -232,7 +274,7 @@ function register(router) {
     if (!isDemoMode() && !member) throw bad("生产立项必须从本协会在册成员选择项目负责人（owner_id）");
     if (member) b.owner = member.name;
     validate(b);
-    if (["assoc", "exec"].includes(ctx.user.role) && !require("../lib/user-associations").listForUser(ctx.user.id,ctx.user.assoc).includes(b.assoc)) {
+    if (!isSuper(ctx.user) && !require("../lib/user-associations").listForUser(ctx.user.id,ctx.user.assoc).includes(b.assoc)) {
       throw forbidden("只能为本人所属协会发起立项");
     }
     const at = now();
@@ -255,6 +297,7 @@ function register(router) {
   });
 
   router.get("/api/projects/:id", async (ctx) => {
+    if(!canReadProjects(ctx.user)) assertModule(ctx.user,"projects");
     const p = getProject(ctx.params.id);
     assertProjectVisible(ctx.user, p);
     return detail(p, ctx.user);
@@ -265,7 +308,7 @@ function register(router) {
     assertProjectVisible(ctx.user, p);
     // 资料修改：总管理员恒可；其余需协会管理员及以上，且已结算 / 已归档项目不可改
     if (!isSuper(ctx.user)) {
-      if (!["assoc"].includes(ctx.user.role)) throw forbidden("资料修改需要协会管理员或总管理员权限");
+      assertCan(ctx.user,"project:edit","当前账号未获项目资料修改权限");
       if (p.status === "已归档") throw conflict("已归档项目资料已封存，不可修改");
       // 已结算 = 账目封账，结算单已按当时的预算与合同算完。
       // 此处若不拦，改完预算就和结算单永久对不上了（原来只拦了「已归档」）。
@@ -382,7 +425,7 @@ function register(router) {
   });
 
   router.get("/api/projects/:id/timeline", async (ctx) => {
-    if (ctx.user.role === "user") throw forbidden("普通用户无法查看内部操作留痕");
+    if (!can(ctx.user,"audit:read")) throw forbidden("未获审计查看权限，不能读取操作留痕");
     const p = getProject(ctx.params.id);
     assertProjectVisible(ctx.user, p);
     return { rows: db.prepare("SELECT * FROM audit_logs WHERE target = ? ORDER BY id DESC").all(p.id) };

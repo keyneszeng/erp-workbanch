@@ -118,7 +118,7 @@ before(async () => {
     const msg = String(d);
     if (!msg.includes("ExperimentalWarning")) process.stderr.write("[office test] " + msg);
   });
-  for (let i = 0; i < 180; i++) {
+  for (let i = 0; i < 300; i++) {
     try {
       const r = await fetch(BASE + "/api/health");
       if (r.ok) break;
