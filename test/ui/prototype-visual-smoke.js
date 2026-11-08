@@ -58,6 +58,16 @@ const assert=require("node:assert/strict");
   assert.ok((await page.locator("body").innerText()).includes("项目材料上传情况"),
     "material center should show flexible upload status instead of 8/8 mandatory categories");
   await page.locator("#add").click();
+  assert.equal(await page.locator('#modal [name="version"]').count(),0,
+    "登记材料表单应彻底移除版本输入框");
+  const sizeBoundary=await page.evaluate(async()=>{
+    const {MAX_UPLOAD_BYTES,checkFile}=await import("/assets/js/lib/upload.js");
+    return {max:MAX_UPLOAD_BYTES,exact:checkFile({name:"large.pdf",size:50*1024*1024}),
+      over:checkFile({name:"large.pdf",size:50*1024*1024+1})};
+  });
+  assert.equal(sizeBoundary.max,50*1024*1024);
+  assert.equal(sizeBoundary.exact,null,"前端必须允许单文件恰好 50MB");
+  assert.match(sizeBoundary.over,/50 MB/,"超出 50MB 须明确拦截并提示上限");
   const options=await page.locator('#modal [name="kind"] option').allTextContents();
   assert.ok(options.some(x=>x.includes("权益照片")),"rights photos must be available in material category options");
   assert.ok(options.some(x=>x.includes("终版议程")),"final agenda must be a material registration category");

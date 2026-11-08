@@ -10,7 +10,7 @@ export function openContractMaterialReplace(material,onDone=()=>{}) {
     width:"600px",
     body:`<p class="hint">材料：<b>${esc(material.name)}</b></p>
       <p class="hint">当前文件：${esc(material.file_name||material.file_key)}</p>
-      <div class="fld"><label>新材料文件（替换原件，20 MB 以内）</label>
+      <div class="fld"><label>新材料文件（替换原件，50 MB 以内）</label>
         <input type="file" name="replacement" accept="${UPLOAD_ACCEPT}">
         <div class="tip">${UPLOAD_TIP}</div>
       </div>

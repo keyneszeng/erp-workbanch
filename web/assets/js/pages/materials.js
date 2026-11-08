@@ -79,7 +79,6 @@ export function openMaterialRegistration(root, projects, kinds, defaultPid="", o
     { k: "sponsor_right_id", l: "权益照片 · 二级类目（从赞助合同自动生成，可自定义）", t:"select",opts:[],
       tip:"先选择项目及赞助合同权益，再上传对应照片。" },
     { k: "name", l: "材料名称", req: 1, ph: "如：签到表-终版.pdf" },
-    { k: "version", l: "版本", v: "v1" },
     {
       k: "file", l: "附件", t: "file", full: 1,
       accept: UPLOAD_ACCEPT,
@@ -93,7 +92,7 @@ export function openMaterialRegistration(root, projects, kinds, defaultPid="", o
     footer: `<button class="btn btn-o" data-x="0">取消</button><button class="btn btn-p" data-x="1">保存</button>`
   });
 
-  // 每个文件独立登记一个材料记录，保留既有原件/审计/版本约束。
+  // 每个文件独立登记一个材料记录；版本由系统维护，不再由用户填写。
   const picker=m.querySelector('input[name="file"]');
   picker.multiple=true;
   let picked=[];
@@ -134,7 +133,7 @@ export function openMaterialRegistration(root, projects, kinds, defaultPid="", o
     const photo=kindSelect.value==="讲者照片";
     const rightsPhoto=kindSelect.value==="权益照片";
     rightField.style.display=rightsPhoto?"":"none";
-    for(const field of ["name","version"]){
+    for(const field of ["name"]){
       const el=m.querySelector('[name="'+field+'"]');
       if(el?.closest(".fld"))el.closest(".fld").style.display=final?"none":"";
     }
@@ -185,9 +184,9 @@ export function openMaterialRegistration(root, projects, kinds, defaultPid="", o
     const v=readForm(m);
     if(kindSelect.value==="权益照片")v.sponsor_right_id=Number(rightSelect.value);
     else delete v.sponsor_right_id;
+    v.version=isFinalAgenda?"终版":"v1";
     if(isFinalAgenda){
       v.name=picked[0].name;
-      v.version="终版";
     }else if(!v.name&&picked.length){
       v.name=picked[0].name;
     }

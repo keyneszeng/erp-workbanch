@@ -3,6 +3,7 @@
 const PizZip=require("pizzip");
 const {detectOoxml,MIME}=require("./ooxml");
 const SUPPORTED=new Set(["docx","pptx","xlsx","txt","csv"]);
+const {MAX_BYTES}=require("./storage");
 function entities(text){
  return String(text||"").replace(/&#x([0-9a-f]+);/gi,(_,n)=>String.fromCodePoint(parseInt(n,16)))
   .replace(/&#(\d+);/g,(_,n)=>String.fromCodePoint(Number(n)))
@@ -16,8 +17,8 @@ function flat(xml){
 }
 function extract(buffer,ext){
  if(!SUPPORTED.has(ext))return null;
- if(!Buffer.isBuffer(buffer)||buffer.length>20*1024*1024||!buffer.length)
-  throw Object.assign(new Error("Office文档超过20MB或不是有效文件"),{status:422,code:"OFFICE_INVALID"});
+ if(!Buffer.isBuffer(buffer)||buffer.length>MAX_BYTES||!buffer.length)
+  throw Object.assign(new Error("Office文档超过50MB或不是有效文件"),{status:422,code:"OFFICE_INVALID"});
  if(ext==="txt"||ext==="csv"){
   let text=buffer.toString("utf8").replace(/\0/g,"");
   return {text:text.slice(0,30000),mode:"native-text",engine:"UTF-8原始文档",pages:0,totalPages:0,truncated:text.length>30000};
