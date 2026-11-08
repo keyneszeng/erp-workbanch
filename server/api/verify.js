@@ -498,7 +498,7 @@ function register(router) {
     assertUploadAttachable(newKey,p.id,ctx.user);
     const uploaded=await storage().get(newKey);
     if(!uploaded?.buffer?.length)throw notFound("新文件不存在，请重新上传");
-    if(uploaded.buffer.length>MAX_BYTES)throw bad("新文件超出20MB限制");
+    if(uploaded.buffer.length>MAX_BYTES)throw bad("新文件超出50MB限制");
     const mime=sniffMime(uploaded.buffer,newKey);
     if(!mime || ALLOWED_MIME[mime]!==newKey.split(".").pop())
       throw bad("上传文件格式与实际内容不一致");

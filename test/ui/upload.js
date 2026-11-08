@@ -22,9 +22,9 @@ const BIG = `${DIR}/big.jpg`;
  */
 function makeFixtures() {
   fs.mkdirSync(DIR, { recursive: true });
-  if (!fs.existsSync(BIG)) {
-    // 前端只看 file.size，内容不必是真图；8.5MB 刚好越过 8MB 上限
-    const buf = Buffer.alloc(Math.round(8.5 * 1024 * 1024));
+  if (!fs.existsSync(BIG) || fs.statSync(BIG).size !== Math.round(50.5 * 1024 * 1024)) {
+    // 前端只看 file.size；50.5MB 必须被 50MB 上限拦截
+    const buf = Buffer.alloc(Math.round(50.5 * 1024 * 1024));
     buf.write("\xFF\xD8\xFF\xE0", 0, "binary");
     fs.writeFileSync(BIG, buf);
   }
@@ -95,7 +95,7 @@ const check = (name, ok, extra = "") => {
     await page.setInputFiles('#modal input[type="file"]', BIG);
     await page.waitForTimeout(1200);
     const toastText = await page.textContent("#toast");
-    check("超过 8MB 给出提示", /8\.0 MB|不能超过/.test(toastText), toastText.trim().slice(0, 60));
+    check("超过 50MB 给出提示", /50\.0 MB|不能超过/.test(toastText), toastText.trim().slice(0, 60));
   }
 
   console.log("\n[5] 选择正常照片，触发压缩");
