@@ -238,7 +238,7 @@ const EXPORTS = {
   },
   payments: {
     module: "财务结算", file: "付款明细",
-    headers: ["付款单号", "项目", "类型", "收款方", "开户行", "银行账号", "金额", "发票号", "申请人", "状态", "付款时间"],
+    headers: ["付款单号", "项目", "类型", "收款方", "开户行", "银行账号", "金额", "期次", "发票号", "申请人", "状态", "付款时间"],
     sql: (u) => {
       const { sql, params } = scopeFilter(u);
       return {
@@ -246,8 +246,9 @@ const EXPORTS = {
         params
       };
     },
-    map: (r) => [r.id, r.pname, r.type, r.payee, r.payee_bank || "", r.payee_account || "",
-      r.amount, r.invoice_no, r.req_user, r.status, r.paid_at || ""]
+    map: (r, user) => [r.id, r.pname, r.type, r.payee, r.payee_bank || "",
+      can(user,"payment:pay") ? (r.payee_account || "") : (r.payee_account ? "****"+String(r.payee_account).slice(-4) : ""),
+      r.amount, r.period || "", r.invoice_no, r.req_user, r.status, r.paid_at || ""]
   },
   contracts: {
     module: "筹备管理", file: "合同台账",
@@ -274,17 +275,18 @@ const EXPORTS = {
           (SELECT result FROM verify_steps v WHERE v.pid=p.id AND v.step_no=4) AS s4,
           (SELECT result FROM verify_steps v WHERE v.pid=p.id AND v.step_no=5) AS s5,
           (SELECT result FROM verify_steps v WHERE v.pid=p.id AND v.step_no=6) AS s6,
+          (SELECT result FROM verify_steps v WHERE v.pid=p.id AND v.step_no=7) AS s7,
           (SELECT COUNT(*) FROM exceptions e WHERE e.pid=p.id) AS ex_cnt,
           (SELECT id FROM settlements s WHERE s.pid=p.id) AS st_id
           FROM projects p WHERE ${sql} AND p.status IN ('待核销','已核销','已结算','已归档') ORDER BY p.date DESC`,
         params
       };
     },
-    map: (r) => [r.id, r.name, r.status, r.s1 || "待判定", r.s2 || "待判定", r.s3 || "待判定", r.s4 || "待判定", r.s5 || "待判定", r.s6 || "待判定", r.ex_cnt, r.st_id || ""]
+    map: (r) => [r.id, r.name, r.status, r.s1 || "待判定", r.s2 || "待判定", r.s3 || "待判定", r.s4 || "待判定", r.s5 || "待判定/不适用", r.s6 || "待判定/不适用", r.s7 || "待判定/不适用", r.ex_cnt, r.st_id || ""]
   },
   settlements: {
     module: "财务结算", file: "结算汇总",
-    headers: ["结算单号", "项目编号", "项目", "收入", "支出", "结余", "收款方", "开户行", "银行账号", "状态", "生成时间"],
+    headers: ["结算单号", "项目编号", "项目", "项目预算", "已付支出", "预算结余", "收款方", "开户行", "银行账号", "状态", "生成时间"],
     sql: (u) => {
       const { sql, params } = scopeFilter(u);
       return {
@@ -292,8 +294,10 @@ const EXPORTS = {
         params
       };
     },
-    map: (r) => [r.id, r.pid, r.pname, r.income, r.expense, r.profit,
-      r.payee || "", r.payee_bank || "", r.payee_account || "", r.status, r.created_at]
+    map: (r, user) => [r.id, r.pid, r.pname, r.income, r.expense, r.profit,
+      r.payee || "", r.payee_bank || "",
+      can(user,"payment:pay") ? (r.payee_account || "") : (r.payee_account ? "****"+String(r.payee_account).slice(-4) : ""),
+      r.status, r.created_at]
   },
   audit: {
     module: "审计日志", file: "审计日志",
@@ -662,7 +666,7 @@ function register(router) {
     else if (!can(ctx.user, "audit:read")) throw require("../lib/util").forbidden("当前角色无审计导出权限");
     const q = def.sql(ctx.user);
     const rows = db.prepare(q.sql).all(...q.params);
-    const csv = toCsv(def.headers, rows.map(def.map));
+    const csv = toCsv(def.headers, rows.map((row) => def.map(row, ctx.user)));
     const filename = `${def.file}-${today().replace(/-/g, "")}.csv`;
     db.prepare("INSERT INTO exports (at,user_name,module,filename,rows) VALUES (?,?,?,?,?)")
       .run(now(), ctx.user.name, def.module, filename, rows.length);
