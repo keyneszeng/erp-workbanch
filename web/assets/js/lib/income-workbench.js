@@ -28,7 +28,7 @@ export async function renderIncomeWorkbench(root,projects,requested=""){
      企业赞助收入不计入会务支出合同总额。
    </div>
    <div class="panel-h"><h3>赞助合同</h3>${contractEdit?'<button id="income-add-contract" class="btn btn-p btn-sm">+ 登记企业赞助合同</button>':""}</div>
-   <div class="tw"><table><thead><tr><th>企业 / 合同号</th><th>合同金额</th><th>状态</th><th>权益二级类目</th><th>合同原件</th><th>审批／后续</th></tr></thead>
+   <div class="tw"><table><thead><tr><th>企业 / 合同号</th><th>合同金额</th><th>状态</th><th>权益内容</th><th>合同原件</th><th>审批／后续</th></tr></thead>
    <tbody>${d.contracts.length?d.contracts.map(x=>`<tr><td>${esc(x.enterprise)}<div class="hint">${esc(x.contract_no)}</div></td>
      <td>${yuan(x.amount)}</td><td>${esc(x.status)}</td>
      <td><b>${d.rights.filter(r=>r.sponsor_id===x.id).length} 项</b> · ${esc(x.rights_scan_status||"未识别")}
@@ -67,9 +67,10 @@ export async function renderIncomeWorkbench(root,projects,requested=""){
  root.querySelectorAll("[data-sponsor-invoice]").forEach(b=>b.onclick=()=>formIncome(root,projects,"invoice",b.dataset.sponsorInvoice));
 }
 function formIncome(root,projects,type,sponsorId=""){
+ const pid=chosen;
  const defs={
   contract:{title:"企业赞助合同录入",url:"contracts",fields:[
-    {k:"enterprise",l:"赞助企业名称",req:1},{k:"contractNo",l:"合同编号",req:1},
+    {k:"enterprise",l:"赞助企业名称",req:1},
     {k:"amount",l:"赞助合同金额（元）",t:"number",req:1}]},
   receipt:{title:"登记到账凭证",url:"receipts",fields:[
     {k:"amount",l:"实际到账金额（元）",t:"number",req:1},{k:"paymentRef",l:"银行回款流水号",req:1},
@@ -78,35 +79,76 @@ function formIncome(root,projects,type,sponsorId=""){
     {k:"amount",l:"开票金额（元）",t:"number",req:1},{k:"invoiceNo",l:"发票号码",req:1},
     {k:"issuedDate",l:"开票日期",t:"date",req:1}]}
  };
- const cfg=defs[type];
- const fields=[...cfg.fields,...(type==="contract"?[{k:"rightsCategories",l:"权益二级类目（可选：每行一项；留空自动识别PDF/图片合同）",t:"textarea",rows:3,
-   ph:"主会场背景板LOGO露出；企业展位展示",full:1}]:[]),{k:"file",l:"佐证原件（必需）",t:"file",full:1,
-   accept:UPLOAD_ACCEPT,tip:UPLOAD_TIP+" 必须上传可核对的合同、回款或开票原件。"}];
- const modalEl=modal({title:cfg.title,width:"640px",body:formHtml(fields),
-    footer:'<button class="btn btn-o" data-cancel>取消</button><button class="btn btn-p" data-save>提交</button>'});
- let picked=null;
- bindFilePicker(modalEl,"file",(f,err)=>{picked=err?null:f;if(err)toast(err,"warn");});
- modalEl.querySelector("[data-cancel]").onclick=()=>modalEl.classList.remove("open");
- modalEl.querySelector("[data-save]").onclick=async()=>{
+ const cfg=defs[type],isContract=type==="contract";
+ const fields=[
+   ...cfg.fields,
+   ...(isContract?[{k:"rightsCategories",l:"权益内容（每行一项，识别后可修改）",t:"textarea",rows:4,
+     ph:"主会场背景板 LOGO 露出\n企业展位展示",full:1}]:[]),
+   {k:"file",l:isContract?"上传赞助合同文件（必需）":"佐证原件（必需）",t:"file",full:1,
+     accept:UPLOAD_ACCEPT,tip:UPLOAD_TIP+(isContract?" PDF / JPG / PNG 可通过 OCR 识别；DOCX 支持原生文本提取。":" 必须上传可核对的回款或开票原件。")}
+ ];
+ const extra=isContract?
+   '<div class="hint" style="margin-bottom:12px">请先上传合同，系统将尝试识别赞助企业名称、合同金额与权益内容，并自动填入供您核对。金额与权益以合同原件为准。</div>'+
+   '<div class="fld" style="margin-bottom:10px"><label>合同编号（系统自动生成）</label><input value="提交后自动生成 SC-年份-流水号" readonly disabled></div>':"";
+ const scanHint=isContract?'<div class="hint" data-sponsor-scan aria-live="polite" style="padding:10px 0">等待上传合同文件后开始识别。</div>':"";
+ const modalEl=modal({title:cfg.title,width:"640px",body:extra+formHtml(fields)+scanHint,
+   footer:'<button class="btn btn-o" data-cancel>取消</button><button class="btn btn-p" data-save>提交</button>'});
+ let picked=null,uploaded=null,sequence=0,scanning=false;
+ const saveBtn=modalEl.querySelector("[data-save]");
+ const scanStatus=modalEl.querySelector("[data-sponsor-scan]");
+ const showStatus=text=>{if(scanStatus)scanStatus.textContent=text;};
+ bindFilePicker(modalEl,"file",(file,err)=>{
+   const token=++sequence;
+   picked=err?null:file;uploaded=null;
+   if(err){toast(err,"warn");showStatus(err);return;}
+   if(!isContract||!picked)return;
+   scanning=true;saveBtn.disabled=true;
+   showStatus("正在上传合同文件并进行 OCR / 文本识别…");
+   (async()=>{
+     const saved=await api.upload(picked,{pid});
+     if(token!==sequence)return;
+     uploaded=saved;
+     const result=await api.post("/api/projects/"+encodeURIComponent(pid)+"/income/contracts/scan",{file_key:saved.key});
+     if(token!==sequence)return;
+     const data=result.fields||{};
+     const enterprise=modalEl.querySelector('[name="enterprise"]');
+     const amount=modalEl.querySelector('[name="amount"]');
+     const rights=modalEl.querySelector('[name="rightsCategories"]');
+     if(data.enterprise&&enterprise)enterprise.value=data.enterprise;
+     if(data.amount!==null&&data.amount!==undefined&&amount)amount.value=String(data.amount);
+     if(Array.isArray(data.rightsContent)&&data.rightsContent.length&&rights)
+       rights.value=data.rightsContent.join("\n");
+     showStatus(result.note||"识别完成，请核对合同原件。");
+   })().catch(e=>{
+     if(token===sequence)showStatus("自动识别失败："+e.message+"。可按合同原件人工填写后提交。");
+   }).finally(()=>{
+     if(token===sequence){scanning=false;saveBtn.disabled=false;}
+   });
+ });
+ modalEl.querySelector("[data-cancel]").onclick=()=>{sequence++;modalEl.classList.remove("open");};
+ saveBtn.onclick=async()=>{
+   if(scanning){toast("合同仍在扫描中，请核对识别结果后提交","warn");return;}
    if(!validate(modalEl,fields))return;
    if(!picked){toast("必须上传可核对的真实原件","warn");return;}
-   const btn=modalEl.querySelector("[data-save]");btn.disabled=true;
+   saveBtn.disabled=true;
    try{
      const values=readForm(modalEl);
-     const saved=await api.upload(picked,{pid:chosen});
+     const saved=uploaded||await api.upload(picked,{pid});
      const body={...values,file_key:saved.key,file_name:saved.name,...(sponsorId?{sponsorId}:{})};
-     if(type==="contract"){
-       const manual=String(body.rightsCategories||"").split(/[\n；;]+/).map(s=>s.trim()).filter(Boolean);
-       if(manual.length)body.rightsCategories=manual;else delete body.rightsCategories;
+     if(isContract){
+       // 自动提取内容只是草稿，必须经后续“确认权益内容”操作才算已核实。
+       const draft=String(body.rightsCategories||"").split(/[\n；;]+/).map(x=>x.trim()).filter(Boolean);
+       if(draft.length)body.rightsCategories=draft;
+       else delete body.rightsCategories;
      }
-     const result=await api.post("/api/projects/"+chosen+"/income/"+cfg.url,body);
-     toast(type==="contract"?"合同已登记，权益识别状态："+result.rightsScanStatus:"收入资料已登记","ok");
+     const result=await api.post("/api/projects/"+encodeURIComponent(pid)+"/income/"+cfg.url,body);
+     toast(isContract?"合同 "+result.contractNo+" 已登记，请确认权益内容":"收入资料已登记","ok");
      modalEl.classList.remove("open");
-     await renderIncomeWorkbench(root,projects);
-     if(type==="contract"){
-       const data=await api.get("/api/projects/"+chosen+"/income");
-       openSponsorRightsEditor(root,projects,chosen,data,result.id,renderIncomeWorkbench);
+     await renderIncomeWorkbench(root,projects,pid);
+     if(isContract){
+       const data=await api.get("/api/projects/"+encodeURIComponent(pid)+"/income");
+       openSponsorRightsEditor(root,projects,pid,data,result.id,renderIncomeWorkbench);
      }
-   }catch(e){toast(e.message,"warn");btn.disabled=false;}
+   }catch(e){toast(e.message,"warn");saveBtn.disabled=false;}
  };
 }

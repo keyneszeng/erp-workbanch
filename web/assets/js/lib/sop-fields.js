@@ -9,7 +9,7 @@ const labor=v=>String(v||"").split(/\n+/).map(line=>line.split("|").map(x=>x.tri
 function rightsChecklist(data){
   const rights=data?.requiredRights||[];
   if(!rights.length)return '<div class="gate">没有可核对的已签署赞助合同权益。若存在已签赞助合同，请到「会议收入」先审核权益类目。</div>';
-  return '<div class="hint">权益照片必须按赞助合同权益二级类目上传。请逐一打开照片，对照合同原件，只有实际内容相符才勾选通过；OCR 不自动判定照片合规。</div>'+
+  return '<div class="hint">权益照片必须按赞助合同权益内容上传。请逐一打开照片，对照合同原件，只有实际内容相符才勾选通过；OCR 不自动判定照片合规。</div>'+
     rights.map(r=>{
       const c=(data.contracts||[]).find(x=>x.id===r.sponsor_id);
       const photos=(data.photos||[]).filter(x=>Number(x.sponsor_right_id)===Number(r.id)&&x.file_key);
