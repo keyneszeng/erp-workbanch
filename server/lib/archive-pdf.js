@@ -2,7 +2,7 @@
 /**
  * 已归档会议 PDF 资料卷宗。
  *
- * - 核销六步、例外、自选类别归档材料、会务需求、合同、付款、结算和审批都有独立章节。
+ * - 核销七步、例外、自选类别归档材料、会务需求、合同、付款、结算和审批都有独立章节。
  * - PDF/JPEG/PNG 原件转为 PDF 可见页面，并将每份原文件嵌入 PDF 附件区以便取证。
  * - GIF/WebP 与不可解析的 PDF 原件作为 PDF 内嵌附件保留，目录明示不能分页呈现。
  * - Cloudflare 无 R2 或只登记元数据时仍生成带缺失清单的 PDF，绝不伪称原件齐备。
@@ -149,7 +149,7 @@ function makeLines(d, sources) {
   item("项目预算", amt(p.budget));
   item("会议议程", p.agenda);
   item("归档日期", p.status_at);
-  section("二、会后核销六步");
+  section("二、会后核销七步");
   simpleRecords(records.verifySteps, s => "第" + s.step_no + "步 " + s.name +
     "｜" + s.result + "｜判定人 " + display(s.checked_by) +
     "｜时间 " + display(s.checked_at) + "｜备注 " + display(s.remark), "  无核销判定记录");
@@ -311,7 +311,7 @@ async function buildArchivePdf(data, store) {
     });
   }
   dest.setTitle(data.project.id + " 核销资料汇编");
-  dest.setSubject("已归档会议资料、核销六步及原件");
+  dest.setSubject("已归档会议资料、核销七步及原件");
   dest.setCreator("Association ERP");
   return Buffer.from(await dest.save({ useObjectStreams: false }));
 }
