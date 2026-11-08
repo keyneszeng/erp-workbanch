@@ -61,11 +61,13 @@ function persist(m,pid,result,operator){
 }
 async function scan(pid,no,operator){
  const docs=materials(pid,no);
+ // Step 6 is a materials-link check; invoice OCR is not a prerequisite.
+ if(no===6)return {...report(pid,no),processed:0};
  const available=ocr.enabled()&&storage().name==="fs";
  // Native Office files (including XLSX attendance) never require RapidOCR.
  // On demo installs do not simulate image recognition, but do read real Office bytes.
  const officePresent=docs.some(m=>office.SUPPORTED.has(m.file_key.split(".").pop().toLowerCase()));
- if(!isDemoMode()&&!available&&!officePresent&&no!==7)
+ if(!isDemoMode()&&!available&&!officePresent&&no!==7&&no!==6)
   throw Object.assign(new Error("当前部署未启用 RapidOCR，请在阿里云 ECS 配置 ERP_OCR_ENABLED=1，安装 RapidOCR (ONNX Runtime CPU) 和 Poppler；Excel原生表格可不依赖 RapidOCR 解析"),{status:503,code:"OCR_NOT_CONFIGURED"});
  // Step 7 can always be reviewed from the original signed sponsor agreements
  // and photos; image OCR cannot prove that contractual rights were delivered.
@@ -220,10 +222,10 @@ function report(pid,no){
    add("权益交付："+r.category,null,pictures.length+"份照片，OCR无法判断实际交付及照片真实性",pictures.map(x=>x.id));
   }
  }
- for(const file of docs.filter(x=>x.state!=="recognized"&&!(no===2&&x.kind==="讲者照片")&&!(no===6&&demandSopState(db,pid).invoices.some(m=>Number(m.id)===Number(x.materialId)))))
+ for(const file of docs.filter(x=>x.state!=="recognized"&&no!==6&&!(no===2&&x.kind==="讲者照片")))
   add("文件识别："+file.name,null,file.state==="unsupported"?
     "该格式无法直接OCR，请补充 PDF/JPG/PNG 原件":"文件缺失、无文字或未识别成功",[file.materialId]);
- for(const file of docs.filter(x=>x.truncated))
+ for(const file of docs.filter(x=>x.truncated&&no!==6))
   add("超出扫描页数："+file.name,null,"共"+file.totalPages+"页，仅识别前"+file.pages+"页，需人工核对剩余页面",[file.materialId]);
  if(!docs.length)add("原件",null,"没有本步骤可以扫描的有效文件");
  const fingerprint={
