@@ -1,0 +1,27 @@
+# Place at /etc/systemd/system/erp.service after replacing paths if required.
+# IMPORTANT: ExecStartPre fails closed when production variables are incomplete.
+[Unit]
+Description=ERP production (Alibaba Cloud ECS only)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=erp
+Group=erp
+WorkingDirectory=/opt/erp-workbanch/current
+EnvironmentFile=/etc/erp-workbanch/production.env
+ExecStartPre=/usr/bin/node /opt/erp-workbanch/current/scripts/check-aliyun-production.cjs
+ExecStart=/usr/bin/node --experimental-sqlite /opt/erp-workbanch/current/server/index.js
+Restart=on-failure
+RestartSec=5
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/erp
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target
