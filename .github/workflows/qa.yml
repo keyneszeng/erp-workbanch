@@ -65,6 +65,11 @@ jobs:
           node --input-type=module --check < web/assets/js/pages/contracts.js
           node --check server/api/verify.js
           node --check server/lib/verify-ocr-compare.js
+          node --input-type=module --check < web/assets/js/lib/verify-detail.js
+          node --input-type=module --check < web/assets/js/lib/verify-ocr-judge.js
+          node --input-type=module --check < web/assets/js/lib/sop-fields.js
+          node --check server/lib/meeting-demand-sop.js
+          node --check server/lib/sponsor-rights.js
           node --check server/lib/verify-office-text.js
           node --input-type=module --check < web/assets/js/lib/verify-ocr-judge.js
           node --input-type=module --check < web/assets/js/pages/verify.js
@@ -164,6 +169,8 @@ jobs:
         run: ERP_DEMO_MODE=1 node test/ui/settlement-breakdown.js
       - name: "Black-box initiation form tax-fee preview"
         run: ERP_DEMO_MODE=1 node test/ui/budget-fee.js
+      - name: "Black-box project contract categories and step 6/7 financial/sponsor source isolation"
+        run: ERP_DEMO_MODE=1 node test/ui/contract-verify-sources.js
       - name: "Black-box step 5: labor sheets and expert contracts only, never meeting or sponsor agreements"
         run: ERP_DEMO_MODE=1 node test/ui/labor-step5-scope.js
       - name: "Black-box project material batch: concurrent uploads, original filenames, per-file retry"
