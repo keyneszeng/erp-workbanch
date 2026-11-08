@@ -1,18 +1,22 @@
 "use strict";
 const {laborSheetInfo}=require("./labor-sop");
+const {contractPool}=require("./labor-contracts");
 const {demandSopState}=require("./meeting-demand-sop");
 const {sponsorRights}=require("./sponsor-rights");
 const { db } = require("./db");
+const {parseTaxFeeRate}=require("./budget-fee");
+const {withBudgetFee}=require("./budget-fee");
 const { now, nextId, conflict, forbidden, notFound, bad, cents, yuan, parseBankAccount, parseBankName } = require("./util");
 const { can, isSuper, ROLES } = require("./rbac");
 const { logAudit } = require("./audit");
 const { FLOW, VERIFY_STEPS } = require("./constants");
 const { isDemoMode } = require("./runtime");
+const verifyOcr=require("./verify-ocr-compare");
 
 function getProject(id) {
   const p = db.prepare("SELECT * FROM projects WHERE id = ?").get(id);
   if (!p) throw notFound(`项目 ${id} 不存在`);
-  return p;
+  return withBudgetFee(p);
 }
 
 /** 核销进度 */
@@ -28,7 +32,9 @@ function verification(pid) {
       (def.no!==7 || sponsor.required);
     const evidence=r?.evidence_json?JSON.parse(r.evidence_json):null;
     const stale=required && r?.result==="通过" && (
-      (def.no===5 && evidence?.laborSourceSignature!==labor.signature) ||
+      (evidence?.origin==="ocr-assisted-human-review" && evidence.scanToken!==verifyOcr.report(pid,def.no).token) ||
+      (def.no===5 && (evidence?.laborSourceSignature!==labor.signature ||
+        !evidence?.contractPoolSignature || evidence.contractPoolSignature!==contractPool(db,pid).signature)) ||
       (def.no===2 && !isDemoMode() && (
         !Array.isArray(evidence?.matchedSources) ||
         evidence.matchedSources.join("|")!=="终版议程|签到表|讲者照片"
@@ -330,8 +336,8 @@ function transition(projectId, action, user, payload = {}, ip = "") {
       const profit = yuan(income - expense);
       const id = nextId(db, "settlements", "id", "ST");
       db.prepare(
-        "INSERT INTO settlements (id,pid,income,expense,profit,payee,payee_bank,payee_account,status,created_by,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)"
-      ).run(id, p.id, income, expense, profit, payee, payeeBank, payeeAccount, "已生成", user.name, at);
+        "INSERT INTO settlements (id,pid,income,expense,profit,tax_fee_rate,payee,payee_bank,payee_account,status,created_by,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)"
+      ).run(id, p.id, income, expense, profit, parseTaxFeeRate(p.tax_fee_rate), payee, payeeBank, payeeAccount, "已生成", user.name, at);
       setStatus(p, "已结算", user, ip,
         `生成结算单 ${id}：收入 ¥${income.toLocaleString("zh-CN")} / 支出 ¥${expense.toLocaleString("zh-CN")} / ` +
         `结余 ¥${profit.toLocaleString("zh-CN")}；收款方 ${payee}（${payeeBank} 尾号 ${payeeAccount.slice(-4)}）`);

@@ -6,6 +6,7 @@
  */
 const { bad, conflict, cents } = require("./util");
 const {laborSheetInfo}=require("./labor-sop");
+const {linkLaborContracts}=require("./labor-contracts");
 const {demandSopState}=require("./meeting-demand-sop");
 const {validateRightsEvidence}=require("./sponsor-rights");
 const eq = (a,b) => String(a ?? "").trim().replace(/\s+/g,"") === String(b ?? "").trim().replace(/\s+/g,"");
@@ -111,11 +112,17 @@ function validateSopEvidence(no, evidence, project, db, invoiceAmount) {
         fail("劳务表存在重复讲者或重复劳务记录");
       if(rows.some(x=>!Number.isFinite(Number(x.amount))||Number(x.amount)<=0))
         fail("劳务金额必须为正数");
-      // 协议即合同，不再重复要求协议原件或五字段第二次录入。
-      const signed=db.prepare("SELECT COUNT(*) AS n FROM contracts WHERE pid=? AND status='已签署'").get(pid);
-      if(!Number(signed?.n))fail("请先在合同台账确认已签署合同","CONTRACT_NOT_SIGNED");
-      return {matchedLaborRecords:rows.length,matchedFields:keys.length,laborSourceSignature:source.signature,
-        contractChecked:true,accountDataStored:false};
+      // 仅关联本项目材料库有效的个人合同原件，不以会务总合同替代。
+      const linked=linkLaborContracts(db,pid,rows.map(r=>r.name));
+      if(linked.missing.length)
+        fail("材料库缺少以下人员的同名合同原件："+linked.missing.join("、"),"SOP_PERSON_CONTRACT_MISSING");
+      if(linked.ambiguous.length)
+        fail("以下人员存在多份同名合同，请消除歧义："+linked.ambiguous.join("、"),"SOP_PERSON_CONTRACT_AMBIGUOUS");
+      return {matchedLaborRecords:rows.length,matchedFields:keys.length,
+        laborSourceSignature:source.signature,
+        matchedContractMaterialIds:linked.linked.map(x=>Number(x.id)),
+        contractPoolSignature:linked.contractPoolSignature,
+        matchedContracts:linked.linked.length,accountDataStored:false};
     }
     case 6: {
       const d=demandSopState(db,pid);

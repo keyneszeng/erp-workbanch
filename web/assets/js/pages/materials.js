@@ -1,6 +1,8 @@
 import { api, can } from "../lib/api.js";
+import {canDownloadArchivePdf,bindArchivePdfButtons} from "../lib/archive-pdf.js";
 import { bindPager, esc, formHtml, modal, pager, panel, readForm, table, toast, validate } from "../lib/ui.js";
 import { checkFile, compressImage, fileUrl, UPLOAD_ACCEPT, UPLOAD_TIP } from "../lib/upload.js";
+import { openContractMaterialReplace } from "../lib/contract-material-replace.js";
 
 const PAGE_SIZE = 50;
 let curPage = 1;
@@ -25,7 +27,7 @@ export async function render(root) {
       ${table([{ t: "项目" }, { t: "状态", w: "84px" }, { t: "上传原件", w: "110px" }, { t: "类别数" }, { t: "操作", w: "90px" }],
         d.projects.map((p) => ({
           c: [`<a class="link" data-go="projects/${p.id}">${esc(p.name)}</a>`,
-            p.status, `<b class="${p.uploadedCount ? "pos" : "neg"}">${p.uploadedCount || 0} 份</b>`,
+            esc(p.status), `<b class="${p.uploadedCount ? "pos" : "neg"}">${p.uploadedCount || 0} 份</b>`,
             esc(String(p.have?.length || 0))+" 类 · "+(p.uploadedCount ? "已满足材料条件" : "待上传附件"),
             `<button class="link" data-go="projects/${p.id}">查看</button>`]
         })), { empty: "暂无项目" })}
@@ -34,7 +36,7 @@ export async function render(root) {
     <div class="panel">
       <div class="panel-h"><h2>材料清单</h2><span class="hint">共 ${d.total} 条</span></div>
       ${table([{ t: "项目", w: "170px" }, { t: "类别", w: "92px" }, { t: "名称" }, { t: "附件", w: "86px" },
-        { t: "版本", w: "56px" }, { t: "上传人", w: "76px" }, { t: "时间", w: "130px" }],
+        { t: "版本", w: "56px" }, { t: "上传人", w: "76px" }, { t: "时间", w: "130px" }, { t:"操作",w:"78px" }],
         d.rows.map((m) => ({
           c: [`<a class="link" data-go="projects/${m.pid}">${esc(m.pname)}</a>`, esc(m.kind)+(m.kind==="权益照片"?`<div class="hint">${esc(m.sponsor_enterprise||"未关联赞助合同")} · ${esc(m.sponsor_right_category||"未关联权益类目")}</div>`:""),
             esc(m.name),
@@ -43,7 +45,11 @@ export async function render(root) {
                   ? `<a class="link" href="${fileUrl(m.file_key)}" target="_blank" rel="noopener">${esc(m.file_name || "下载附件")}</a>`
                   : `<a href="${fileUrl(m.file_key)}" target="_blank" rel="noopener"><img class="thumb" src="${fileUrl(m.file_key)}" alt=""></a>`)
               : '<span style="color:var(--mute)">—</span>',
-            esc(m.version || ""), esc(m.uploader || ""), `<span class="mono">${esc(m.created_at)}</span>`]
+            esc(m.version || ""), esc(m.uploader || ""), `<span class="mono">${esc(m.created_at)}</span>`,
+            (can("material:file:replace") && m.file_key && !["已核销","已结算","已归档"].includes(m.pstatus)
+              ? `<button class="link" data-replace-material="${Number(m.id)}">修改</button>` : "") +
+            (canDownloadArchivePdf({status:m.pstatus,assoc:m.passoc})
+              ? ` <button class="link" data-archive-pdf="${esc(m.pid)}">材料下载</button>` : "") || "—"]
         })),
         { empty: "暂无材料" })}
       ${pager(d, { unit: "条" })}
@@ -51,12 +57,20 @@ export async function render(root) {
 `;
 
   bindPager(root, (n) => { curPage = n; render(root); });
+  bindArchivePdfButtons(root);
 
   const add = root.querySelector("#add");
-  if (add) add.onclick = () => openMaterialRegistration(root, d.projects, d.kinds);
+  if (add) add.onclick = () => openMaterialRegistration(root, d.projects.filter(p=>!["已结算","已归档"].includes(p.status)), d.kinds);
+  root.querySelectorAll("[data-replace-material]").forEach(btn=>{
+    btn.onclick=()=>{
+      const item=d.rows.find(x=>Number(x.id)===Number(btn.dataset.replaceMaterial));
+      if(item)openContractMaterialReplace(item,()=>render(root));
+    };
+  });
 }
 
 export function openMaterialRegistration(root, projects, kinds, defaultPid="", onSaved=null) {
+  if(!projects.length){toast("当前没有可登记材料的项目（已结算、已归档项目不允许新增材料）","warn");return;}
   const fields = [
     { k: "pid", l: "所属项目", t: "select", req: 1, v:defaultPid, opts: projects.map((p) => ({ v: p.id, l: `${p.id} ${p.name}` })) },
     { k: "kind", l: "材料类别", t: "select", req: 1, custom: 1, ph: "如：盖章会议通知 / 招商函 / 终版议程 / 讲者照片",
@@ -89,15 +103,23 @@ export function openMaterialRegistration(root, projects, kinds, defaultPid="", o
   const rightField=rightSelect.closest(".fld");
   const pidSelect=m.querySelector('[name="pid"]');
   let availableRights=[];
+  let rightsRequestId=0;
   const loadRights=async()=>{
+    const requestId=++rightsRequestId;
+    const pid=pidSelect.value;
     availableRights=[];
-    if(!pidSelect.value)return;
+    rightSelect.innerHTML='<option value="">正在加载权益二级类目…</option>';
+    if(!pid){rightSelect.innerHTML='<option value="">请先选择所属项目</option>';return;}
     try{
-      const data=await api.get("/api/projects/"+encodeURIComponent(pidSelect.value)+"/sponsor-rights");
+      const data=await api.get("/api/projects/"+encodeURIComponent(pid)+"/sponsor-rights");
+      if(requestId!==rightsRequestId||pidSelect.value!==pid)return;
       const sponsors=new Map((data.contracts||[]).filter(c=>c.status!=="已驳回").map(c=>[c.id,c]));
       availableRights=(data.rights||[]).filter(x=>sponsors.has(x.sponsor_id))
         .map(x=>({...x,enterprise:sponsors.get(x.sponsor_id).enterprise}));
-    }catch(err){if(kindSelect.value==="权益照片")toast("读取权益二级类目失败："+err.message,"warn");}
+    }catch(err){
+      if(requestId!==rightsRequestId||pidSelect.value!==pid)return;
+      if(kindSelect.value==="权益照片")toast("读取权益二级类目失败："+err.message,"warn");
+    }
     const old=rightSelect.value;
     rightSelect.innerHTML='<option value="">选择赞助合同 → 权益二级类目</option>'+
       availableRights.map(x=>'<option value="'+x.id+'">'+esc(x.enterprise)+" · "+esc(x.category)+(x.confirmed?"":"（待确认）")+'</option>').join("");
