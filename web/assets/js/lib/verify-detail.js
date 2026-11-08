@@ -60,11 +60,11 @@ function cell(k, v, warn) {
 function payRows(list) {
   if (!list.length) return `<div class="dhint">没有符合条件的付款记录</div>`;
   return table(
-    [{ t: "单号", w: "104px" }, { t: "类型", w: "82px" }, { t: "收款方" }, { t: "金额", w: "96px", cls: "num" },
+    [{ t: "单号", w: "104px" }, { t: "类型", w: "82px" }, { t: "收款方" }, { t: "金额／期次", w: "112px", cls: "num" },
      { t: "发票号", w: "120px" }, { t: "状态", w: "72px" }],
     list.map((y) => ({
       c: [`<span class="mono">${y.id}</span>`, esc(y.type), esc(y.payee),
-        fmt(y.amount), `<span class="mono">${esc(y.invoice_no || "—")}</span>`, badge(y.status)]
+        `${fmt(y.amount)}${y.period ? `<div class="hint">期次：${esc(y.period)}</div>` : ""}`, `<span class="mono">${esc(y.invoice_no || "—")}</span>`, badge(y.status)]
     }))
   );
 }
