@@ -10,7 +10,7 @@ const { MATERIAL_KINDS } = require("../../server/lib/constants");
  * @param {string} pid
  */
 async function fillMaterials(client, pid) {
-  for (const kind of MATERIAL_KINDS.filter(k=>k!=="终版议程")) {
+  for (const kind of MATERIAL_KINDS.filter(k=>k!=="终版议程"&&k!=="权益照片")) {
     const r = await client("POST", `/api/projects/${pid}/materials`, { kind, name: `${kind}-测试件.pdf` });
     if (r.status !== 200) {
       throw new Error(`登记材料「${kind}」失败：${r.status} ${JSON.stringify(r.data)}`);

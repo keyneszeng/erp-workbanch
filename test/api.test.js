@@ -201,10 +201,18 @@ test("工作流：非法流转被拒", async () => {
   assert.equal(r.data.error.code, "ILLEGAL_TRANSITION");
 });
 
-test("核销：跳步判定被拒", async () => {
+test("核销：不按步骤顺序也可独立判定，全部完成前仍不允许核销通过", async () => {
+  const lastFirst = await finance("POST", `/api/projects/${pid}/verify/steps/4`, { result: "通过" });
+  assert.equal(lastFirst.status,200,"第4项允许最先核验");
+  assert.equal(lastFirst.data.verification.steps.find(s=>s.no===4).result,"通过");
+  assert.equal(lastFirst.data.verification.steps.find(s=>s.no===6).result,"不适用");
   const r = await finance("POST", `/api/projects/${pid}/verify/steps/3`, { result: "通过" });
-  assert.equal(r.status, 409);
-  assert.equal(r.data.error.code, "OUT_OF_ORDER");
+  assert.equal(r.status, 200, JSON.stringify(r.data));
+  assert.equal(r.data.verification.steps.find(s=>s.no===3).result,"通过");
+  assert.equal(r.data.verification.steps.find(s=>s.no===1).result,"待判定");
+  const blocked = await finance("POST", `/api/projects/${pid}/transition`, { action: "verify_pass" });
+  assert.equal(blocked.status,409,"所有适用核销项未全部通过之前仍禁止核销完成");
+  assert.equal(blocked.data.error.code,"GATE_BLOCKED");
 });
 
 test("付款门禁：待核销项目付款被拦截", async () => {
@@ -215,7 +223,7 @@ test("付款门禁：待核销项目付款被拦截", async () => {
 });
 
 test("核销：不通过自动生成例外单，核销通过被门禁拦截", async () => {
-  for (const no of [1, 2, 3]) {
+  for (const no of [2, 1, 3]) {
     const r = await exec("POST", `/api/projects/${pid}/verify/steps/${no}`, { result: "通过" });
     assert.equal(r.status, 200);
   }
@@ -236,11 +244,11 @@ test("例外单：财务审批通过后该步记为已解例外", async () => {
   assert.equal(r.data.verification.steps.find((s) => s.no === 4).result, "已解例外");
 });
 
-test("核销：6 步全过后可核销通过", async () => {
-  for (const no of [5, 6]) {
-    const r = await exec("POST", `/api/projects/${pid}/verify/steps/${no}`, { result: "通过" });
-    assert.equal(r.status, 200);
-  }
+test("核销：无劳务表和实际会务需求，第5/6项均自动不适用，四项通过即可核销", async () => {
+  const status=await finance("GET", `/api/projects/${pid}/verify`);
+  assert.equal(status.data.verification.steps.find(s=>s.no===5).result,"不适用");
+  assert.equal(status.data.verification.steps.find(s=>s.no===6).result,"不适用");
+  assert.equal(status.data.verification.total,4);
   const r = await finance("POST", `/api/projects/${pid}/transition`, { action: "verify_pass" });
   assert.equal(r.status, 200);
   assert.equal(r.data.project.status, "已核销");
