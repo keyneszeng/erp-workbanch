@@ -138,6 +138,8 @@ jobs:
         run: ERP_DEMO_MODE=1 node --experimental-sqlite --test test/final-agenda-upload.test.js
       - name: Verify first-step stamped document versus host script without sponsor field
         run: ERP_DEMO_MODE=1 node --experimental-sqlite --test test/meeting-sop.test.js
+      - name: Verify labor expert contract scoping and evidence signature isolation
+        run: ERP_DEMO_MODE=1 node --experimental-sqlite --test test/labor-contract-linking.test.js test/meeting-sop.test.js
       - name: Verify five-source speaker reconciliation before OCR setup
         run: ERP_DEMO_MODE=1 node --experimental-sqlite --test test/meeting-sop.test.js test/speaker-five-source.test.js test/verify-step4-course-topics.test.js
       - name: Verify bank receipt OCR extracts transfer amount and bank reference, not account numbers or fees
@@ -162,6 +164,8 @@ jobs:
         run: ERP_DEMO_MODE=1 node test/ui/settlement-breakdown.js
       - name: "Black-box initiation form tax-fee preview"
         run: ERP_DEMO_MODE=1 node test/ui/budget-fee.js
+      - name: "Black-box step 5: labor sheets and expert contracts only, never meeting or sponsor agreements"
+        run: ERP_DEMO_MODE=1 node test/ui/labor-step5-scope.js
       - name: "Black-box project material batch: concurrent uploads, original filenames, per-file retry"
         run: ERP_DEMO_MODE=1 node test/ui/material-batch-upload.js
       - name: "Black-box legacy XLS upload from material register"
