@@ -85,9 +85,7 @@ function validate(body, partial = false) {
   }
 }
 
-// The project board shares the same seven-step conditional gates as verification().
-// Steps 1-4 always apply; step5 = labor sheet, step6 = demand sheet,
-// step7 = rights content or rights photos. Both paging paths use this SQL.
+// Project-list and paged-list counts share the exact seven-step business gates.
 const STEP5_APPLIES = `EXISTS(SELECT 1 FROM materials m WHERE m.pid=p.id
  AND m.kind IN ('劳务表','劳务登记表','劳务收集表')
  AND (m.deleted_at IS NULL OR m.deleted_at='')
@@ -97,7 +95,39 @@ const STEP7_APPLIES = `(EXISTS(SELECT 1 FROM sponsor_rights sr WHERE sr.pid=p.id
  OR EXISTS(SELECT 1 FROM materials m WHERE m.pid=p.id AND m.kind='权益照片'
  AND (m.deleted_at IS NULL OR m.deleted_at='')
  AND m.file_key IS NOT NULL AND m.file_key<>''))`;
-const VERIFY_PROGRESS_SQL = `${VERIFY_PROGRESS_SQL},
+const VERIFY_PROGRESS_SQL = `(SELECT COUNT(*) FROM verify_steps v WHERE v.pid=p.id
+ AND v.step_no BETWEEN 1 AND 7 AND v.result IN ('通过','已解例外')
+ AND (v.step_no<=4 OR (v.step_no=5 AND ${STEP5_APPLIES})
+ OR (v.step_no=6 AND ${STEP6_APPLIES})
+ OR (v.step_no=7 AND ${STEP7_APPLIES}))) AS v_passed,
+ (4 + CASE WHEN ${STEP5_APPLIES} THEN 1 ELSE 0 END
+ + CASE WHEN ${STEP6_APPLIES} THEN 1 ELSE 0 END
+ + CASE WHEN ${STEP7_APPLIES} THEN 1 ELSE 0 END) AS v_total`;
+
+function listProjects(user, { status, q, assoc, stage, page, size } = {}) {
+  const { sql, params } = scopeFilter(user);
+  const where = [sql];
+  const args = [...params];
+  if (status) { where.push("p.status = ?"); args.push(status); }
+  if (assoc) { where.push("p.assoc = ?"); args.push(assoc); }
+  if (q) { where.push("(p.name LIKE ? OR p.id LIKE ? OR p.owner LIKE ?)"); args.push(`%${q}%`, `%${q}%`, `%${q}%`); }
+  if (stage) {
+    const map = {
+      draft: ["草稿", "待审批"], prep: ["已立项", "筹备中"],
+      exec: ["执行中"], verify: ["待核销"], done: ["已核销", "已结算", "已归档"]
+    };
+    const arr = map[stage] || [];
+    if (arr.length) { where.push(`p.status IN (${arr.map(() => "?").join(",")})`); args.push(...arr); }
+  }
+  const whereSql = where.join(" AND ");
+  const paging = readPaging({ page, size });
+
+  // 未请求分页时保持原样返回数组（旧调用方零影响）
+  if (!paging) {
+    return db.prepare(
+      `SELECT p.*, (SELECT COUNT(*) FROM payments y WHERE y.pid = p.id) AS pay_cnt,
+              (SELECT COALESCE(ROUND(SUM(y.amount),2),0) FROM payments y WHERE y.pid = p.id AND y.status='已付款') AS paid_amt,
+              ${VERIFY_PROGRESS_SQL},
               (SELECT COUNT(*) FROM exceptions e WHERE e.pid = p.id AND e.status='待审批') AS ex_open,
               (SELECT id FROM settlements s WHERE s.pid = p.id) AS st_id
        FROM projects p WHERE ${whereSql} ORDER BY p.date DESC, p.id`
