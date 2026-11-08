@@ -26,7 +26,7 @@ const ROUTES = [
   { re: /^flow$/, page: flow, nav: "flow", title: "全流程总览", sub: "9 状态 8 流转 · 门禁链与阶段职责" },
   { re: /^projects$/, page: projects, nav: "projects", title: "会议项目", sub: "按数据范围列出全部会议" },
   { re: /^projects\/([\w-]+)$/, page: project, nav: "projects", title: "项目详情", sub: "全生命周期作业台" },
-  { re: /^approvals$/, page: approvals, nav: "approvals", title: "审批中心", sub: "立项 / 例外单 / 付款 / 变更" },
+  { re: /^approvals$/, page: approvals, nav: "approvals", title: "审批中心", sub: "立项 / 合同 / 例外单 / 付款 / 变更" },
   // 带目标：从工作台待办/预警点进来时定位到具体那一条（审批单号或项目号）
   { re: /^approvals\/([\w-]+)$/, page: approvals, nav: "approvals", title: "审批中心", sub: "已定位到待处理事项" },
   { re: /^verify$/, page: verify, nav: "verify", title: "核销看板", sub: "七项 SOP（第5～7项按需）· 付款前置门" },

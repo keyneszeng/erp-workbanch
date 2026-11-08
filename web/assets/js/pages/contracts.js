@@ -1,10 +1,11 @@
 import { api, can, state } from "../lib/api.js";
-import { badge, confirmBox, promptBox, esc, formHtml, modal, money, panel, readForm, table, toast, validate } from "../lib/ui.js";
+import { badge, bindSearchRefresh, confirmBox, promptBox, esc, formHtml, modal, money, panel, readForm, table, toast, validate } from "../lib/ui.js";
 import { bindFilePicker, UPLOAD_ACCEPT, UPLOAD_TIP } from "../lib/upload.js";
 import { flowHint, flowOf, openContractDetail } from "../lib/contract-detail.js";
 import { openContractMaterialReplace } from "../lib/contract-material-replace.js";
 
 let q = "";
+let renderSeq = 0;
 
 /**
  * 合同状态流转按钮：草稿 → 待签署（提交）→ 已签署（确认）。
@@ -34,7 +35,9 @@ function fileCell(c) {
 }
 
 export async function render(root) {
+  const seq = ++renderSeq;
   const [c, proj] = await Promise.all([api.get("/api/contracts"), api.get("/api/projects")]);
+  if (seq !== renderSeq) return;
   const rows = c.rows.filter((r) => !q || (r.name + r.vendor + r.pname + r.id).includes(q));
   const total = rows.reduce((s, r) => s + r.amount, 0);
   const signed = rows.filter((r) => r.status === "已签署").reduce((s, r) => s + r.amount, 0);
@@ -71,7 +74,7 @@ export async function render(root) {
         })), { empty: "暂无合同" })}
     </div>`;
 
-  root.querySelector("#q").addEventListener("input", (e) => { q = e.target.value.trim(); render(root); });
+  bindSearchRefresh(root, "#q", value => { q = value; }, () => render(root));
   const expBtn = root.querySelector("#exp");
   if (expBtn) expBtn.onclick = async () => {
     try { const r = await api.download("/api/export/contracts"); toast(`已导出 ${r.name}`, "ok"); }

@@ -216,6 +216,37 @@ export function progressBar(pct, color = "var(--blue)") {
     <div class="bar-in" style="width:${Math.min(100, Math.max(0, pct))}%;height:100%;background:${color}"></div></div>`;
 }
 
+/**
+ * 保留搜索输入焦点：列表需要重新请求接口时，不能每输入一字就销毁输入框。
+ * 同时尊重用户切换焦点的动作；异步返回后不强行抢回输入焦点。
+ */
+export function bindSearchRefresh(root, selector, onChange, refresh, delay = 280) {
+  const input = root.querySelector(selector);
+  if (!input) return;
+  let timer;
+  input.addEventListener("input", () => {
+    const value = input.value;
+    onChange(value.trim());
+    clearTimeout(timer);
+    timer = setTimeout(async () => {
+      const focused = document.activeElement === input;
+      const from = input.selectionStart, to = input.selectionEnd;
+      try {
+        await refresh();
+        if (!focused) return;
+        const replacement = root.querySelector(selector);
+        if (!replacement || replacement.value !== value || !root.isConnected) return;
+        // 如果用户在请求期间主动移到其他输入框，就不要抢焦点。
+        if (document.activeElement !== document.body && document.activeElement !== input) return;
+        replacement.focus({ preventScroll: true });
+        if (from != null && to != null) replacement.setSelectionRange(from, to);
+      } catch (err) {
+        toast(err?.message || "搜索失败，请重试", "warn");
+      }
+    }, delay);
+  });
+}
+
 /* ---------------- 分页 ---------------- */
 function pageWindow(cur, total) {
   if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1);

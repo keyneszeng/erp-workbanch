@@ -1,11 +1,14 @@
 import { api, can } from "../lib/api.js";
 import { canDownloadArchivePdf, bindArchivePdfButtons } from "../lib/archive-pdf.js";
-import { badge, esc, money, panel, table, toast } from "../lib/ui.js";
+import { badge, bindSearchRefresh, esc, money, panel, table, toast } from "../lib/ui.js";
 
 let q = "";
+let renderSeq = 0;
 
 export async function render(root) {
+  const seq = ++renderSeq;
   const [proj, st] = await Promise.all([api.get("/api/projects"), api.get("/api/settlements")]);
+  if (seq !== renderSeq) return;
   const archived = proj.rows.filter((p) => p.status === "已归档");
   const rows = archived.filter((p) => !q || (p.name + p.id + p.assoc).includes(q));
   const settleMap = new Map(st.rows.map((s) => [s.pid, s]));
@@ -46,7 +49,7 @@ export async function render(root) {
     </div>`;
 
   bindArchivePdfButtons(root);
-  root.querySelector("#q").addEventListener("input", (e) => { q = e.target.value.trim(); render(root); });
+  bindSearchRefresh(root, "#q", value => { q = value; }, () => render(root));
   const expBtn = root.querySelector("#exp");
   if (expBtn) expBtn.onclick = async () => {
     try { const r = await api.download("/api/export/verify"); toast(`已导出 ${r.name}`, "ok"); }

@@ -23,16 +23,22 @@ export async function render(root, params = []) {
   qs.set("page", curPage);
   qs.set("size", PAGE_SIZE);
 
-  const [pay, st, proj] = await Promise.all([
+  // 表格状态筛选不能把顶部全局待审批/已付 KPI 也筛成 0。
+  const totalsQs = new URLSearchParams();
+  if (focusPid) totalsQs.set("pid", focusPid);
+  totalsQs.set("page", "1");
+  totalsQs.set("size", "1");
+  const [pay, st, proj, allPay] = await Promise.all([
     api.get("/api/payments?" + qs.toString()),
     api.get("/api/settlements"),
-    api.get("/api/projects")
+    api.get("/api/projects"),
+    filterStatus ? api.get("/api/payments?" + totalsQs.toString()) : Promise.resolve(null)
   ]);
   const payableProjects = proj.rows.filter((p) => PAYABLE.includes(p.status));
   // Income API is permission protected: do not request it or offer navigation to unauthorized accounts.
   const incomeReadable = ["contract:write","contract:approve","payment:pay","payment:approve"].some(perm=>can(perm));
   // KPI 全部用后端全量汇总：pay.rows 只是当前页
-  const s = pay.summary || { pending: 0, approved: 0, pendingAmount: 0, approvedAmount: 0, paidAmount: 0 };
+  const s = (allPay || pay).summary || { pending: 0, approved: 0, pendingAmount: 0, approvedAmount: 0, paidAmount: 0 };
   const blocked = proj.rows.filter((p) => ["待核销", "执行中", "筹备中"].includes(p.status)).length;
   // 定位态下后端汇总也被 pid 过滤了 —— 不标一句，用户会把「待审批 0 笔」当成全局没有待审批
   const scopeNote = focusPid ? '<span style="font-weight:400;color:var(--mute)">（本项目）</span>' : "";
@@ -56,8 +62,8 @@ export async function render(root, params = []) {
       <div class="kpi"><div class="t">已审批待付${scopeNote}</div><div class="v">${s.approved}<span class="u">笔</span></div>
         <div style="font-size:12px;color:var(--sub);margin-top:4px">¥${money(s.approvedAmount)}</div></div>
       <div class="kpi k2"><div class="t">已登记付款${scopeNote}</div><div class="v">¥${money(s.paidAmount)}</div></div>
-      <div class="kpi k4"><div class="t">当前页未核销项目</div><div class="v">${blocked}<span class="u">个项目</span></div>
-        <div style="font-size:12px;color:var(--sub);margin-top:4px">按当前项目列表页统计</div></div>
+      <div class="kpi k4"><div class="t">范围内未核销项目</div><div class="v">${blocked}<span class="u">个项目</span></div>
+        <div style="font-size:12px;color:var(--sub);margin-top:4px">按当前账号可见的项目统计</div></div>
     </div>
 
     ${incomeReadable ? '<div id="incomeWorkbench"></div>' : ""}
