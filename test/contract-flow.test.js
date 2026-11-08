@@ -215,3 +215,42 @@ test("不存在的合同 → 404，未知动作 → 409", async () => {
   assert.equal(bad.status, 409, JSON.stringify(bad.data));
   assert.equal(bad.data.error.code, "ILLEGAL_TRANSITION");
 });
+
+test("生产版合同台账企业赞助自动编号并关联会议收入；签署只算收入不计支出",async()=>{
+ const pid=await freshProject();
+ const pdf=Buffer.from("%PDF-1.4\n1 0 obj\n<<>>\nendobj\n%%EOF");
+ const up=await fetch(BASE+"/api/uploads?pid="+pid,{
+   method:"POST",headers:{Cookie:exec,"Content-Type":"application/octet-stream","X-File-Name":"sponsor.pdf"},body:pdf
+ });
+ const upload=await up.json();assert.equal(up.status,200,JSON.stringify(upload));
+ const created=await client(exec)("POST","/api/contracts",{
+   pid,name:"企业赞助合作协议",vendor:"深圳市睿康医疗科技有限公司",
+   category:"企业赞助",amount:50000,status:"待签署",
+   file_key:upload.key,file_name:"sponsor.pdf",rightsCategories:["主会场背景板LOGO露出"]
+ });
+ assert.equal(created.status,200,JSON.stringify(created.data));
+ const id=created.data.contract.id;
+ assert.match(id,/^HT-\d{4}-\d{3,}$/);
+ assert.ok(created.data.sponsorId);
+ const inc0=await client(admin)("GET","/api/projects/"+pid+"/income");
+ assert.equal(inc0.status,200,JSON.stringify(inc0.data));
+ const sponsor=inc0.data.contracts.find(x=>x.ledger_contract_id===id);
+ assert.equal(sponsor?.contract_no,id);
+ assert.equal(sponsor?.enterprise,"深圳市睿康医疗科技有限公司");
+ assert.equal(inc0.data.summary.contracted,0);
+ const a=await client(assoc)("GET","/api/approvals?type=合同审批");
+ assert.equal(a.status,200,JSON.stringify(a.data));
+ const approval=a.data.rows.find(x=>x.ref_id===id);
+ assert.ok(approval,"待签署赞助合同必须生成统一合同审批");
+ const decision=await client(assoc)("POST","/api/approvals/"+approval.id+"/decide",{approve:true});
+ assert.equal(decision.status,200,JSON.stringify(decision.data));
+ const inc1=await client(admin)("GET","/api/projects/"+pid+"/income");
+ assert.equal(inc1.data.summary.contracted,50000,"赞助签署后进入会议收入");
+ assert.equal(inc1.data.contracts.find(x=>x.id===sponsor.id).status,"已签署");
+ const list=await client(admin)("GET","/api/contracts?pid="+pid);
+ assert.equal(list.data.rows.find(x=>x.id===id).status,"已签署");
+ const payees=await client(finance)("GET","/api/projects/"+pid+"/payee-options");
+ assert.equal(payees.status,200,JSON.stringify(payees.data));
+ assert.ok(!payees.data.rows.some(x=>x.payee==="深圳市睿康医疗科技有限公司"),
+   "赞助收入方不可进入财务付款候选");
+});
