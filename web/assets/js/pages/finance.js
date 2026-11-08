@@ -1,6 +1,7 @@
 import { api, can, state } from "../lib/api.js";
 import {bindPayeePicker} from "../lib/payee-picker.js";
 import {renderIncomeWorkbench} from "../lib/income-workbench.js";
+import {renderSettlementBreakdown} from "../lib/settlement-breakdown.js";
 import { badge, bindPager, confirmBox, esc, formHtml, modal, money, pager, panel, readForm, table, toast, validate } from "../lib/ui.js";
 
 const PAGE_SIZE = 50;
@@ -22,20 +23,28 @@ export async function render(root, params = []) {
   qs.set("page", curPage);
   qs.set("size", PAGE_SIZE);
 
-  const [pay, st, proj] = await Promise.all([
+  // 表格状态筛选不能把顶部全局待审批/已付 KPI 也筛成 0。
+  const totalsQs = new URLSearchParams();
+  if (focusPid) totalsQs.set("pid", focusPid);
+  totalsQs.set("page", "1");
+  totalsQs.set("size", "1");
+  const [pay, st, proj, allPay] = await Promise.all([
     api.get("/api/payments?" + qs.toString()),
     api.get("/api/settlements"),
-    api.get("/api/projects")
+    api.get("/api/projects"),
+    filterStatus ? api.get("/api/payments?" + totalsQs.toString()) : Promise.resolve(null)
   ]);
   const payableProjects = proj.rows.filter((p) => PAYABLE.includes(p.status));
+  // Income API is permission protected: do not request it or offer navigation to unauthorized accounts.
+  const incomeReadable = ["contract:write","contract:approve","payment:pay","payment:approve"].some(perm=>can(perm));
   // KPI 全部用后端全量汇总：pay.rows 只是当前页
-  const s = pay.summary || { pending: 0, approved: 0, pendingAmount: 0, approvedAmount: 0, paidAmount: 0 };
+  const s = (allPay || pay).summary || { pending: 0, approved: 0, pendingAmount: 0, approvedAmount: 0, paidAmount: 0 };
   const blocked = proj.rows.filter((p) => ["待核销", "执行中", "筹备中"].includes(p.status)).length;
   // 定位态下后端汇总也被 pid 过滤了 —— 不标一句，用户会把「待审批 0 笔」当成全局没有待审批
   const scopeNote = focusPid ? '<span style="font-weight:400;color:var(--mute)">（本项目）</span>' : "";
 
   root.innerHTML = `<div class="phead">
-      <div><h2>付款与结算</h2><p>按唯一会议编号归集所有业务记录；核销核票→付款申请→协会管理员/总管理员审批→财务完成付款→生成结算单；未付款不得结算</p></div>
+      <div><h2>会议收入、付款与结算</h2><p>按唯一会议编号归集所有业务记录；核销核票→付款申请→协会管理员/总管理员审批→财务完成付款→生成结算单；未付款不得结算</p></div>
       <div class="acts">
         ${state.super ? '<button class="btn btn-o" data-go="project-ledger">项目台账</button>' : ""}
         ${can("export:any") ? `<button class="btn btn-o" id="expPay">导出付款明细</button>
@@ -52,24 +61,25 @@ export async function render(root, params = []) {
         <div style="font-size:12px;color:var(--sub);margin-top:4px">¥${money(s.pendingAmount)}</div></div>
       <div class="kpi"><div class="t">已审批待付${scopeNote}</div><div class="v">${s.approved}<span class="u">笔</span></div>
         <div style="font-size:12px;color:var(--sub);margin-top:4px">¥${money(s.approvedAmount)}</div></div>
-      <div class="kpi k2"><div class="t">已付款${scopeNote}</div><div class="v">¥${money(s.paidAmount)}</div></div>
-      <div class="kpi k4"><div class="t">付款门禁锁定中</div><div class="v">${blocked}<span class="u">个项目</span></div>
-        <div style="font-size:12px;color:var(--sub);margin-top:4px">未核销不可付款</div></div>
+      <div class="kpi k2"><div class="t">已登记付款${scopeNote}</div><div class="v">¥${money(s.paidAmount)}</div></div>
+      <div class="kpi k4"><div class="t">范围内未核销项目</div><div class="v">${blocked}<span class="u">个项目</span></div>
+        <div style="font-size:12px;color:var(--sub);margin-top:4px">按当前账号可见的项目统计</div></div>
     </div>
 
-    <div id="incomeWorkbench"></div>
+    ${incomeReadable ? '<div id="incomeWorkbench"></div>' : ""}
     <div class="ux-finance-tabs" role="navigation" aria-label="财务业务分区">
-       <button class="ux-finance-tab active" data-finance-jump="fin-payments">付款申请与执行</button>
+       ${incomeReadable ? '<button class="ux-finance-tab active" data-finance-jump="incomeWorkbench">会议收入 · 企业赞助</button>' : ""}
+       <button class="ux-finance-tab ${incomeReadable ? "" : "active"}" data-finance-jump="fin-payments">付款申请与执行</button>
        <button class="ux-finance-tab" data-finance-jump="fin-settlements">结算与归档</button>
      </div>
-    <div class="ux-finance-rule">核销六步全部通过 → 付款申请 → 协会审批 → 财务执行 → 金额对齐后结算；发票号随付款记录核对。</div>
+    <div class="ux-finance-rule">七项核销规则（第5～7项按需）通过 → 付款申请 → 协会审批 → 财务登记已付款 → 合同金额核对 → 结算；发票应在核销环节核验。</div>
     <div class="panel mt" id="fin-payments">
       <div class="panel-h"><h2>付款记录</h2><div><span class="hint">共 ${pay.total} 笔</span></div></div>
       <div class="tabs">${["", "待审批", "已审批", "已付款", "已驳回"].map((x) =>
         `<button data-st="${x}" class="${filterStatus === x ? "on" : ""}">${x || "全部"}</button>`).join("")}</div>
       ${table(
         [{ t: "付款单号", w: "112px" }, { t: "项目" }, { t: "类型", w: "84px" }, { t: "收款方", w: "150px" },
-         { t: "金额", w: "96px", cls: "num" }, { t: "发票号", w: "96px" }, { t: "申请人", w: "70px" },
+         { t: "金额／期次", w: "112px", cls: "num" }, { t: "发票号", w: "96px" }, { t: "申请人", w: "70px" },
          { t: "状态", w: "78px" }, { t: "操作", w: "120px" }],
         pay.rows.map((y) => ({
           attrs: ` data-row="${y.id}" data-pid="${y.pid}"`,
@@ -80,15 +90,15 @@ export async function render(root, params = []) {
             // 收款方 + 账户一起给：财务打款时看的就是这两行
             `${esc(y.payee)}<div style="font-size:11px;color:var(--mute)">
               ${y.payee_account
-                ? `${esc(y.payee_bank || "")} · <span class="mono">${esc(y.payee_account)}</span>`
+                ? `${esc(y.payee_bank || "")} · <span class="mono">${esc(can("payment:pay") ? y.payee_account : "尾号 " + String(y.payee_account).slice(-4))}</span>`
                 : '<span style="color:var(--warn)">未登记收款账户</span>'}
             </div>`,
-            `¥${money(y.amount)}`, `<span class="mono">${esc(y.invoice_no || "—")}</span>`,
+            `¥${money(y.amount)}${y.period ? `<div style="font-size:11px;color:var(--mute)">${esc(y.period)}</div>` : ""}`, `<span class="mono">${esc(y.invoice_no || "—")}</span>`,
             esc(y.req_user || ""), badge(y.status),
             `<div class="tacts">
               ${y.status === "待审批" && can("payment:approve") ? `<button class="link" data-ok="${y.id}">审批</button><button class="link danger" data-no="${y.id}">驳回</button>` : ""}
               ${y.status === "已审批" && can("payment:pay") && y.payee_account ? `<button class="link" data-pay="${y.id}">付款</button>` : ""}
-              ${y.status !== "已付款" && can("payment:approve") && !y.payee_account ? `<button class="link" data-acct="${y.id}">登记账户</button>` : ""}
+              ${y.status !== "已付款" && can("payment:pay") && !y.payee_account ? `<button class="link" data-acct="${y.id}">登记账户</button>` : ""}
               ${y.status === "已付款" ? `<span style="font-size:11.5px;color:var(--mute)">${esc(y.paid_at || "")}</span>` : ""}
             </div>`]
         })), { empty: "暂无付款记录" })}
@@ -98,10 +108,10 @@ export async function render(root, params = []) {
     <div class="panel" id="fin-settlements">
       <div class="panel-h"><h2>结算单</h2><div><span class="hint">${st.total ?? st.rows.length} 张 · 生成即冻结核销结论</span></div></div>
       ${table(
-        [{ t: "结算单号", w: "112px" }, { t: "项目" }, { t: "收入", w: "96px", cls: "num" },
-         { t: "支出", w: "96px", cls: "num" }, { t: "结余", w: "96px", cls: "num" },
+        [{ t: "结算单号", w: "112px" }, { t: "项目" }, { t: "项目预算", w: "96px", cls: "num" },
+         { t: "已付支出", w: "96px", cls: "num" }, { t: "结余", w: "96px", cls: "num" },
          { t: "收款方 / 收款账户", w: "230px" },
-         { t: "生成人", w: "70px" }, { t: "时间", w: "120px" }],
+         { t: "生成人", w: "70px" }, { t: "时间", w: "120px" },{ t:"操作",w:"100px" }],
         st.rows.map((x) => ({
           c: [`<span class="mono">${x.id}</span>`, `<a class="link" data-go="projects/${x.pid}">${esc(x.name)}</a>`,
             `¥${money(x.income)}`, `¥${money(x.expense)}`,
@@ -109,17 +119,19 @@ export async function render(root, params = []) {
             // V1.2.18：结余打给谁、打到哪个账户 —— 原来这一栏整个是空的
             `${esc(x.payee || "—")}<div style="font-size:11px;color:var(--mute)">
               ${x.payee_account
-                ? `${esc(x.payee_bank || "")} · <span class="mono">${esc(x.payee_account)}</span>`
+                ? `${esc(x.payee_bank || "")} · <span class="mono">${esc(can("payment:pay") ? x.payee_account : "尾号 " + String(x.payee_account).slice(-4))}</span>`
                 : "未登记收款账户"}
             </div>`,
-            esc(x.created_by || ""), `<span class="mono">${esc(x.created_at)}</span>`]
+            esc(x.created_by || ""), `<span class="mono">${esc(x.created_at)}</span>`,
+            `<button type="button" class="link" aria-expanded="false" data-settlement-detail="${esc(x.id)}">查看结算单</button>`]
         })), { empty: "暂无结算单" })}
+      <div id="settlementDetail" aria-live="polite"></div>
     </div>
 
-    <div class="foot-note">门禁说明：未通过 6 步核销的项目，付款接口会返回 <code>VERIFY_GATE</code> 并记录审计；
-      已生成结算单的项目，核销结论与资料修改均被冻结（总管理员可例外操作，同样留痕）。</div>`;
+    <div class="foot-note">门禁说明：七项核销规则中所有适用项通过后才可申请付款，否则接口返回 <code>VERIFY_GATE</code>；
+      「已付款」指内部系统记录，不是自动发起银行转账。结算后相关账目和原件被冻结。</div>`;
 
-  renderIncomeWorkbench(root.querySelector("#incomeWorkbench"),
+  if (incomeReadable) renderIncomeWorkbench(root.querySelector("#incomeWorkbench"),
     proj.rows.filter(p=>!["已归档"].includes(p.status)),focusPid).catch(e=>toast(e.message,"warn"));
   bindPager(root, (n) => { curPage = n; render(root, params); });
   root.querySelectorAll("[data-st]").forEach((b) => b.onclick = () => { filterStatus = b.dataset.st; curPage = 1; render(root, params); });
@@ -131,6 +143,30 @@ export async function render(root, params = []) {
   root.querySelectorAll("[data-no]").forEach((b) => b.onclick = () => act(root, b.dataset.no, "reject"));
   root.querySelectorAll("[data-pay]").forEach((b) => b.onclick = () => act(root, b.dataset.pay, "pay"));
   root.querySelectorAll("[data-acct]").forEach((b) => b.onclick = () => openAccount(root, b.dataset.acct));
+  const settleSlot=root.querySelector("#settlementDetail");
+  root.querySelectorAll("[data-settlement-detail]").forEach(button=>button.onclick=async()=>{
+    const id=button.dataset.settlementDetail;
+    if(settleSlot.dataset.active===id){
+      settleSlot.replaceChildren();
+      delete settleSlot.dataset.active;
+      button.setAttribute("aria-expanded","false");
+      return;
+    }
+    root.querySelectorAll("[data-settlement-detail]").forEach(x=>x.setAttribute("aria-expanded","false"));
+    settleSlot.dataset.active=id;
+    button.setAttribute("aria-expanded","true");
+    settleSlot.innerHTML='<div class="hint" style="padding:16px">正在读取结算单明细…</div>';
+    try{
+      const detail=await api.get("/api/settlements/"+encodeURIComponent(id)+"/breakdown");
+      if(settleSlot.dataset.active!==id)return;
+      settleSlot.innerHTML=renderSettlementBreakdown(detail);
+      settleSlot.scrollIntoView({block:"nearest",behavior:"smooth"});
+    }catch(err){
+      if(settleSlot.dataset.active!==id)return;
+      settleSlot.innerHTML='<div class="empty">结算单明细读取失败，请稍后重试</div>';
+      toast(err.message,"warn");
+    }
+  });
   const ep = root.querySelector("#expPay");
   if (ep) ep.onclick = () => dl("/api/export/payments");
   const es = root.querySelector("#expSt");
@@ -157,7 +193,7 @@ async function dl(path) {
 async function act(root, id, kind) {
   try {
     if (kind === "pay") {
-      if (!await confirmBox(`确认对付款单 <b>${id}</b> 执行付款？`, { ok: "确认付款" })) return;
+      if (!await confirmBox(`确认付款单 <b>${id}</b> 已在银行或线下完成实际付款，并将其登记为「已付款」？系统不会自动发起转账，请先核对银行回单。`, { ok: "确认付款" })) return;
       const r = await api.post(`/api/payments/${id}/pay`, {});
       toast(r.message, "ok");
     } else {
@@ -209,13 +245,16 @@ async function openPay(root, projects) {
     { k: "payee_bank", l: "开户行", req: 0, ph: "如：中国银行北京朝阳支行" },
     { k: "payee_account", l: "银行账号", req: 0, ph: "10~25 位数字，可含空格分隔" },
     { k: "amount", l: "付款金额（元）", t: "number", req: 1 },
+    // 分期付款两期金额常常相同，不填期次会被当成重复申请
+    { k: "period", l: "期次（可选）", req: 0, ph: "如：第1期 / 首付款 / 尾款" },
     { k: "remark", l: "备注", t: "textarea", full: 1, rows: 2 }
   ];
-  const m = modal({ title: "付款申请", body: `<div class="gate ok" style="margin-bottom:12px"><b>核销门禁</b>仅列出「已核销」项目：未核销项目不可付款，已结算项目账目已封账，已归档项目卷宗已封存。<br><b>预算门禁</b>已占用（待审批 + 已审批 + 已付款）加本笔金额超过预算时，接口返回 <code>OVER_BUDGET</code>，需总管理员特批。</div>${formHtml(fields)}`,
+  const m = modal({ title: "付款申请", body: `<div class="gate ok" style="margin-bottom:12px"><b>核销门禁</b>仅列出「已核销」项目：未核销项目不可付款，已结算项目账目已封账，已归档项目卷宗已封存。<br><b>预算门禁</b>已占用（待审批 + 已审批 + 已付款）加本笔金额超过预算时，接口返回 <code>OVER_BUDGET</code>，需总管理员特批。</div><div class="hint" style="margin-bottom:10px">同项目、同付款类型、同收款方、同金额、同期次的付款单只允许申请一次；待审批、已审批及已付款均不可重复，已驳回可重新提交。分期付款请填写不同期次（如「第1期」「第2期」），否则同额两期会被判为重复。</div>${formHtml(fields)}`,
     footer: `<button class="btn btn-o" data-x="0">取消</button><button class="btn btn-p" data-x="1">提交申请</button>` });
   await bindPayeePicker(m,projects[0].id,true);
   m.querySelector('[data-x="0"]').onclick = () => m.classList.remove("open");
-  m.querySelector('[data-x="1"]').onclick = async () => {
+  const submitButton=m.querySelector('[data-x="1"]');
+  submitButton.onclick = async () => {
     const selected=m.querySelector('[name="payee_option_id"]')?.value;
     const acct=m.querySelector('[name="payee_account"]')?.value.trim();
     const bank=m.querySelector('[name="payee_bank"]')?.value.trim();
@@ -224,11 +263,19 @@ async function openPay(root, projects) {
     if((!source||!source.bank)&&!bank){toast("请填写收款方开户行","warn");return;}
     if((!source||source.source!=="labor")&&!acct){toast("请填写银行账号；合同仅提供收款方名称","warn");return;}
     if (!validate(m, fields)) return;
+    if(submitButton.disabled)return;
+    submitButton.disabled=true;
+    submitButton.textContent="提交中…";
     try {
       const r = await api.post("/api/payments", readForm(m));
       toast(r.message, "ok");
       m.classList.remove("open");
       await render(root);
-    } catch (e) { toast(e.message, "warn"); }
+    } catch (e) {
+      toast(e.code==="DUPLICATE_PAYMENT"?"付款申请重复："+e.message:e.message,"warn");
+    } finally {
+      submitButton.disabled=false;
+      submitButton.textContent="提交申请";
+    }
   };
 }

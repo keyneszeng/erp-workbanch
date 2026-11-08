@@ -171,13 +171,14 @@ test("种子数据的历史合同都补上了类别", async () => {
 
 /* ---------------- 问题 3：材料自定义类别 ---------------- */
 
-test("材料可以自定义类别，但不顶替必备 8 类", async () => {
+test("材料类别可自由登记，不再受必备类别清单限制", async () => {
   const pid = await freshProject();
-  const before = (await detail(pid)).materialsStatus.missing.length;
+  const before = (await detail(pid)).materialsStatus.count;
 
   const r = await client(exec)("POST", `/api/projects/${pid}/materials`, { kind: "会议纪要", name: "会后纪要.pdf" });
   assert.equal(r.status, 200, JSON.stringify(r.data));
-  assert.equal(r.data.materialsStatus.missing.length, before, "自定义类别不应减少必备 8 类的缺口");
+  assert.equal(r.data.materialsStatus.count, before+1, "自定义类别须计入材料记录总数");
+  assert.deepEqual(r.data.materialsStatus.required, [], "不应存在强制材料类别清单");
   assert.ok(r.data.materialsStatus.have.includes("会议纪要"), "自定义类别应能查到");
 
   const d = await detail(pid);

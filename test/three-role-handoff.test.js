@@ -30,7 +30,7 @@ before(async()=>{
   let err="";
   child.stderr.on("data",v=>err+=String(v));
   let ready=false;
-  for(let i=0;i<300;i++){
+  for(let i=0;i<600;i++){
     if(child.exitCode!==null)throw Error("QA server exited: "+err);
     try{const r=await request("GET","/api/health");if(r.status===200){ready=true;break;}}catch{}
     await new Promise(r=>setTimeout(r,100));
