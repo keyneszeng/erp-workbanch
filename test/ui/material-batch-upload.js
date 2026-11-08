@@ -127,6 +127,9 @@ async function ready(){
   await page.locator('.tabs [data-tab="materials"]').click();
   await page.locator('[data-del-mat="'+all[0].id+'"]').click();
   await page.locator('#modal.open [data-x="1"]').click();
+  // Wait for the project archive table to finish re-rendering after deletion;
+  // a transient overview/empty frame also omits the name but proves nothing.
+  await page.waitForFunction(name=>document.querySelector("#content")?.innerText.includes(name),names[1],{timeout:15000});
   await page.waitForFunction(name=>!document.querySelector("#content")?.innerText.includes(name),names[0],{timeout:15000});
   const detail=await (await page.request.get(origin+"/api/projects/"+encodeURIComponent(pid))).json();
   assert.ok(!detail.materials.some(m=>Number(m.id)===Number(all[0].id)),
@@ -135,6 +138,7 @@ async function ready(){
     "other materials remain present");
   await page.reload({waitUntil:"domcontentloaded"});
   await page.locator('.tabs [data-tab="materials"]').click();
+  await page.waitForFunction(name=>document.querySelector("#content")?.innerText.includes(name),names[1],{timeout:15000});
   assert.ok(!(await page.locator("#content").innerText()).includes(names[0]),
     "deleted material must not return after project page reload");
   assert.ok((await page.locator("#content").innerText()).includes(names[1]),
