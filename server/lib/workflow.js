@@ -163,7 +163,7 @@ const GUARDS = {
   verify_pass(p) {
     if (!materialsStatus(p.id).ok) return "会议材料附件已全部删除，请至少保留一份上传附件";
     const v = verification(p.id);
-    if (v.judged < v.total) return `还有 ${v.total - v.judged} 项必核步骤未判定，第5项看劳务表、第6项看会务需求、第7项看已签赞助合同`;
+    if (v.judged < v.total) return `还有 ${v.total - v.judged} 项必核步骤未判定；前四项恒为必核，第5项有劳务表、第6项有需求单、第7项有权益或照片时必核`;
     if (v.failedSteps.length) return `第 ${v.failedSteps.join("、")} 步不通过，需提交例外单并获批`;
     if (v.openExceptions > 0) return `存在 ${v.openExceptions} 张未完成处理或待复核的例外单`;
     if (!v.complete) return "适用核销项须全部通过；不接受缺少证据的旧结论或以例外审批代替核销";
@@ -183,7 +183,7 @@ const GUARDS = {
       if (v.demandRequired) {
         const step=v.steps.find(s=>s.no===6);
         if(step?.result!=="通过" || !Number.isFinite(step.invoiceAmount))
-          return "会务需求存在时必须完成第6项会务协议、预算、合同及发票核对，才能结算";
+          return "已建立会务需求表时必须完成第6项会务需求表、会务合同及会务发票三单一致核验";
       }
       const signedTotal=db.prepare("SELECT COALESCE(SUM(amount),0) AS total FROM contracts WHERE pid=? AND status='已签署' AND COALESCE(category,'')<>'企业赞助'").get(p.id).total;
       if(cents(paid.total)!==cents(signedTotal))

@@ -70,10 +70,9 @@ export function collectSopEvidence(no,m){
       hostTitleMatches:checked("hostTitleMatches"),hostNameLogoMatches:checked("hostNameLogoMatches"),
       sponsorLogoPages:["首页","尾页","鸣谢页"].filter(x=>checked("logo"+x))};
     case 5:return {collectionRecords:labor(get("collectionRecords"))};
-    case 6:return {agendaTitle:get("agendaTitle"),agendaTime:get("agendaTime"),agendaFormat:get("agendaFormat"),
-      agreementTitle:get("agreementTitle"),agreementTime:get("agreementTime"),
-      agreementFormat:get("agreementFormat"),agreementPartyA:get("agreementPartyA"),
-      agreementFinal:checked("agreementFinal")};
+    case 6:return {demandReviewed:checked("demandReviewed"),
+      meetingContractReviewed:checked("meetingContractReviewed"),
+      meetingInvoiceReviewed:checked("meetingInvoiceReviewed")};
     case 7:return {verifiedRights:[...m.querySelectorAll('input[name="rightReviewed"]:checked')].map(x=>Number(x.value))};
     default:return {};
   }

@@ -126,34 +126,22 @@ function validateSopEvidence(no, evidence, project, db, invoiceAmount) {
     }
     case 6: {
       const d=demandSopState(db,pid);
-      if(!d.required)fail("当前没有标记「需要」的会务需求，第6项不适用","SOP_NOT_APPLICABLE");
-      if(!d.confirmed)fail("请先确认并归档会务需求清单","DEMAND_NOT_CONFIRMED");
-      if(!d.agenda.length)fail("请上传并确认当前终版议程原件","SOP_MATERIAL_MISSING");
-      if(!d.agreements.length)fail("请上传终版会务协议/会务合同原件（可在材料库「会务协议」或「合同」类别中登记）","SOP_MATERIAL_MISSING");
-      if(!d.contractCount)fail("请先签署会务合同，并在合同台账登记合同金额","CONTRACT_NOT_SIGNED");
+      if(!d.required)fail("尚未建立会务需求表，第6项不适用","SOP_NOT_APPLICABLE");
+      if(!d.confirmed)fail("请先确认并归档会务需求表","DEMAND_NOT_CONFIRMED");
+      if(!d.contractCount)fail("请先签署「会务需求」类别合同","CONTRACT_NOT_SIGNED");
+      if(!d.agreements.length)fail("请上传已签署会务合同对应的原件","SOP_MATERIAL_MISSING");
       if(!d.invoices.length)fail("请上传会务发票原件","SOP_MATERIAL_MISSING");
-      const fields=["agendaTitle","agendaTime","agendaFormat","agreementTitle","agreementTime","agreementFormat","agreementPartyA"];
-      if(fields.some(k=>!String(e[k]||"").trim()))
-        fail("请从终版议程和会务协议分别填写会议主题、时间、形式，以及协议甲方");
-      if(!eq(e.agendaTitle,e.agreementTitle)||!eq(e.agendaTime,e.agreementTime)||
-         !eq(e.agendaFormat,e.agreementFormat))
-        fail("会务协议中的会议主题、时间或形式与终版议程不一致");
-      if(!["线下","线上","混合"].includes(String(e.agendaFormat)))
-        fail("会议形式必须是线下、线上或混合");
-      if(!eq(e.agreementPartyA,project.assoc))
-        fail("会务协议甲方与本项目所属协会主体不一致");
-      if(e.agreementFinal!==true)
-        fail("须确认核对的会务协议是终版协议原件");
+      if(e.demandReviewed!==true||e.meetingContractReviewed!==true||e.meetingInvoiceReviewed!==true)
+        fail("请逐项人工检查会务需求表、已签会务合同和会务发票原件");
       if(!Number.isFinite(invoiceAmount)||invoiceAmount<0)
         throw bad("请输入核对后的会务发票总金额");
       if(cents(d.budgetTotal)!==cents(d.contractTotal))
         fail("会务需求总预算与已签署会务合同总金额不一致");
       if(cents(invoiceAmount)!==cents(d.budgetTotal))
         fail("会务发票总金额、会务需求总预算与已签署会务合同总金额不一致");
-      // 输入属于人工阅读原件后逐项录入。仅留摘要，避免把协议全文写进审计日志。
-      return {meetingMatched:true,matchedFields:4,meetingContractTotal:d.contractTotal,
+      return {meetingMatched:true,matchedFields:3,meetingContractTotal:d.contractTotal,
         demandBudget:d.budgetTotal,invoiceAmount,needCount:d.needCount,
-        demandSopSignature:d.signature,comparedWith:"终版议程+终版会务协议"};
+        demandSopSignature:d.signature,comparedWith:"会务需求表+会务合同+会务发票"};
     }
     case 7: return validateRightsEvidence(db,pid,e);
     default: throw bad("核销步骤必须为 1~7");
