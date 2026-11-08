@@ -300,7 +300,8 @@ const closeModal = async (page) => {
     if (judgeInModal) {
       await judgeInModal.click();
       await page.waitForTimeout(500);
-      check("切到判定弹窗", /判定结果/.test(await modalBody(page)));
+      check("进入无需二次录入的OCR核销弹窗", /直接扫描已上传的原件/.test(await modalBody(page)));
+      check("不再出现结构化人工核销表单", !(await page.$("#modal [name=agendaTopics],#modal [name=collectionRecords],#modal [name=invoiceAmount],#modal [name=remark]")));
       await closeModal(page);
     }
 

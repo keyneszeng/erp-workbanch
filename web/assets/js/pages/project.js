@@ -1,4 +1,5 @@
 import { api, can, state } from "../lib/api.js";
+import {bindBudgetFeePreview} from "../lib/budget-fee.js";
 import {bindPayeePicker} from "../lib/payee-picker.js";
 import { canDownloadArchivePdf, downloadArchivePdf } from "../lib/archive-pdf.js";
 import {
@@ -6,9 +7,11 @@ import {
 } from "../lib/ui.js";
 import { bindFilePicker, fileUrl, UPLOAD_ACCEPT, UPLOAD_TIP } from "../lib/upload.js";
 import { exStepLabel, openStepDetail } from "../lib/verify-detail.js";
-import { sopEvidenceForm, collectSopEvidence } from "../lib/sop-fields.js";
-import { bindLaborContractPreview } from "../lib/labor-contract-preview.js";
+import {openOcrJudge} from "../lib/verify-ocr-judge.js";
+import { openContractMaterialReplace } from "../lib/contract-material-replace.js";
 import { flowHint, flowOf, openContractDetail } from "../lib/contract-detail.js";
+import { reachable } from "../lib/nav.js";
+import {renderSettlementBreakdown} from "../lib/settlement-breakdown.js";
 
 const ORDER = ["草稿", "待审批", "已立项", "筹备中", "执行中", "待核销", "已核销", "已结算", "已归档"];
 const PAYABLE = ["已核销"];
@@ -30,24 +33,27 @@ let tab = "overview";
 export async function render(root, [pid]) {
   const d = await api.get(`/api/projects/${pid}`);
   const p = d.project;
-  const participant = state.user.role === "user";
+  const participant = d.visibility === "participant";
   if (participant) tab = "overview";
-  const visibleTabs = participant ? [["overview", "会议概览"]] : TABS;
+  const sections=d.sectionAccess||{};
+  const visibleTabs = participant ? [["overview", "会议概览"]] :
+    TABS.filter(([key])=>key==="overview" || (key==="payments"?sections.finance:
+      key==="timeline"?sections.audit:!!sections[key]));
   if (!visibleTabs.some(([k])=>k===tab)) tab="overview";
-  const canEdit = (state.super || state.user.role === "assoc") && (p.status !== "已归档" || state.super);
+  const canEdit = can("project:edit") && !["已结算", "已归档"].includes(p.status);
 
   root.innerHTML = `
   <div class="crumb"><a data-go="projects">会议项目</a> / 会议编号：<span class="mono">${esc(p.id)}</span></div>
   <div class="phead">
     <div>
-      <h2>${esc(p.name)} ${badge(p.status)}${canDownloadArchivePdf(p) ? ` <button class="btn btn-o btn-sm" id="downloadArchivePdf">资料下载</button>` : ""}</h2>
+      <h2>${esc(p.name)} ${badge(p.status)}${canDownloadArchivePdf(p) ? ` <button class="btn btn-o btn-sm" id="downloadArchivePdf">材料下载</button>` : ""}</h2>
       <p>${esc(p.assoc)} · ${esc(p.form)} · ${esc(p.date)} 起 ${p.days} 天 · 负责人 ${esc(p.owner || "—")}</p>
     </div>
     <div class="acts">
       ${d.actions.map((a) => `<button class="btn ${a.enabled ? "btn-p" : "btn-o"}"
         data-act="${a.action}" ${a.enabled ? "" : "disabled"} title="${esc(a.reason || "")}">${a.label}</button>`).join("")}
       ${canEdit ? '<button class="btn btn-o" id="editBtn">编辑资料</button>' : ""}
-      ${!participant && ["已立项", "筹备中", "执行中"].includes(p.status) ? '<button class="btn btn-o" id="changeBtn">提交变更</button>' : ""}
+      ${!participant && can("project:change") && ["已立项", "筹备中", "执行中"].includes(p.status) ? '<button class="btn btn-o" id="changeBtn">提交变更</button>' : ""}
     </div>
   </div>
 
@@ -61,10 +67,10 @@ export async function render(root, [pid]) {
     <div class="ux-lifecycle-head"><b>项目全周期进度</b><span>${ORDER.indexOf(p.status)+1}/9 · ${esc(p.status)}</span></div>
     <div class="ux-progress"><span style="width:${Math.max(0,ORDER.indexOf(p.status))/8*100}%"></span></div>
     ${!participant ? `<div class="ux-checkpoints">
-       <button type="button" data-tab="demand"><strong>${d.demand?.archived?"已确认":"待确认"}</strong><span>会务需求</span></button>
-       <button type="button" data-tab="materials"><strong>${d.materialsStatus.uploadedCount || 0} 份</strong><span>归档材料</span></button>
-       <button type="button" data-tab="verify"><strong>${d.verification.passed}/${d.verification.total}</strong><span>七步核销</span></button>
-       <button type="button" data-tab="payments"><strong>${d.settlement?"已生成":"未生成"}</strong><span>财务结算</span></button>
+       ${sections.demand? `<button type="button" data-tab="demand"><strong>${d.demand?.archived?"已确认":"待确认"}</strong><span>会务需求</span></button>`:""}
+       ${sections.materials? `<button type="button" data-tab="materials"><strong>${d.materialsStatus.uploadedCount || 0} 份</strong><span>归档材料</span></button>`:""}
+       ${sections.verify? `<button type="button" data-tab="verify"><strong>${d.verification.passed}/${d.verification.total}</strong><span>七项核销（按需）</span></button>`:""}
+       ${sections.finance? `<button type="button" data-tab="payments"><strong>${d.settlement?"已生成":"未生成"}</strong><span>财务结算</span></button>`:""}
      </div>` : '<p class="ux-public-hint">会议审批与执行状态公开给有权查看本项目的成员；财务明细仅限授权角色。</p>'}
   </div>
   ${d.actions.some((a) => !a.enabled && a.reason) ? `<div class="gate mt"><b>当前不能推进的原因</b>
@@ -169,6 +175,17 @@ function tabDemand(d, p) {
 
 /* ---------------- 概览 ---------------- */
 function tabOverview(d, p) {
+  // 没有财务权限时只展示可看的会议资料，不能把“未授权”误当成“金额为0”。
+  if(!d.sectionAccess?.finance){
+    return panel("会议信息","",kv([
+      ["项目编号",esc(p.id)],["会议名称",esc(p.name)],["所属协会",esc(p.assoc)],
+      ["会议形式",esc(p.form)],["会议日期",esc(p.date)],
+      ["负责人",esc(p.owner||"—")],["初版议程",esc(p.agenda||"—")],
+      ...(d.sectionAccess?.budget?[["预算", "¥"+money(p.budget)],["可用预算","¥"+money(p.available_budget??p.budget)]]:[])
+    ])) +
+    (d.sectionAccess?.notice?noticePanel(d,p):"") +
+    (d.sectionAccess?.approvals?tabChanges(d,p):"");
+  }
   const paid = d.paidTotal;
   // 付款也进流程门禁（V1.2.20 把付款页签挪到核销后面，概览这一栏要跟着排）
   const payDone = (d.payments || []).filter((y) => y.status === "已付款").length;
@@ -176,6 +193,8 @@ function tabOverview(d, p) {
   const settle = d.settlement;
   const v = d.verification;
   const ms = d.materialsStatus;
+  const demandRequired = v.steps.some((s) => s.no === 6 && s.required);
+  const paymentComplete = !!settle;
   return `<div class="grid g2">
     <div>${panel("会议信息", "", kv([
       ["项目编号", `<span class="mono">${p.id}</span>`],
@@ -187,36 +206,39 @@ function tabOverview(d, p) {
       ["负责人", `${esc(p.owner || "—")} · ${esc(p.phone || "")}`],
       ["承办部门", esc(p.dept || "—")],
       ["预算", `<b class="num">¥${money(p.budget)}</b>`],
+      ["税费管理费率", `${money(Number(p.tax_fee_rate)||0)}%`],
+      ["可用预算", `<b class="num">¥${money(p.available_budget ?? p.budget)}</b>`],
       ["初版议程", `<span style="white-space:pre-wrap">${esc(p.agenda || "—")}</span>`]
     ]))}</div>
     <div>
-      ${panel("财务概览", "", `<div class="grid g3">
-        <div class="kpi"><div class="t">预算</div><div class="v" style="font-size:18px">¥${money(p.budget)}</div></div>
-        <div class="kpi k2"><div class="t">已付款</div><div class="v" style="font-size:18px">¥${money(paid)}</div></div>
-        <div class="kpi k4"><div class="t">结余</div><div class="v" style="font-size:18px">¥${money(p.budget - paid)}</div></div>
+      ${panel("财务概览", "", `<div class="grid g4">
+        <div class="kpi"><div class="t">立项预算</div><div class="v" style="font-size:18px">¥${money(p.budget)}</div></div>
+        <div class="kpi k2"><div class="t">可用预算</div><div class="v" style="font-size:18px">¥${money(p.available_budget ?? p.budget)}</div></div>
+        <div class="kpi k3"><div class="t">已付款</div><div class="v" style="font-size:18px">¥${money(paid)}</div></div>
+        <div class="kpi k4"><div class="t">可用结余</div><div class="v" style="font-size:18px">¥${money((p.available_budget ?? p.budget) - paid)}</div></div>
       </div>
       <div style="margin-top:12px">${settle
         ? `<div class="gate ok"><b>结算单 ${settle.id} 已生成</b>
-             收入 ¥${money(settle.income)} · 支出 ¥${money(settle.expense)} · 结余 ¥${money(settle.profit)}（${settle.created_at}）
+             项目预算 ¥${money(settle.income)} · 已付支出 ¥${money(settle.expense)} · 预算结余 ¥${money(settle.profit)}（${settle.created_at}）
              <div style="margin-top:4px">收款方 ${esc(settle.payee || "—")}${
-               settle.payee_account ? ` · ${esc(settle.payee_bank || "")} <span class="mono">${esc(settle.payee_account)}</span>` : " · 未登记收款账户"
+               settle.payee_account ? ` · ${esc(settle.payee_bank || "")} <span class="mono">${esc("尾号 " + String(settle.payee_account).slice(-4))}</span>` : " · 未登记收款账户"
              }</div></div>`
-        : `<div class="gate"><b>结算单未生成</b>适用核销项全部通过后，由财务生成结算单；生成后核销结论冻结。</div>`}</div>
+        : `<div class="gate"><b>结算单未生成</b>适用核销项通过后，还须完成付款申请、审批和付款登记，并核对合同与实际付款金额后才能结算；生成后资料冻结。</div>`}</div>
       <div style="margin-top:10px">${PAYABLE.includes(p.status)
         ? `<div class="gate ok"><b>付款门禁已放行</b>项目已完成核销，可提交付款申请。</div>`
         : `<div class="gate"><b>付款门禁锁定</b>当前状态「${p.status}」，适用核销项全部通过（已核销）后才可付款${p.status === "已结算" ? "；结算后账目已封账" : p.status === "已归档" ? "；归档后卷宗已封存" : ""}。</div>`}</div>
       `)}
       ${panel("流程门禁", "系统实时校验", `<div style="display:flex;flex-direction:column;gap:8px;font-size:12.5px">
-        <div>${d.demand && d.demand.archived ? "✅" : "⛔"} 会务需求：${d.demand ? (d.demand.archived ? `已归档（${d.demand.needCount} 项 · ¥${money(d.demand.budgetTotal)}）` : "草稿未归档") : "未建单"}</div>
-        <div>${ms.ok ? "✅" : "⛔"} 材料（核销前置）：${8 - ms.missing.length}/8${ms.missing.length ? "，缺 " + ms.missing.join("、") : ""}</div>
-        <div>${v.complete ? "✅" : "⛔"} 核销：${ms.ok ? "" : "材料未齐不可判定 · "}${v.passed}/${v.total} 通过${v.openExceptions ? `，${v.openExceptions} 张例外单待审批` : ""}</div>
-        <div>${payBlocked ? "⛔" : "✅"} 付款：${payDone} 笔已付 · ¥${money(d.paidTotal)}${payBlocked ? `，${payBlocked} 笔未完成（待审批 / 已审批）` : ""}</div>
+        <div>${!demandRequired ? "—" : d.demand?.archived ? "✅" : "⛔"} 会务需求（第6项）：${!demandRequired ? "不适用（无实际需要执行的会务需求）" : d.demand?.archived ? `已确认归档（${d.demand.needCount} 项 · ¥${money(d.demand.budgetTotal)}）` : d.demand ? "尚未确认归档" : "需先填写并确认需求单"}</div>
+        <div>${ms.ok ? "✅" : "⛔"} 材料（核销前置）：已上传 ${ms.uploadedCount || 0} 份有效附件 · ${ms.ok ? "满足至少一份的门槛" : "还需至少上传一份原件"}</div>
+        <div>${v.complete ? "✅" : "⛔"} 核销：${v.passed}/${v.total} 项适用检查通过（七项规则，第5～7项按需）${ms.ok ? "" : " · 尚无有效原件"}${v.openExceptions ? ` · ${v.openExceptions} 张例外单待处理` : ""}</div>
+        <div>${paymentComplete ? "✅" : payBlocked ? "⛔" : "—"} 付款（系统登记）：${payDone} 笔已付 · ¥${money(d.paidTotal)}${payBlocked ? ` · ${payBlocked} 笔待审批／待付款` : payDone ? " · 以实际银行回单为准" : " · 尚无已完成付款"}</div>
         <div>${settle ? "✅" : "⛔"} 结算：${settle ? "已生成 " + settle.id : "未生成"}</div>
       </div>`)}
     </div>
   </div>
   ${tabChanges(d, p)}
-  ${noticePanel(d, p)}
+  ${d.sectionAccess?.notice?noticePanel(d,p):""}
   ${panel("立项审批记录", "", table(
     [{ t: "审批单" }, { t: "类型", w: "96px" }, { t: "金额", w: "96px" }, { t: "提交人", w: "80px" }, { t: "状态", w: "80px" }, { t: "审批人", w: "80px" }, { t: "时间", w: "130px" }],
     d.approvals.map((a) => ({ c: [a.id, a.type, `¥${money(a.amount)}`, esc(a.by_user || ""), badge(a.status), esc(a.decided_by || "—"), `<span class="mono">${esc(a.created_at)}</span>`] })),
@@ -228,7 +250,7 @@ function noticePanel(d,p) {
   const letter=d.initiationLetter||{};
   const t=d.noticeTemplate||{name:"系统内置 Word 模板",version:0};
   const n=d.projectNotice||{ready:false};
-  const manager=state.super || state.user.role==="assoc";
+  const manager=can("project:approve");
   const editable=manager && ["草稿","待审批"].includes(p.status);
   const approved=["已立项","筹备中","执行中","待核销","已核销","已结算","已归档"].includes(p.status);
   const status=n.ready ? "已锁定 · "+(n.approvedAt||"")+(n.backfilled?" · 历史补发":"")
@@ -310,14 +332,18 @@ function contractFlowBtn(c, locked) {
 function tabContracts(d, p) {
   const locked = CONTRACT_LOCKED.includes(p.status);
   return panel("合同台账", `${d.contracts.length} 份${locked ? " · 已封存" : ""}`, table(
-    [{ t: "合同编号", w: "112px" }, { t: "合同名称" }, { t: "签约方", w: "150px" }, { t: "金额", w: "100px", cls: "num" }, { t: "签署日期", w: "100px" }, { t: "状态", w: "80px" }, { t: "原件", w: "104px" }, { t: "操作", w: "96px" }],
+    [{ t: "合同编号", w: "112px" }, { t: "合同名称" }, { t: "签约方", w: "150px" }, { t: "金额", w: "100px", cls: "num" }, { t: "签署日期", w: "100px" }, { t: "状态", w: "80px" }, { t: "原件", w: "104px" }, { t: "操作", w: "150px" }],
     d.contracts.map((c) => ({
       c: [`<span class="mono">${c.id}</span>`,
         `${esc(c.name)}<span class="cat">${esc(c.category || "未分类")}</span>`,
         esc(c.vendor), `¥${money(c.amount)}`,
         `<span class="mono">${esc(c.sign_date || "—")}</span>`, badge(c.status),
         contractFileCell(c),
-        contractFlowBtn(c, locked)]
+        contractFlowBtn(c, locked)+
+          (can("material:file:replace") && c.file_key && !d.settlement &&
+            !["已核销","已结算","已归档"].includes(p.status) &&
+            d.materials.some(m=>m.kind==="合同" && !m.deleted_at && m.file_key===c.file_key)
+            ? ` <button class="link" data-replace-material="${d.materials.find(m=>m.kind==="合同" && !m.deleted_at && m.file_key===c.file_key).id}">修改</button>` : "")]
     })),
     { empty: "暂无合同" }),
     locked ? `<span class="foot-note">项目${p.status === "已归档" ? "已归档，卷宗封存" : "已结算，台账封账"}，不可再录入合同</span>`
@@ -346,6 +372,7 @@ function tabPayments(d, p) {
       : `<div class="gate" style="margin-bottom:12px"><b>付款门禁锁定</b>
       项目状态「${p.status}」，按制度必须完成全部适用核销项并通过（已核销）才可付款。当前核销进度 ${d.verification.passed}/${d.verification.total}。</div>`;
   return `${gate}
+  ${d.settlementBreakdown ? panel("结算单", esc(d.settlement.id), renderSettlementBreakdown(d.settlementBreakdown)) : ""}
   ${panel("付款记录", `已付款 ¥${money(d.paidTotal)}`, table(
     [{ t: "付款单号", w: "112px" }, { t: "类型", w: "86px" }, { t: "收款方" }, { t: "金额", w: "100px", cls: "num" },
      { t: "发票号", w: "96px" }, { t: "申请人", w: "72px" }, { t: "状态", w: "80px" }, { t: "操作", w: "120px" }],
@@ -353,14 +380,14 @@ function tabPayments(d, p) {
       c: [`<span class="mono">${y.id}</span>`, esc(y.type),
         `${esc(y.payee)}<div style="font-size:11px;color:var(--mute)">
           ${y.payee_account
-            ? `${esc(y.payee_bank || "")} · <span class="mono">${esc(y.payee_account)}</span>`
+            ? `${esc(y.payee_bank || "")} · <span class="mono">${esc(can("payment:pay") ? y.payee_account : "尾号 " + String(y.payee_account).slice(-4))}</span>`
             : '<span style="color:var(--warn)">未登记收款账户</span>'}
-        </div>`, `¥${money(y.amount)}`,
+        </div>`, `¥${money(y.amount)}${y.period ? `<div class="hint">期次：${esc(y.period)}</div>` : ""}`,
         `<span class="mono">${esc(y.invoice_no || "—")}</span>`, esc(y.req_user || ""), badge(y.status),
         `<div class="tacts">
           ${y.status === "待审批" && can("payment:approve") ? `<button class="link" data-pay-approve="${y.id}">审批</button>` : ""}
           ${y.status === "已审批" && can("payment:pay") && y.payee_account ? `<button class="link" data-pay-pay="${y.id}">付款</button>` : ""}
-          ${y.status !== "已付款" && can("payment:approve") && !y.payee_account ? `<button class="link" data-pay-acct="${y.id}">登记账户</button>` : ""}
+          ${y.status !== "已付款" && can("payment:pay") && !y.payee_account ? `<button class="link" data-pay-acct="${y.id}">登记账户</button>` : ""}
           ${y.status === "待审批" && can("payment:approve") ? `<button class="link danger" data-pay-reject="${y.id}">驳回</button>` : ""}
         </div>`]
     })), { empty: "暂无付款记录" }),
@@ -383,14 +410,14 @@ function tabVerify(d, p) {
   return `${banner}
   ${panel("核销 7 步 SOP", `已通过 ${v.passed}/${v.total} 项必核 · ${v.openExceptions ? v.openExceptions + " 张例外单待审批" : "无未决例外"}`,
     `<div class="vsteps">${v.steps.map((s) => {
-      const cls = s.result === "通过" || s.result === "已解例外" ? "s-pass" : s.result === "不通过" ? "s-fail" : "s-wait";
+      const cls = s.required === false ? "s-na" : s.result === "通过" || s.result === "已解例外" ? "s-pass" : s.result === "不通过" ? "s-fail" : "s-wait";
       const canJudge = can("verify:check") && !frozen && materialReady
         && (p.status === "待核销" || (p.status === "已核销" && state.super));
       return `<div class="vstep ${cls}">
         <div class="vh"><span class="no">${s.no}</span><span class="nm">${esc(s.name)}</span>
           <span class="who">${esc(s.who)}</span></div>
         <div class="desc">${esc(s.desc)}</div>
-        <div class="res">${badge(s.result)}
+        <div class="res">${badge(s.required===false?"不适用":s.result)}
           ${s.remark ? `<span class="rm">${esc(s.remark)}</span>` : ""}
           ${s.checked_by ? `<span style="color:var(--mute)">· ${esc(s.checked_by)} ${esc(s.checked_at)}</span>` : ""}
           <div style="flex:1"></div>
@@ -408,7 +435,9 @@ function tabVerify(d, p) {
       c: [`<span class="mono">${e.id}</span>`, exStepLabel(e), esc(e.reason), esc(e.created_by || ""), badge(e.status), esc(e.approved_by || "—"),
         e.status === "待审批" && can("verify:exception_approve")
           ? `<div class="tacts"><button class="link" data-ex-ok="${e.id}">通过</button><button class="link danger" data-ex-no="${e.id}">驳回</button></div>`
-          : "—"]
+          : e.status === "待复核" && reachable("verify")
+            ? `<button class="link" data-go="verify/${p.id}">整改／复核</button>`
+            : "—"]
     })), { empty: "无例外单" }),
     can("verify:exception") ? '<button class="btn btn-o btn-sm" id="addEx">+ 提交例外单</button>' : "")}`;
 }
@@ -423,7 +452,7 @@ function tabMaterials(d, p) {
     <div class="hint" style="padding:8px 14px">材料类别可自由选择（「权益照片」须选择合同对应权益二级类目），不再要求固定类别齐全；至少上传一份原件即可满足材料门槛。核销与财务独立审批仍须按流程完成。</div>
     <div class="chips">${ms.have.map((k) => `<span class="chip"><i>✓</i><b>${esc(k)}</b></span>`).join("")}</div>
     ${table([{ t: "类别", w: "104px" }, { t: "材料名称" }, { t: "附件", w: "84px" }, { t: "版本", w: "56px" },
-      { t: "上传人", w: "76px" }, { t: "时间", w: "130px" }, { t: "操作", w: "56px" }],
+      { t: "上传人", w: "76px" }, { t: "时间", w: "130px" }, { t: "操作", w: "120px" }],
       d.materials.map((m) => ({
         c: [
           esc(m.kind)+(m.kind==="权益照片"?`<div class="hint">${esc(sponsorsById.get(rightById.get(Number(m.sponsor_right_id))?.sponsor_id)?.enterprise||"未关联赞助合同")} · ${esc(rightById.get(Number(m.sponsor_right_id))?.category||"未关联权益类目")}</div>`:""), esc(m.name),
@@ -433,11 +462,15 @@ function tabMaterials(d, p) {
                 : `<a href="${fileUrl(m.file_key)}" target="_blank" rel="noopener"><img class="thumb" src="${fileUrl(m.file_key)}" alt=""></a>`)
             : '<span style="color:var(--mute)">—</span>',
           esc(m.version || ""), esc(m.uploader || ""), `<span class="mono">${esc(m.created_at)}</span>`,
-          can("material:write") && p.status !== "已归档" ? `<button class="link danger" data-del-mat="${m.id}">删除</button>` : "—"
+          (can("material:write") && !d.settlement && !["已结算", "已归档"].includes(p.status) && !m.deleted_at
+            ? `<button class="link danger" data-del-mat="${m.id}">删除</button>` : "") +
+          (can("material:file:replace") && m.file_key && !m.deleted_at &&
+            !["已核销","已结算","已归档"].includes(p.status) && !d.settlement
+            ? ` <button class="link" data-replace-material="${m.id}">修改</button>` : "") || "—"
         ]
       })),
       { empty: "暂无材料" })}`,
-    can("material:write") && p.status !== "已归档" ? '<button class="btn btn-p btn-sm" id="addMat">+ 登记材料</button>' : "");
+    can("material:write") && p.status !== "已归档" && !d.settlement ? '<button class="btn btn-p btn-sm" id="addMat">+ 登记材料</button>' : "");
 }
 
 /* ---------------- 成员 ---------------- */
@@ -478,8 +511,8 @@ function wire(root, pid, d, body) {
     render(root, [pid]);
   });
   body.querySelectorAll("[data-judge]").forEach((b) => b.onclick = () => openJudge(root, pid, Number(b.dataset.judge), d));
-  // 核销 6 步的「详情」：判定前先把该核对的原始数据摆出来（与核销看板共用同一份实现）
-  const canJudgeHere = can("verify:check") && !d.settlement
+  // 七项核销的「详情」：判定前先把该核对的原始数据摆出来（与核销看板共用同一份实现）
+  const canJudgeHere = can("verify:check") && !d.settlement && d.materialsStatus.ok
     && (d.project.status === "待核销" || (d.project.status === "已核销" && state.super));
   body.querySelectorAll("[data-detail]").forEach((b) => b.onclick = () =>
     openStepDetail(d, Number(b.dataset.detail), {
@@ -489,6 +522,11 @@ function wire(root, pid, d, body) {
   body.querySelectorAll("[data-ex-ok]").forEach((b) => b.onclick = () => exDecide(root, pid, b.dataset.exOk, true));
   body.querySelectorAll("[data-ex-no]").forEach((b) => b.onclick = () => exDecide(root, pid, b.dataset.exNo, false));
   body.querySelectorAll("[data-del-mat]").forEach((b) => b.onclick = () => delMaterial(root, pid, b.dataset.delMat));
+  body.querySelectorAll("[data-replace-material]").forEach(b=>b.onclick=()=>{
+    const m=d.materials.find(x=>Number(x.id)===Number(b.dataset.replaceMaterial));
+    if(m)openContractMaterialReplace(m,()=>refresh(root,pid));
+  });
+
   body.querySelectorAll("[data-del-mem]").forEach((b) => b.onclick = () => delMember(root, pid, b.dataset.delMem));
   // 变更落账（双人复核）与合同两步流转
   body.querySelectorAll("[data-exec]").forEach((b) => b.onclick = () => execChange(root, pid, b.dataset.exec));
@@ -593,7 +631,7 @@ async function doTransition(root, pid, action, project) {
   if (["archive", "verify_pass"].includes(action)) {
     const ok = await confirmBox(
       action === "archive" ? "归档后数字卷宗封存，材料不可再修改，确认继续？"
-        : "确认核销通过？通过后项目可进入结算与付款。",
+        : "确认核销通过？通过后须先完成付款申请、审批与财务付款登记，金额核对后才能结算。",
       { ok: "确认", danger: action !== "verify_pass" });
     if (!ok) return;
   }
@@ -641,33 +679,7 @@ function openSettle(root, pid, p) {
   };
 }
 
-function openJudge(root, pid, no, d) {
-  const step = d.verification.steps.find((s) => s.no === no);
-  const m = modal({
-    title: `第 ${no} 步 · ${step.name}`,
-    body: `<div class="hint" style="margin-bottom:12px">${esc(step.desc)}</div>
-      <div class="fld"><label>判定结果<span class="req">*</span></label>
-        <select name="result"><option value="通过">通过</option><option value="不通过">不通过（自动生成例外单）</option></select></div>
-      <div class="fld" style="margin-top:12px"><label>问题描述 / 备注</label>
-        <textarea name="remark" rows="3" placeholder="判定不通过时必填，如：课件「XX」不在议程课题内"></textarea></div>
-      ${no===6?`<div class="fld"><label>会务发票总金额（元，须与会务需求预算、已签会务合同金额相同）</label><input type="number" name="invoiceAmount" step="0.01" min="0"></div>`:""}
-      ${sopEvidenceForm(no,d.project,d.sponsorRights)}`,
-    footer: `<button class="btn btn-o" data-x="0">取消</button><button class="btn btn-p" data-x="1">提交判定</button>`
-  });
-  if(no===5) bindLaborContractPreview(m,d.materials||[]);
-  m.querySelector('[data-x="0"]').onclick = () => m.classList.remove("open");
-  m.querySelector('[data-x="1"]').onclick = async () => {
-    const v = readForm(m);
-    v.evidence=collectSopEvidence(no,m);
-    if (v.result === "不通过" && !v.remark.trim()) { toast("判定不通过必须填写问题描述", "warn"); return; }
-    try {
-      const r = await api.post(`/api/projects/${pid}/verify/steps/${no}`, v);
-      toast(r.message, "ok");
-      m.classList.remove("open");
-      await refresh(root, pid);
-    } catch (e) { toast(e.message, "warn"); }
-  };
-}
+function openJudge(root,pid,no,d){return openOcrJudge(pid,no,d,()=>refresh(root,pid));}
 
 async function exDecide(root, pid, id, ok) {
   const comment = await promptBox({ title: ok ? "通过例外单" : "驳回例外单", label: "审批意见", required: false, ph: ok ? "同意，补录议程后归档" : "请说明驳回理由" });
@@ -699,7 +711,7 @@ function openContract(root, pid) {
     { k: "vendor", l: "签约方", req: 1 },
     { k: "amount", l: "合同金额（元）", t: "number", req: 1 },
     { k: "category", l: "合同类别", t: "select", opts: state.meta.contractCategories || [],
-      tip: "决定核销第 5 步「劳务与专家费核对」列不列这一份：只有「劳务专家」类会被列进去" },
+      tip: "合同类别用于合同台账及会务费用比对。核销第5项必须从材料库按完整姓名核对个人劳务合同，不能只用合同台账总合同代替。" },
     { k: "sign_date", l: "签署日期", t: "date" },
     { k: "status", l: "状态", t: "select", opts: ["草稿", "待签署", "已签署"], tip: "已签署需要管理员审批，不能通过录入直接跳过审批" },
     {
@@ -788,16 +800,18 @@ async function openPay(root, pid, d) {
     { k: "payee_bank", l: "开户行", req: 0, ph: "如：中国银行北京朝阳支行" },
     { k: "payee_account", l: "银行账号", req: 0, ph: "10~25 位数字，可含空格分隔" },
     { k: "amount", l: "付款金额（元）", t: "number", req: 1 },
+    { k: "period", l: "期次（可选）", ph: "第1期 / 第2期 / 尾款", tip: "同额分期务必填写不同期次，否则会按重复付款申请拦截；最多20字。" },
     { k: "remark", l: "备注", t: "textarea", full: 1, rows: 2 }
   ];
   const m = modal({
     title: "付款申请",
-    body: `<div class="gate ok" style="margin-bottom:12px"><b>核销门禁已通过</b>项目「${esc(d.project.name)}」当前状态「${d.project.status}」，允许付款。</div>${formHtml(fields)}`,
+    body: `<div class="gate ok" style="margin-bottom:12px"><b>核销门禁已通过</b>项目「${esc(d.project.name)}」当前状态「${d.project.status}」，允许付款。</div><div class="hint" style="margin-bottom:10px">同项目、同付款类型、同收款方、同金额、同期次的有效付款单只允许申请一次；分期付款请填写不同期次；待审批、已审批及已付款均不可重复，已驳回可重新提交。</div>${formHtml(fields)}`,
     footer: `<button class="btn btn-o" data-x="0">取消</button><button class="btn btn-p" data-x="1">提交申请</button>`
   });
   await bindPayeePicker(m,pid,false);
   m.querySelector('[data-x="0"]').onclick = () => m.classList.remove("open");
-  m.querySelector('[data-x="1"]').onclick = async () => {
+  const submitButton=m.querySelector('[data-x="1"]');
+  submitButton.onclick = async () => {
     const selected=m.querySelector('[name="payee_option_id"]')?.value;
     const acct=m.querySelector('[name="payee_account"]')?.value.trim();
     const bank=m.querySelector('[name="payee_bank"]')?.value.trim();
@@ -806,13 +820,21 @@ async function openPay(root, pid, d) {
     if((!source||!source.bank)&&!bank){toast("请填写收款方开户行","warn");return;}
     if((!source||source.source!=="labor")&&!acct){toast("请填写银行账号；合同仅提供收款方名称","warn");return;}
     if (!validate(m, fields)) return;
+    if(submitButton.disabled)return;
+    submitButton.disabled=true;
+    submitButton.textContent="提交中…";
     try {
       const r = await api.post("/api/payments", { ...readForm(m), pid });
       toast(r.message, "ok");
       m.classList.remove("open");
       tab = "payments";
       await refresh(root, pid);
-    } catch (e) { toast(e.message, "warn"); }
+    } catch (e) {
+      toast(e.code==="DUPLICATE_PAYMENT"?"付款申请重复："+e.message:e.message,"warn");
+    } finally {
+      submitButton.disabled=false;
+      submitButton.textContent="提交申请";
+    }
   };
 }
 
@@ -825,7 +847,7 @@ function openException(root, pid, d) {
     },
     { k: "reason", l: "例外原因", t: "textarea", req: 1, full: 1, rows: 3 }
   ];
-  const m = modal({ title: "提交例外单", body: `<div class="hint" style="margin-bottom:12px">例外单需财务审批通过后，对应步骤记为「已解例外」，方可继续核销。</div>${formHtml(fields)}`,
+  const m = modal({ title: "提交例外单", body: `<div class="hint" style="margin-bottom:12px">例外单审批通过不等于核销通过。生产流程须补充整改证据、原步骤复核通过后才能继续结算；演示模式另按演示规则执行。</div>${formHtml(fields)}`,
     footer: `<button class="btn btn-o" data-x="0">取消</button><button class="btn btn-p" data-x="1">提交</button>` });
   m.querySelector('[data-x="0"]').onclick = () => m.classList.remove("open");
   m.querySelector('[data-x="1"]').onclick = async () => {
@@ -834,7 +856,7 @@ function openException(root, pid, d) {
       const v = readForm(m);
       // readForm 已经把「自定义填入」的下拉值替换成文本框里的内容，
       // 所以这里拿到的是人写的事项名而不是 "__custom__"。
-      // 步骤是数字字段：不是 1~6 就说明选了自定义，转成 step_no = 0 + step_label。
+      // 步骤是数字字段：不是 1~7 就说明选了自定义，转成 step_no = 0 + step_label。
       const no = Number(v.step_no);
       if (!(no >= 1 && no <= 7)) {
         v.step_label = String(v.step_no || "").trim();
@@ -908,7 +930,9 @@ async function openEdit(root, pid, p) {
     { k: "form", l: "会议形式", t: "select", req: 1, opts: state.meta.forms },
     { k: "date", l: "会议日期", t: "date", req: 1 },
     { k: "days", l: "会期（天）", t: "number" },
-    { k: "budget", l: "预算（元）", t: "number", req: 1 },
+    { k: "budget", l: "预算（元）", t: "number", req: 1, full: 1 },
+    { k: "tax_fee_rate", l: "税费管理费率（%）", t: "number", full: 1,
+      tip: "自定义输入 0～100，最多两位小数；可用预算实时重新计算。" },
     { k: "people", l: "预计人数", t: "number" },
     { k: "owner_id", l: "负责人（协会成员）", t: "select", req: 1, opts: members.map((u) => ({v:String(u.id),l:u.name+"（"+u.role_name+"）"})) },
     { k: "phone", l: "联系电话" },
@@ -917,6 +941,7 @@ async function openEdit(root, pid, p) {
   ];
   const m = modal({ title: "编辑项目资料", width: "640px", body: formHtml(fields, p),
     footer: `<button class="btn btn-o" data-x="0">取消</button><button class="btn btn-p" data-x="1">保存</button>` });
+  const validateFee=bindBudgetFeePreview(m);
   const assocSelect = m.querySelector('[name="assoc"]');
   const ownerSelect = m.querySelector('[name="owner_id"]');
   if (assocSelect && ownerSelect) assocSelect.addEventListener("change", async () => {
@@ -928,7 +953,7 @@ async function openEdit(root, pid, p) {
   });
   m.querySelector('[data-x="0"]').onclick = () => m.classList.remove("open");
   m.querySelector('[data-x="1"]').onclick = async () => {
-    if (!validate(m, fields)) return;
+    if (!validate(m, fields) || !validateFee()) return;
     try {
       const r = await api.patch(`/api/projects/${pid}`, readForm(m));
       toast(r.message, "ok");
