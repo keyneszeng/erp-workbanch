@@ -38,7 +38,7 @@ const MATERIAL_KINDS = [
  * 第5项从材料库按姓名关联劳务人员个人合同，不依赖合同台账类别。
  * 合同类别用于合同台账与第6项会务费用计算，不以总合同代替个人合同。
  */
-const CONTRACT_CATEGORIES = ["场地餐饮", "物料搭建", "劳务专家", "设备技术", "其他"];
+const CONTRACT_CATEGORIES = ["场地餐饮", "物料搭建", "劳务专家", "设备技术", "企业赞助", "其他"];
 
 /**
  * 按合同名称猜类别 —— 只用于两处：老库升级时给历史数据补一个初始值，
@@ -47,6 +47,7 @@ const CONTRACT_CATEGORIES = ["场地餐饮", "物料搭建", "劳务专家", "�
  */
 function guessContractCategory(name) {
   const s = String(name || "");
+  if (/企业赞助|赞助合同|赞助协议|招商赞助/.test(s)) return "企业赞助";
   if (/劳务|专家|讲课|授课|咨询|讲者|主持/.test(s)) return "劳务专家";
   if (/场地|会场|餐饮|住宿|酒店|会议中心|宴会/.test(s)) return "场地餐饮";
   if (/物料|制作|视觉|搭建|展板|印刷|礼品|广告/.test(s)) return "物料搭建";

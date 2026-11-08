@@ -176,6 +176,7 @@ CREATE TABLE IF NOT EXISTS meeting_sponsor_contracts (
   pid TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
   enterprise TEXT NOT NULL,
   contract_no TEXT NOT NULL,
+  ledger_contract_id TEXT,
   amount REAL NOT NULL,
   status TEXT NOT NULL DEFAULT '待确认',
   file_key TEXT NOT NULL,
@@ -668,6 +669,8 @@ function migrate() {
   addColumn("materials","sponsor_right_id","sponsor_right_id INTEGER");
   addColumn("meeting_sponsor_contracts","rights_scan_status","rights_scan_status TEXT NOT NULL DEFAULT '未识别'");
   addColumn("meeting_sponsor_contracts","rights_scan_note","rights_scan_note TEXT");
+  addColumn("meeting_sponsor_contracts","ledger_contract_id","ledger_contract_id TEXT");
+  db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_sponsor_ledger_link ON meeting_sponsor_contracts(ledger_contract_id) WHERE ledger_contract_id IS NOT NULL");
   // Existing projects keep historical evidence, only the displayed SOP labels are corrected.
   db.exec("UPDATE verify_steps SET name='盖章函件与立项信息核验' WHERE step_no=1 AND name='盖章通知／招商函核验'");
   db.exec("UPDATE verify_steps SET name='课件与串场内容核验' WHERE step_no=4 AND name='课件／串场一致性'");

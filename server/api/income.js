@@ -222,4 +222,4 @@ function register(router){
     return {id,summary:incomeSummary(p.id,p.budget)};
   });
 }
-module.exports={register,incomeSummary};
+module.exports={register,incomeSummary,scanContract};
