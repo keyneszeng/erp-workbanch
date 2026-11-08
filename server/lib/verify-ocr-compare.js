@@ -11,8 +11,8 @@ const KINDS={
  1:["会议通知","招商函","串场"],2:["终版议程","签到表","讲者照片"],
  3:["签到表","在线记录","直播数据","在线时长","会议截图"],
  4:["终版议程","课件"],5:["劳务表","劳务登记表","劳务收集表"],
- 6:["终版议程","会务协议","合同","发票","会务发票"],
- 7:["权益照片","赞助合同","合同"]
+ 6:[],
+ 7:[]
 };
 const norm=x=>String(x||"").normalize("NFKC").replace(/[\s\u3000,，.;；：:—-]/g,"").toLowerCase();
 const sha=x=>crypto.createHash("sha256").update(JSON.stringify(x)).digest("hex");
@@ -26,6 +26,18 @@ const ids=a=>a.map(x=>x.materialId);
 function materials(pid,no){
  const docs=db.prepare("SELECT id,kind,name,version,file_key,file_name FROM materials WHERE pid=? AND (deleted_at IS NULL OR deleted_at='') AND file_key IS NOT NULL AND file_key<>'' ORDER BY id").all(pid);
  const expertIds=no===5?new Set(contractPool(db,pid).rows.map(x=>Number(x.id))):null;
+ if(no===6){
+  const d=demandSopState(db,pid);
+  const ids=new Set([...d.agreements,...d.invoices].map(x=>Number(x.id)));
+  return docs.filter(m=>ids.has(Number(m.id))).slice(0,MAX_FILES);
+ }
+ if(no===7){
+  const sponsors=sponsorRights(db,pid);
+  const keys=new Set(sponsors.contracts.map(x=>x.file_key).filter(Boolean));
+  const photos=new Set(sponsors.photos.filter(x=>x.file_key).map(x=>Number(x.id)));
+  return docs.filter(m=>photos.has(Number(m.id)) ||
+    (["合同","赞助合同"].includes(m.kind)&&keys.has(m.file_key))).slice(0,MAX_FILES);
+ }
  return docs.filter(m=>((KINDS[no]||[]).includes(m.kind)||(expertIds?.has(Number(m.id))))
   &&!(m.kind==="终版议程"&&m.version==="历史版")).slice(0,MAX_FILES);
 }
@@ -160,23 +172,29 @@ function report(pid,no){
     ids([...labor,...contracts]));
  }else if(no===6){
   const d=demandSopState(db,pid);
-  const agreements=[...by("会务协议"),...by("合同")].filter(x=>x.kind==="会务协议"||/会务协议|会务合同|会议服务合同/.test(x.name));
-  const invoices=[...by("发票"),...by("会务发票")];
+  const contractIds=new Set(d.agreements.map(x=>Number(x.id)));
+  const invoiceIds=new Set(d.invoices.map(x=>Number(x.id)));
+  const agreements=docs.filter(x=>contractIds.has(Number(x.materialId)));
+  const invoices=docs.filter(x=>invoiceIds.has(Number(x.materialId)));
   const extracted=invoices.map(x=>amounts(x.text));
-  invoiceAmount=extracted.length&&extracted.every(x=>x.length===1)?extracted.reduce((n,x)=>n+Math.round(x[0]*100),0)/100:null;
-  add("会议主题",agenda&&agreements.some(x=>x.text)?contains(agenda,p.name)&&agreements.some(x=>contains(x.text,p.name)):null,
-    "以议程和会务协议OCR原文比较",ids([...agendaDocs,...agreements]));
-  add("会议日期",agenda&&agreements.some(x=>x.text)?dateContains(agenda,p.date)&&agreements.some(x=>dateContains(x.text,p.date)):null,
-    "预计日期："+p.date,ids([...agendaDocs,...agreements]));
-  add("协议甲方",agreements.some(x=>x.text)?agreements.some(x=>contains(x.text,p.assoc)):null,
-    "应为项目所属协会",ids(agreements));
-  add("需求预算与合同金额",d.contractCount?Math.round(d.budgetTotal*100)===Math.round(d.contractTotal*100):null,
-    "预算"+d.budgetTotal+"元，已签合同"+d.contractTotal+"元");
-  add("发票金额三方一致",invoiceAmount!=null?
-    Math.round(invoiceAmount*100)===Math.round(d.budgetTotal*100)&&Math.round(invoiceAmount*100)===Math.round(d.contractTotal*100):null,
-    invoiceAmount!=null?"OCR提取发票"+invoiceAmount+"元":"未能可靠提取唯一发票金额",ids(invoices));
+  invoiceAmount=extracted.length&&extracted.every(x=>x.length===1)?
+    extracted.reduce((n,x)=>n+Math.round(x[0]*100),0)/100:null;
+  add("会务需求表",d.required?d.confirmed:null,
+    d.required?"已登记需求表，确认归档："+(d.confirmed?"是":"否")+"；预算"+d.budgetTotal+"元":"未建立会务需求表");
+  add("已签会务合同原件",d.contractCount&&agreements.length?true:null,
+    "已签「会务需求」合同"+d.contractCount+"份，关联原件"+agreements.length+"份",ids(agreements));
+  add("会务需求表与会务合同金额一致",d.contractCount?
+    Math.round(d.budgetTotal*100)===Math.round(d.contractTotal*100):null,
+    "需求表"+d.budgetTotal+"元，会务合同"+d.contractTotal+"元",ids(agreements));
+  add("会务发票与合同和需求表金额一致",invoiceAmount!==null?
+    Math.round(invoiceAmount*100)===Math.round(d.budgetTotal*100)&&
+      Math.round(invoiceAmount*100)===Math.round(d.contractTotal*100):null,
+    invoiceAmount!==null?"会务发票识别合计"+invoiceAmount+"元":"会务发票金额尚不能可靠唯一识别",ids(invoices));
  }else if(no===7){
   const rights=sponsorRights(db,pid);
+  add("赞助合同与权益来源",rights.activeContracts.length?true:null,
+    "已签署赞助合同"+rights.activeContracts.length+"份；涉及权益内容"+rights.rights.length+
+      "项、权益照片"+rights.photos.filter(x=>x.file_key).length+"份");
   add("赞助权益类别",rights.requiredRights.length&&rights.requiredRights.every(x=>x.confirmed)?true:null,
     "已确认权益"+rights.requiredRights.length+"项");
   for(const r of rights.requiredRights){
@@ -209,6 +227,10 @@ function report(pid,no){
  };
  return {pid,no,token,scanned:docs.filter(x=>x.state==="recognized").length,total:docs.length,
   invoiceAmount,checks,evidence,summary:evidence.checkSummary,
+  ...(no===6?{demandSheet:(d=>({exists:d.required,confirmed:d.confirmed,
+    budgetTotal:d.budgetTotal,needCount:d.needCount,contractTotal:d.contractTotal}))(demandSopState(db,pid))}:{}),
+  ...(no===7?{sponsorContracts:sponsorRights(db,pid).contracts.map(x=>({
+    id:x.id,enterprise:x.enterprise,status:x.status,fileName:x.file_name,fileKey:x.file_key}))}:{}),
   files:docs.map(({text,fileKey,...x})=>({...x,
     preview:String(text).replace(/(?:\d[ -]?){10,25}/g,"[敏感数字已隐藏]").split("\n").filter(Boolean).slice(0,3).join(" · ").slice(0,160)})),
   warning:"OCR和文本比对仅供人工参考；印章真实性、人员身份、照片权益及未识别页必须查原件确认。"};
