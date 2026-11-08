@@ -94,7 +94,7 @@ export async function render(root) {
         todoHref(t) ? `<button class="link" data-go="${todoHref(t)}">处理</button>` : `<span style="color:var(--mute)">—</span>`],
       attrs: ""
     })), { empty: "当前没有待办，保持这个状态" }) : `<div class="empty">当前没有待办</div>`,
-    `<button class="btn btn-o btn-sm" data-go="flow">看全流程</button>`)}</div>
+    reachable("flow") ? `<button class="btn btn-o btn-sm" data-go="flow">看全流程</button>` : "")}</div>
 
   <div class="mt">${panel("近期会议", "按会期排序", table(
     [{ t: "会期", w: "120px" }, { t: "会议" }, { t: "状态", w: "96px" }],
