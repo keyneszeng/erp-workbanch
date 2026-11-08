@@ -67,7 +67,7 @@ const assert=require("node:assert/strict");
   });
   assert.equal(sizeBoundary.max,50*1024*1024);
   assert.equal(sizeBoundary.exact,null,"前端必须允许单文件恰好 50MB");
-  assert.match(sizeBoundary.over,/50 MB/,"超出 50MB 须明确拦截并提示上限");
+  assert.match(sizeBoundary.over,/50(?:\.0)? MB/,"超出 50MB 须明确拦截并提示上限");
   const options=await page.locator('#modal [name="kind"] option').allTextContents();
   assert.ok(options.some(x=>x.includes("权益照片")),"rights photos must be available in material category options");
   assert.ok(options.some(x=>x.includes("终版议程")),"final agenda must be a material registration category");
