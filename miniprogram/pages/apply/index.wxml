@@ -1,0 +1,29 @@
+<view class="wrap">
+ <view class="card"><view class="heading">立项申请</view>
+ <view class="muted">会议基本信息 → 草稿保存 → 提交审批 → 协会管理员审批。提交后不可直接改动。</view>
+ <view wx:if="{{status!=='草稿'}}" class="error">当前状态：{{status}}。仅草稿可以编辑。</view>
+ </view>
+ <view class="card">
+  <view class="section-caption">01 · 会议基本信息</view>
+  <view class="field"><text class="required">＊</text>会议名称<input value="{{name}}" data-key="name" bindinput="input" placeholder="请输入会议名称" disabled="{{status!=='草稿'}}"/></view>
+  <view class="field"><text class="required">＊</text>所属协会
+   <picker wx:if="{{isAdmin}}" mode="selector" range="{{assocs}}" value="{{assocIndex}}" bindchange="pickAssoc" disabled="{{status!=='草稿'}}"><view class="field-value">{{assoc||'请选择协会'}} ▾</view></picker>
+   <view wx:else class="field-value">{{assoc||'未配置所属协会，请联系管理员'}}</view></view>
+  <view class="field"><text class="required">＊</text>会议形式
+   <picker range="{{forms}}" value="{{formIndex}}" bindchange="pickForm" disabled="{{status!=='草稿'}}"><view class="field-value">{{form}} ▾</view></picker></view>
+  <view class="field"><text class="required">＊</text>会议日期
+   <picker mode="date" value="{{date}}" bindchange="pickDate" disabled="{{status!=='草稿'}}"><view class="field-value">{{date||'选择日期'}} ▾</view></picker></view>
+  <view class="field">会期（天）<input type="number" value="{{days}}" data-key="days" bindinput="input" disabled="{{status!=='草稿'}}"/></view>
+ </view>
+ <view class="card"><view class="section-caption">02 · 预算与执行信息</view>
+  <view class="field"><text class="required">＊</text>预算（元）<input type="digit" value="{{budget}}" data-key="budget" bindinput="input" placeholder="请输入预算金额" disabled="{{status!=='草稿'}}"/></view>
+  <view class="field">预计参会人数<input type="number" value="{{people}}" data-key="people" bindinput="input" placeholder="例如 200" disabled="{{status!=='草稿'}}"/></view>
+  <view class="field">联系人电话<input type="text" maxlength="20" value="{{phone}}" data-key="phone" bindinput="input" disabled="{{status!=='草稿'}}"/></view>
+  <view class="field"><text class="required">＊</text>初版议程<textarea value="{{agenda}}" data-key="agenda" bindinput="input" placeholder="例如：09:00 开场；09:30 专题演讲" maxlength="2000" disabled="{{status!=='草稿'}}"/></view>
+ </view>
+ <view wx:if="{{error}}" class="error">{{error}}</view>
+ <view wx:if="{{status==='草稿'}}" class="action-row">
+  <button class="btn ghost" loading="{{busy}}" disabled="{{busy}}" data-submit="no" bindtap="save">保存草稿</button>
+  <button class="btn primary" loading="{{busy}}" disabled="{{busy}}" data-submit="yes" bindtap="save">提交审批</button>
+ </view>
+</view>

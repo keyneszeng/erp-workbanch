@@ -9,6 +9,8 @@
       "custom_domain": true
     }
   ],
+  // 固定的 Cloudflare 演示环境。任何生产账号/真实业务数据都不得写入该环境。
+  "vars": { "ERP_DEMO_MODE": "1" },
   "assets": {
     "directory": "./web",
     "binding": "ASSETS",

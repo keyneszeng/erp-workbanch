@@ -1,6 +1,9 @@
 "use strict";
-const { db } = require("../lib/db");
+const { db, transaction } = require("../lib/db");
 const { isDemoMode } = require("../lib/runtime");
+const { sendPasswordCode, consumePasswordCode } = require("../lib/sms");
+const { normalizePhone } = require("../lib/phone-whitelist");
+const { consumeResetLimit } = require("../lib/password-reset-limit");
 const {
   login, publicUser, destroySession, createSession, hashPassword, verifyPassword, validatePassword,
   COOKIE, SESSION_TTL_MS, isThrottled, noteFailure, clearFailures
@@ -8,7 +11,7 @@ const {
 const { sendJson, cookieHeader } = require("../lib/http");
 const { logAudit } = require("../lib/audit");
 const { ROLES, MODULES, STATUSES, isSuper, can, PERMS } = require("../lib/rbac");
-const { VERIFY_STEPS, MATERIAL_KINDS, CONTRACT_CATEGORIES, DEMAND_STATUSES, ASSOCS, FORMS, DEPTS, PAYMENT_TYPES, FLOW, STATUS_DESC } = require("../lib/constants");
+const { VERIFY_STEPS, MATERIAL_KINDS, CONTRACT_CATEGORIES, DEMAND_STATUSES, ASSOCS, FORMS, DEPTS, USER_DEPTS, PAYMENT_TYPES, FLOW, STATUS_DESC } = require("../lib/constants");
 const { bad, HttpError } = require("../lib/util");
 
 function register(router) {
@@ -21,15 +24,88 @@ function register(router) {
     const r = login(username, password, ctx.ip);
     if (!r) {
       noteFailure(ctx.ip, username);
-      logAudit({ user: null, module: "系统配置", action: "登录失败", target: String(username), detail: "账号或密码错误", ip: ctx.ip });
+      const target = isDemoMode() ? String(username) : String(username).replace(/^(\d{3})\d{4}(\d{4})$/, "$1****$2");
+      logAudit({ user: null, module: "系统配置", action: "登录失败", target, detail: "账号或密码错误", ip: ctx.ip });
       throw new HttpError(401, "INVALID_CREDENTIALS", "账号或密码错误");
     }
     clearFailures(ctx.ip, username);
-    logAudit({ user: r.user, module: "系统配置", action: "登录", target: r.user.username, detail: `角色：${ROLES[r.user.role].name}`, ip: ctx.ip });
+    logAudit({ user: r.user, module: "系统配置", action: "登录", target: isDemoMode() ? r.user.username : String(r.user.id), detail: `角色：${ROLES[r.user.role].name}`, ip: ctx.ip });
     return {
       __cookie: cookieHeader(COOKIE, r.token, { maxAge: Math.floor(SESSION_TTL_MS / 1000), secure: ctx.secure }),
       user: publicUser(r.user),
       role: ROLES[r.user.role]
+    };
+  });
+
+  router.post("/api/auth/sms/send", async (ctx) => {
+    if (isDemoMode()) throw new HttpError(404, "NO_ROUTE", "演示环境无需短信校验");
+    return sendPasswordCode(db.prepare("SELECT * FROM users WHERE id = ? AND active = 1").get(ctx.user.id));
+  });
+
+
+  /**
+   * Forgotten password: public by design, but NEVER grants a session from SMS alone.
+   * The verified one-time code and strong new password are required together.
+   * The same successful operation revokes all previous sessions and signs in the owner.
+   */
+  router.post("/api/auth/password/reset/request", async (ctx) => {
+    if (isDemoMode()) throw new HttpError(404, "NO_ROUTE", "演示环境不支持短信找回密码");
+    const phone = normalizePhone(ctx.body?.phone);
+    // Persistent, account-independent throttles also apply to unknown / inactive phones.
+    consumeResetLimit("send-ip", ctx.ip, 20, 15 * 60 * 1000);
+    consumeResetLimit("send-phone", phone, 12, 60 * 60 * 1000);
+    const response = {
+      message: "如该手机号已登记且账号有效，短信验证码将发送至该手机。验证码有效期 5 分钟。",
+      expiresIn: 300, retryAfter: 60
+    };
+    const u = db.prepare("SELECT id,phone FROM users WHERE phone=? AND active=1").get(phone);
+    if (!u) return response;
+    try {
+      await sendPasswordCode(u);
+    } catch (e) {
+      // Do not leak account existence through SMS cooldown, daily quota or provider error.
+      // Infrastructure errors remain server-side; never echo phone / provider payloads.
+      if (!(e instanceof HttpError)) console.error("找回密码短信发送异常", e.message);
+    }
+    return response;
+  });
+
+  router.post("/api/auth/password/reset/confirm", async (ctx) => {
+    if (isDemoMode()) throw new HttpError(404, "NO_ROUTE", "演示环境不支持短信找回密码");
+    const phone = normalizePhone(ctx.body?.phone);
+    consumeResetLimit("verify-ip", ctx.ip, 40, 15 * 60 * 1000);
+    consumeResetLimit("verify-phone", phone, 15, 15 * 60 * 1000);
+    const { smsCode, newPassword, confirmPassword } = ctx.body || {};
+    if (confirmPassword !== undefined && String(newPassword) !== String(confirmPassword))
+      throw bad("两次输入的新密码不一致");
+    const next = validatePassword(newPassword, { label: "新密码" });
+    const u = db.prepare("SELECT * FROM users WHERE phone=? AND active=1").get(phone);
+    const invalid = () => new HttpError(400, "RESET_CODE_INVALID", "短信验证码无效或已过期，请重新获取");
+    if (!u) throw invalid();
+
+    // Verify outside the password-update transaction. Wrong attempts MUST persist:
+    // rolling back consumePasswordCode() would also roll back its failure counter
+    // and silently allow unlimited six-digit OTP guesses.
+    try {
+      consumePasswordCode(u, smsCode);
+    } catch (e) {
+      if (e instanceof HttpError && (e.status === 400 || e.status === 429)) throw invalid();
+      throw e;
+    }
+    if (verifyPassword(next, u.pass_salt, u.pass_hash))
+      throw bad("新密码不能与原密码相同");
+    const { salt, hash } = hashPassword(next);
+    const session = transaction(() => {
+      db.prepare("UPDATE users SET pass_salt=?,pass_hash=?,must_change_password=0,phone_verified_at=?,token_ver=token_ver+1 WHERE id=? AND active=1")
+        .run(salt, hash, new Date().toISOString(), u.id);
+      db.prepare("DELETE FROM sessions WHERE user_id=?").run(u.id);
+      return createSession(u.id, ctx.ip);
+    });
+    logAudit({ user: u, module: "系统配置", action: "短信找回密码", target: String(u.id),
+      detail: "绑定手机号已验证；密码重置成功，全部旧会话已吊销", ip: ctx.ip });
+    return {
+      __cookie: cookieHeader(COOKIE, session.token, { maxAge: Math.floor(SESSION_TTL_MS / 1000), secure: ctx.secure }),
+      message: "短信验证通过，密码已重置并登录；此前设备的登录状态已失效"
     };
   });
 
@@ -47,7 +123,7 @@ function register(router) {
    *   3) 清空该用户全部会话行，再给当前这次操作重新签发一个，避免用户改完自己也被踢掉。
    */
   router.post("/api/auth/password", async (ctx) => {
-    const { oldPassword, newPassword, confirmPassword } = ctx.body || {};
+    const { oldPassword, newPassword, confirmPassword, smsCode } = ctx.body || {};
     if (!oldPassword || !newPassword) throw bad("请填写原密码与新密码");
     if (confirmPassword !== undefined && String(confirmPassword) !== String(newPassword)) {
       throw bad("两次输入的新密码不一致");
@@ -58,16 +134,23 @@ function register(router) {
     const u = db.prepare("SELECT * FROM users WHERE id = ?").get(ctx.user.id);
     if (!u) throw new HttpError(404, "NOT_FOUND", "账号不存在");
     if (!verifyPassword(oldPassword, u.pass_salt, u.pass_hash)) {
-      logAudit({ user: ctx.user, module: "系统配置", action: "改密失败", target: u.username, detail: "原密码错误", ip: ctx.ip });
+      logAudit({ user: ctx.user, module: "系统配置", action: "改密失败", target: isDemoMode() ? u.username : String(u.id), detail: "原密码错误", ip: ctx.ip });
       throw new HttpError(400, "BAD_PASSWORD", "原密码不正确");
     }
 
+    // 生产环境必须验证绑定手机号的真实短信验证码；演示环境保持原有改密流程。
+    if (!isDemoMode()) consumePasswordCode(u, smsCode);
     const { salt, hash } = hashPassword(next);
-    db.prepare("UPDATE users SET pass_salt = ?, pass_hash = ?, token_ver = token_ver + 1 WHERE id = ?").run(salt, hash, u.id);
+    if (isDemoMode()) {
+      db.prepare("UPDATE users SET pass_salt = ?, pass_hash = ?, token_ver = token_ver + 1 WHERE id = ?").run(salt, hash, u.id);
+    } else {
+      db.prepare("UPDATE users SET pass_salt = ?, pass_hash = ?, must_change_password = 0, phone_verified_at = ?, token_ver = token_ver + 1 WHERE id = ?")
+        .run(salt, hash, new Date().toISOString(), u.id);
+    }
     db.prepare("DELETE FROM sessions WHERE user_id = ?").run(u.id);
 
     const s = createSession(u.id, ctx.ip);
-    logAudit({ user: ctx.user, module: "系统配置", action: "修改密码", target: u.username, detail: "已失效其它设备登录", ip: ctx.ip });
+    logAudit({ user: ctx.user, module: "系统配置", action: "修改密码", target: isDemoMode() ? u.username : String(u.id), detail: "已失效其它设备登录", ip: ctx.ip });
 
     return {
       __cookie: cookieHeader(COOKIE, s.token, { maxAge: Math.floor(SESSION_TTL_MS / 1000), secure: ctx.secure }),
@@ -81,7 +164,7 @@ function register(router) {
     return {
       user: publicUser(ctx.user),
       demo: isDemoMode(),
-      role: { ...role, key: ctx.user.role },
+      role: { ...role, key: ctx.user.role, modules: MODULES.filter(m=>require("../lib/rbac").hasModule(ctx.user,m.k)).map(m=>m.k) },
       perms: Object.keys(PERMS).filter((p) => can(ctx.user, p)),
       super: isSuper(ctx.user)
     };
@@ -90,8 +173,9 @@ function register(router) {
   router.get("/api/meta", async () => {
     const org = db.prepare("SELECT v FROM settings WHERE k = 'org'").get();
     return {
-      org: org ? org.v : "会务执行中心",
+      org: org ? org.v : "会规化会务执行系统",
       roles: Object.entries(ROLES).map(([k, v]) => ({ key: k, ...v })),
+      permissions: Object.keys(PERMS),
       modules: MODULES,
       statuses: STATUSES,
       statusDesc: STATUS_DESC,
@@ -100,9 +184,10 @@ function register(router) {
       materialKinds: MATERIAL_KINDS,
       contractCategories: CONTRACT_CATEGORIES,
       demandStatuses: DEMAND_STATUSES,
-      assocs: ASSOCS,
+      assocs: require("../lib/associations").list(),
       forms: FORMS,
-      depts: DEPTS,
+      depts: USER_DEPTS,
+      projectDepts: DEPTS,
       paymentTypes: PAYMENT_TYPES
     };
   });

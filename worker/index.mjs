@@ -13,6 +13,10 @@ export { ErpDatabase };
 
 export default {
   async fetch(request, env, ctx) {
+    // Cloudflare 只允许演示版，任何生产模式配置都拒绝服务。
+    if (String(env?.ERP_DEMO_MODE || "") !== "1") {
+      return new Response("Cloudflare 仅供演示使用，生产请部署阿里云 ECS", { status: 503 });
+    }
     const url = new URL(request.url);
 
     // 非 API 请求交给静态资源层（理论上 run_worker_first 已过滤，这里兜底）

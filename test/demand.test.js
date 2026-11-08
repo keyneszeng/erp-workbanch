@@ -117,9 +117,9 @@ test("保存：整单替换(PATCH)后明细被完全覆盖", async () => {
   assert.equal(d.data.items["设计"][0].spec, "主视觉");
   assert.equal(d.data.items["设计"][0].budget, "3800", "预算金额按填写值保存");
   assert.equal(d.data.budgetTotal, 3800, "预算合计只算填了金额的条目");
-  // 附件与执行状态已从业务上取消，接口不应再回吐这两个字段
-  assert.equal("attach" in d.data.items["设计"][0], false, "不应再返回 attach");
-  assert.equal("status" in d.data.items["设计"][0], false, "不应再返回 status");
+  // 新版七字段需求单：附件、状态均需持久化并可审计。
+  assert.equal(d.data.items["设计"][0].attach, "");
+  assert.equal(d.data.items["设计"][0].status, "未开始");
 });
 
 test("新增一行：自定义条目（不在模板里）能存下来并回读", async () => {

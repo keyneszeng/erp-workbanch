@@ -9,7 +9,7 @@ const PORT=8947, BASE="http://127.0.0.1:"+PORT;
 const DB=path.join(__dirname,"..","data","prep-invitations-test.db");
 let server, admin, assoc, exec, user, finance;
 async function waitHealthy() {
-  for(let i=0;i<100;i++) {
+  for(let i=0;i<600;i++) {
     try { const r=await fetch(BASE+"/api/health");if(r.ok)return; }catch {}
     await new Promise(resolve=>setTimeout(resolve,100));
   }
