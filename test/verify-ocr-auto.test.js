@@ -200,7 +200,7 @@ test("核销第5项OCR与证据：仅关联劳务登记表和劳务专家合同�
    "53333333333333333333333333333333.pdf");
  const sponsor=addDoc("合同","企业赞助合同","赞助合同金额 20000",
    "54444444444444444444444444444444.pdf");
- const insert=db.prepare("INSERT INTO contracts(id,pid,name,vendor,amount,status,category,file_key) VALUES (?,?,?,?,?,?,?,?)");
+ const insert=db.prepare("INSERT INTO contracts(id,pid,name,vendor,amount,status,category,file_key,created_at) VALUES (?,?,?,?,?,?,?,?, '2026-11-08 12:00')");
  insert.run("HT-STEP5-001",pid,"张三专家劳务合同","张三",1000,"已签署","劳务专家",
    "52222222222222222222222222222222.pdf");
  insert.run("HT-STEP5-002",pid,"会议执行服务","会务公司",20000,"已签署","其他",
