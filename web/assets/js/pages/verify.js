@@ -1,7 +1,7 @@
 import { api, can, state } from "../lib/api.js";
 import { badge, confirmBox, esc, modal, money, panel, readForm, table, toast } from "../lib/ui.js";
 import { exStepLabel, openStepDetail } from "../lib/verify-detail.js";
-import { sopEvidenceForm, collectSopEvidence } from "../lib/sop-fields.js";
+import {openOcrJudge} from "../lib/verify-ocr-judge.js";
 
 export async function render(root, params) {
   if (params && params[0]) return renderOne(root, params[0]);
@@ -14,7 +14,7 @@ async function renderList(root) {
   const pending = rows.filter((p) => p.status === "待核销").length;
 
   root.innerHTML = `<div class="phead">
-      <div><h2>核销看板</h2><p>6 项 SOP 任意顺序办理 · 例外单闭环 · 六项全过后解锁付款</p></div>
+      <div><h2>核销看板</h2><p>核销项任意顺序办理 · 第5项按劳务表、第6项按会务需求、第7项按已签赞助合同自动决定是否必核</p></div>
       <div class="acts">${can("export:any") ? '<button class="btn btn-o" id="exp">导出核销明细</button>' : ""}</div>
     </div>
     <div class="grid g4">
@@ -29,13 +29,14 @@ async function renderList(root) {
          { t: "核销进度", w: "150px" }, { t: "例外单", w: "76px" }, { t: "结算单", w: "112px" }, { t: "操作", w: "96px" }],
         rows.map((p) => {
           const passed = p.v_passed || 0;
-          const pct = Math.round((passed / 6) * 100);
+          const total = p.v_total || 4;
+          const pct = Math.round((passed / total) * 100);
           return {
             c: [`<span class="mono">${p.id}</span>`, esc(p.name), `<span class="mono">${esc(p.date)}</span>`, badge(p.status),
               `<div style="display:flex;align-items:center;gap:8px">
                  <div style="flex:1;height:6px;background:#eef2f7;border-radius:4px;overflow:hidden">
-                   <div style="width:${pct}%;height:100%;background:${passed === 6 ? "var(--green)" : "var(--blue)"}"></div></div>
-                 <b style="font-size:12px" class="num">${passed}/6</b></div>`,
+                   <div style="width:${pct}%;height:100%;background:${passed === total ? "var(--green)" : "var(--blue)"}"></div></div>
+                 <b style="font-size:12px" class="num">${passed}/${total}</b></div>`,
               p.ex_open ? `<span class="badge b-orange">${p.ex_open} 待审批</span>` : '<span style="color:var(--mute)">—</span>',
               p.st_id ? `<span class="mono">${p.st_id}</span>` : '<span style="color:var(--mute)">未生成</span>',
               `<div class="tacts"><button class="link" data-go="verify/${p.id}">核销</button>
@@ -55,7 +56,7 @@ async function renderOne(root, pid) {
   const p = d.project;
   const v = d.verification;
   const frozen = !!d.settlement;
-  // 任何已上传材料原件满足流程材料门槛；核销六步与财务验证仍独立进行
+  // 任何一份有效上传原件满足最低材料门槛；七项核销的适用检查和财务审批另行完成
   const materialReady = d.materialsStatus.ok;
   const canJudge = can("verify:check") && !frozen && materialReady
     && (p.status === "待核销" || (p.status === "已核销" && state.super));
@@ -69,7 +70,7 @@ async function renderOne(root, pid) {
       <button class="btn btn-o" data-go="projects/${p.id}">项目详情</button>
       ${can("verify:conclude") && p.status === "待核销"
         ? `<button class="btn ${v.complete && materialReady ? "btn-g" : "btn-o"}" id="passBtn"
-             ${v.complete && materialReady ? "" : `disabled title="${materialReady ? "6 步未全部通过，或存在未决例外单" : "请至少上传一份材料附件"}"`}>核销通过</button>` : ""}
+             ${v.complete && materialReady ? "" : `disabled title="${materialReady ? "适用的核销项目未全部通过，或存在未决例外单" : "请至少上传一份材料附件"}"`}>核销通过</button>` : ""}
     </div>
   </div>
 
@@ -77,21 +78,21 @@ async function renderOne(root, pid) {
     任意类别（含「权益照片」）上传至少一份有效附件即可满足材料条件，无需凑齐固定类别。
     <a class="link" data-go="projects/${p.id}">去项目详情的材料页签登记 →</a></div>`}
   <div class="panel">
-    <div class="panel-h"><h2>6 项核销 SOP · 自由选择顺序，全部通过后解锁结算</h2>
-      <div><span class="hint">已通过 ${v.passed}/6${v.openExceptions ? ` · ${v.openExceptions} 张例外单待处理或待复核` : ""}</span></div></div>
+    <div class="panel-h"><h2>七项核销 SOP · 原件识别与智能比对 → 人工判定</h2>
+      <div><span class="hint">已通过 ${v.passed}/${v.total} 项必核${v.openExceptions ? ` · ${v.openExceptions} 张例外单待处理或待复核` : ""}</span></div></div>
     <div class="vsteps">${v.steps.map((s) => {
-      const cls = ["通过", "已解例外"].includes(s.result) ? "s-pass" : s.result === "不通过" ? "s-fail" : "s-wait";
+      const cls = s.required === false ? "s-na" : ["通过", "已解例外"].includes(s.result) ? "s-pass" : s.result === "不通过" ? "s-fail" : "s-wait";
       return `<div class="vstep ${cls}">
         <div class="vh"><span class="no">${s.no}</span><span class="nm">${esc(s.name)}</span><span class="who">${esc(s.who)}</span></div>
         <div class="desc">${esc(s.desc)}</div>
-        <div class="res">${badge(s.result)}
+        <div class="res">${badge(s.required===false?"不适用":s.result)}
           ${s.remark ? `<span class="rm">${esc(s.remark)}</span>` : ""}
           ${s.checked_by ? `<span style="color:var(--mute)">· ${esc(s.checked_by)} ${esc(s.checked_at)}</span>` : ""}
-          ${s.evidence ? `<span class="hint">· 结构化核验已留痕</span>` : ""}
+          ${s.evidence ? `<span class="hint">· 核验依据及人工判定已留痕</span>` : ""}
           <div style="flex:1"></div>
           <button class="btn btn-o btn-sm" data-detail="${s.no}">详情</button>
-          ${canJudge && s.result === "待判定" ? `<button class="btn btn-o btn-sm" data-judge="${s.no}">判定</button>` : ""}
-          ${canJudge && s.result !== "待判定" ? `<button class="btn btn-o btn-sm" data-judge="${s.no}">重新判定</button>` : ""}
+          ${canJudge && s.required!==false && s.result === "待判定" ? `<button class="btn btn-o btn-sm" data-judge="${s.no}">判定</button>` : ""}
+          ${canJudge && s.required!==false && s.result !== "待判定" ? `<button class="btn btn-o btn-sm" data-judge="${s.no}">重新判定</button>` : ""}
         </div></div>`;
     }).join("")}</div>
     ${frozen ? '<div class="gate ok" style="margin-top:12px"><b>结论已冻结</b>结算单已生成，核销结论不可修改。</div>' : ""}
@@ -135,33 +136,7 @@ async function renderOne(root, pid) {
   };
 }
 
-function openJudge(root, pid, no, d) {
-  const s = d.verification.steps.find((x) => x.no === no);
-  const m = modal({
-    title: `第 ${no} 步 · ${s.name}`,
-    body: `<div class="hint" style="margin-bottom:12px">${esc(s.desc)}</div>
-      <div class="fld"><label>判定结果<span class="req">*</span></label>
-        <select name="result"><option value="通过">通过</option><option value="不通过">不通过（自动生成例外单）</option></select></div>
-      <div class="fld" style="margin-top:12px"><label>问题描述 / 备注</label>
-        <textarea name="remark" rows="3" placeholder="判定不通过时必填"></textarea></div>
-      ${no === 6 ? `<div class="fld" style="margin-top:12px"><label>需开票合同对应的发票总额（元；纯专家劳务可填 0）</label>
-        <input type="number" name="invoiceAmount" min="0" step="0.01" value="${esc(String(s.invoiceAmount || ""))}" placeholder="应等于非劳务合同金额"></div>` : ""}
-      ${sopEvidenceForm(no, d.project)}`,
-    footer: `<button class="btn btn-o" data-x="0">取消</button><button class="btn btn-p" data-x="1">提交判定</button>`
-  });
-  m.querySelector('[data-x="0"]').onclick = () => m.classList.remove("open");
-  m.querySelector('[data-x="1"]').onclick = async () => {
-    const val = readForm(m);
-    val.evidence = collectSopEvidence(no, m);
-    if (val.result === "不通过" && !val.remark.trim()) return toast("判定不通过必须填写问题描述", "warn");
-    try {
-      const r = await api.post(`/api/projects/${pid}/verify/steps/${no}`, val);
-      toast(r.message, "ok");
-      m.classList.remove("open");
-      render(root, [pid]);
-    } catch (e) { toast(e.message, "warn"); }
-  };
-}
+function openJudge(root,pid,no,d){return openOcrJudge(pid,no,d,()=>render(root,[pid]));}
 
 async function decideEx(root, pid, id, ok) {
   const m = modal({
