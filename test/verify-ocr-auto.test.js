@@ -189,3 +189,47 @@ test("核销第2项：真实XLSX签到表上传后按实际单元格比对，旧
  assert.notEqual(secondScan.data.report.token,firstScan.data.report.token,"changed original must change scan token");
  assert.ok(secondScan.data.report.files.some(x=>x.kind==="签到表"&&x.mode==="office-text"));
 });
+
+
+test("核销第5项OCR与证据：仅关联劳务登记表和劳务专家合同，彻底排除会务及赞助合同",async()=>{
+ const labor=addDoc("劳务登记表","劳务登记表","姓名：张三\n时间：2026-11-08\n角色：讲者\n金额：1000",
+   "51111111111111111111111111111111.pdf");
+ const expert=addDoc("合同","张三劳务专家合同","合同甲方：张三\n个人劳务费 1000",
+   "52222222222222222222222222222222.pdf");
+ const meeting=addDoc("合同","会务服务合同","会务合同预算 20000",
+   "53333333333333333333333333333333.pdf");
+ const sponsor=addDoc("合同","企业赞助合同","赞助合同金额 20000",
+   "54444444444444444444444444444444.pdf");
+ const insert=db.prepare("INSERT INTO contracts(id,pid,name,vendor,amount,status,category,file_key) VALUES (?,?,?,?,?,?,?,?)");
+ insert.run("HT-STEP5-001",pid,"张三专家劳务合同","张三",1000,"已签署","劳务专家",
+   "52222222222222222222222222222222.pdf");
+ insert.run("HT-STEP5-002",pid,"会议执行服务","会务公司",20000,"已签署","其他",
+   "53333333333333333333333333333333.pdf");
+ insert.run("HT-STEP5-003",pid,"会议赞助","赞助企业",20000,"已签署","企业赞助",
+   "54444444444444444444444444444444.pdf");
+ const scanned=await call("admin","POST",pathStep(5)+"/scan",{});
+ assert.equal(scanned.status,200,JSON.stringify(scanned.data));
+ const report=scanned.data.report;
+ assert.deepEqual(report.files.map(f=>Number(f.materialId)),[labor,expert],
+   "OCR step 5 must not scan ANY meeting/sponsor contract");
+ assert.ok(report.evidence.sources.every(s=>[labor,expert].includes(Number(s.materialId))));
+ assert.equal(report.checks.find(x=>x.name==="劳务姓名与专家合同")?.status,"一致");
+ assert.ok(report.evidence.contractPoolSignature,"contract category signature must be recorded");
+ assert.ok(!JSON.stringify(report).includes("会务服务合同")&&!JSON.stringify(report).includes("企业赞助合同"));
+
+ // Non-labor contract replacement must not change the scan evidence fingerprint.
+ db.prepare("UPDATE materials SET file_name='会务合同新版本.pdf' WHERE id=?").run(meeting);
+ db.prepare("UPDATE materials SET file_name='赞助合同新版本.pdf' WHERE id=?").run(sponsor);
+ const unchanged=await call("admin","POST",pathStep(5)+"/scan",{});
+ assert.equal(unchanged.status,200,JSON.stringify(unchanged.data));
+ assert.equal(unchanged.data.report.token,report.token,"irrelevant contract edits cannot stale labor verification");
+ db.prepare("UPDATE contracts SET category='其他' WHERE id='HT-STEP5-001'").run();
+ const reclass=await call("admin","POST",pathStep(5)+"/scan",{});
+ assert.equal(reclass.status,200,JSON.stringify(reclass.data));
+ assert.deepEqual(reclass.data.report.files.map(f=>Number(f.materialId)),[labor],
+   "expert contract reclassified as other must vanish from step 5");
+ assert.notEqual(reclass.data.report.token,report.token,"labor source category changes invalidate older scan token");
+ const stale=await call("admin","POST",pathStep(5),{auto:true,result:"通过",scanToken:report.token});
+ assert.equal(stale.status,409,JSON.stringify(stale.data));
+ assert.equal(stale.data.error.code,"OCR_REPORT_STALE");
+});
