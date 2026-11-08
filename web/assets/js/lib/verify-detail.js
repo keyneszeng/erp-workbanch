@@ -81,24 +81,35 @@ export function stepBody(d,no){
   const names={
     1:["会议通知","招商函","串场"],2:["终版议程","签到表","讲者照片"],
     3:["签到表"],4:["终版议程","课件"],
-    5:["劳务表","劳务收集表"],6:["终版议程","会务协议","合同","发票","会务发票"],7:["权益照片"]
+    5:["劳务表","劳务登记表","劳务收集表"],6:["终版议程","会务协议","合同","发票","会务发票"],7:["权益照片"]
   };
   const note={
     1:"盖章函件已盖章且为终版；核对函件与串场的会议名称、日期及主办方一致。",
     2:"以终版议程的讲者姓名为唯一标准，逐一核对签到表与讲者照片是否缺失、多余或重名；只核对这三项材料。",
     3:"线上有效讲者在线时长 >30 分钟；线下有签到原件；混合两项都需要。",
     4:"材料库中已有课件原件，每个课件主题均能在当前已确认的终版议程中找到；不再核验串场、主办方或药企 Logo。",
-    5:"劳务表原件上传后核对五字段，并按完整姓名逐人匹配材料库个人合同；缺失或多份同名不能通过，合同台账总合同不能代替。",
+    5:"仅核对劳务登记表与劳务专家合同：逐人核对姓名、时间、角色、金额、银行账号五字段；会务合同和赞助合同不参与本项。",
     6:"仅有实际会务需求才核：终版议程与终版会务协议的会议主题/时间/形式一致、会务协议甲方与协会主体一致；会务需求总预算＝已签会务合同总额＝会务发票总金额。",
     7:"仅有已签署赞助合同才核：对照合同权益清单及二级类目逐项核对对应照片的实际交付内容。自动识别只推荐权益类目，照片内容必须人工确认。"
   };
-  const selected=(d.materials||[]).filter(m=>(names[no]||[]).includes(m.kind));
+  const isLaborContract=m=>{
+    if(!m?.file_key)return false;
+    const linked=(d.contracts||[]).filter(c=>c.file_key===m.file_key);
+    if(linked.length)return linked.length===1&&linked[0].category==="劳务专家";
+    if(["劳务专家合同","专家劳务合同","劳务合同","专家合同"].includes(m.kind))return true;
+    if(m.kind!=="合同")return false;
+    const title=String(m.name||"")+" "+String(m.file_name||"");
+    return /劳务专家|专家劳务|劳务合同|专家合同|讲课合同|讲师合同|授课合同|劳务服务合同/.test(title)&&
+      !/赞助合同|企业赞助|招商合同|会务合同|会务协议|会议服务合同|场地合同|酒店合同|采购合同|设备合同/.test(title);
+  };
+  const selected=(d.materials||[]).filter(m=>(names[no]||[]).includes(m.kind)||
+    (no===5&&isLaborContract(m)));
   const step=d.verification.steps.find(x=>x.no===no);
   const contractTotal=(d.contracts||[]).filter(x=>x.status==="已签署" && x.category!=="劳务专家").reduce((sum,x)=>sum+Number(x.amount||0),0);
   const meetingDemandTotal=Number(d.demand?.budgetTotal||0);
   const matchedContractIds=new Set(step?.evidence?.matchedContractMaterialIds||[]);
-  const linkedContracts=(d.materials||[]).filter(x=>x.kind==="合同" && x.file_key && matchedContractIds.has(Number(x.id)));
-  const expertPayments=(d.payments||[]).filter(x=>["专家费","个人报销"].includes(x.type));
+  const linkedContracts=(d.materials||[]).filter(x=>isLaborContract(x)&&
+    matchedContractIds.has(Number(x.id)));
   const evidence=step?.evidence;
   return `<div class="dsec"><h4>业务核验规则</h4><div class="dchk">${esc(note[no]||"请核对资料")}</div></div>
     <div class="dsec"><h4>已登记的关联材料</h4>${matList(selected,"请在材料中心补充对应原件")}</div>
@@ -109,11 +120,9 @@ export function stepBody(d,no){
         return '<div class="dchk"><b>'+esc(sponsor?.enterprise||r.sponsor_id)+' · '+esc(r.category)+'</b> · '+(r.confirmed?'权益已确认':'待校正')+' · '+photos.length+' 张照片'+matList(photos,'请按权益二级类目上传照片')+'</div>';
       }).join("")+'</div>':""}
     ${no===6?`<div class="dgrid">${cell("会务需求总预算",fmt(meetingDemandTotal))}${cell("已签会务合同总额",fmt(contractTotal))}${cell("会务发票核验金额",step?.invoiceAmount==null?"未核对":fmt(step.invoiceAmount))}</div>${!d.demand?.archived?"<div class=\"dhint\">会务需求尚未归档，不能完成第6项通过判定。</div>":""}`:""}
-    ${no===5?`<div class="dsec"><h4>已关联个人合同（材料库）</h4>
-      ${matList(linkedContracts,"尚未通过OCR比对关联个人合同，请直接检查材料库的合同原件。")}
-      <div class="hint">此处仅按姓名关联合同原件，不代表已自动核对合同正文内容。</div>
-      <h4>专家费 / 个人报销（付款类别，核销通过后申请）</h4>
-      ${payRows(expertPayments)}</div>`:""}
+    ${no===5?`<div class="dsec"><h4>已关联劳务专家合同（材料库）</h4>
+      ${matList(linkedContracts,"尚未匹配劳务专家合同，请上传对应专家的合同原件。")}
+      <div class="hint">仅关联劳务专家合同；会务合同、赞助合同不进入核销第5项。合同正文与人员信息仍需人工核对。</div></div>`:""}
     <div class="dsec"><h4>OCR比对与人工判定留痕</h4>
       ${evidence?`<pre class="hint" style="white-space:pre-wrap">${esc(JSON.stringify(evidence,null,2))}</pre>`:
       '<div class="dhint">尚未核销判定；点击「判定」将直接扫描文件、提取要点并智能比对，无需再次填写表格。</div>'}</div>`;

@@ -3,7 +3,11 @@ const {test}=require("node:test");
 const assert=require("node:assert/strict");
 const {validateSopEvidence,sameNames}=require("../server/lib/meeting-sop");
 const project={id:"MP-TEST",name:"会议甲",date:"2026-11-01",assoc:"学会甲",form:"混合"};
-const db={prepare(sql){return {get(pid,kind){return {n:1,total:1000};},all(){return [{id:1,name:"甲",file_name:"甲.pdf",file_key:"mock-a.pdf"},{id:2,name:"乙",file_name:"乙.pdf",file_key:"mock-b.pdf"}];}};}};
+const db={prepare(sql){return {get(pid,kind){return {n:1,total:1000};},all(){
+  if(sql.includes("FROM contracts"))return [];
+  return [{id:1,kind:"劳务专家合同",name:"甲专家合同",file_name:"甲专家合同.pdf",file_key:"mock-a.pdf"},
+   {id:2,kind:"劳务专家合同",name:"乙专家合同",file_name:"乙专家合同.pdf",file_key:"mock-b.pdf"}];
+}};}};
 function expectBlock(no,evidence,p=project,amount=1000){
   assert.throws(()=>validateSopEvidence(no,evidence,p,db,amount));
 }

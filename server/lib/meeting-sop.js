@@ -112,7 +112,7 @@ function validateSopEvidence(no, evidence, project, db, invoiceAmount) {
         fail("劳务表存在重复讲者或重复劳务记录");
       if(rows.some(x=>!Number.isFinite(Number(x.amount))||Number(x.amount)<=0))
         fail("劳务金额必须为正数");
-      // 仅关联本项目材料库有效的个人合同原件，不以会务总合同替代。
+      // 第5项只关联劳务专家合同原件；会务合同、赞助合同均不得替代。
       const linked=linkLaborContracts(db,pid,rows.map(r=>r.name));
       if(linked.missing.length)
         fail("材料库缺少以下人员的同名合同原件："+linked.missing.join("、"),"SOP_PERSON_CONTRACT_MISSING");
