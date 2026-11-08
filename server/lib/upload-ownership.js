@@ -19,8 +19,8 @@ function assertUploadAttachable(key, projectId, user) {
     throw forbidden("附件所属项目与当前项目不一致");
   }
   const linked = db.prepare(
-    "SELECT 1 FROM materials WHERE file_key = ? UNION SELECT 1 FROM contracts WHERE file_key = ?"
-  ).get(key, key);
+    "SELECT 1 FROM materials WHERE file_key = ? UNION SELECT 1 FROM contracts WHERE file_key = ? UNION SELECT 1 FROM meeting_sponsor_contracts WHERE file_key=? UNION SELECT 1 FROM meeting_sponsor_receipts WHERE file_key=? UNION SELECT 1 FROM meeting_sponsor_invoices WHERE file_key=?"
+  ).get(key,key,key,key,key);
   if (linked) throw conflict("附件已绑定其他业务单据，请重新上传", "FILE_ALREADY_LINKED");
   return file;
 }

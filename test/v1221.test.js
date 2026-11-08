@@ -100,7 +100,9 @@ test("重置预览：只有总管理员能看，且数量与实际一致", async
   const a = client(await login("admin"));
   const r = await a("GET", "/api/admin/reset-preview");
   assert.equal(r.status, 200, JSON.stringify(r.data));
-  assert.equal(r.data.rows.length, 22, "预览应列出实际被重置的全部22张表（包括微信绑定与短信挑战表）");
+  assert.equal(r.data.rows.length, 38, "预览还必须覆盖两张新用户授权表");
+  for(const key of ["sponsor_rights","project_initiation_letters","project_notice_templates","project_notices","user_module_grants","user_permission_grants"])
+    assert.ok(r.data.rows.some(x=>x.key===key),"重置预览缺少 "+key);
   const sum = r.data.rows.reduce((acc, x) => acc + x.count, 0);
   assert.equal(r.data.total, sum, "total 应等于各行之和");
 

@@ -1,57 +1,80 @@
 "use strict";
+const {laborSheetInfo}=require("./labor-sop");
+const {contractPool}=require("./labor-contracts");
+const {demandSopState}=require("./meeting-demand-sop");
+const {sponsorRights}=require("./sponsor-rights");
 const { db } = require("./db");
+const {parseTaxFeeRate}=require("./budget-fee");
+const {withBudgetFee}=require("./budget-fee");
 const { now, nextId, conflict, forbidden, notFound, bad, cents, yuan, parseBankAccount, parseBankName } = require("./util");
 const { can, isSuper, ROLES } = require("./rbac");
 const { logAudit } = require("./audit");
-const { FLOW, VERIFY_STEPS, MATERIAL_KINDS } = require("./constants");
+const { FLOW, VERIFY_STEPS } = require("./constants");
 const { isDemoMode } = require("./runtime");
+const verifyOcr=require("./verify-ocr-compare");
 
 function getProject(id) {
   const p = db.prepare("SELECT * FROM projects WHERE id = ?").get(id);
   if (!p) throw notFound(`项目 ${id} 不存在`);
-  return p;
+  return withBudgetFee(p);
 }
 
 /** 核销进度 */
 function verification(pid) {
-  const rows = db.prepare("SELECT * FROM verify_steps WHERE pid = ? ORDER BY step_no").all(pid);
-  const map = new Map(rows.map((r) => [r.step_no, r]));
-  const steps = VERIFY_STEPS.map((def) => {
-    const r = map.get(def.no);
-    return {
-      ...def,
-      result: r ? r.result : "待判定",
-      remark: r ? r.remark : "",
-      invoiceAmount: r ? r.invoice_amount : null,
-      checked_by: r ? r.checked_by : "",
-      checked_at: r ? r.checked_at : ""
-    };
+  const rows=db.prepare("SELECT * FROM verify_steps WHERE pid = ? ORDER BY step_no").all(pid);
+  const map=new Map(rows.map(r=>[r.step_no,r]));
+  const labor=laborSheetInfo(db,pid);
+  const demand=demandSopState(db,pid);
+  const sponsor=sponsorRights(db,pid);
+  const steps=VERIFY_STEPS.map(def=>{
+    const r=map.get(def.no);
+    const required=(def.no!==5 || labor.required) && (def.no!==6 || demand.required) &&
+      (def.no!==7 || sponsor.required);
+    const evidence=r?.evidence_json?JSON.parse(r.evidence_json):null;
+    const stale=required && r?.result==="通过" && (
+      (evidence?.origin==="ocr-assisted-human-review" && evidence.scanToken!==verifyOcr.report(pid,def.no).token) ||
+      (def.no===5 && (evidence?.laborSourceSignature!==labor.signature ||
+        !evidence?.contractPoolSignature || evidence.contractPoolSignature!==contractPool(db,pid).signature)) ||
+      (def.no===2 && !isDemoMode() && (
+        !Array.isArray(evidence?.matchedSources) ||
+        evidence.matchedSources.join("|")!=="终版议程|签到表|讲者照片"
+      )) ||
+      (def.no===6 && !isDemoMode() && evidence?.demandSopSignature!==demand.signature) ||
+      (def.no===7 && !isDemoMode() && evidence?.rightsSignature!==sponsor.signature)
+    );
+    return {...def,required,
+      result:!required?"不适用":stale?"待判定":(r?r.result:"待判定"),
+      remark:!required||stale?"":(r?r.remark:""),
+      invoiceAmount:r?r.invoice_amount:null,
+      checked_by:!required||stale?"":(r?r.checked_by:""),
+      checked_at:!required||stale?"":(r?r.checked_at:""),
+      evidence:!required||stale?null:evidence};
   });
-  const judged = steps.filter((s) => s.result !== "待判定").length;
-  const passed = steps.filter((s) => s.result === "通过" || s.result === "已解例外").length;
-  const failedSteps = steps.filter((s) => s.result === "不通过").map((s) => s.no);
-  const openExceptions = db
-    .prepare("SELECT COUNT(*) AS c FROM exceptions WHERE pid = ? AND status = '待审批'")
-    .get(pid).c;
-  const exceptions = db.prepare("SELECT * FROM exceptions WHERE pid = ? ORDER BY created_at DESC").all(pid);
-  return {
-    steps,
-    judged,
-    passed,
-    total: VERIFY_STEPS.length,
-    failedSteps,
-    openExceptions,
-    exceptions,
-    complete: passed === VERIFY_STEPS.length && openExceptions === 0
-  };
+  const active=steps.filter(s=>s.required);
+  const judged=active.filter(s=>s.result!=="待判定").length;
+  const passed=active.filter(s=>(s.result==="通过" && (isDemoMode()||!!s.evidence)) || (isDemoMode() && s.result==="已解例外")).length;
+  const failedSteps=active.filter(s=>s.result==="不通过").map(s=>s.no);
+  const openExceptions=db.prepare("SELECT COUNT(*) AS c FROM exceptions WHERE pid = ? AND status IN ('待审批','待复核')").get(pid).c;
+  const exceptions=db.prepare("SELECT * FROM exceptions WHERE pid = ? ORDER BY created_at DESC").all(pid);
+  return {steps,judged,passed,total:active.length,laborRequired:labor.required,demandRequired:demand.required,rightsRequired:sponsor.required,failedSteps,openExceptions,exceptions,
+    complete:passed===active.length && openExceptions===0 && (isDemoMode() || failedSteps.length===0)};
 }
 
-/** 归档材料 8 类齐备情况 */
+/** 归档材料改为自由类别：任意一份有效附件即可进入后续核销/归档，不要求固定8类。 */
 function materialsStatus(pid) {
-  const rows = db.prepare("SELECT DISTINCT kind FROM materials WHERE pid = ?").all(pid);
-  const have = rows.map((r) => r.kind);
-  const missing = MATERIAL_KINDS.filter((k) => !have.includes(k));
-  return { have, missing, ok: missing.length === 0, required: MATERIAL_KINDS };
+  const rows = db.prepare(
+    "SELECT kind,file_key FROM materials WHERE pid=? AND (deleted_at IS NULL OR deleted_at='')"
+  ).all(pid);
+  const have=[...new Set(rows.map(r=>r.kind))];
+  const uploaded=rows.filter(r=>r.file_key && String(r.file_key).trim()).length;
+  // 仅演示环境兼容早期测试数据：旧测试用无附件的材料登记记录模拟整套清单。
+  // 生产/阿里云真实环境仍严格要求至少一份已上传附件，不能仅凭名称推进。
+  const hasEvidence=uploaded>0 || (isDemoMode() && rows.length>0);
+  const toggles=db.prepare("SELECT kind,enabled FROM meeting_material_modules WHERE pid=?").all(pid);
+  const disabled=new Set(toggles.filter(m=>m.enabled===0).map(m=>m.kind));
+  return { have, missing: hasEvidence ? [] : ["至少上传1份材料附件"],
+    ok: hasEvidence, required: [], count:rows.length, uploadedCount:uploaded,
+    disabled:[...disabled] };
 }
 
 function settlementOf(pid) {
@@ -73,7 +96,7 @@ function demandSummary(pid) {
   const sheet = db.prepare("SELECT * FROM demand_sheets WHERE pid = ?").get(pid);
   if (!sheet) return null;
   const items = db.prepare(
-    "SELECT grp,item,need,budget FROM demand_items WHERE pid = ? ORDER BY ordering, id"
+    "SELECT grp,item,note,need,spec,quantity,unit_price,budget,owner,due FROM demand_items WHERE pid = ? ORDER BY ordering, id"
   ).all(pid);
   if (!items.length) return null;
   const need = items.filter((x) => x.need === "需要");
@@ -85,7 +108,14 @@ function demandSummary(pid) {
     needCount: need.length,
     // 逐条累加会留浮点尾巴，收敛到「分」
     budgetTotal: yuan(need.reduce((s, x) => s + (Number(x.budget) || 0), 0)),
-    items: need.map((x) => ({ grp: x.grp, item: x.item, budget: x.budget || "" }))
+    // 会议项目详情与核销共用该摘要：仅暴露「需要」项，但补齐展示所需的
+    // 业务提示、规格、负责人、交付时间；保留原有数量/单价/金额字段口径及排序。
+    // 「不需要」项仍留在原始需求单与数据库中，不进入本清单或核销汇总。
+    items: need.map((x) => ({
+      grp: x.grp, item: x.item, note: x.note || "", need: x.need,
+      spec: x.spec || "", quantity: x.quantity || "", unit_price: x.unit_price || "",
+      budget: x.budget || "", owner: x.owner || "", due: x.due || ""
+    }))
   };
 }
 
@@ -125,34 +155,23 @@ const GUARDS = {
     if (!(p.budget > 0)) return "预算必须大于 0";
     return null;
   },
-  /**
-   * V1.2.19：材料 8 类齐备才能「开启核销」。
-   *
-   * 老板 2026-10-28：「必须完成 材料 8 项录入，才能开启 核销功能」。
-   * 原来材料只是**归档**的前置，核销 6 步可以先判、材料后补 ——
-   * 于是判定人手里没有签到表、没有票据，只能凭印象点「通过」，核销就退化成橡皮图章。
-   * 现在把材料前置到核销入口：材料不齐，提交核销直接拦。
-   */
+  // 只要求登记并上传至少一份材料原件；不限制类别、数量或固定清单。
   request_verify(p) {
-    const m = materialsStatus(p.id);
-    if (!m.ok) {
-      return `核销材料还缺 ${m.missing.length} 类：${m.missing.join("、")}。` +
-        `材料 8 类齐备后才能开启核销（材料页签可逐类登记）`;
-    }
+    if (!materialsStatus(p.id).ok) return "请先上传至少一份会议材料附件，再开启核销";
     return null;
   },
   verify_pass(p) {
-    const m = materialsStatus(p.id);
-    if (!m.ok) return `核销材料缺 ${m.missing.length} 类：${m.missing.join("、")}，补齐后才能核销通过`;
+    if (!materialsStatus(p.id).ok) return "会议材料附件已全部删除，请至少保留一份上传附件";
     const v = verification(p.id);
-    if (v.judged < v.total) return `还有 ${v.total - v.judged} 步未判定，6 步必须全部判定`;
+    if (v.judged < v.total) return `还有 ${v.total - v.judged} 项必核步骤未判定，第5项看劳务表、第6项看会务需求、第7项看已签赞助合同`;
     if (v.failedSteps.length) return `第 ${v.failedSteps.join("、")} 步不通过，需提交例外单并获批`;
-    if (v.openExceptions > 0) return `存在 ${v.openExceptions} 张未审批的例外单`;
+    if (v.openExceptions > 0) return `存在 ${v.openExceptions} 张未完成处理或待复核的例外单`;
+    if (!v.complete) return "适用核销项须全部通过；不接受缺少证据的旧结论或以例外审批代替核销";
     return null;
   },
   settle(p) {
     const v = verification(p.id);
-    if (!v.complete) return "核销未通过（6 步未全过或存在未决例外），不能结算";
+    if (!v.complete) return "核销未通过（适用项目未全过或存在未决例外），不能结算";
     if (settlementOf(p.id)) return "结算单已存在，不可重复生成";
     const pending = db
       .prepare("SELECT COUNT(*) AS c FROM payments WHERE pid = ? AND status IN ('待审批','已审批')")
@@ -161,17 +180,20 @@ const GUARDS = {
     if (!isDemoMode()) {
       const paid = db.prepare("SELECT COUNT(*) AS n, COALESCE(SUM(amount),0) AS total FROM payments WHERE pid=? AND status='已付款'").get(p.id);
       if (!paid.n) return "结算前必须先申请付款并由财务完成实际付款，不能跳过付款直接结算";
-      const matched = db.prepare("SELECT invoice_amount FROM verify_steps WHERE pid=? AND step_no=6 AND result='通过'").get(p.id);
-      if (!matched || !Number.isFinite(matched.invoice_amount))
-        return "发票与已签署合同金额尚未完成核对，不允许结算";
-      if (cents(paid.total) !== cents(matched.invoice_amount))
-        return `实际已付款 ¥${yuan(paid.total)} 与核销确认发票金额 ¥${yuan(matched.invoice_amount)} 不一致，不能结算`;
+      if (v.demandRequired) {
+        const step=v.steps.find(s=>s.no===6);
+        if(step?.result!=="通过" || !Number.isFinite(step.invoiceAmount))
+          return "会务需求存在时必须完成第6项会务协议、预算、合同及发票核对，才能结算";
+      }
+      const signedTotal=db.prepare("SELECT COALESCE(SUM(amount),0) AS total FROM contracts WHERE pid=? AND status='已签署'").get(p.id).total;
+      if(cents(paid.total)!==cents(signedTotal))
+        return `已付款总额 ¥${yuan(paid.total)} 与已核销合同请款总额 ¥${yuan(signedTotal)} 不一致，不能结算；含免票专家劳务费`;
     }
     return null;
   },
   archive(p) {
     const m = materialsStatus(p.id);
-    if (!m.ok) return `归档材料缺 ${m.missing.length} 类：${m.missing.join("、")}`;
+    if (!m.ok) return "归档前至少保留一份已上传材料附件";
     if (!settlementOf(p.id)) return "结算单未生成，不能归档";
     const pending = db
       .prepare("SELECT COUNT(*) AS c FROM payments WHERE pid = ? AND status IN ('待审批','已审批')")
@@ -248,7 +270,9 @@ function transition(projectId, action, user, payload = {}, ip = "") {
       status: p.status, allowed: FLOW.filter((f) => f.from === p.status).map((f) => f.action)
     });
   }
-  if (!can(user, flow.perm)) throw forbidden(`需要「${permRoleName(flow.perm)}」权限才能${flow.label}`);
+  // 普通用户只可提交由本人创建的立项草稿，其他任何项目流转仍按角色权限拦截。
+  const ownApplicationSubmit = action === "submit" && !isDemoMode() && process.env.ERP_MINIPROGRAM_ENABLED === "1" && user.role === "user" && Number(p.created_by) === Number(user.id);
+  if (!can(user, flow.perm) && !ownApplicationSubmit) throw forbidden(`需要「${permRoleName(flow.perm)}」权限才能${flow.label}`);
 
   const guardMsg = GUARDS[action] ? GUARDS[action](p) : null;
   if (guardMsg) {
@@ -274,6 +298,9 @@ function transition(projectId, action, user, payload = {}, ip = "") {
       const ap = db
         .prepare("SELECT * FROM approvals WHERE pid = ? AND type = '立项审批' AND status = '待审批' ORDER BY created_at DESC")
         .get(p.id);
+      // 审批的同一同步业务动作中冻结函件正文和当前协会 Word 模板引用。
+      // Word 字节可在下载时由快照生成，之后模板更换也不会改变本项目通知函。
+      require("./project-notice").freeze(p,user,ap?.id||null,{approvedAt:now()});
       if (ap) {
         db.prepare("UPDATE approvals SET status = '已通过', decided_by = ?, decided_at = ?, comment = ? WHERE id = ?")
           .run(user.name, now(), String(payload.comment || "同意立项"), ap.id);
@@ -309,8 +336,8 @@ function transition(projectId, action, user, payload = {}, ip = "") {
       const profit = yuan(income - expense);
       const id = nextId(db, "settlements", "id", "ST");
       db.prepare(
-        "INSERT INTO settlements (id,pid,income,expense,profit,payee,payee_bank,payee_account,status,created_by,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)"
-      ).run(id, p.id, income, expense, profit, payee, payeeBank, payeeAccount, "已生成", user.name, at);
+        "INSERT INTO settlements (id,pid,income,expense,profit,tax_fee_rate,payee,payee_bank,payee_account,status,created_by,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)"
+      ).run(id, p.id, income, expense, profit, parseTaxFeeRate(p.tax_fee_rate), payee, payeeBank, payeeAccount, "已生成", user.name, at);
       setStatus(p, "已结算", user, ip,
         `生成结算单 ${id}：收入 ¥${income.toLocaleString("zh-CN")} / 支出 ¥${expense.toLocaleString("zh-CN")} / ` +
         `结余 ¥${profit.toLocaleString("zh-CN")}；收款方 ${payee}（${payeeBank} 尾号 ${payeeAccount.slice(-4)}）`);
@@ -319,7 +346,7 @@ function transition(projectId, action, user, payload = {}, ip = "") {
     case "archive": {
       const at = now();
       db.prepare("UPDATE projects SET status = '已归档', status_at = ?, updated_at = ? WHERE id = ?").run(at, at, p.id);
-      logAudit({ user, module: "档案中心", action: "归档", target: p.id, detail: "数字卷宗封存，材料 8/8 齐备", ip });
+      logAudit({ user, module: "档案中心", action: "归档", target: p.id, detail: "数字卷宗封存，材料按自由类别归档，至少保留一份附件", ip });
       return { project: getProject(p.id), message: "已归档，卷宗封存" };
     }
     default: {
