@@ -4,6 +4,8 @@ const {db}=require("./db");
 const {now,bad}=require("./util");
 const {cents}=require("./util");
 const {isDemoMode}=require("./runtime");
+const {laborSheetInfo}=require("./labor-sop");
+const {contractPool}=require("./labor-contracts");
 // Encryption key is deliberately not stored in SQLite or returned to a browser.
 function key(){
  const v=String(process?.env?.ERP_FINANCIAL_DATA_KEY||"");
@@ -37,7 +39,11 @@ function saveLabor(pid,records){
 function options(pid){
  const contracts=db.prepare("SELECT id,vendor,amount,category FROM contracts WHERE pid=? AND status='已签署' ORDER BY id").all(pid);
  const rows=contracts.map(x=>({id:"contract:"+x.id,label:x.vendor+"（"+x.category+"合同）",payee:x.vendor,amount:x.amount,source:"contract",bank:"",maskedAccount:""}));
- const labor=db.prepare("SELECT id,name,bank,account_cipher,amount FROM verified_labor_payees WHERE pid=? ORDER BY id").all(pid);
+ const s=laborSheetInfo(db,pid);
+ const v=db.prepare("SELECT result,evidence_json FROM verify_steps WHERE pid=? AND step_no=5").get(pid);
+ let valid=false;
+ try{valid=s.required&&v?.result==="通过"&&JSON.parse(v.evidence_json||"{}").laborSourceSignature===s.signature && JSON.parse(v.evidence_json||"{}").contractPoolSignature===contractPool(db,pid).signature;}catch{}
+ const labor=valid?db.prepare("SELECT id,name,bank,account_cipher,amount FROM verified_labor_payees WHERE pid=? ORDER BY id").all(pid):[];
  for(const x of labor){
   const account=reveal(x.account_cipher);
   if(account)rows.push({id:"labor:"+x.id,label:x.name+"（核销劳务表）",payee:x.name,
@@ -53,6 +59,11 @@ function resolve(pid,id){
   return {name:x.vendor,amount:x.amount,bank:"",account:"",source:"contract"};
  }
  if(value.startsWith("labor:")){
+  const s=laborSheetInfo(db,pid);
+  const v=db.prepare("SELECT result,evidence_json FROM verify_steps WHERE pid=? AND step_no=5").get(pid);
+  let valid=false;
+  try{valid=s.required&&v?.result==="通过"&&JSON.parse(v.evidence_json||"{}").laborSourceSignature===s.signature && JSON.parse(v.evidence_json||"{}").contractPoolSignature===contractPool(db,pid).signature;}catch{}
+  if(!valid)throw bad("劳务表或个人合同发生变化，请重新核验第5项");
   const x=db.prepare("SELECT * FROM verified_labor_payees WHERE id=? AND pid=?").get(Number(value.slice(6)),pid);
   if(!x)throw bad("核销劳务收款人不存在");
   const account=reveal(x.account_cipher);
