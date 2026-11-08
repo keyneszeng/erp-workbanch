@@ -38,6 +38,9 @@ export const api = {
   /**
    * 上传单个文件（原始二进制，非 multipart）。
    * 用 XHR 而不是 fetch：fetch 拿不到上传进度，几 MB 的照片没有进度条体验很差。
+   *
+   * pid：把文件登记到所属会议。服务端据此记录 uploaded_files.pid，
+   * 下载授权才能按项目范围校验；不传则归属为空，只能退化为按业务单据反查。
    */
   upload(file, { onProgress, pid } = {}) {
     return new Promise((resolve, reject) => {
@@ -64,8 +67,8 @@ export const api = {
       xhr.send(file);
     });
   },
-  async download(path) {
-    const res = await request(path, { raw: true });
+  async download(path, { method = "GET", body } = {}) {
+    const res = await request(path, { raw: true, method, body });
     if (!res.ok) {
       let msg = "导出失败";
       try { msg = (await res.json()).error?.message || msg; } catch {}

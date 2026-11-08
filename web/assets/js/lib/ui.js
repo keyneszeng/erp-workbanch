@@ -9,7 +9,7 @@ export const yuan = (n) => `¥${money(n)}`;
 const STATUS_CLS = {
   "草稿": "b-gray", "待审批": "b-orange", "已立项": "b-blue", "筹备中": "b-blue",
   "执行中": "b-teal", "待核销": "b-orange", "已核销": "b-green", "已结算": "b-green", "已归档": "b-steel",
-  "通过": "b-green", "不通过": "b-red", "待判定": "b-gray", "已解例外": "b-purple",
+  "通过": "b-green", "不通过": "b-red", "待判定": "b-gray", "不适用": "b-gray", "已解例外": "b-purple",
   "待审批(付款)": "b-orange", "已审批": "b-blue", "已付款": "b-green", "已驳回": "b-red",
   "待邀请": "b-gray", "待确认": "b-orange", "已确认": "b-green", "已通过": "b-green",
   "待开始": "b-gray", "进行中": "b-blue", "已完成": "b-green", "处理中": "b-orange", "已解决": "b-green",
@@ -144,14 +144,7 @@ export function formHtml(fields, values = {}) {
     const v = values[f.k] ?? f.v ?? "";
     const req = f.req ? '<span class="req">*</span>' : "";
     let input = "";
-    if (f.t === "multi") {
-      const selected = Array.isArray(v) ? v : (v ? [v] : []);
-      input = `<div class="chips" role="group" aria-label="${esc(f.l)}">
-        ${(f.opts||[]).map(o => {
-          const val=typeof o==="string"?o:o.v, label=typeof o==="string"?o:o.l;
-          return `<label class="chip"><input type="checkbox" name="${esc(f.k)}" value="${esc(val)}" ${selected.includes(val)?"checked":""}> ${esc(label)}</label>`;
-        }).join("")}</div>`;
-    } else if (f.t === "select") {
+    if (f.t === "select") {
       // custom: 下拉里多一项「自定义填入…」，选中后旁边露出一个文本框。
       // 用在下拉选项永远列不全的字段上（材料类别、例外步骤）——
       // 与其逼人从 8 个选项里挑一个最接近的，不如让他直接写。
@@ -183,11 +176,6 @@ export function readForm(root) {
   const out = {};
   root.querySelectorAll("[name]").forEach((el) => {
     if (el.type === "file") return;
-    if (el.type === "checkbox") {
-      if (!Array.isArray(out[el.name])) out[el.name]=[];
-      if (el.checked) out[el.name].push(el.value);
-      return;
-    }
     // 自定义文本框单独处理：只有对应下拉真的选了「自定义填入」时，它的值才算数，
     // 否则用户先在框里打了字又改回标准选项，这个残留值会顶掉下拉的选择。
     if (el.name.endsWith("__custom")) return;
@@ -226,6 +214,37 @@ export function validate(root, fields) {
 export function progressBar(pct, color = "var(--blue)") {
   return `<div class="bar-wrap" style="background:#eef2f7;border-radius:4px;height:6px;overflow:hidden">
     <div class="bar-in" style="width:${Math.min(100, Math.max(0, pct))}%;height:100%;background:${color}"></div></div>`;
+}
+
+/**
+ * 保留搜索输入焦点：列表需要重新请求接口时，不能每输入一字就销毁输入框。
+ * 同时尊重用户切换焦点的动作；异步返回后不强行抢回输入焦点。
+ */
+export function bindSearchRefresh(root, selector, onChange, refresh, delay = 280) {
+  const input = root.querySelector(selector);
+  if (!input) return;
+  let timer;
+  input.addEventListener("input", () => {
+    const value = input.value;
+    onChange(value.trim());
+    clearTimeout(timer);
+    timer = setTimeout(async () => {
+      const focused = document.activeElement === input;
+      const from = input.selectionStart, to = input.selectionEnd;
+      try {
+        await refresh();
+        if (!focused) return;
+        const replacement = root.querySelector(selector);
+        if (!replacement || replacement.value !== value || !root.isConnected) return;
+        // 如果用户在请求期间主动移到其他输入框，就不要抢焦点。
+        if (document.activeElement !== document.body && document.activeElement !== input) return;
+        replacement.focus({ preventScroll: true });
+        if (from != null && to != null) replacement.setSelectionRange(from, to);
+      } catch (err) {
+        toast(err?.message || "搜索失败，请重试", "warn");
+      }
+    }, delay);
+  });
 }
 
 /* ---------------- 分页 ---------------- */

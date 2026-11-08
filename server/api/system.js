@@ -1,14 +1,14 @@
 "use strict";
 const { db } = require("../lib/db");
 const { now, today, nextId, toCsv, bad, notFound, conflict, forbidden } = require("../lib/util");
-const { assertCan, scopeFilter, isSuper, ROLES, can, canVisitNav, STATUSES } = require("../lib/rbac");
+const { assertCan, scopeFilter, isSuper, hasModule, ROLES, can, canVisitNav, STATUSES } = require("../lib/rbac");
 const { logAudit } = require("../lib/audit");
 const { hashPassword, validatePassword } = require("../lib/auth");
 const { listProjects } = require("./projects");
-const { VERIFY_STEPS } = require("../lib/constants");
+const { VERIFY_STEPS, USER_DEPTS } = require("../lib/constants");
 const { readPaging, countOf } = require("../lib/paginate");
 const { seed, RESET_DATA_TABLES } = require("../lib/seed");
-const { isDemoMode } = require("../lib/runtime");
+const { isDemoMode, isTestEnvironment } = require("../lib/runtime");
 const { INITIAL_PASSWORD, normalizePhone, ensureAvailable } = require("../lib/phone-whitelist");
 
 function countsByStatus(user) {
@@ -35,42 +35,52 @@ function myTodos(user) {
   ).all(...params);
 
   for (const a of pendingAp) {
-    const need = a.type === "立项审批" ? can(user, "project:approve")
+    const need = ["立项审批","变更审批"].includes(a.type) ? can(user, "project:approve")
       : a.type === "例外单审批" ? can(user, "verify:exception_approve")
-      : a.type === "付款审批" ? can(user, "payment:approve") : can(user, "project:approve");
-    if (need) todos.push({ kind: "审批", title: `${a.type}：${a.title}`, pid: a.pid, pname: a.pname, ref: a.id, sla: a.sla, go: "approvals" });
+      : a.type === "付款审批" ? can(user, "payment:approve")
+      : a.type === "合同审批" ? can(user, "contract:approve") : false;
+    if (need && canVisitNav(user,"approvals")) todos.push({ kind: "审批", title: `${a.type}：${a.title}`, pid: a.pid, pname: a.pname, ref: a.id, sla: a.sla, go: "approvals" });
   }
-  if (["admin","assoc","finance"].includes(user.role) && can(user, "verify:check")) {
+  // 立项审批通过后，自动进入已指派会务执行负责人待办；由负责人执行“进入筹备”。
+  if(can(user,"project:transition") && canVisitNav(user,"projects")) {
+    const rows=db.prepare(`SELECT p.* FROM projects p WHERE p.status='已立项' AND p.owner_id=?
+      ORDER BY p.status_at DESC`).all(user.id);
+    for(const p of rows)todos.push({
+      kind:"筹备",title:"立项已审批，待负责人开始筹备",pid:p.id,pname:p.name,
+      ref:p.id,sla:"立项审批后尽快开始",go:"projects"
+    });
+  }
+  // 执行人提交核销后，项目进入协会管理员、核销财务和总管理员工作台队列。
+  // 严格区分可见性：协会管理员按多协会范围；财务仅分派项目；总管理员全平台。
+  if (can(user,"verify:check") && canVisitNav(user,"verify")) {
+    const rows=db.prepare(`SELECT p.* FROM projects p WHERE p.status='待核销' AND ${sql}
+      ORDER BY p.status_at DESC`).all(...params);
+    for(const p of rows)todos.push({
+      kind:"待核销",title:"会务执行已提交，待财务核对六步 SOP",
+      pid:p.id,pname:p.name,ref:p.id,sla:"会后核销待办",go:"verify"
+    });
+  }
+  if (can(user, "verify:conclude") && canVisitNav(user,"verify")) {
     const rows = db.prepare(
       `SELECT p.*, (SELECT COUNT(*) FROM verify_steps v WHERE v.pid=p.id AND v.result IN ('通过','已解例外')) AS passed
        FROM projects p WHERE p.status='待核销' AND ${sql}`
     ).all(...params);
     for (const p of rows) todos.push({ kind: "核销", title: `核销待判定（${p.passed}/6 已通过）`, pid: p.id, pname: p.name, ref: p.id, sla: "会期后 5 个工作日", go: "verify" });
   }
-  if(user.role==="exec" && can(user,"project:transition")) {
-    const handoffs=db.prepare(
-      `SELECT p.id,p.name FROM projects p
-        WHERE p.status='已立项' AND EXISTS
-          (SELECT 1 FROM project_members m WHERE m.project_id=p.id AND m.user_id=? AND m.role='执行负责人')
-        ORDER BY p.date`
-    ).all(user.id);
-    for(const p of handoffs)todos.push({kind:"筹备",title:"立项已通过，待执行负责人启动会务筹备",
-      pid:p.id,pname:p.name,ref:p.id,sla:"审批通过后及时启动",go:"projects"});
-  }
-  if (can(user, "settle:create")) {
+  if (can(user, "settle:create") && canVisitNav(user,"finance")) {
     const rows = db.prepare(
       `SELECT p.* FROM projects p WHERE p.status='已核销' AND ${sql}
        AND NOT EXISTS (SELECT 1 FROM settlements s WHERE s.pid=p.id)`
     ).all(...params);
     for (const p of rows) todos.push({ kind: "结算", title: "核销已通过，待生成结算单", pid: p.id, pname: p.name, ref: p.id, sla: "核销后 3 个工作日", go: "finance" });
   }
-  if (can(user, "archive:write")) {
+  if (can(user, "archive:write") && canVisitNav(user,"archive")) {
     const rows = db.prepare(
       `SELECT p.* FROM projects p WHERE p.status='已结算' AND ${sql}`
     ).all(...params);
     for (const p of rows) todos.push({ kind: "归档", title: "结算完成，待归档", pid: p.id, pname: p.name, ref: p.id, sla: "结算后 5 个工作日", go: "archive" });
   }
-  if (can(user, "payment:pay")) {
+  if (can(user, "payment:pay") && canVisitNav(user,"finance")) {
     const rows = db.prepare(
       `SELECT y.*, p.name AS pname FROM payments y JOIN projects p ON p.id=y.pid WHERE y.status='已审批' AND ${sql}`
     ).all(...params);
@@ -188,41 +198,28 @@ function dashboard(user) {
      ORDER BY p.date ASC LIMIT 6`
   ).all(...params, today());
 
-  // 预算与已付款必须各自独立聚合。
-  // 原来把已付款写成 SELECT 列表里的标量子查询，子查询里 JOIN 用的是 p2 别名、
-  // 而数据范围条件用的是 p. —— SQLite 把 p 当成外层引用，条件恒真，
-  // 于是协会管理员看到的是全平台已付款（实测 ¥698,600 vs 本协会 ¥364,000）。
-  const budget = Number(db.prepare(
+  // 查看工作台不等于自动拥有财务统计或审计查看权，与角色名称无关。
+  const financeAllowed=isSuper(user) || hasModule(user,"finance") ||
+    ["payment:create","payment:approve","payment:pay","settle:create","ledger:read"].some(k=>can(user,k));
+  const auditAllowed=isSuper(user) || hasModule(user,"audit") || can(user,"audit:read");
+  const budget=financeAllowed ? Number(db.prepare(
     `SELECT COALESCE(ROUND(SUM(p.budget),2),0) AS v FROM projects p WHERE ${sql}`
-  ).get(...params).v) || 0;
-  const paid = Number(db.prepare(
+  ).get(...params).v)||0 : null;
+  const paid=financeAllowed ? Number(db.prepare(
     `SELECT COALESCE(ROUND(SUM(y.amount),2),0) AS v FROM payments y JOIN projects p ON p.id = y.pid
      WHERE y.status = '已付款' AND ${sql}`
-  ).get(...params).v) || 0;
+  ).get(...params).v)||0 : null;
 
-  if (user.role === "user") {
-    // 参会者只可读取本人会议安排；聚合预算、付款、审计以及项目原始行均属于内部信息。
-    return {
-      counts: map,
-      statusRows: rows.map(({ status, c }) => ({ status, c })),
-      budget: null,
-      paid: null,
-      todos,
-      upcoming: upcoming.map(({ id, name, assoc, date, status, owner }) =>
-        ({ id, name, assoc, date, status, owner })),
-      alerts: [],
-      recent: []
-    };
-  }
+  const publiclyVisible=({id,name,assoc,date,status,owner})=>({id,name,assoc,date,status,owner});
   return {
     counts: map,
-    statusRows: rows,
+    statusRows: financeAllowed ? rows : rows.map(({status,c})=>({status,c})),
     budget,
     paid,
     todos,
-    upcoming,
+    upcoming: financeAllowed ? upcoming : upcoming.map(publiclyVisible),
     alerts: alerts(user),
-    recent: recentAudits(user)
+    recent: auditAllowed ? recentAudits(user) : []
   };
 }
 
@@ -242,7 +239,7 @@ const EXPORTS = {
   },
   payments: {
     module: "财务结算", file: "付款明细",
-    headers: ["付款单号", "项目", "类型", "收款方", "开户行", "银行账号", "金额", "发票号", "申请人", "状态", "付款时间"],
+    headers: ["付款单号", "项目", "类型", "收款方", "开户行", "银行账号", "金额", "期次", "发票号", "申请人", "状态", "付款时间"],
     sql: (u) => {
       const { sql, params } = scopeFilter(u);
       return {
@@ -250,8 +247,9 @@ const EXPORTS = {
         params
       };
     },
-    map: (r) => [r.id, r.pname, r.type, r.payee, r.payee_bank || "", r.payee_account || "",
-      r.amount, r.invoice_no, r.req_user, r.status, r.paid_at || ""]
+    map: (r, user) => [r.id, r.pname, r.type, r.payee, r.payee_bank || "",
+      can(user,"payment:pay") ? (r.payee_account || "") : (r.payee_account ? "****"+String(r.payee_account).slice(-4) : ""),
+      r.amount, r.period || "", r.invoice_no, r.req_user, r.status, r.paid_at || ""]
   },
   contracts: {
     module: "筹备管理", file: "合同台账",
@@ -278,17 +276,18 @@ const EXPORTS = {
           (SELECT result FROM verify_steps v WHERE v.pid=p.id AND v.step_no=4) AS s4,
           (SELECT result FROM verify_steps v WHERE v.pid=p.id AND v.step_no=5) AS s5,
           (SELECT result FROM verify_steps v WHERE v.pid=p.id AND v.step_no=6) AS s6,
+          (SELECT result FROM verify_steps v WHERE v.pid=p.id AND v.step_no=7) AS s7,
           (SELECT COUNT(*) FROM exceptions e WHERE e.pid=p.id) AS ex_cnt,
           (SELECT id FROM settlements s WHERE s.pid=p.id) AS st_id
           FROM projects p WHERE ${sql} AND p.status IN ('待核销','已核销','已结算','已归档') ORDER BY p.date DESC`,
         params
       };
     },
-    map: (r) => [r.id, r.name, r.status, r.s1 || "待判定", r.s2 || "待判定", r.s3 || "待判定", r.s4 || "待判定", r.s5 || "待判定", r.s6 || "待判定", r.ex_cnt, r.st_id || ""]
+    map: (r) => [r.id, r.name, r.status, r.s1 || "待判定", r.s2 || "待判定", r.s3 || "待判定", r.s4 || "待判定", r.s5 || "待判定/不适用", r.s6 || "待判定/不适用", r.s7 || "待判定/不适用", r.ex_cnt, r.st_id || ""]
   },
   settlements: {
     module: "财务结算", file: "结算汇总",
-    headers: ["结算单号", "项目编号", "项目", "收入", "支出", "结余", "收款方", "开户行", "银行账号", "状态", "生成时间"],
+    headers: ["结算单号", "项目编号", "项目", "项目预算", "已付支出", "预算结余", "收款方", "开户行", "银行账号", "状态", "生成时间"],
     sql: (u) => {
       const { sql, params } = scopeFilter(u);
       return {
@@ -296,8 +295,10 @@ const EXPORTS = {
         params
       };
     },
-    map: (r) => [r.id, r.pid, r.pname, r.income, r.expense, r.profit,
-      r.payee || "", r.payee_bank || "", r.payee_account || "", r.status, r.created_at]
+    map: (r, user) => [r.id, r.pid, r.pname, r.income, r.expense, r.profit,
+      r.payee || "", r.payee_bank || "",
+      can(user,"payment:pay") ? (r.payee_account || "") : (r.payee_account ? "****"+String(r.payee_account).slice(-4) : ""),
+      r.status, r.created_at]
   },
   audit: {
     module: "审计日志", file: "审计日志",
@@ -318,6 +319,14 @@ function checkUserLen(b) {
     if (!(k in b) || b[k] === undefined || b[k] === null) continue;
     if (String(b[k]).length > max) throw bad(`${USER_LABEL[k]}不能超过 ${max} 字（当前 ${String(b[k]).length} 字）`);
   }
+}
+
+// 新写入的部门必须来自当前目录；旧账号的历史值可原样保留，避免误分类。
+function assertDepartmentChoice(dept, previous) {
+  if (dept === undefined) return;
+  const chosen = String(dept ?? "").trim();
+  if (previous !== undefined && chosen === String(previous ?? "")) return;
+  if (chosen && !USER_DEPTS.includes(chosen)) throw bad("请从有效部门分类中选择");
 }
 
 /**
@@ -344,10 +353,13 @@ const RESET_LABEL = {
   guests: "嘉宾", tasks: "任务", issues: "异常问题",
   meeting_material_tasks: "会议材料待办", meeting_material_modules: "会议固定材料模块", demand_revisions: "需求历史变更",
   material_ocr_results: "材料 OCR 识别结果",
-  sponsor_income: "企业赞助收入台账",
-  user_associations: "用户所属协会关系",
   verified_labor_payees: "加密劳务收款方", associations: "协会目录",
+  user_associations: "用户关联协会", user_module_grants: "账号模块授权", user_permission_grants: "账号功能授权", meeting_sponsor_contracts: "企业赞助合同",
+  sponsor_rights: "赞助合同权益二级类目",
+  meeting_sponsor_receipts: "赞助到账凭证", meeting_sponsor_invoices: "企业赞助开票",
   demand_items: "需求明细", demand_sheets: "需求单", project_members: "项目成员",
+  project_initiation_letters: "立项函正文", project_notice_templates: "协会 Word 通知函模板",
+  project_notices: "项目通知函审批快照",
   settings: "系统演示配置"
 };
 function resetSnapshot() {
@@ -356,24 +368,15 @@ function resetSnapshot() {
   return out;
 }
 
-function normalizeUserAssociations(body, fallback = "") {
-  const source = Array.isArray(body.assocs) ? body.assocs : [body.assoc ?? fallback];
-  if (source.length>30) throw bad("一个账号最多关联 30 个协会");
-  const names=[...new Set(source.map(v=>String(v||"").trim()).filter(Boolean))];
-  for(const name of names) if(!require("../lib/associations").has(name))throw bad("协会不在有效目录："+name);
-  return names;
-}
-function userAssociations(id) {
-  return db.prepare("SELECT assoc FROM user_associations WHERE user_id=? ORDER BY assoc").all(id).map(r=>r.assoc);
-}
-function saveUserAssociations(id,names) {
-  db.prepare("DELETE FROM user_associations WHERE user_id=?").run(id);
-  for(const name of names) db.prepare("INSERT INTO user_associations(user_id,assoc) VALUES (?,?)").run(id,name);
-}
-
 function register(router) {
-  router.get("/api/dashboard", async (ctx) => dashboard(ctx.user));
+  router.get("/api/dashboard", async (ctx) => {require("../lib/rbac").assertModule(ctx.user,"dashboard");return dashboard(ctx.user);});
 
+  const {validateAssociations,listForUser,updateForUser}=require("../lib/user-associations");
+  // 老版逐人「修改材料文件」授权与新版权限表保持兼容，由总管理员独占写入权。
+  const syncMaterialGrant=(uid,flag)=>{
+    db.prepare("DELETE FROM user_permission_grants WHERE user_id=? AND permission=?").run(uid,"material:file:replace");
+    if(flag)db.prepare("INSERT INTO user_permission_grants(user_id,permission) VALUES (?,?)").run(uid,"material:file:replace");
+  };
   router.get("/api/users", async (ctx) => {
     /**
      * V1.2.17 SEC-01：整本通讯录只给能管理账号的人。
@@ -389,8 +392,9 @@ function register(router) {
     const rows = db.prepare("SELECT * FROM users ORDER BY id").all();
     return {
       rows: rows.map((u) => ({
-        id: u.id, username: u.username, name: u.name, role: u.role, assoc: u.assoc, assocs: userAssociations(u.id), dept: u.dept,
-        phone: u.phone, active: u.active, created_at: u.created_at, role_name: ROLES[u.role]?.name || u.role
+        id: u.id, username: u.username, name: u.name, role: u.role, assoc: u.assoc, assocs:listForUser(u.id,u.assoc), dept: u.dept,
+        phone: u.phone, active: u.active, material_file_replace: isSuper(u)?1:can(u,"material:file:replace")?1:0,
+        created_at: u.created_at, role_name: ROLES[u.role]?.name || u.role
       })),
       limited: false
     };
@@ -426,24 +430,29 @@ function register(router) {
       throw require("../lib/util").forbidden("当前角色无权选择协会负责人");
     const assoc = String(ctx.query.assoc || "");
     const candidates=db.prepare("SELECT id,name,role,assoc FROM users WHERE active=1 ORDER BY name,id").all();
-    const regular=candidates.filter(u=>u.role!=="admin" && (
-      !assoc ? (isSuper(ctx.user) || u.assoc===ctx.user.assoc ||
-        db.prepare("SELECT 1 FROM user_associations WHERE user_id=? AND assoc=?").get(u.id,ctx.user.assoc||""))
-      : (u.assoc===assoc || !!db.prepare("SELECT 1 FROM user_associations WHERE user_id=? AND assoc=?").get(u.id,assoc)) &&
-        (isSuper(ctx.user) || assoc===ctx.user.assoc ||
-          !!db.prepare("SELECT 1 FROM user_associations WHERE user_id=? AND assoc=?").get(ctx.user.id,assoc))
-    ));
-    // 单人部署：仅平台总管理员一个账号时，仍允许其作为新会议负责人。
-    // 一旦配置了真实协会成员，负责人恢复协会级选人，不能把总管理员跨协会常规指派。
-    const rows=[...regular,...(isSuper(ctx.user)?candidates.filter(u=>u.role==="admin").map(u=>({...u,assoc:assoc||u.assoc||null})):[])];
-    return { rows: rows.map((u) => ({ id: u.id, name: u.name, assoc: u.assoc, assocs:userAssociations(u.id), role: u.role, role_name: ROLES[u.role]?.name || u.role })) };
+    const eligible=candidates.filter(u=>{
+      if(u.role==="admin")return true;
+      const associations=listForUser(u.id,u.assoc);
+      return (!assoc || associations.includes(assoc)) &&
+        (isSuper(ctx.user) || associations.some(a=>listForUser(ctx.user.id,ctx.user.assoc).includes(a)));
+    });
+    return {rows:eligible.map(u=>({id:u.id,name:u.name,assoc:u.assoc,
+      assocs:listForUser(u.id,u.assoc),role:u.role,role_name:ROLES[u.role]?.name||u.role}))};
   });
 
   router.post("/api/users", async (ctx) => {
     assertCan(ctx.user, "user:manage", "只有总管理员可以创建账号");
-    const b = ctx.body || {};
-    const assocNames=normalizeUserAssociations(b);
-    b.assoc=assocNames[0]||null;
+    const b = {...(ctx.body||{})};
+    checkUserLen(b);
+    assertDepartmentChoice(b.dept);
+    const userAssocs=validateAssociations(b.assocs,b.assoc);
+    if(b.assocs!==undefined && b.role!=="admin" && !userAssocs.length)throw bad("请选择至少一个所属协会");
+    b.assoc=userAssocs[0]||null;
+    // 按账号授权，默认关闭；普通访客不允许被授予内部合同修改权。
+    const contractReplaceGrant=b.material_file_replace===undefined?0:toFlag(b.material_file_replace);
+    if(contractReplaceGrant===null)throw bad("合同材料修改权限只能设置为允许或禁止");
+    if("material_file_replace" in b && !isSuper(ctx.user))throw forbidden("仅总管理员能授权修改材料文件");
+
     if (!isDemoMode()) {
       const phone = normalizePhone(b.phone);
       if (!String(b.name || "").trim()) throw bad("请填写姓名");
@@ -451,25 +460,27 @@ function register(router) {
       checkUserLen(b);
       ensureAvailable(phone);
       const { salt, hash } = hashPassword(INITIAL_PASSWORD);
-      db.prepare("INSERT INTO users (username,name,role,assoc,dept,phone,pass_salt,pass_hash,active,must_change_password,created_at) VALUES (?,?,?,?,?,?,?,?,1,1,?)")
-        .run(phone, String(b.name).trim(), b.role, b.assoc || null, b.dept || "", phone, salt, hash, now());
+      db.prepare("INSERT INTO users (username,name,role,assoc,dept,phone,pass_salt,pass_hash,active,must_change_password,material_file_replace,created_at) VALUES (?,?,?,?,?,?,?,?,1,1,?,?)")
+        .run(phone, String(b.name).trim(), b.role, b.assoc || null, b.dept || "", phone, salt, hash, contractReplaceGrant, now());
       const u = db.prepare("SELECT id,username,name,role,assoc,phone FROM users WHERE phone = ?").get(phone);
-      saveUserAssociations(u.id,assocNames);
+      updateForUser(u.id,userAssocs);
+      if(contractReplaceGrant)syncMaterialGrant(u.id,1);
       logAudit({ user: ctx.user, module: "系统配置", action: "加入手机白名单", target: String(u.id), detail: `${u.name} / ${ROLES[b.role].name} / ${phone.slice(0,3)}****${phone.slice(-4)}`, ip: ctx.ip });
       return { user: u, message: "手机号已加入白名单，初始密码为 123456；首次登录须短信验证并改密" };
     }
     if (!/^[a-zA-Z0-9_.-]{3,20}$/.test(String(b.username || ""))) throw bad("账号需 3~20 位字母/数字");
     if (!String(b.name || "").trim()) throw bad("请填写姓名");
-    if (!ROLES[b.role]) throw bad("角色不合法");
+    if (!ROLES[b.role] || b.role==="admin") throw bad("总管理员由系统唯一指定，不能新增其他总管理员");
     checkUserLen(b);
     if (db.prepare("SELECT 1 FROM users WHERE username = ?").get(b.username)) throw conflict("账号已存在");
     // V1.2.17 SEC-04：不再给默认口令 123456，也不接受弱口令 —— 与自助改密同一份策略
     const pwd = validatePassword(b.password, { label: "初始密码" });
     const { salt, hash } = hashPassword(pwd);
-    db.prepare("INSERT INTO users (username,name,role,assoc,dept,phone,pass_salt,pass_hash,active,created_at) VALUES (?,?,?,?,?,?,?,?,1,?)")
-      .run(b.username, b.name, b.role, b.assoc || null, b.dept || "", b.phone || "", salt, hash, now());
+    db.prepare("INSERT INTO users (username,name,role,assoc,dept,phone,pass_salt,pass_hash,active,material_file_replace,created_at) VALUES (?,?,?,?,?,?,?,?,1,?,?)")
+      .run(b.username, b.name, b.role, b.assoc || null, b.dept || "", b.phone || "", salt, hash, contractReplaceGrant, now());
     const u = db.prepare("SELECT id,username,name,role,assoc FROM users WHERE username = ?").get(b.username);
-    saveUserAssociations(u.id,assocNames);
+    updateForUser(u.id,userAssocs);
+    if(contractReplaceGrant)syncMaterialGrant(u.id,1);
     logAudit({ user: ctx.user, module: "系统配置", action: "新建用户", target: String(u.id), detail: `${b.name} / ${ROLES[b.role].name}`, ip: ctx.ip });
     return { user: u, message: `账号 ${b.username} 已创建` };
   });
@@ -478,14 +489,31 @@ function register(router) {
     assertCan(ctx.user, "user:manage", "只有总管理员可以修改账号");
     const u = db.prepare("SELECT * FROM users WHERE id = ?").get(Number(ctx.params.id));
     if (!u) throw notFound("用户不存在");
-    const b = ctx.body || {};
-    const changedAssocs=("assocs" in b || "assoc" in b);
-    const assocNames=changedAssocs?normalizeUserAssociations(b, u.assoc||""):userAssociations(u.id);
-    if(changedAssocs) b.assoc=assocNames[0]||null;
+    const b = {...(ctx.body||{})};
+    // 获授权的账号管理员可以维护基础资料，但不能改变总管理员、
+    // 本人协会数据范围、任意账号的登录凭据和其他安全相关字段。
+    if(!isSuper(ctx.user)){
+      if(u.role==="admin")throw forbidden("仅总管理员可以修改总管理员账号");
+      const protectedKeys=["role","assoc","assocs","phone","password","resetPassword","material_file_replace"];
+      if(protectedKeys.some(key=>Object.prototype.hasOwnProperty.call(b,key)))
+        throw forbidden("角色、协会范围、账号凭据与单项授权仅可由总管理员修改");
+    }
+    checkUserLen(b);
+    assertDepartmentChoice(b.dept, u.dept);
+    const userAssocs=b.assocs===undefined ? null : validateAssociations(b.assocs,b.assoc);
+    const requestedGrant="material_file_replace" in b?toFlag(b.material_file_replace):Number(u.material_file_replace||0);
+    if(requestedGrant===null)throw bad("合同材料修改权限只能设置为允许或禁止");
+    if("material_file_replace" in b && !isSuper(ctx.user))throw forbidden("仅总管理员能授权修改材料文件");
+
+    if(userAssocs!==null) {
+      if(b.role==="admin" && u.role!=="admin")throw bad("不能通过协会编辑将业务用户提升为总管理员");
+      if(userAssocs.length===0 && (b.role||u.role)!=="admin")throw bad("业务账号至少关联一个协会");
+      b.assoc=userAssocs[0]||null;
+    }
     if (!isDemoMode()) {
       if (u.role === "admin") throw bad("部署时指定的总管理员身份与手机号不可在此处变更");
       const patch = {};
-      for (const k of ["name", "role", "assoc", "dept", "active"]) {
+      for (const k of ["name", "role", "assoc", "dept", "active", "material_file_replace"]) {
         if (k in b && String(b[k] ?? "") !== String(u[k] ?? "")) patch[k] = b[k];
       }
       if ("role" in patch && (!ROLES[patch.role] || patch.role === "admin")) throw bad("不能创建或提升其他总管理员");
@@ -494,6 +522,7 @@ function register(router) {
         if (patch.active === null) throw bad("账号状态只能是启用或停用");
       }
       if ("name" in patch && !String(patch.name || "").trim()) throw bad("请填写姓名");
+      if ("material_file_replace" in patch)patch.material_file_replace=requestedGrant;
       if ("phone" in b) {
         const phone = normalizePhone(b.phone);
         if (phone !== u.phone) {
@@ -510,6 +539,7 @@ function register(router) {
         db.prepare(`UPDATE users SET ${Object.keys(patch).map(k => `${k} = ?`).join(", ")} WHERE id = ?`)
           .run(...Object.values(patch), u.id);
       }
+      if("material_file_replace" in b)syncMaterialGrant(u.id,requestedGrant);
       if (reset || patch.phone) {
         const { salt, hash } = hashPassword(INITIAL_PASSWORD);
         db.prepare("UPDATE users SET pass_salt = ?, pass_hash = ?, must_change_password = 1, phone_verified_at = NULL WHERE id = ?")
@@ -518,8 +548,8 @@ function register(router) {
         // Reset or phone reassignment must revoke a previously linked WeChat OpenID.
         db.prepare("DELETE FROM mini_bindings WHERE user_id = ?").run(u.id);
       }
-      if (changedAssocs) saveUserAssociations(u.id,assocNames);
-      if (Object.keys(patch).length || reset) {
+      if(userAssocs!==null)updateForUser(u.id,userAssocs);
+      if (Object.keys(patch).length || reset || userAssocs!==null) {
         db.prepare("UPDATE users SET token_ver = token_ver + 1 WHERE id = ?").run(u.id);
         db.prepare("DELETE FROM sessions WHERE user_id = ?").run(u.id);
         logAudit({ user: ctx.user, module: "系统配置", action: "修改手机白名单", target: String(u.id), detail: `资料/状态更新；重置初始密码：${reset || !!patch.phone}`, ip: ctx.ip });
@@ -533,21 +563,33 @@ function register(router) {
       b.active = flag;
     }
     const patch = {};
-    for (const k of ["name", "role", "assoc", "dept", "phone", "active"]) {
+    for (const k of ["name", "role", "assoc", "dept", "phone", "active", "material_file_replace"]) {
       if (k in b && String(b[k] ?? "") !== String(u[k] ?? "")) patch[k] = b[k];
     }
-    if (patch.role && !ROLES[patch.role]) throw bad("角色不合法");
+    if (patch.role && (!ROLES[patch.role] || patch.role==="admin" || u.role==="admin")) throw bad("不能新增、提升或修改总管理员身份");
+    if ("material_file_replace" in patch)patch.material_file_replace=requestedGrant;
     if(patch.assoc && !require("../lib/associations").has(patch.assoc))throw bad("所属协会不在有效目录中");
     checkUserLen(patch);
     if (u.id === ctx.user.id) {
       if ("active" in patch && !Number(patch.active)) throw bad("不能停用当前登录的账号");
       if ("role" in patch && patch.role !== u.role) throw bad("不能修改自己的角色，请由其他总管理员操作");
     }
-    if (changedAssocs) saveUserAssociations(u.id,assocNames);
     if (Object.keys(patch).length) {
       db.prepare(`UPDATE users SET ${Object.keys(patch).map((k) => `${k} = ?`).join(", ")} WHERE id = ?`)
         .run(...Object.values(patch), u.id);
+      if("material_file_replace" in patch){
+        db.prepare("UPDATE users SET token_ver=token_ver+1 WHERE id=?").run(u.id);
+        db.prepare("DELETE FROM sessions WHERE user_id=?").run(u.id);
+      }
       logAudit({ user: ctx.user, module: "系统配置", action: "改角色/资料", target: String(u.id), detail: Object.entries(patch).map(([k, v]) => `${k}: ${u[k] ?? "空"} → ${v}`).join("；"), ip: ctx.ip });
+    }
+    if("material_file_replace" in b)syncMaterialGrant(u.id,requestedGrant);
+    if(userAssocs!==null){
+      updateForUser(u.id,userAssocs);
+      db.prepare("UPDATE users SET token_ver=token_ver+1 WHERE id=?").run(u.id);
+      db.prepare("DELETE FROM sessions WHERE user_id=? AND token<>?").run(u.id,ctx.token||"");
+      logAudit({user:ctx.user,module:"系统配置",action:"用户多协会范围修改",target:String(u.id),
+        detail:"协会数量 "+userAssocs.length,ip:ctx.ip});
     }
     if (b.password) {
       // 重置密码同样走统一策略（原来是「至少 6 位」，比自助改密还松）
@@ -625,7 +667,7 @@ function register(router) {
     else if (!can(ctx.user, "audit:read")) throw require("../lib/util").forbidden("当前角色无审计导出权限");
     const q = def.sql(ctx.user);
     const rows = db.prepare(q.sql).all(...q.params);
-    const csv = toCsv(def.headers, rows.map(def.map));
+    const csv = toCsv(def.headers, rows.map((row) => def.map(row, ctx.user)));
     const filename = `${def.file}-${today().replace(/-/g, "")}.csv`;
     db.prepare("INSERT INTO exports (at,user_name,module,filename,rows) VALUES (?,?,?,?,?)")
       .run(now(), ctx.user.name, def.module, filename, rows.length);
@@ -705,7 +747,8 @@ function register(router) {
   });
 
   // 健康检查：公开接口，只回存活状态，不暴露数据库路径等内部信息
-  router.get("/api/health", async () => ({ ok: true, at: now() }));
+  // env 供前端渲染「测试环境」横幅；不影响健康检查语义（ok 仍表示进程可服务）。
+  router.get("/api/health", async () => ({ ok: true, at: now(), env: isTestEnvironment() ? "test" : "production" }));
 
   return router;
 }

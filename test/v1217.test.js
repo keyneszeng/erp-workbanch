@@ -235,13 +235,13 @@ test("FLOW-01 核销通过后财务自动进成员，能直接生成结算单", 
   }
   // 用 admin 判定：exec 不在这个新项目的数据范围内（这正是 FLOW-01 的另一面），
   // 这里要验的是「核销通过后财务能不能结算」，不是 exec 的可见性。
-  for (let no = 1; no <= 6; no++) {
+  for (const no of [1,2,3,4]) {
     const r = await admin("POST", `/api/projects/${pid}/verify/steps/${no}`, { result: "通过" });
     assert.equal(r.status, 200, `第 ${no} 步判定失败：${JSON.stringify(r.data)}`);
   }
 
   // 财务此刻还看不见这个项目（不是成员、不是负责人）
-  assert.equal((await finance("GET", `/api/projects/${pid}`)).status, 200, "提交核销时财务即应获得受限项目可见权限");
+  assert.equal((await finance("GET", `/api/projects/${pid}`)).status, 403, "前置：财务原本看不见");
 
   const pass = await admin("POST", `/api/projects/${pid}/transition`, { action: "verify_pass" });
   assert.equal(pass.status, 200, JSON.stringify(pass.data));

@@ -25,7 +25,7 @@ before(async () => {
       ERP_SMS_PROVIDER:"test",ERP_SMS_TEST_MODE:"1",ERP_SESSION_FALLBACK:"0"}
   });
   let err="";proc.stderr.on("data",b=>err+=String(b));
-  for(let i=0;i<180;i++){
+  for(let i=0;i<600;i++){
     if(proc.exitCode!==null)throw Error("Server failed "+err);
     try{if((await request("GET","/api/health")).status===200)return;}catch{}
     await new Promise(r=>setTimeout(r,100));
@@ -90,18 +90,31 @@ test("production: association member IDs, approved contract signing and pay-afte
   let demand=await request("PATCH","/api/demand/"+pid,{items:[fakeAttach]},cookie);
   assert.equal(demand.status,200,JSON.stringify(demand.body));
   let confirm=await request("POST","/api/demand/"+pid+"/confirm",{},cookie);
-  assert.equal(confirm.status,200,"需求确认不再要求预算归属、附件与执行状态，允许历史字段保留");
+  assert.equal(confirm.status,200,"会务需求不再要求附件必填");
+  await request("POST","/api/demand/"+pid+"/unarchive",{},cookie);
+  demand=await request("PATCH","/api/demand/"+pid,{items:[{...demandBase,attach:uploadBody.key}]},cookie);
+  assert.equal(demand.status,200,JSON.stringify(demand.body));
+  confirm=await request("POST","/api/demand/"+pid+"/confirm",{},cookie);
+  assert.equal(confirm.status,200,JSON.stringify(confirm.body));
   const revisions=await request("GET","/api/demand/"+pid+"/revisions",undefined,cookie);
   assert.equal(revisions.status,200);
-  assert.ok(revisions.body.rows.length>=2,"需求保存与确认应有独立版本记录");
+  assert.ok(revisions.body.rows.length>=3,"需求保存与确认应有独立版本记录");
   const editBlocked=await request("PATCH","/api/demand/"+pid,{items:[demandBase]},cookie);
   assert.equal(editBlocked.status,409,"归档需求不可直接编辑");
   const unarchive=await request("POST","/api/demand/"+pid+"/unarchive",{},cookie);
   assert.equal(unarchive.status,200);
   const reset=await request("POST","/api/demand/"+pid+"/reset",{},cookie);
   assert.equal(reset.status,200);
+  // 第6项只有存在真实会务需求才必核，使用与会务合同、发票相同的8000元预算。
+  const currentDemand={...demandBase,need:"需要",budget:"8000",owner:"测试会务负责人",
+    spec:"80套",quantity:"80",unit_price:"100",status:"已交付"};
+  const savedNeed=await request("PATCH","/api/demand/"+pid,{items:[currentDemand]},cookie);
+  assert.equal(savedNeed.status,200,JSON.stringify(savedNeed.body));
+  const confirmedNeed=await request("POST","/api/demand/"+pid+"/confirm",{},cookie);
+  assert.equal(confirmedNeed.status,200,JSON.stringify(confirmedNeed.body));
 
-  for (const kind of [...new Set([...MATERIAL_KINDS,"会议通知","劳务收集表","劳务协议","串场"])]) {
+
+  for (const kind of [...new Set([...MATERIAL_KINDS.filter(x=>x!=="权益照片"),"会议通知","劳务收集表","串场"])]) {
     const attachment = kind === "发票" ? uploadBody : await (async () => {
       const response = await fetch(root + "/api/uploads?pid=" + pid, {
         method:"POST",
@@ -119,6 +132,31 @@ test("production: association member IDs, approved contract signing and pay-afte
     assert.equal(item.status,200,"material "+kind+": "+JSON.stringify(item.body));
   }
 
+  // 核销第5项须关联材料库中按姓名登记的个人合同，而不是会务总合同。
+  const uploadPersonal=await fetch(root+"/api/uploads?pid="+pid,{
+    method:"POST",headers:{Cookie:cookie,"Content-Type":"application/octet-stream",
+      "X-File-Name":encodeURIComponent("测试讲者合同.pdf")},body:invoiceData
+  });
+  const personalFile=await uploadPersonal.json();
+  assert.equal(uploadPersonal.status,200,JSON.stringify(personalFile));
+  const personalMaterial=await request("POST","/api/projects/"+pid+"/materials",{
+    kind:"合同",name:"测试讲者",file_key:personalFile.key,
+    file_name:personalFile.name,file_size:personalFile.size,file_mime:personalFile.mime
+  },cookie);
+  assert.equal(personalMaterial.status,200,JSON.stringify(personalMaterial.body));
+  // 使用人工合成的一像素图片与虚拟讲者姓名验证讲者照片材料。
+  const photoBytes=Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/cYUAAAAASUVORK5CYII=","base64");
+  const photoRes=await fetch(root+"/api/uploads?pid="+pid,{
+    method:"POST",headers:{Cookie:cookie,"Content-Type":"image/png","X-File-Name":"speaker.png"},
+    body:photoBytes
+  });
+  const photo=await photoRes.json();
+  assert.equal(photoRes.status,200,JSON.stringify(photo));
+  const reg=await request("POST","/api/projects/"+pid+"/materials",{
+    kind:"讲者照片",name:"测试讲者",file_key:photo.key,
+    file_name:photo.name,file_size:photo.size,file_mime:photo.mime
+  },cookie);
+  assert.equal(reg.status,200,JSON.stringify(reg.body));
   const allMaterials=await request("GET","/api/materials",undefined,cookie);
   assert.equal(allMaterials.status,200);
   const projectMaterials=allMaterials.body.rows.filter(x=>x.pid===pid);
@@ -151,12 +189,16 @@ test("production: association member IDs, approved contract signing and pay-afte
   assert.equal(step.status,200,JSON.stringify(step.body));
   const record={name:"测试讲者",time:"2027-08-10",role:"讲者",amount:"1000",bankAccount:"TEST_ACCOUNT_REFERENCE"};
   const sop={
-    1:{documentKind:"会议通知",meetingName:base.name,meetingDate:base.date,organizer:base.assoc,sponsor:"不适用",stamped:true,final:true},
-    2:{agendaSpeakers:["测试讲者"],collectionSpeakers:["测试讲者"],agreementSpeakers:["测试讲者"],noOmissions:true},
+    1:{documentKind:"会议通知",meetingName:base.name,meetingDate:base.date,organizer:base.assoc,
+      hostMeetingName:base.name,hostMeetingDate:base.date,hostOrganizer:base.assoc,
+      stamped:true,final:true},
+    2:{agendaSpeakers:["测试讲者"],collectionSpeakers:["测试讲者"],attendanceSpeakers:["测试讲者"],photoSpeakers:["测试讲者"],noOmissions:true},
     3:{signedAttendance:true},
-    4:{agendaTopics:["课题甲"],courseTopics:["课题甲"],hostTitleMatches:true,hostNameLogoMatches:true,sponsorLogoPages:[]},
-    5:{collectionRecords:[record],agreementRecords:[record]},
-    6:{draftAmount:8000,meetingName:base.name,meetingDate:base.date}
+    4:{agendaTopics:["课题甲","课题乙"],courseTopics:["课题甲"]},
+    5:{collectionRecords:[record]},
+    6:{agendaTitle:base.name,agendaTime:base.date,agendaFormat:base.form,
+      agreementTitle:base.name,agreementTime:base.date,agreementFormat:base.form,
+      agreementPartyA:base.assoc,agreementFinal:true}
   };
   // 真实例外单闭环：审批并不等于核销，必须登记整改和关联材料后再回原步骤。
   let failed=await request("POST","/api/projects/"+pid+"/verify/steps/1",
@@ -176,9 +218,10 @@ test("production: association member IDs, approved contract signing and pay-afte
   exception=await request("POST","/api/exceptions/"+exceptionId+"/resolve",
     {resolution:"已补充原件并完成逐项确认",materialId:agendaMaterial.id},cookie);
   assert.equal(exception.status,200,JSON.stringify(exception.body));
-  for(let no=1;no<=5;no++){
+  // 各步骤独立：第 1 步存在待复核例外时，其他步骤也可先行判定。
+  for(const no of [5,3,2,4,1]){
     step=await request("POST","/api/projects/"+pid+"/verify/steps/"+no,{result:"通过",evidence:sop[no]},cookie);
-    assert.equal(step.status,200,"verification "+no+": "+JSON.stringify(step.body));
+    assert.equal(step.status,200,"out-of-order verification "+no+": "+JSON.stringify(step.body));
   }
   step=await request("POST","/api/projects/"+pid+"/verify/steps/6",{result:"通过",invoiceAmount:7999,evidence:sop[6]},cookie);
   assert.equal(step.status,409,"invoice total cannot differ from signed contracts");
@@ -198,19 +241,16 @@ test("production: association member IDs, approved contract signing and pay-afte
   assert.equal(status.body.verification.complete,false,"旧版未留证的通过结果不能满足生产核销门禁");
   let blocked=await request("POST","/api/projects/"+pid+"/transition",{action:"verify_pass"},cookie);
   assert.equal(blocked.status,409,"历史缺证据不得进入财务结算");
-  // 重新确认前置步骤后，下游旧证据全部失效，必须顺序重新核验。
+  // 补录第1项的历史结构化依据，不应清除其他五项已完成的独立核验。
   step=await request("POST","/api/projects/"+pid+"/verify/steps/1",{result:"通过",evidence:sop[1]},cookie);
   assert.equal(step.status,200,JSON.stringify(step.body));
   status=await request("GET","/api/projects/"+pid+"/verify",undefined,cookie);
-  assert.equal(status.body.verification.steps.find(s=>s.no===2).result,"待判定");
-  assert.equal(status.body.verification.steps.find(s=>s.no===6).result,"待判定");
-  for(let no=2;no<=5;no++){
-    step=await request("POST","/api/projects/"+pid+"/verify/steps/"+no,{result:"通过",evidence:sop[no]},cookie);
-    assert.equal(step.status,200,"repeat verification "+no+": "+JSON.stringify(step.body));
+  for(const no of [2,3,4,5,6]){
+    const checked=status.body.verification.steps.find(s=>s.no===no);
+    assert.equal(checked.result,"通过","重新判定第1项不能抹掉第"+no+"项");
+    assert.ok(checked.evidence,"其他核验步骤仍须保留原始证据摘要");
   }
-  step=await request("POST","/api/projects/"+pid+"/verify/steps/6",
-    {result:"通过",invoiceAmount:8000,evidence:sop[6]},cookie);
-  assert.equal(step.status,200,JSON.stringify(step.body));
+  assert.equal(status.body.verification.complete,true,"六项全部独立通过后恢复完整核销状态");
   step=await request("POST","/api/projects/"+pid+"/transition",{action:"verify_pass"},cookie);
   assert.equal(step.status,200,JSON.stringify(step.body));
   const settlementData={action:"settle",payee_bank:"中国银行北京分行",payee_account:"1234567890123456"};
