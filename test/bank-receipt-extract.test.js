@@ -39,6 +39,9 @@ test("单据仅有回单号可回退，但银行账号、日期和订单号不�
 test("优先实际到账金额，不使用余额、税费或多笔交易金额",()=>{
   assert.equal(extractTransferAmount("银行收款回单\n实际到账金额：1,200.00元\n可用余额：72,000.00元"),1200);
   assert.equal(extractTransferAmount("银行转账回单\n余额：20000.00\n手续费：2.00"),null);
+  assert.equal(extractTransferAmount("银行电子回单\n到账时间：2026-11-08 14:55:20\n账户余额：50000.00"),null,
+    "不能把到账日期中的年份 2026 误识别成金额");
+  assert.equal(extractTransferAmount("银行电子回单\n收入金额：2,500.00元\n入账日期：2026-11-08"),2500);
   assert.equal(extractTransferAmount("银行回单\n交易金额：100.00\n交易金额：200.00"),null);
   assert.equal(extractTransferAmount("银行电子回单\n金额：5,000.00元\n手续费：5.00元"),5000);
   assert.equal(extractTransferAmount("合同金额：8000元\n发票金额：8000元"),null);
