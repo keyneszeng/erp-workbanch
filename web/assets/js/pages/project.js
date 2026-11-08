@@ -204,7 +204,7 @@ function tabOverview(d, p) {
       ["会期", `${esc(p.date)} · ${p.days} 天`],
       ["预计人数", `${p.people || 0} 人`],
       ["负责人", `${esc(p.owner || "—")} · ${esc(p.phone || "")}`],
-      ["承办部门", esc(p.dept || "—")],
+      ["承办部门", esc(p.dept && (state.meta.depts || []).includes(p.dept) ? p.dept : (p.dept ? "历史部门（待重新分类）" : "—"))],
       ["预算", `<b class="num">¥${money(p.budget)}</b>`],
       ["税费管理费率", `${money(Number(p.tax_fee_rate)||0)}%`],
       ["可用预算", `<b class="num">¥${money(p.available_budget ?? p.budget)}</b>`],
@@ -936,7 +936,11 @@ async function openEdit(root, pid, p) {
     { k: "people", l: "预计人数", t: "number" },
     { k: "owner_id", l: "负责人（协会成员）", t: "select", req: 1, opts: members.map((u) => ({v:String(u.id),l:u.name+"（"+u.role_name+"）"})) },
     { k: "phone", l: "联系电话" },
-    { k: "dept", l: "承办部门", t: "select", opts: state.meta.projectDepts || [] },
+    { k: "dept", l: "承办部门", t: "select", req: 1, opts: [
+      {v:"",l:"请选择承办部门"},
+      ...(p.dept && !(state.meta.depts || []).includes(p.dept) ? [{v:p.dept,l:"历史部门（待重新分类）"}] : []),
+      ...(state.meta.depts || []).map(d=>({v:d,l:d}))
+    ] },
     { k: "agenda", l: "议程要点", t: "textarea", req: 1, full: 1, rows: 3 }
   ];
   const m = modal({ title: "编辑项目资料", width: "640px", body: formHtml(fields, p),

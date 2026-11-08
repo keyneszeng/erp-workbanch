@@ -157,7 +157,7 @@ let pid;
 test("工作流：新建 → 提交 → 审批 → 筹备 → 执行 → 待核销", async () => {
   const created = await assoc("POST", "/api/projects", {
     name: "回归测试会议", assoc: "华东医学会", form: "线下", date: "2026-12-20",
-    budget: 100000, people: 80, owner: "王敏", agenda: "09:00 开幕 / 10:00 主题报告", dept: "会务部"
+    budget: 100000, people: 80, owner: "王敏", agenda: "09:00 开幕 / 10:00 主题报告", dept: "秘书处"
   });
   assert.equal(created.status, 200);
   pid = created.data.project.id;

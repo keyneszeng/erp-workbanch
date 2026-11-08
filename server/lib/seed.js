@@ -247,7 +247,7 @@ function seed({ reset = false } = {}) {
   for (const [id, name, assoc, form, date, budget, people, owner, status] of PROJECTS) {
     const created = minutesAgo((PROJECTS.length - pi) * 60 * 26);
     insProj.run(id, name, assoc, form, date, 2, budget, people, owner,
-      userIdByName[owner] || null, "021-60000000", "会务部",
+      userIdByName[owner] || null, "021-60000000", "秘书处",
       AGENDA, status, created, userId["assoc"], created, created);
     pi++;
   }

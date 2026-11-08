@@ -19,6 +19,8 @@
   <view class="field"><text class="required">＊</text>预算（元）<input type="digit" value="{{budget}}" data-key="budget" bindinput="input" placeholder="请输入预算金额" disabled="{{status!=='草稿'}}"/></view>
   <view class="field">预计参会人数<input type="number" value="{{people}}" data-key="people" bindinput="input" placeholder="例如 200" disabled="{{status!=='草稿'}}"/></view>
   <view class="field">联系人电话<input type="text" maxlength="20" value="{{phone}}" data-key="phone" bindinput="input" disabled="{{status!=='草稿'}}"/></view>
+  <view class="field"><text class="required">＊</text>承办部门
+   <picker mode="selector" range="{{depts}}" value="{{deptIndex}}" bindchange="pickDept" disabled="{{status!=='草稿'}}"><view class="field-value">{{dept||(deptLegacy?'历史部门待重新分类':'请选择承办部门')}} ▾</view></picker></view>
   <view class="field"><text class="required">＊</text>初版议程<textarea value="{{agenda}}" data-key="agenda" bindinput="input" placeholder="例如：09:00 开场；09:30 专题演讲" maxlength="2000" disabled="{{status!=='草稿'}}"/></view>
  </view>
  <view wx:if="{{error}}" class="error">{{error}}</view>
