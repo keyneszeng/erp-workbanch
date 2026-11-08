@@ -24,7 +24,7 @@ function isMeetingInvoice(m){
  * expert labor, enterprise sponsor or unrelated generic contracts.
  */
 function demandSopState(db,pid){
- const sheet=db.prepare("SELECT confirmed,created_at,updated_at FROM demand_sheets WHERE pid=?").get(pid);
+ const sheet=db.prepare("SELECT * FROM demand_sheets WHERE pid=?").get(pid);
  const items=db.prepare(
   "SELECT id,grp,item,need,budget,quantity,unit_price FROM demand_items WHERE pid=? AND need='需要' ORDER BY id"
  ).all(pid);
