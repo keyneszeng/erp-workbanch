@@ -26,12 +26,12 @@ const ROUTES = [
   { re: /^flow$/, page: flow, nav: "flow", title: "全流程总览", sub: "9 状态 8 流转 · 门禁链与阶段职责" },
   { re: /^projects$/, page: projects, nav: "projects", title: "会议项目", sub: "按数据范围列出全部会议" },
   { re: /^projects\/([\w-]+)$/, page: project, nav: "projects", title: "项目详情", sub: "全生命周期作业台" },
-  { re: /^approvals$/, page: approvals, nav: "approvals", title: "审批中心", sub: "立项 / 例外单 / 付款 / 变更" },
+  { re: /^approvals$/, page: approvals, nav: "approvals", title: "审批中心", sub: "立项 / 合同 / 例外单 / 付款 / 变更" },
   // 带目标：从工作台待办/预警点进来时定位到具体那一条（审批单号或项目号）
   { re: /^approvals\/([\w-]+)$/, page: approvals, nav: "approvals", title: "审批中心", sub: "已定位到待处理事项" },
-  { re: /^verify$/, page: verify, nav: "verify", title: "核销看板", sub: "6 步 SOP · 付款唯一前置门" },
-  { re: /^verify\/([\w-]+)$/, page: verify, nav: "verify", title: "核销作业", sub: "6 步判定与例外单闭环" },
-  { re: /^finance$/, page: finance, nav: "finance", title: "付款与结算", sub: "付款申请、审批、付款与结算单" },
+  { re: /^verify$/, page: verify, nav: "verify", title: "核销看板", sub: "七项 SOP（第5～7项按需）· 付款前置门" },
+  { re: /^verify\/([\w-]+)$/, page: verify, nav: "verify", title: "核销作业", sub: "七项适用核销与例外单闭环" },
+  { re: /^finance$/, page: finance, nav: "finance", title: "会议收入与财务", sub: "企业赞助回款、付款申请、审批与结算" },
   // 带项目：从「待付款」待办点进来时只列该项目的付款，直接能看到付款按钮
   { re: /^finance\/([\w-]+)$/, page: finance, nav: "finance", title: "付款与结算", sub: "已定位到指定项目" },
   { re: /^project-ledger$/, page: projectLedger, nav: "project-ledger", title: "项目台账", sub: "仅总管理员 · 按会议编号对照财务资料" },
@@ -40,7 +40,7 @@ const ROUTES = [
   { re: /^prep-invitations$/, page: prepInvitations, nav: "prep-invitations", title: "筹备管理 · 邀请函", sub: "内置模板匹配、PDF、邮件与微信小程序分享" },
   { re: /^demand$/, page: demand, nav: "demand", title: "会务需求确认", sub: "四组清单：设计 / 制作 / 现场执行 / 其他" },
   { re: /^demand\/([\w-]+)$/, page: demand, nav: "demand", title: "需求单", sub: "逐条确认会务需求" },
-  { re: /^materials$/, page: materials, nav: "materials", title: "材料中心", sub: "归档必备 8 类材料" },
+  { re: /^materials$/, page: materials, nav: "materials", title: "材料中心", sub: "材料自由登记与终版议程上传" },
   { re: /^archive$/, page: archive, nav: "archive", title: "数字卷宗", sub: "已归档项目检索与导出" },
   { re: /^audit$/, page: audit, nav: "audit", title: "审计日志", sub: "Who / When / What / Which" },
   { re: /^users$/, page: users, nav: "users", title: "用户与权限", sub: "账号、角色与数据范围" },
@@ -54,7 +54,7 @@ function parseHash() {
 
 function navHtml(active) {
   const mods = state.role?.modules || [];
-  return NAV.filter((g) => mods.includes(g.k)).map((g) => {
+  return NAV.filter((g) => mods.includes(g.k)||g.k==="dashboard").map((g) => {
     const items = g.items.filter((it) => !it.need || it.need());
     if (!items.length) return "";
     if (items.length === 1) {
@@ -73,7 +73,7 @@ function navHtml(active) {
 function topHtml(r) {
   const role = state.role || {};
   return `<div>
-      <div style="font-size:12px;color:var(--mute);letter-spacing:.5px">协会会议执行 ERP</div>
+      <div style="font-size:12px;color:var(--mute);letter-spacing:.5px">会规化会务执行系统</div>
       <div style="font-size:12.5px;color:var(--sub);font-weight:600">${esc(r.title)}</div>
     </div>
     <div class="top-right">
@@ -158,6 +158,11 @@ async function route() {
   // 线上接口 2~3 秒，纯文字会让人以为卡死；骨架屏先把版式占住，内容一到就替换。
   box.innerHTML = skeletonHtml();
   content.replaceChildren(box);
+  if(hit.nav==="dashboard"&&!state.role?.modules?.includes("dashboard")){
+    box.innerHTML='<div class="panel" style="max-width:570px;margin:50px auto;padding:28px;text-align:center">'+
+      '<h2>账号尚未获得功能授权</h2><p class="hint" style="margin-top:10px">请联系总管理员分配可访问模块及操作权限。此页面不会展示任何业务数据。</p></div>';
+    return;
+  }
   try {
     await hit.page.render(box, hit.params, hit);
     if (seq !== routeSeq) return;
@@ -235,7 +240,7 @@ function renderFirstPasswordChange(user) {
   root.style.display = "";
   const phone = String(user.phone || "");
   const masked = phone.slice(0, 3) + "****" + phone.slice(-4);
-  root.innerHTML = '<div class="login-box"><div class="login-left"><div><div class="sub">MEETING OPS ERP</div>' +
+  root.innerHTML = '<div class="login-box"><div class="login-left"><div><div class="sub">会规化会务执行系统</div>' +
     '<h1>首次登录安全验证</h1></div><p>此账号使用统一初始密码，需先验证白名单登记的手机号并修改个人密码，完成后才可使用系统。</p></div>' +
     '<div class="login-right"><h2>验证手机并修改密码</h2><div class="hint">验证码将发至 ' + esc(masked) + '</div>' +
     '<div class="login-err" id="firstErr"></div><form id="firstForm">' +

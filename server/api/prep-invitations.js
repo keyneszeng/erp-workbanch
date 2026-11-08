@@ -170,7 +170,7 @@ function register(router) {
     requireManager(ctx,ctx.params.id,true);
     const row=getInvitation(ctx.params.id,ctx.params.inviteId);
     const pdf=invitationPdf(JSON.parse(row.snapshot_json));
-    return { __file:{buffer:pdf,mime:"application/pdf",name:row.id+"-邀请函.pdf",cache:"no-store",download:true} };
+    return { __file:{buffer:pdf,mime:"application/pdf",name:row.id+"-邀请函.pdf",cache:"no-store",download:ctx.query.preview!=="1"} };
   });
   router.post("/api/projects/:id/prep/invitations/:inviteId/email", async ctx => {
     const p=requireManager(ctx,ctx.params.id);

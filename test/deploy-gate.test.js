@@ -13,6 +13,7 @@ const production = Object.freeze({
   NODE_ENV: "production",
   ERP_DEPLOY_TARGET: "aliyun-ecs",
   ERP_DEMO_MODE: "0",
+  ERP_DB_BACKEND: "", // Explicitly clear DO mock backend inherited by test:cf when spawning ECS preflight
   ERP_PRODUCTION_DOMAIN: "erp-prod.example.org",
   ERP_BOOTSTRAP_ADMIN_PHONE: "13800138000",
   ERP_SMS_PROVIDER: "tencent",
@@ -64,6 +65,24 @@ test("Alibaba ECS refuses invalid admin phone, missing SMS, and unsafe secrets",
   ]) {
     assert.throws(() => check({ ...production, ...patch }), message);
   }
+});
+
+test("Alibaba ECS accepts Aliyun SMS as production provider and still fails closed", () => {
+  const aliyun = {
+    ...production,
+    ERP_SMS_PROVIDER: "aliyun",
+    ERP_ALIYUN_SMS_ACCESS_KEY_ID: "CI-ONLY-AK",
+    ERP_ALIYUN_SMS_ACCESS_KEY_SECRET: "CI-ONLY-SK",
+    ERP_ALIYUN_SMS_SIGN_NAME: "CI-ONLY-SIGN",
+    ERP_ALIYUN_SMS_TEMPLATE_CODE: "SMS_000000"
+  };
+  assert.deepEqual(check(aliyun), { target: "aliyun-ecs", domain: "erp-prod.example.org" });
+  for (const key of ["ERP_ALIYUN_SMS_ACCESS_KEY_ID", "ERP_ALIYUN_SMS_ACCESS_KEY_SECRET",
+    "ERP_ALIYUN_SMS_SIGN_NAME", "ERP_ALIYUN_SMS_TEMPLATE_CODE"]) {
+    assert.throws(() => check({ ...aliyun, [key]: "" }), new RegExp(key));
+  }
+  // 选了阿里云却只配了腾讯云凭据，必须拒绝，不能靠另一家的密钥蒙混过关
+  assert.throws(() => check({ ...production, ERP_SMS_PROVIDER: "aliyun" }), /ERP_ALIYUN_SMS_ACCESS_KEY_ID/);
 });
 
 test("Alibaba ECS requires persistent local SQLite and localhost Nginx", () => {
