@@ -108,7 +108,7 @@ export function openMaterialRegistration(root, projects, kinds, defaultPid="", o
     const requestId=++rightsRequestId;
     const pid=pidSelect.value;
     availableRights=[];
-    rightSelect.innerHTML='<option value="">正在加载权益二级类目…</option>';
+    rightSelect.innerHTML='<option value="">正在加载权益内容…</option>';
     if(!pid){rightSelect.innerHTML='<option value="">请先选择所属项目</option>';return;}
     try{
       const data=await api.get("/api/projects/"+encodeURIComponent(pid)+"/sponsor-rights");
@@ -118,10 +118,10 @@ export function openMaterialRegistration(root, projects, kinds, defaultPid="", o
         .map(x=>({...x,enterprise:sponsors.get(x.sponsor_id).enterprise}));
     }catch(err){
       if(requestId!==rightsRequestId||pidSelect.value!==pid)return;
-      if(kindSelect.value==="权益照片")toast("读取权益二级类目失败："+err.message,"warn");
+      if(kindSelect.value==="权益照片")toast("读取权益内容失败："+err.message,"warn");
     }
     const old=rightSelect.value;
-    rightSelect.innerHTML='<option value="">选择赞助合同 → 权益二级类目</option>'+
+    rightSelect.innerHTML='<option value="">选择赞助合同 → 权益内容</option>'+
       availableRights.map(x=>'<option value="'+x.id+'">'+esc(x.enterprise)+" · "+esc(x.category)+(x.confirmed?"":"（待确认）")+'</option>').join("");
     if(availableRights.some(x=>String(x.id)===old))rightSelect.value=old;
   };
@@ -145,7 +145,7 @@ export function openMaterialRegistration(root, projects, kinds, defaultPid="", o
     if(tip)tip.textContent=final
       ? "上传一份终版议程原件，点击「确定终版议程」即完成；无需额外的讲者、课题或待办流程。"
       : photo ? "每次登记一位讲者的 JPG/PNG/WebP 照片，材料名称必须填写对应讲者姓名，供核销第2步逐人核对。"
-        : rightsPhoto ? "选择赞助合同对应的权益二级类目，可为同一权益上传多张 JPG/PNG/WebP 照片。"
+        : rightsPhoto ? "选择赞助合同对应的权益内容，可为同一权益上传多张 JPG/PNG/WebP 照片。"
         : UPLOAD_TIP+" 讲者照片请在名称栏填写讲者姓名。";
   };
   kindSelect.addEventListener("change",syncAgendaForm);
@@ -175,7 +175,7 @@ export function openMaterialRegistration(root, projects, kinds, defaultPid="", o
   btn.onclick = async () => {
     const isFinalAgenda=kindSelect.value==="终版议程";
     if(kindSelect.value==="权益照片"&&!availableRights.some(x=>String(x.id)===rightSelect.value)){
-      toast("请先选择当前合同的权益二级类目；识别失败请到赞助收入页面人工补录","warn");return;
+      toast("请先选择当前合同的权益内容；识别失败请到赞助收入页面人工补录","warn");return;
     }
     if(!validate(m,isFinalAgenda?fields.filter(f=>f.k!=="name"):fields))return;
     if(isFinalAgenda&&picked.length!==1){toast("请先选择一份终版议程文件","warn");return;}

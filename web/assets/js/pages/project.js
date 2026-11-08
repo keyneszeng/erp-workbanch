@@ -449,7 +449,7 @@ function tabMaterials(d, p) {
   const sponsorsById=new Map((d.sponsorRights?.contracts||[]).map(c=>[c.id,c]));
   return panel("归档材料",
     `已上传 ${ms.uploadedCount || 0} 份附件 · ${ms.have.length} 类 · ${ms.ok ? "可进入后续流程" : "请先上传至少一份附件"}`, `
-    <div class="hint" style="padding:8px 14px">材料类别可自由选择（「权益照片」须选择合同对应权益二级类目），不再要求固定类别齐全；至少上传一份原件即可满足材料门槛。核销与财务独立审批仍须按流程完成。</div>
+    <div class="hint" style="padding:8px 14px">材料类别可自由选择（「权益照片」须选择合同对应权益内容），不再要求固定类别齐全；至少上传一份原件即可满足材料门槛。核销与财务独立审批仍须按流程完成。</div>
     <div class="chips">${ms.have.map((k) => `<span class="chip"><i>✓</i><b>${esc(k)}</b></span>`).join("")}</div>
     ${table([{ t: "类别", w: "104px" }, { t: "材料名称" }, { t: "附件", w: "84px" }, { t: "版本", w: "56px" },
       { t: "上传人", w: "76px" }, { t: "时间", w: "130px" }, { t: "操作", w: "120px" }],
