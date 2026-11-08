@@ -78,7 +78,7 @@ async function projectReadyToPay(name, budget) {
     const r = await admin("POST", `/api/projects/${pid}/transition`, { action: a });
     assert.equal(r.status, 200, `${a} 失败：${r.msg}`);
   }
-  for (let no = 1; no <= 6; no++) {
+  for (const no of [1,2,3,4]) {
     const r = await admin("POST", `/api/projects/${pid}/verify/steps/${no}`, { result: "通过", remark: "" });
     assert.equal(r.status, 200, `第 ${no} 步失败：${r.msg}`);
   }
@@ -217,7 +217,7 @@ test("改判「通过」自动撤销该步待审批的例外单，核销不再�
   }
 
   // 6 步走完就能真正核销通过
-  for (let no = 2; no <= 6; no++) {
+  for (const no of [2,3,4]) {
     const rr = await admin("POST", `/api/projects/${pid}/verify/steps/${no}`, { result: "通过", remark: "" });
     assert.equal(rr.status, 200, `第 ${no} 步失败：${rr.msg}`);
   }

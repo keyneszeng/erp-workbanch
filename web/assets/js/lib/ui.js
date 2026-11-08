@@ -9,7 +9,7 @@ export const yuan = (n) => `¥${money(n)}`;
 const STATUS_CLS = {
   "草稿": "b-gray", "待审批": "b-orange", "已立项": "b-blue", "筹备中": "b-blue",
   "执行中": "b-teal", "待核销": "b-orange", "已核销": "b-green", "已结算": "b-green", "已归档": "b-steel",
-  "通过": "b-green", "不通过": "b-red", "待判定": "b-gray", "已解例外": "b-purple",
+  "通过": "b-green", "不通过": "b-red", "待判定": "b-gray", "不适用": "b-gray", "已解例外": "b-purple",
   "待审批(付款)": "b-orange", "已审批": "b-blue", "已付款": "b-green", "已驳回": "b-red",
   "待邀请": "b-gray", "待确认": "b-orange", "已确认": "b-green", "已通过": "b-green",
   "待开始": "b-gray", "进行中": "b-blue", "已完成": "b-green", "处理中": "b-orange", "已解决": "b-green",
@@ -214,6 +214,37 @@ export function validate(root, fields) {
 export function progressBar(pct, color = "var(--blue)") {
   return `<div class="bar-wrap" style="background:#eef2f7;border-radius:4px;height:6px;overflow:hidden">
     <div class="bar-in" style="width:${Math.min(100, Math.max(0, pct))}%;height:100%;background:${color}"></div></div>`;
+}
+
+/**
+ * 保留搜索输入焦点：列表需要重新请求接口时，不能每输入一字就销毁输入框。
+ * 同时尊重用户切换焦点的动作；异步返回后不强行抢回输入焦点。
+ */
+export function bindSearchRefresh(root, selector, onChange, refresh, delay = 280) {
+  const input = root.querySelector(selector);
+  if (!input) return;
+  let timer;
+  input.addEventListener("input", () => {
+    const value = input.value;
+    onChange(value.trim());
+    clearTimeout(timer);
+    timer = setTimeout(async () => {
+      const focused = document.activeElement === input;
+      const from = input.selectionStart, to = input.selectionEnd;
+      try {
+        await refresh();
+        if (!focused) return;
+        const replacement = root.querySelector(selector);
+        if (!replacement || replacement.value !== value || !root.isConnected) return;
+        // 如果用户在请求期间主动移到其他输入框，就不要抢焦点。
+        if (document.activeElement !== document.body && document.activeElement !== input) return;
+        replacement.focus({ preventScroll: true });
+        if (from != null && to != null) replacement.setSelectionRange(from, to);
+      } catch (err) {
+        toast(err?.message || "搜索失败，请重试", "warn");
+      }
+    }, delay);
+  });
 }
 
 /* ---------------- 分页 ---------------- */
