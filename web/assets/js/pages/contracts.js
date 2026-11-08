@@ -138,7 +138,7 @@ function openCreate(root, projects) {
     { k:"rightsCategories",l:"权益内容（每行一项）",t:"textarea",rows:4,full:1,
       ph:"主会场背景板 LOGO 露出\n企业展位展示" },
     { k:"sign_date",l:"签署日期",t:"date" },
-    { k:"status",l:"状态",t:"select",opts:["草稿","待签署"],
+    { k:"status",l:"状态",t:"select",opts: ["草稿", "待签署"],
       tip:"录入后须有权限人员确认签署。企业赞助会同步到会议收入。" },
     { k:"file",l:"合同原件",t:"file",full:1,accept:UPLOAD_ACCEPT,
       tip:UPLOAD_TIP+" 上传后会自动扫描签约方、合同金额及企业赞助权益内容。" }
