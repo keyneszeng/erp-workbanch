@@ -43,8 +43,6 @@ async function waitReady() {
   await input.waitFor({state:"attached"});
   const accept=await input.getAttribute("accept");
   if(!accept?.includes(".xls"))throw Error("材料上传控件没有 .xls: "+accept);
-  await input.setInputFiles({name:"测试旧版.xls",mimeType:"application/vnd.ms-excel",buffer:BYTES});
-  await page.waitForTimeout(300);
   const pid=await page.locator('#modal [name="pid"]').evaluate(el=>{
     const opt=Array.from(el.options).find(o=>o.value==="MP-2026-001") || Array.from(el.options).find(o=>o.value);
     return opt?.value || "";
@@ -52,7 +50,9 @@ async function waitReady() {
   if(!pid)throw Error("no accessible project");
   await page.selectOption('#modal [name="pid"]',pid);
   await page.selectOption('#modal [name="kind"]',"劳务收集表");
-  await page.fill('#modal [name="name"]',"旧版Excel名单浏览器上传测试");
+  await input.setInputFiles({name:"测试旧版.xls",mimeType:"application/vnd.ms-excel",buffer:BYTES});
+  await page.locator('[data-material-name]').getByText("测试旧版.xls").waitFor();
+  if(await page.locator('#modal [name="name"]').count())throw Error("materials must not have a manual title field");
   await page.click('#modal [data-x="1"]');
   await page.waitForFunction(()=>!document.querySelector("#modal.open"),null,{timeout:15000});
   const response=await page.request.get(BASE+"/api/materials");
@@ -60,6 +60,7 @@ async function waitReady() {
   const data=await response.json();
   const row=data.rows.find(x=>x.file_name==="测试旧版.xls");
   if(!row || !row.file_key?.endsWith(".xls"))throw Error("XLS file missing from material list");
+  if(row.name!=="测试旧版.xls")throw Error("material name must equal selected original file name: "+row.name);
   const file=await page.request.get(BASE+"/api/uploads/"+row.file_key);
   if(file.status()!==200 || file.headers()["content-type"]!=="application/vnd.ms-excel")
     throw Error("XLS download returned "+file.status()+" "+file.headers()["content-type"]);
