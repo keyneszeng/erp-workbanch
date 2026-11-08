@@ -10,7 +10,6 @@ on:
     branches:
       - main
       - '云服务器测试版本'
-      - '云服务器测试版本'
 
 permissions:
   contents: read
@@ -22,6 +21,21 @@ jobs:
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
+      - name: Enforce test-version feature parity before demo or production release
+        if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+        run: |
+          set -euo pipefail
+          # The ECS test branch is the single functional source of truth.
+          # Compare business code only; release-specific docs and CI may differ.
+          git fetch --no-tags --depth=1 origin 'refs/heads/云服务器测试版本:refs/remotes/origin/erp-test-baseline'
+          if ! git diff --quiet refs/remotes/origin/erp-test-baseline HEAD -- \
+              server web miniprogram worker api package.json wrangler.jsonc; then
+            echo "::error::Demo/production business code differs from ECS test baseline"
+            git diff --name-status refs/remotes/origin/erp-test-baseline HEAD -- \
+              server web miniprogram worker api package.json wrangler.jsonc
+            exit 1
+          fi
+          echo "Demo/production business code matches ECS test baseline."
       - name: Install Node 22
         uses: actions/setup-node@v4
         with:
