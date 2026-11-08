@@ -37,7 +37,7 @@ function verification(pid) {
         !evidence?.contractPoolSignature || evidence.contractPoolSignature!==contractPool(db,pid).signature)) ||
       (def.no===2 && !isDemoMode() && (
         !Array.isArray(evidence?.matchedSources) ||
-        evidence.matchedSources.join("|")!=="终版议程|签到表|讲者照片"
+        evidence.matchedSources.join("|")!=="终版议程|讲者照片"
       )) ||
       (def.no===6 && !isDemoMode() && evidence?.demandSopSignature!==demand.signature) ||
       (def.no===7 && !isDemoMode() && evidence?.rightsSignature!==sponsor.signature)
@@ -361,7 +361,7 @@ function transition(projectId, action, user, payload = {}, ip = "") {
 /**
  * 核销通过 → 把同协会的财务负责人加进项目成员。
  *
- * 测试报告 FLOW-01：项目 6/6 核销通过后，finance 生成结算单 403「不在你的数据范围内」，
+ * 测试报告 FLOW-01：项目适用核销项全部通过后，finance 生成结算单 403「不在你的数据范围内」，
  * 只能让超管代劳或临时加成员 —— 流程在这里断了一刀，规模化后就是一堆「已核销未结算」。
  *
  * 为什么在这一步自动授权：结算单是核销结论的下一步，财务不是「来旁听」的，

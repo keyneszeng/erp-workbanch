@@ -65,6 +65,7 @@ jobs:
           node --input-type=module --check < web/assets/js/pages/contracts.js
           node --check server/api/verify.js
           node --check server/lib/verify-ocr-compare.js
+          node --check server/lib/verify-agenda-evidence.js
           node --input-type=module --check < web/assets/js/lib/verify-detail.js
           node --input-type=module --check < web/assets/js/lib/verify-ocr-judge.js
           node --input-type=module --check < web/assets/js/lib/sop-fields.js
@@ -145,6 +146,8 @@ jobs:
         run: ERP_DEMO_MODE=1 node --experimental-sqlite --test test/meeting-sop.test.js
       - name: Verify labor expert contract scoping and evidence signature isolation
         run: ERP_DEMO_MODE=1 node --experimental-sqlite --test test/labor-contract-linking.test.js test/meeting-sop.test.js
+      - name: Verify seven-step progress and agenda/photo/course evidence model
+        run: ERP_DEMO_MODE=1 node --experimental-sqlite --test test/verify-agenda-evidence.test.js test/verify-seven-progress.test.js
       - name: Verify five-source speaker reconciliation before OCR setup
         run: ERP_DEMO_MODE=1 node --experimental-sqlite --test test/meeting-sop.test.js test/speaker-five-source.test.js test/verify-step4-course-topics.test.js
       - name: Verify bank receipt OCR extracts transfer amount and bank reference, not account numbers or fees

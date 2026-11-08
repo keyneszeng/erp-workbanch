@@ -71,6 +71,17 @@ test("自动扫描读取已有的真实OCR缓存，课件课题与终版议程�
  assert.ok(r.files.every(x=>!("text" in x)&&!("fileKey" in x)),"响应不应泄露完整OCR正文");
  assert.ok(r.evidence.sources.some(x=>x.kind==="终版议程"));
  assert.match(r.token,/^[a-f0-9]{64}$/);
+ // A presentation containing the agenda title as a substring is not a
+ // matching course theme. It must match a complete, extracted topic.
+ const course=db.prepare("SELECT id FROM materials WHERE pid=? AND kind='课件' ORDER BY id LIMIT 1").get(pid);
+ db.prepare("UPDATE material_ocr_results SET recognized_text=? WHERE material_id=?")
+   .run("课件主题：精准诊疗技术新进展补充专题",course.id);
+ const mismatch=await call("admin","POST",pathStep(4)+"/scan",{});
+ assert.equal(mismatch.status,200);
+ assert.ok(mismatch.data.report.checks.some(x=>x.name.includes("课件")&&x.status==="不一致"),
+   JSON.stringify(mismatch.data.report.checks));
+ db.prepare("UPDATE material_ocr_results SET recognized_text=? WHERE material_id=?")
+   .run("课件主题：精准诊疗技术新进展",course.id);
 });
 test("没有三级字段输入：凭OCR比对凭证和人工通过按钮可直接记录结论",async()=>{
  const {data,status}=await call("admin","POST",pathStep(4)+"/scan",{});
@@ -132,7 +143,7 @@ test("现代Office可直接提取原生文字，旧式XLS不冒充OCR成功",()=
 });
 
 
-test("核销第2项：真实XLSX签到表上传后按实际单元格比对，旧缓存自动失效且无需RapidOCR",async()=>{
+test("核销第3项：真实XLSX签到表上传后按实际单元格提取，旧缓存自动失效且无需RapidOCR",async()=>{
  const makeAttendance=(used,unused)=>{
   const z=new PizZip();
   z.file("[Content_Types].xml",'<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"/>');
@@ -173,24 +184,52 @@ test("核销第2项：真实XLSX签到表上传后按实际单元格比对，旧
  // invalidated and replaced by the actual worksheet bytes on next scan.
  db.prepare("INSERT INTO material_ocr_results(material_id,pid,file_key,recognized_text,suggestions_json,engine,mode,pages,total_pages,truncated,updated_at,updated_by) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)")
   .run(row.id,pid,first.key,"张三教授","[]","Office原生文本提取","office-text",0,0,0,"2026-11-08 12:00","旧版");
- const firstScan=await call("admin","POST",pathStep(2)+"/scan",{});
+ const firstScan=await call("admin","POST",pathStep(3)+"/scan",{});
  assert.equal(firstScan.status,200,JSON.stringify(firstScan.data));
- const check=r=>r.data.report.checks.find(c=>c.name==="签到表讲者信息");
- assert.equal(check(firstScan)?.status,"不一致",JSON.stringify(firstScan.data.report.checks));
+ const firstFile=firstScan.data.report.files.find(f=>Number(f.materialId)===Number(row.id));
+ assert.ok(firstFile?.preview.includes("李四主任"),"使用实际单元格而非未引用的共享字符串");
+ assert.ok(!firstFile.preview.includes("张三教授"),"不能把未引用姓名当作签到人员");
  assert.ok(firstScan.data.report.files.some(x=>x.kind==="签到表"&&x.state==="recognized"),
   "Excel must be scanned even in demo runtime without RapidOCR");
  assert.equal(db.prepare("SELECT engine FROM material_ocr_results WHERE material_id=?").get(row.id).engine,
   require("../server/lib/verify-office-text").XLSX_ENGINE);
  const second=await uploadXlsx(makeAttendance("张三教授","李四主任"),"签到表-匹配.xlsx");
  db.prepare("UPDATE materials SET file_key=?,file_name=? WHERE id=?").run(second.key,second.name,row.id);
- const secondScan=await call("admin","POST",pathStep(2)+"/scan",{});
+ const secondScan=await call("admin","POST",pathStep(3)+"/scan",{});
  assert.equal(secondScan.status,200,JSON.stringify(secondScan.data));
- assert.equal(check(secondScan)?.status,"一致",JSON.stringify(secondScan.data.report.checks));
+ const secondFile=secondScan.data.report.files.find(f=>Number(f.materialId)===Number(row.id));
+ assert.ok(secondFile?.preview.includes("张三教授"),"替换后应读取新的Excel签到表单元格");
+ assert.ok(!secondFile.preview.includes("李四主任"),"替换后不得显示旧记录");
  assert.notEqual(secondScan.data.report.token,firstScan.data.report.token,"changed original must change scan token");
  assert.ok(secondScan.data.report.files.some(x=>x.kind==="签到表"&&x.mode==="office-text"));
 });
 
 
+test("第2项仅扫描终版议程和讲者照片；文件名姓名精确比对且更新即失效",async()=>{
+ const photo=addDoc("讲者照片","张三照片.jpg","",
+  "dddddddddddddddddddddddddddddddd.jpg");
+ db.prepare("UPDATE materials SET file_name='张三照片.jpg' WHERE id=?").run(photo);
+ const first=await call("admin","POST",pathStep(2)+"/scan",{});
+ assert.equal(first.status,200,JSON.stringify(first.data));
+ const rep=first.data.report;
+ assert.deepEqual([...new Set(rep.files.map(x=>x.kind))].sort(),["终版议程","讲者照片"].sort(),
+  "签到表和劳务表不属于第2项");
+ assert.ok(rep.checks.some(x=>x.name==="讲者照片姓名与终版议程"&&x.status==="一致"),
+  JSON.stringify(rep.checks));
+ assert.deepEqual(rep.evidence.matchedSources,["终版议程","讲者照片"]);
+ assert.equal(rep.summary.mismatch,0);
+ db.prepare("UPDATE materials SET file_name='赵六.jpg' WHERE id=?").run(photo);
+ const wrong=await call("admin","POST",pathStep(2)+"/scan",{});
+ assert.equal(wrong.status,200,JSON.stringify(wrong.data));
+ assert.ok(wrong.data.report.checks.some(x=>x.name==="讲者照片姓名与终版议程"&&x.status==="不一致"),
+  JSON.stringify(wrong.data.report.checks));
+ assert.notEqual(wrong.data.report.token,rep.token,
+  "仅更改照片原始文件名也必须让历史核销报告失效");
+ const stale=await call("admin","POST",pathStep(2),{result:"通过",auto:true,scanToken:rep.token});
+ assert.equal(stale.status,409);
+ assert.equal(stale.data.error.code,"OCR_REPORT_STALE");
+ db.prepare("UPDATE materials SET deleted_at='2026-11-08' WHERE id=?").run(photo);
+});
 test("核销第5项OCR与证据：仅关联劳务登记表和劳务专家合同，彻底排除会务及赞助合同",async()=>{
  const labor=addDoc("劳务登记表","劳务登记表","姓名：张三\n时间：2026-11-08\n角色：讲者\n金额：1000",
    "51111111111111111111111111111111.pdf");

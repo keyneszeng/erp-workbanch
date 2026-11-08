@@ -34,11 +34,9 @@ export function sopEvidenceForm(no,p,rightsData=null){
        +input("hostMeetingDate","串场 · 会议日期")
        +input("hostOrganizer","串场 · 主办方")
        +ck("stamped","确认函件已盖章")+ck("final","确认函件为终版"),
-    2:area("agendaSpeakers","终版议程 · 讲者姓名（逗号或换行分隔）","张老师、李老师")
-       +area("attendanceSpeakers","签到表 · 仅录入讲者姓名（不含普通参会人员）","张老师、李老师")
-       +area("photoSpeakers","讲者照片 · 每张照片对应讲者的姓名","张老师、李老师")
-       +`<div class="hint">仅以终版议程的讲者名单为基准，逐一检查签到表和讲者照片是否漏人、多出人员或出现重复姓名。签到表只录入讲者，不包括普通参会人员；第2项不关联劳务表或合同。</div>`
-       +ck("noOmissions","已人工核对讲者信息及照片，无冒领、漏发或重复"),
+    2:area("agendaSpeakers","终版议程 · 讲者姓名（逗号或换行分隔）","张三、李四")
+       +`<div class="hint">只关联终版议程和讲者照片。自动提取终版议程讲者姓名，对照照片原始文件名；签到表只在第3项核销。</div>`
+       +ck("noOmissions","已人工核对议程讲者及对应照片，无冒领、漏项或重复"),
     3:input("onlineMinutes","有效讲者在线时长（分钟，线上/混合须 >30）")
        +ck("signedAttendance","已核验线下签到表（线下/混合必选）"),
     4:area("agendaTopics","终版议程包含的主题（逗号或换行）","主题甲、主题乙")
@@ -62,9 +60,7 @@ export function collectSopEvidence(no,m){
       meetingDate:get("meetingDate"),organizer:get("organizer"),
       hostMeetingName:get("hostMeetingName"),hostMeetingDate:get("hostMeetingDate"),
       hostOrganizer:get("hostOrganizer"),stamped:checked("stamped"),final:checked("final")};
-    case 2:return {agendaSpeakers:names(get("agendaSpeakers")),
-      attendanceSpeakers:names(get("attendanceSpeakers")),
-      photoSpeakers:names(get("photoSpeakers")),noOmissions:checked("noOmissions")};
+    case 2:return {agendaSpeakers:names(get("agendaSpeakers")),noOmissions:checked("noOmissions")};
     case 3:return {onlineMinutes:Number(get("onlineMinutes")),signedAttendance:checked("signedAttendance")};
     case 4:return {agendaTopics:names(get("agendaTopics")),courseTopics:names(get("courseTopics")),
       hostTitleMatches:checked("hostTitleMatches"),hostNameLogoMatches:checked("hostNameLogoMatches"),

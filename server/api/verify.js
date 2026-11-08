@@ -19,7 +19,7 @@ let scanningVerification=false;
 
 function register(router) {
   /**
-   * 核销看板：6 步 + 例外 + 结算 + 材料。
+   * 核销看板：7 步 + 例外 + 结算 + 材料（前四项必核、后三项按条件适用）。
    *
    * 同时把「核对所需的原始数据」一并带出去（材料 / 合同 / 付款）：
    * 判定人点「详情」时要能当场看到议程、签到表、票据、合同与付款金额，
@@ -107,8 +107,8 @@ function register(router) {
     if (String(remark || "").length > 1000) throw bad(`问题描述不能超过 1000 字（当前 ${String(remark).length} 字）`);
     if (result === "不通过" && !String(remark || "").trim()) throw bad("判定不通过必须填写问题描述");
 
-    // 六项核销彼此独立，可以任意顺序判定和重新判定。
-    // 仅在最终「核销通过」时检查六项全部通过且无未决例外。
+    // 七项核销彼此独立，可以任意顺序判定和重新判定。
+    // 仅在最终「核销通过」时检查当前适用步骤全部通过且无未决例外。
     const v = verification(p.id);
     const def = v.steps.find((s) => s.no === no);
     if(no===5 && !v.laborRequired)throw conflict("材料库无劳务表，第5项自动不适用，无需核销","SOP_NOT_APPLICABLE");
@@ -234,7 +234,7 @@ function register(router) {
     // 参数校验放在阶段校验之前：参数本身就是错的（步骤越界、原因超长）应当直接 400，
     // 不该被「项目阶段不对」的 409 盖掉 —— 否则前端拿到的错误原因会误导人。
     //
-    // step_no = 0 是「不属于 6 步中任何一步」的整体性问题（如专家临时换人、场地变更），
+    // step_no = 0 是「不属于 7 步中任何一步」的整体性问题（如专家临时换人、场地变更），
     // 由人自己写一个事项名。它照样要审批，批完就不再阻塞核销门禁；
     // 区别只是不会把某一步标成「已解例外」—— 因为它本来就不针对某一步。
     const no = Number(step_no);
@@ -329,7 +329,7 @@ function register(router) {
       verification:verification(p.id)};
   });
 
-  /** 只有非步骤类（0）例外由财务复核处理结果后单独闭环；1～6 步须回原步骤复核。 */
+  /** 只有非步骤类（0）例外由财务复核处理结果后单独闭环；1～7 步须回原步骤复核。 */
   router.post("/api/exceptions/:id/close", async (ctx) => {
     const ex=db.prepare("SELECT * FROM exceptions WHERE id=?").get(ctx.params.id);
     if(!ex)throw notFound("例外单不存在");
@@ -337,7 +337,7 @@ function register(router) {
     assertProjectVisible(ctx.user,p);
     assertCan(ctx.user,"verify:exception_approve","仅核销审核人可确认整体性例外闭环");
     if(settlementOf(p.id))throw conflict("项目已结算，核销例外已冻结","FROZEN");
-    if(Number(ex.step_no)!==0)throw conflict("六步内例外必须返回原步骤复核，不得直接关闭","RECHECK_REQUIRED");
+    if(Number(ex.step_no)!==0)throw conflict("七步内例外必须返回原步骤复核，不得直接关闭","RECHECK_REQUIRED");
     if(ex.status!=="待复核"||!ex.resolved_at||!ex.evidence_material_id)
       throw conflict("例外处理人未提交证据与处理结果","EXCEPTION_REMEDIATION_REQUIRED");
     const comment=String(ctx.body?.comment||"").trim();
