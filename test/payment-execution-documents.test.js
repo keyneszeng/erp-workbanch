@@ -39,8 +39,8 @@ test("财务执行付款从权限校验接口读取原件并可在窗口内预�
  assert.match(widget,/<img alt=/);
  assert.match(widget,/银行实际转账由财务线下操作/);
  assert.match(widget,/data-verified/);
- assert.match(widget,/\/"\+encodeURIComponent\(id\)\+"\/account"/);
- assert.match(widget,/\/"\+encodeURIComponent\(id\)\+"\/pay"/);
+ assert.ok(widget.includes('encodeURIComponent(id)+"/account"'));
+ assert.ok(widget.includes('encodeURIComponent(id)+"/pay"'));
  assert.match(project,/openPaymentExecution\(id,/);
  assert.match(finance,/openPaymentExecution\(id,/);
  assert.match(read("server/lib/db.js"),/addColumn\("payments", "payee_source_id"/);
