@@ -75,3 +75,23 @@ test("付款申请可查看已关联收款方资料，合同与劳务均只显�
  assert.match(finance,/await bindPayeePicker\(m,projects\[0\]\.id,true\)/);
  assert.match(src("server/lib/verified-payees.js"),/maskedAccount:"尾号 "\+account\.slice\(-4\)/);
 });
+
+test("核销劳务收款方自动关联开户行及加密银行账号，无需页面填写完整账号",()=>{
+ const picker=src("web/assets/js/lib/payee-picker.js");
+ const finance=src("web/assets/js/pages/finance.js");
+ const project=src("web/assets/js/pages/project.js");
+ const payees=src("server/lib/verified-payees.js");
+ const api=src("server/api/finance.js");
+ assert.match(picker,/bank\.value=x\.bank/);
+ assert.match(picker,/account\.readOnly=true/);
+ assert.match(picker,/account\.value=""/);
+ assert.match(picker,/x\.source==="labor"&&x\.maskedAccount/);
+ assert.match(picker,/由服务器安全填入/);
+ assert.match(payees,/return \{name:x\.name,amount:x\.amount,bank:x\.bank,account,source:"labor"\}/);
+ assert.match(api,/choice\?\.bank \|\| b\.payee_bank/);
+ assert.match(api,/choice\?\.account \|\| b\.payee_account/);
+ for(const p of [finance,project]){
+   assert.match(p,/source\.source!=="labor"/);
+ }
+ assert.doesNotMatch(picker,/account_cipher|reveal\(/);
+});
