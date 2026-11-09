@@ -5,7 +5,7 @@ const {spawn}=require("node:child_process");
 const fs=require("node:fs"),os=require("node:os"),path=require("node:path");
 const {DatabaseSync}=require("node:sqlite");
 const dir=fs.mkdtempSync(path.join(os.tmpdir(),"erp-public-intake-"));
-const dbFile=path.join(dir,"test.sqlite"),port=8947,base="http://127.0.0.1:"+port;
+const dbFile=path.join(dir,"test.sqlite"),port=8949,base="http://127.0.0.1:"+port;
 let proc,db,adminCookie,guestCookie;
 const sample={
  topic:"2027年度学术交流活动",event_date:"2027-03-14",event_time:"09:30",form:"混合",
@@ -28,7 +28,9 @@ before(async()=>{
  });
  let stderr="";proc.stderr.on("data",x=>stderr+=String(x));
  let ready=false;
- for(let i=0;i<90;i++){
+ // 单实例冷启动实测约 6.4s；并行跑整套测试时磁盘/CPU 竞争会把启动推到 9s 以上。
+ // 原来只等 90×100ms=9s，并发下必然误报「server did not start」。
+ for(let i=0;i<600;i++){
   try{if((await fetch(base+"/api/health")).ok){ready=true;break;}}catch{}
   if(proc.exitCode!==null)break;
   await new Promise(resolve=>setTimeout(resolve,100));
