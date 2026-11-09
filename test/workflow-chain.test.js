@@ -310,6 +310,10 @@ test("归档后 9 类写操作全部被拒", async () => {
     if (r.status === 200) leaked.push(`${label} → 200`);
   }
   assert.deepEqual(leaked, [], `归档后仍被放行的写操作：${leaked.join("; ")}`);
+
+  // 老板确认的口径：总管理员对归档项目仍有资料修改权（审计会记「资料修改」）。
+  const superEdit = await admin("PATCH", `/api/projects/${pid}`, { name: "归档后超管改名" });
+  assert.equal(superEdit.status, 200, "总管理员应可修改归档项目资料：" + JSON.stringify(superEdit.data));
 });
 
 /* ================= C. 审计完整性 ================= */
