@@ -1,3 +1,4 @@
+import {executePaymentWithOriginals} from "../lib/payment-originals.js";
 import { api, can, state } from "../lib/api.js";
 import {bindBudgetFeePreview} from "../lib/budget-fee.js";
 import {bindPayeePicker} from "../lib/payee-picker.js";
@@ -386,8 +387,7 @@ function tabPayments(d, p) {
         `<span class="mono">${esc(y.invoice_no || "—")}</span>`, esc(y.req_user || ""), badge(y.status),
         `<div class="tacts">
           ${y.status === "待审批" && can("payment:approve") ? `<button class="link" data-pay-approve="${y.id}">审批</button>` : ""}
-          ${y.status === "已审批" && can("payment:pay") && y.payee_account ? `<button class="link" data-pay-pay="${y.id}">付款</button>` : ""}
-          ${y.status !== "已付款" && can("payment:pay") && !y.payee_account ? `<button class="link" data-pay-acct="${y.id}">登记账户</button>` : ""}
+          ${y.status === "已审批" && can("payment:pay") ? `<button class="link" data-pay-pay="${y.id}">付款</button>` : ""}
           ${y.status === "待审批" && can("payment:approve") ? `<button class="link danger" data-pay-reject="${y.id}">驳回</button>` : ""}
         </div>`]
     })), { empty: "暂无付款记录" }),
@@ -504,7 +504,7 @@ function wire(root, pid, d, body) {
   body.querySelectorAll("[data-pay-approve]").forEach((b) => b.onclick = () => payAct(root, pid, b.dataset.payApprove, "approve"));
   body.querySelectorAll("[data-pay-reject]").forEach((b) => b.onclick = () => payAct(root, pid, b.dataset.payReject, "reject"));
   body.querySelectorAll("[data-pay-pay]").forEach((b) => b.onclick = () => payAct(root, pid, b.dataset.payPay, "pay"));
-  body.querySelectorAll("[data-pay-acct]").forEach((b) => b.onclick = () => openPayAccount(root, pid, b.dataset.payAcct));
+  
   // 「去登记材料 →」：切页签（tab 是模块级变量，直接改再重渲染）
   body.querySelectorAll("[data-goto-tab]").forEach((b) => b.onclick = () => {
     tab = b.dataset.gotoTab;
@@ -694,9 +694,8 @@ async function exDecide(root, pid, id, ok) {
 async function payAct(root, pid, id, kind) {
   try {
     if (kind === "pay") {
-      if (!await confirmBox(`确认对付款单 <b>${id}</b> 执行付款？付款后不可撤销。`, { ok: "确认付款" })) return;
-      const r = await api.post(`/api/payments/${id}/pay`, {});
-      toast(r.message, "ok");
+      await executePaymentWithOriginals(id,()=>refresh(root,pid));
+      return;
     } else {
       const r = await api.post(`/api/payments/${id}/approve`, { approve: kind === "approve" });
       toast(r.message, "ok");
@@ -797,8 +796,6 @@ async function openPay(root, pid, d) {
       tip:"专家费与个人报销优先使用第 5 步核验的劳务表；其他收款方来自已签署合同。" },
     { k: "payee", l: "收款方", req: 1 },
     // V1.2.18：财务要照着这两行打款
-    { k: "payee_bank", l: "开户行", req: 0, ph: "如：中国银行北京朝阳支行" },
-    { k: "payee_account", l: "银行账号", req: 0, ph: "10~25 位数字，可含空格分隔" },
     { k: "amount", l: "付款金额（元）", t: "number", req: 1 },
     { k: "period", l: "期次（可选）", ph: "第1期 / 第2期 / 尾款", tip: "同额分期务必填写不同期次，否则会按重复付款申请拦截；最多20字。" },
     { k: "remark", l: "备注", t: "textarea", full: 1, rows: 2 }
@@ -812,13 +809,6 @@ async function openPay(root, pid, d) {
   m.querySelector('[data-x="0"]').onclick = () => m.classList.remove("open");
   const submitButton=m.querySelector('[data-x="1"]');
   submitButton.onclick = async () => {
-    const selected=m.querySelector('[name="payee_option_id"]')?.value;
-    const acct=m.querySelector('[name="payee_account"]')?.value.trim();
-    const bank=m.querySelector('[name="payee_bank"]')?.value.trim();
-    const rows=m.querySelector('[name="payee_option_id"]')?.__rows||[];
-    const source=rows.find(x=>x.id===selected);
-    if((!source||!source.bank)&&!bank){toast("请填写收款方开户行","warn");return;}
-    if((!source||source.source!=="labor")&&!acct){toast("请填写银行账号；合同仅提供收款方名称","warn");return;}
     if (!validate(m, fields)) return;
     if(submitButton.disabled)return;
     submitButton.disabled=true;
