@@ -198,13 +198,16 @@ test("未知流转动作返回 409 并列出可执行动作", async () => {
 test("幂等：同一付款单重复审批 / 重复付款被拒", async () => {
   const c = await finance("POST", "/api/payments", {
     pid: "MP-2026-008", type: "学会公付", payee: "幂等测试", amount: 200
-  , payee_bank: "中国银行北京分行", payee_account: "3210987654321098"});
+  });
   assert.equal(c.status, 200);
   const id = c.data.payment.id;
   const a1 = await finance("POST", `/api/payments/${id}/approve`, { approve: true });
   assert.equal(a1.status, 200);
   const a2 = await finance("POST", `/api/payments/${id}/approve`, { approve: true });
   assert.equal(a2.status, 409, "重复审批应 409");
+  // 新流程：执行付款前先登记收款账户
+  const acct = await finance("PATCH", `/api/payments/${id}/account`, { payee_bank: "中国银行北京分行", payee_account: "3210987654321098" });
+  assert.equal(acct.status, 200);
   const p1 = await finance("POST", `/api/payments/${id}/pay`, {});
   assert.equal(p1.status, 200);
   const p2 = await finance("POST", `/api/payments/${id}/pay`, {});
