@@ -56,3 +56,22 @@ test("逐页 UI 文字与操作入口符合测试版实际行为", () => {
   assert.match(materials,/if\(requestId!==rightsRequestId\|\|pidSelect\.value!==pid\)return/);
   assert.match(materials,/esc\(p\.status\)/);
 });
+
+test("付款申请可查看已关联收款方资料，合同与劳务均只显示脱敏账户",()=>{
+ const picker=src("web/assets/js/lib/payee-picker.js");
+ const project=src("web/assets/js/pages/project.js");
+ const finance=src("web/assets/js/pages/finance.js");
+ assert.match(picker,/data-payee-linked-details/);
+ for(const label of ["关联收款方资料（只读）","收款方：","关联金额：","开户行：","银行账号："]){
+  assert.ok(picker.includes(label),label);
+ }
+ assert.match(picker,/x\.maskedAccount/);
+ assert.doesNotMatch(picker,/x\.account\b|account_cipher|reveal\(/);
+ assert.match(picker,/account\.value=""/);
+ assert.match(picker,/bank\.value=""/);
+ assert.match(picker,/changeChoice\(\)/);
+ assert.match(picker,/seq/);
+ assert.match(project,/await bindPayeePicker\(m,pid,false\)/);
+ assert.match(finance,/await bindPayeePicker\(m,projects\[0\]\.id,true\)/);
+ assert.match(src("server/lib/verified-payees.js"),/maskedAccount:"尾号 "\+account\.slice\(-4\)/);
+});
