@@ -101,3 +101,26 @@ test("会务需求预算与已签会务合同总额不一致仍然拦截", async
   assert.equal(r.body?.error?.code, "MEETING_THREE_WAY_MISMATCH");
   db.prepare("UPDATE demand_items SET budget=? WHERE pid=?").run(3175, pid);
 });
+
+/**
+ * UI 判定链路回归：页面点「判定」会先 scan 再带 scanToken 提交 auto=true。
+ * 第 6 步 scan 不做 OCR，scanned 恒为 0；若把「scanned>0」当作通过前置条件，
+ * 文件齐备、四项检查全一致时按钮仍永久置灰、接口 409 OCR_EVIDENCE_REQUIRED。
+ */
+test("UI 链路：第6步不做OCR也能人工判定通过（scanned=0 不得拦截）", async () => {
+  const s = await request("POST", `/api/projects/${pid}/verify/steps/6/scan`, {}, cookie);
+  assert.equal(s.status, 200, JSON.stringify(s.body));
+  const report = s.body?.report;
+  assert.ok(report, "扫描必须返回比对报告");
+  assert.equal(report.scanned, 0, "第6步按设计不做OCR，scanned 应为 0");
+  assert.ok(report.total > 0, "必须已关联会务合同与会务发票原件");
+  assert.ok(report.token, "扫描必须返回比对指纹");
+  assert.equal(report.summary.mismatch, 0);
+  assert.equal(report.summary.uncertain, 0);
+
+  const r = await request("POST", `/api/projects/${pid}/verify/steps/6`, {
+    result: "通过", auto: true, scanToken: report.token
+  }, cookie);
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.match(r.body?.message || "", /判定：通过/);
+});
