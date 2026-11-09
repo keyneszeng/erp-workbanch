@@ -84,7 +84,7 @@ async function exchangePhoneCode(value){
  if(!/^[a-zA-Z0-9_-]{6,128}$/.test(code))throw bad("微信手机号授权凭证无效");
  const c=credentials();
  if(c.test){
-  if(!/^phone_test_1[3-9]\\d{9}$/.test(code))throw new HttpError(401,"WECHAT_PHONE_INVALID","手机号授权失效");
+  if(!/^phone_test_1[3-9]\d{9}$/.test(code))throw new HttpError(401,"WECHAT_PHONE_INVALID","手机号授权失效");
   return normalizePhone(code.slice("phone_test_".length));
  }
  const token=await wechatAccessToken();
