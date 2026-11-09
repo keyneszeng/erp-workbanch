@@ -23,7 +23,9 @@ export async function bindPayeePicker(modal,pid,watchProject=false){
    panel.innerHTML='<div class="hint"><b>关联收款方资料</b>：未选择已关联的合同或核销劳务记录，请人工填写收款信息。</div>';
    return;
   }
-  const source=x.source==="labor"?"第5项已核销劳务表":"已签署合同";
+  const source=x.source==="labor"
+    ?(x.linkedContract?"已签署劳务专家合同 + 第5项核销劳务表":"第5项已核销劳务表")
+    :"已签署合同";
   const amount=Number.isFinite(Number(x.amount))?
     Number(x.amount).toLocaleString("zh-CN",{minimumFractionDigits:2,maximumFractionDigits:2}):"未登记";
   panel.innerHTML='<h4>关联收款方资料（只读）</h4>'+
