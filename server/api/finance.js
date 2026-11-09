@@ -532,8 +532,9 @@ function register(router) {
     if(!payee)throw bad("收款方为必填项");
     if(payee.length>60)throw bad("收款方不能超过 60 字");
     if(choice && b.payee && String(b.payee).trim()!==choice.name)throw bad("收款方与选定的核销资料不一致");
-    const payeeBank=parseBankName(choice?.bank || b.payee_bank);
-    const payeeAccount=parseBankAccount(choice?.account || b.payee_account);
+    // Account details are not part of a payment application; finance checks original documents at execution.
+    const payeeBank=choice?.bank||"";
+    const payeeAccount=choice?.account||"";
     // 发票属于核销材料，不是付款单字段；专家费个人报销不存在发票号。
     const invoiceNo=String(b.invoice_no||"").trim(); // Legacy API remains readable/deduplicated; new UI omits this field.
     if(invoiceNo.length>40)throw bad("发票号不能超过 40 字");
@@ -603,8 +604,8 @@ function register(router) {
         const same=findExistingPayment(p.id,b.type,payee,amount,period);
         if(same)throw duplicatePaymentError(same);
         id=nextId(db,"payments","id","PY");
-        db.prepare("INSERT INTO payments (id,pid,type,payee,payee_bank,payee_account,amount,invoice_no,dedupe_key,period,req_user,status,remark,created_by,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
-          .run(id,p.id,b.type,payee,payeeBank,payeeAccount,amount,invoiceNo,key,period,ctx.user.name,"待审批",remark,ctx.user.id,at);
+        db.prepare("INSERT INTO payments (id,pid,type,payee,payee_bank,payee_account,amount,invoice_no,dedupe_key,period,req_user,status,remark,created_by,created_at,payee_option_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
+          .run(id,p.id,b.type,payee,payeeBank,payeeAccount,amount,invoiceNo,key,period,ctx.user.name,"待审批",remark,ctx.user.id,at,choice?String(b.payee_option_id):null);
         const apId=nextId(db,"approvals","id","AP");
         db.prepare("INSERT INTO approvals (id,type,title,pid,ref_id,amount,by_user,sla,status,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)")
           .run(apId,"付款审批",`${b.type} ¥${amount.toLocaleString("zh-CN")}`,p.id,id,amount,ctx.user.name,"1 个工作日","待审批",at);
@@ -617,7 +618,7 @@ function register(router) {
     }
     logAudit({
       user: ctx.user, module: "财务结算", action: "付款申请", target: p.id,
-      detail: `${id} ${b.type} ¥${amount.toLocaleString("zh-CN")}${period ? "（" + period + "）" : ""} → ${b.payee}（${payeeBank} 尾号 ${payeeAccount.slice(-4)}；核销已通过${force ? "；超预算特批" : ""}）`,
+      detail: `${id} ${b.type} ¥${amount.toLocaleString("zh-CN")}${period ? "（" + period + "）" : ""} → ${payee}（原件由财务付款时核对；核销已通过${force ? "；超预算特批" : ""}）`,
       ip: ctx.ip
     });
     return { payment: db.prepare("SELECT * FROM payments WHERE id = ?").get(id), message: `付款申请 ${id} 已提交，等待财务审批` };
@@ -668,6 +669,46 @@ function register(router) {
     return { payment: db.prepare("SELECT * FROM payments WHERE id = ?").get(y.id), message: `付款单 ${y.id} ${st}` };
   });
 
+  // Payment execution: scoped original documents, not bank fields copied into a request.
+  router.get("/api/payments/:id/originals", async (ctx) => {
+    const y=db.prepare("SELECT * FROM payments WHERE id=?").get(ctx.params.id);
+    if(!y)throw notFound("付款单不存在");
+    const p=getProject(y.pid);
+    assertProjectVisible(ctx.user,p);
+    assertCan(ctx.user,"payment:pay","只有财务执行人员可以查看付款原件");
+    const originals=[],seen=new Set();
+    const add=(kind,name,key)=>{
+      if(!key||!FILE_KEY_RE.test(String(key))||seen.has(key))return;
+      seen.add(key);
+      originals.push({kind,name:String(name||kind),file_key:key});
+    };
+    const src=String(y.payee_option_id||"");
+    let contracts=[];
+    if(src.startsWith("contract:")){
+      contracts=db.prepare("SELECT id,name,vendor,file_key,file_name FROM contracts WHERE id=? AND pid=? AND status='已签署'").all(src.slice(9),p.id);
+    }else if(!src){
+      // Legacy requests: associate only a uniquely matching signed contract.
+      const matches=db.prepare("SELECT id,name,vendor,file_key,file_name FROM contracts WHERE pid=? AND status='已签署' AND vendor=?").all(p.id,y.payee);
+      if(matches.length===1)contracts=matches;
+    }
+    for(const c of contracts)add("合同",c.file_name||c.name,c.file_key);
+    if(src.startsWith("labor:")||src.startsWith("contract:")&&contracts.some(c=>c.vendor===y.payee)){
+      const labor=src.startsWith("labor:")||contracts.some(c=>c.vendor===y.payee&&
+        db.prepare("SELECT category FROM contracts WHERE id=?").get(c.id)?.category==="劳务专家");
+      if(labor){
+        const mats=db.prepare("SELECT kind,name,file_key,file_name FROM materials WHERE pid=? AND kind IN ('劳务表','劳务登记表','劳务收集表') AND (deleted_at IS NULL OR deleted_at='') AND file_key IS NOT NULL").all(p.id);
+        for(const m of mats)add(m.kind,m.file_name||m.name,m.file_key);
+      }
+    }
+    // Show meeting-service invoices as project-level supporting originals only; do not
+    // imply they belong to this payee or this exact payment.
+    const invoiceDocs=db.prepare("SELECT kind,name,file_key,file_name FROM materials WHERE pid=? AND kind='会务发票' AND (deleted_at IS NULL OR deleted_at='') AND file_key IS NOT NULL").all(p.id);
+    for(const m of invoiceDocs)add("项目会务发票（非收款方专属）",m.file_name||m.name,m.file_key);
+    return {payment:{id:y.id,pid:y.pid,payee:y.payee,amount:y.amount,status:y.status},
+      originals,hasLinkedOriginal:originals.some(o=>o.kind==="合同"||o.kind==="劳务表"||o.kind==="劳务登记表"||o.kind==="劳务收集表"),
+      note:"请财务对照原件和银行转账凭证确认实际收款信息；系统不代替银行付款"};
+  });
+
   router.post("/api/payments/:id/pay", async (ctx) => {
     const y = db.prepare("SELECT * FROM payments WHERE id = ?").get(ctx.params.id);
     if (!y) throw notFound("付款单不存在");
@@ -675,13 +716,7 @@ function register(router) {
     assertProjectVisible(ctx.user, p);
     assertCan(ctx.user, "payment:pay", "只有财务与核销（或总管理员）可以执行付款");
     if (y.status !== "已审批") throw conflict(`只有「已审批」的付款单可以付款，当前为「${y.status}」`);
-    // V1.2.18：没有收款账户就付不了款 —— 与其让财务自己发现，不如在门口拦住
-    if (!y.payee_account || !y.payee_bank) {
-      throw conflict(
-        `${y.id} 还没有登记收款账户，无法付款。请先点「登记账户」补上开户行与银行账号`,
-        "PAYEE_ACCOUNT_MISSING", { payment: y.id }
-      );
-    }
+    // Payment execution relies on review of original linked documents, not account fields in the application.
     if (!PAYABLE_STATUS.includes(p.status)) throw conflict("项目核销状态异常，付款已拦截", "VERIFY_GATE");
     db.prepare("UPDATE payments SET status = '已付款', paid_at = ? WHERE id = ?").run(now(), y.id);
     logAudit({ user: ctx.user, module: "财务结算", action: "付款", target: p.id, detail: `${y.id} ${y.type} ¥${Number(y.amount).toLocaleString("zh-CN")} 已提交银行`, ip: ctx.ip });
