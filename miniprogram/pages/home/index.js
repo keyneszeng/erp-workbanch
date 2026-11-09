@@ -32,6 +32,7 @@ Page({
   const page=e.currentTarget.dataset.page;
   if(page)wx.navigateTo({url:"/pages/"+page+"/index"});
  },
+ publicApply(){wx.navigateTo({url:"/pages/public-proposal/index"});},
  myApplications(){wx.navigateTo({url:"/pages/projects/index?tab=mine"});},
  meetingList(){wx.navigateTo({url:"/pages/projects/index?tab=all"});}
 });
