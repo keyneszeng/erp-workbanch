@@ -1,33 +1,75 @@
 <view class="wrap">
- <view wx:if="{{error}}" class="card error">{{error}}</view>
- <block wx:if="{{p}}">
-  <view class="card">
-   <view class="heading">{{p.name}}</view>
-   <view class="row"><text class="muted">{{p.date}} · {{p.form}}</text><text class="tag">{{p.status}}</text></view>
-   <view class="section-caption space">项目进度</view>
-   <view class="progress-track"><view class="progress-fill" style="width:{{stagePercent}}%"></view></view>
-   <view class="muted">{{stageLabel}} · 按项目状态机实时展示</view>
-   <view class="muted space">{{statusNote}}</view>
-  </view>
-  <view class="card"><view class="section-caption">会议详情</view>
-   <view class="field">项目编号 <text class="field-value">{{p.id}}</text></view>
-   <view class="field">协会 <text class="field-value">{{p.assoc}}</text></view>
-   <view class="field">会议日期 <text class="field-value">{{p.date}}</text></view>
-   <view class="field">负责人 <text class="field-value">{{p.owner||'—'}}</text></view>
-   <view class="field">预计参会人数 <text class="field-value">{{p.people||0}} 人</text></view>
-   <view class="section-caption space">议程要点</view><view class="muted whitespace">{{p.agenda||'暂无议程'}}</view>
-  </view>
-  <view wx:if="{{isExecutor}}" class="card">
-   <view class="section-caption">我的业务协作</view>
-   <view class="quick-grid">
-    <view wx:if="{{canMaterials}}" class="quick-tile quick-blue" bindtap="materials"><view class="quick-title">材料收集</view><view class="quick-sub">拍照上传 · 结算后冻结</view></view>
-    <view wx:if="{{canApprove}}" class="quick-tile quick-green" bindtap="approvals"><view class="quick-title">审批管理</view><view class="quick-sub">按已授权类型处理审批</view></view>
-   </view>
-  </view>
-  <view class="card">
-   <view class="section-caption">会议分享</view>
-   <view class="muted">仅已登录且属于此项目数据范围的成员可查看会议；不公开预算、合同、财务或个人资料。</view>
-   <button class="btn ghost" open-type="share">分享给授权成员</button>
-  </view>
- </block>
+  <view wx:if="{{error}}" class="error"><text class="feedback-icon">!</text><text>{{error}}</text></view>
+  <block wx:if="{{p}}">
+    <view class="card project-hero">
+      <view class="row">
+        <view class="page-kicker" style="color:rgba(255,255,255,.65)">MEETING PROJECT</view>
+        <text class="status-pill">{{p.status}}</text>
+      </view>
+      <view class="heading space-sm">{{p.name}}</view>
+      <view class="muted space-sm">{{p.date||'日期待定'}} · {{p.form||'形式待定'}} · {{p.assoc}}</view>
+      <view class="progress-head"><text>项目进度</text><text>{{stageLabel}}</text></view>
+      <view class="progress-track"><view class="progress-fill" style="width:{{stagePercent}}%"></view></view>
+      <view class="project-note">{{statusNote}}</view>
+    </view>
+
+    <view class="card">
+      <view class="section-head"><view class="section-caption">会议详情</view><view class="micro">实时项目数据</view></view>
+      <view class="detail-grid">
+        <view class="detail-cell"><view class="detail-label">项目编号</view><view class="detail-value">{{p.id}}</view></view>
+        <view class="detail-cell"><view class="detail-label">所属协会</view><view class="detail-value">{{p.assoc||'—'}}</view></view>
+        <view class="detail-cell"><view class="detail-label">会议日期</view><view class="detail-value">{{p.date||'—'}}</view></view>
+        <view class="detail-cell"><view class="detail-label">负责人</view><view class="detail-value">{{p.owner||'—'}}</view></view>
+        <view class="detail-cell"><view class="detail-label">会议形式</view><view class="detail-value">{{p.form||'—'}}</view></view>
+        <view class="detail-cell"><view class="detail-label">预计人数</view><view class="detail-value">{{p.people||0}} 人</view></view>
+      </view>
+      <view class="section-caption space">议程要点</view>
+      <view class="agenda-box whitespace">{{p.agenda||'暂无议程'}}</view>
+    </view>
+
+    <view wx:if="{{canVerify}}" class="card">
+      <view class="section-head"><view><view class="page-kicker">VERIFICATION</view><view class="section-caption">会后七项核销</view></view><view wx:if="{{verifySummary}}" class="status-pill {{verifySummary.complete?'status-success':'status-warning'}}">{{verifySummary.complete?'已完成':'待处理'}}</view></view>
+      <view wx:if="{{verifySummary}}" class="verify-summary">
+        <view class="verify-score">{{verifySummary.passed}}<text class="verify-total"> / {{verifySummary.total}}</text></view>
+        <view class="grow"><view class="title">核销项已通过</view><view class="muted">查看关联原件与各步骤判定结果</view></view>
+      </view>
+      <view class="muted space">手机端只读展示，与网页测试版共用核销结果及原件权限。</view>
+      <button class="btn ghost" bindtap="verification">查看核销详情 <text class="button-arrow">›</text></button>
+    </view>
+
+    <view wx:if="{{canFinance&&settlementSummary}}" class="card">
+      <view class="section-head"><view><view class="page-kicker">SETTLEMENT</view><view class="section-caption">结算单 · 财务汇总</view></view></view>
+      <view class="summary-grid">
+        <view class="summary-cell"><view class="detail-label">预算</view><view class="summary-amount">¥{{settlementSummary.budget}}</view></view>
+        <view class="summary-cell"><view class="detail-label">可用预算</view><view class="summary-amount">¥{{settlementSummary.availableBudget}}</view></view>
+        <view class="summary-cell"><view class="detail-label">已支付</view><view class="summary-amount">¥{{settlementSummary.paid}}</view></view>
+        <view class="summary-cell positive"><view class="detail-label">结余</view><view class="summary-amount">¥{{settlementSummary.balance}}</view></view>
+      </view>
+      <view wx:if="{{settlementGroups.length}}" class="section-caption space">付款分类明细</view>
+      <view wx:for="{{settlementGroups}}" wx:key="key" class="payment-group">
+        <view class="row"><text class="title">{{item.label}}</text><text class="payment-amount">¥{{item.amount}}</text></view>
+        <view class="micro">共 {{item.count}} 笔付款记录</view>
+        <view wx:for="{{item.items}}" wx:for-item="payment" wx:key="id" class="payment-row">
+          <view class="row"><text class="grow">{{payment.payee}} · {{payment.type}}</text><text class="payment-amount">¥{{payment.amount}}</text></view>
+          <view class="micro space-sm">{{payment.id}} · {{payment.paidAt}} {{payment.remark}}</view>
+        </view>
+      </view>
+    </view>
+
+    <view wx:if="{{isExecutor}}" class="card">
+      <view class="section-head"><view class="section-caption">业务协作</view><view class="micro">按权限显示</view></view>
+      <view class="quick-grid">
+        <view wx:if="{{canMaterials}}" class="quick-tile quick-blue" bindtap="materials"><view class="quick-icon">材</view><view class="quick-title">材料收集</view><view class="quick-sub">拍照上传 · 结算后冻结</view></view>
+        <view wx:if="{{canApprove}}" class="quick-tile quick-green" bindtap="approvals"><view class="quick-icon">批</view><view class="quick-title">审批管理</view><view class="quick-sub">处理已授权审批类型</view></view>
+      </view>
+    </view>
+
+    <view class="card entry-card">
+      <view class="entry-icon">分享</view>
+      <view class="grow"><view class="entry-title">分享给项目成员</view><view class="entry-sub">仅已登录且属于本项目数据范围的成员可查看</view></view>
+      <button class="btn ghost inline-btn" open-type="share">分享</button>
+    </view>
+  </block>
+
+  <view wx:if="{{!p&&!error}}" class="card loading-state"><view class="spinner"></view><text>正在读取会议详情</text></view>
 </view>

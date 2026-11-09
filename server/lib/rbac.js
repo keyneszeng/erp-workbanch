@@ -96,7 +96,7 @@ const NAV_MODULE = {
   dashboard: "dashboard", flow: "dashboard",
   projects: "projects", approvals: "projects", contracts: "prep", "prep-invitations": "prep",
   demand: "demand", verify: "verify", finance: "finance", "project-ledger": "finance",
-  materials: "materials", archive: "archive", audit: "audit", users: "system", "invitation-config": "system"
+  materials: "materials", archive: "archive", audit: "audit", users: "system", "invitation-config": "system", "public-proposals": "system"
 };
 
 /**
@@ -124,6 +124,7 @@ function canVisitNav(user, nav) {
   if (nav === "project-ledger") return can(user,"ledger:read");
   if (nav === "prep-invitations") return can(user, "invite:manage");
   if (nav === "users") return isSuper(user) || can(user,"user:manage");
+  if (nav === "public-proposals") return isSuper(user);
   // 前端 NAV 对「邀请函上线配置」要求 setting:write，接口层 prep-admin.js 的
   // admin() 也用 assertCan("setting:write")。这里原来只查 system 模块就放行，
   // 是同一张表里唯一漏掉的动作条件：补上后三处口径才真正一致。

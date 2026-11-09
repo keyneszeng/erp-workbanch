@@ -1,12 +1,13 @@
 {
   "pages":[
+    "pages/welcome/index","pages/public-proposal/index",
     "pages/home/index","pages/bind/index","pages/projects/index","pages/apply/index",
-    "pages/project/index","pages/approvals/index","pages/materials/index",
+    "pages/project/index","pages/verification/index","pages/approvals/index","pages/materials/index",
     "pages/account/index","pages/invite/index"
   ],
   "window":{
-    "navigationBarTitleText":"会规化会务执行系统","navigationBarBackgroundColor":"#ffffff",
-    "navigationBarTextStyle":"black","backgroundColor":"#f5f7fb"
+    "navigationBarTitleText":"会规化会务执行系统","navigationBarBackgroundColor":"#10243f",
+    "navigationBarTextStyle":"white","backgroundColor":"#f2f5f9","backgroundTextStyle":"dark"
   },
   "style":"v2","sitemapLocation":"sitemap.json"
 }

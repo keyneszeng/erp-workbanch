@@ -501,6 +501,26 @@ CREATE TABLE IF NOT EXISTS project_notices (
 );
 
 -- 项目筹备邀请函：内置固定模板、已生成 PDF 的快照与发送/回复追踪。
+-- 公众活动意向申请：独立收件箱，绝不写入 projects / approvals。
+CREATE TABLE IF NOT EXISTS public_event_proposals (
+  id TEXT PRIMARY KEY,
+  topic TEXT NOT NULL,
+  event_date TEXT NOT NULL,
+  event_time TEXT NOT NULL,
+  form TEXT NOT NULL,
+  budget REAL NOT NULL,
+  agenda TEXT NOT NULL,
+  contact_name TEXT NOT NULL,
+  contact_phone TEXT NOT NULL,
+  contact_info TEXT NOT NULL DEFAULT '',
+  consent_at TEXT NOT NULL,
+  received_at TEXT NOT NULL,
+  submitter_fingerprint TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT '已接收' CHECK(status IN ('已接收','已归档'))
+);
+CREATE INDEX IF NOT EXISTS idx_public_event_proposals_received ON public_event_proposals(received_at DESC);
+CREATE INDEX IF NOT EXISTS idx_public_event_proposals_fingerprint ON public_event_proposals(submitter_fingerprint,received_at);
+
 CREATE TABLE IF NOT EXISTS prep_invitations (
   id               TEXT PRIMARY KEY,
   pid              TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,

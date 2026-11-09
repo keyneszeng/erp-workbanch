@@ -20,6 +20,7 @@ import * as audit from "./pages/audit.js";
 import * as users from "./pages/users.js";
 import * as invitationConfig from "./pages/invitation-config.js";
 import * as flow from "./pages/flow.js";
+import * as publicProposals from "./pages/public-proposals.js";
 
 const ROUTES = [
   { re: /^dashboard$/, page: dashboard, nav: "dashboard", title: "我的工作台", sub: "待办、会议与异常预警" },
@@ -44,6 +45,7 @@ const ROUTES = [
   { re: /^archive$/, page: archive, nav: "archive", title: "数字卷宗", sub: "已归档项目检索与导出" },
   { re: /^audit$/, page: audit, nav: "audit", title: "审计日志", sub: "Who / When / What / Which" },
   { re: /^users$/, page: users, nav: "users", title: "用户与权限", sub: "账号、角色与数据范围" },
+  { re: /^public-proposals$/, page: publicProposals, nav: "public-proposals", title: "公众活动申请", sub: "仅总管理员 · 公众活动申请收件箱（不审批）" },
   { re: /^invitation-config$/, page: invitationConfig, nav: "invitation-config", title: "邀请函上线配置", sub: "草稿 · 预览 · 发布 · 回退" }
 ];
 

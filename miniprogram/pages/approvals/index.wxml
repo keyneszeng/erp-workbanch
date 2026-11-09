@@ -1,9 +1,27 @@
-<view class="wrap"><view class="card"><view class="heading">我的待审批</view>
-<view wx:if="{{error}}" class="error">{{error}}</view>
-<view wx:if="{{rows.length===0}}" class="muted">当前没有需要我审批的事项，其他审批由对应授权人员处理。</view>
-<view class="item" wx:for="{{rows}}" wx:key="id">
- <view class="title">{{item.title}}</view>
- <view class="muted">{{item.type}} · {{item.pname}} · {{item.id}}</view>
- <button class="btn primary" disabled="{{busy}}" data-id="{{item.id}}" data-approve="yes" bindtap="decide">审批通过</button>
- <button class="btn" disabled="{{busy}}" data-id="{{item.id}}" data-approve="no" bindtap="decide">驳回</button>
-</view></view></view>
+<view class="wrap">
+  <view class="card card-accent">
+    <view class="page-kicker">APPROVAL CENTER</view>
+    <view class="row">
+      <view><view class="heading">我的待审批</view><view class="subtitle">仅显示当前账号有权处理的审批单</view></view>
+      <view class="status-pill status-warning">{{rows.length}} 项</view>
+    </view>
+  </view>
+
+  <view wx:if="{{error}}" class="error"><text class="feedback-icon">!</text><text>{{error}}</text></view>
+  <view wx:if="{{loading}}" class="card loading-state"><view class="spinner"></view><text>正在同步审批事项</text></view>
+
+  <view wx:for="{{rows}}" wx:key="id" class="approval-card">
+    <view class="row"><text class="status-pill status-warning">{{item.type}}</text><text class="meeting-id">{{item.id}}</text></view>
+    <view class="approval-title">{{item.title}}</view>
+    <view class="approval-meta">所属项目：{{item.pname||'—'}}</view>
+    <view class="button-row">
+      <button class="btn ghost" disabled="{{busy}}" data-id="{{item.id}}" data-approve="no" bindtap="decide">驳回</button>
+      <button class="btn primary" disabled="{{busy}}" data-id="{{item.id}}" data-approve="yes" bindtap="decide">审批通过</button>
+    </view>
+  </view>
+
+  <view wx:if="{{!loading && rows.length===0 && !error}}" class="card empty-state">
+    <view class="empty-icon">✓</view><view class="title">暂无待审批事项</view><view class="muted space-sm">新的授权审批单会自动出现在这里。</view>
+  </view>
+  <view class="privacy-note">每次审批都会记录操作者与处理结果，提交后不可撤销。</view>
+</view>

@@ -39,10 +39,14 @@ async function run(){
   ["预算","可用预算","已支付","结余"]);
  assert.deepEqual(await box.locator(".sg-name").allTextContents(),
   ["劳务","会务","协会报销","其他"]);
- assert.equal(await box.locator("details[open]").count(),0,"分类明细默认收起");
- await box.locator('[data-settlement-group="labor"] summary').click();
- assert.equal(await box.locator('[data-settlement-group="labor"][open]').count(),1,"点击劳务应展开");
- assert.ok(await box.locator('[data-settlement-group="labor"] .sg-rows').isVisible());
+ // Categories with paid lines are open by default; empty categories remain collapsed.
+ assert.ok(await box.locator("details[open]").count()>=1,"有付款记录的分类默认展开");
+ const labor=box.locator('[data-settlement-group="labor"]');
+ const initiallyOpen=await labor.getAttribute("open")!==null;
+ await labor.locator("summary").click();
+ assert.equal(await labor.getAttribute("open")!==null,!initiallyOpen,"点击切换分类展开状态");
+ if(initiallyOpen)await labor.locator("summary").click();
+ assert.ok(await labor.locator(".sg-rows").isVisible(),"展开后应能查看付款明细");
  const response=await page.request.get(origin+"/api/settlements/"+settlementId+"/breakdown");
  assert.ok(response.ok());
  const detail=await response.json();
@@ -53,8 +57,10 @@ async function run(){
  await project.waitFor({timeout:12000});
  assert.deepEqual(await project.locator(".settlement-summary .kpi .t").allTextContents(),
   ["预算","可用预算","已支付","结余"]);
- await project.locator('[data-settlement-group="association"] summary').click();
- assert.equal(await project.locator('[data-settlement-group="association"][open]').count(),1);
+ const association=project.locator('[data-settlement-group="association"]');
+ const associationOpen=await association.getAttribute("open")!==null;
+ await association.locator("summary").click();
+ assert.equal(await association.getAttribute("open")!==null,!associationOpen,"项目页分类也应支持展开和收起");
  assert.deepEqual(pageErrors,[],"browser errors");
  console.log("PASS: settlement summary, category toggle, finance and project tabs");
 }

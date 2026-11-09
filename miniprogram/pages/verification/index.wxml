@@ -1,0 +1,47 @@
+<view class="wrap">
+  <view class="card card-accent">
+    <view class="page-kicker">VERIFICATION DETAIL</view>
+    <view class="heading">七项核销</view>
+    <view class="subtitle">{{title||'会议核销详情'}}</view>
+    <view wx:if="{{steps.length}}" class="verify-summary">
+      <view class="verify-score">{{passed}}<text class="verify-total"> / {{total}}</text></view>
+      <view class="grow">
+        <view class="title">{{complete?'核销已完成':'核销未完成'}}</view>
+        <view class="muted">未决例外 {{openExceptions}} 项</view>
+      </view>
+      <view class="status-pill {{complete?'status-success':'status-warning'}}">{{complete?'已完成':'进行中'}}</view>
+    </view>
+    <view wx:if="{{loading}}" class="loading-state"><view class="spinner"></view><text>正在读取核销资料</text></view>
+    <view wx:if="{{error}}" class="error"><text class="feedback-icon">!</text><text>{{error}}</text></view>
+  </view>
+
+  <view wx:if="{{steps.length}}" class="card">
+    <view class="section-head"><view class="section-caption">核销步骤</view><view class="micro">左右滑动选择</view></view>
+    <scroll-view scroll-x class="verify-list" enhanced show-scrollbar="{{false}}">
+      <view wx:for="{{steps}}" wx:key="no" data-no="{{item.no}}" bindtap="selectStep" class="verify-chip {{selectedNo===item.no?'verify-active':''}}">
+        <view class="verify-no">{{item.no}}</view><text>{{item.name}}</text>
+      </view>
+    </scroll-view>
+  </view>
+
+  <view wx:if="{{selected}}" class="card">
+    <view class="section-head">
+      <view><view class="page-kicker">STEP {{selected.no}}</view><view class="section-caption">{{selected.name}}</view></view>
+      <view class="status-pill {{selected.displayResult==='通过'?'status-success':selected.displayResult==='不通过'?'status-warning':'status-muted'}}">{{selected.displayResult}}</view>
+    </view>
+    <view class="muted">以下文件来自当前项目材料库。终版议程仅显示已经确认的有效终版。</view>
+
+    <view wx:if="{{!canViewFiles}}" class="empty-state"><view class="empty-icon">锁</view><view class="title">无原件查看权限</view><view class="muted space-sm">当前账号仅可查看核销进度。</view></view>
+    <view wx:if="{{canViewFiles&&!files.length}}" class="empty-state"><view class="empty-icon">档</view><view class="title">暂无关联原件</view><view class="muted space-sm">请在材料中心补充，或在网页端查看结构化业务凭证。</view></view>
+
+    <view wx:for="{{files}}" wx:key="id" class="file-card">
+      <view class="row">
+        <view class="file-icon">{{item.initial}}</view>
+        <view class="grow"><view class="title">{{item.kind}} · {{item.name}}</view><view class="micro space-sm">{{item.fileName}} {{item.version}}</view></view>
+      </view>
+      <button class="btn ghost" data-id="{{item.id}}" bindtap="viewOriginal">查看原件</button>
+    </view>
+
+    <view class="notice"><text class="notice-icon">i</text><text>手机端仅供查阅。OCR 只辅助比对，最终判定与例外处理需由有权限人员在网页端完成。</text></view>
+  </view>
+</view>

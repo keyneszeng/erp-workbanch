@@ -1,11 +1,36 @@
-<view class="wrap"><view class="card"><view class="heading">绑定企业白名单账号</view>
-<view class="muted">仅限管理员已登记的手机号。首次登录必须短信验证并修改初始密码。</view>
-<input class="field" placeholder="白名单手机号" type="number" maxlength="11" data-key="phone" bindinput="input" value="{{phone}}"/>
-<input class="field" placeholder="账号密码" password data-key="password" bindinput="input" value="{{password}}"/>
-<input class="field" placeholder="6 位短信验证码" type="number" maxlength="6" data-key="smsCode" bindinput="input" value="{{smsCode}}"/>
-<button class="btn" bindtap="send">发送验证码到登记手机</button>
-<input class="field" placeholder="首次登录：设置新密码（字母+数字，至少8位）" password data-key="newPassword" bindinput="input" value="{{newPassword}}"/>
-<view class="muted">如果已经在 Web 端修改过初始密码，新密码一栏可留空。</view>
-<view wx:if="{{error}}" class="error">{{error}}</view>
-<button class="btn primary" loading="{{busy}}" disabled="{{busy}}" bindtap="bind">验证并绑定微信</button>
-</view></view>
+<view class="wrap">
+  <view class="card card-accent">
+    <view class="identity-mark">身份</view>
+    <view class="heading" style="text-align:center">微信身份绑定</view>
+    <view class="subtitle" style="text-align:center">首次进入时完成一次验证，后续可通过微信身份安全登录</view>
+
+    <view class="notice">
+      <text class="notice-icon">i</text>
+      <text>系统将通过微信验证手机号，并自动匹配已有账号权限；非白名单手机号将建立普通用户账号。</text>
+    </view>
+
+    <view class="consent-box">
+      <checkbox-group bindchange="agree">
+        <label class="consent-label">
+          <checkbox value="agree" checked="{{consent}}" color="#2e5fa3"/>
+          <text>我同意使用手机号进行身份识别、账号绑定与权限匹配。手机号不会在业务页面公开展示。</text>
+        </label>
+      </checkbox-group>
+    </view>
+
+    <view wx:if="{{error}}" class="error"><text class="feedback-icon">!</text><text>{{error}}</text></view>
+    <button class="btn primary" open-type="getPhoneNumber" bindgetphonenumber="getPhoneNumber" loading="{{busy}}" disabled="{{busy||!consent}}">
+      微信手机号一键绑定
+    </button>
+    <view class="privacy-note">绑定信息仅用于本系统登录与数据授权，业务权限由服务器统一管理。</view>
+  </view>
+
+  <view class="card entry-card" bindtap="publicApply">
+    <view class="entry-icon public">公众</view>
+    <view class="grow">
+      <view class="entry-title">不绑定，直接申请活动</view>
+      <view class="entry-sub">社会公众活动意向申请无需登录</view>
+    </view>
+    <view class="chevron">›</view>
+  </view>
+</view>
