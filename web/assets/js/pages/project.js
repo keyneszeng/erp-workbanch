@@ -221,9 +221,7 @@ function tabOverview(d, p) {
       <div style="margin-top:12px">${settle
         ? `<div class="gate ok"><b>结算单 ${settle.id} 已生成</b>
              项目预算 ¥${money(settle.income)} · 已付支出 ¥${money(settle.expense)} · 预算结余 ¥${money(settle.profit)}（${settle.created_at}）
-             <div style="margin-top:4px">收款方 ${esc(settle.payee || "—")}${
-               settle.payee_account ? ` · ${esc(settle.payee_bank || "")} <span class="mono">${esc("尾号 " + String(settle.payee_account).slice(-4))}</span>` : " · 未登记收款账户"
-             }</div></div>`
+           </div>`
         : `<div class="gate"><b>结算单未生成</b>适用核销项通过后，还须完成付款申请、审批和付款登记，并核对合同与实际付款金额后才能结算；生成后资料冻结。</div>`}</div>
       <div style="margin-top:10px">${PAYABLE.includes(p.status)
         ? `<div class="gate ok"><b>付款门禁已放行</b>项目已完成核销，可提交付款申请。</div>`
@@ -756,29 +754,6 @@ function openContract(root, pid) {
       btn.disabled = false;
       btn.textContent = "保存";
     }
-  };
-}
-
-/** 补录收款账户（与财务页同一个接口，V1.2.18） */
-function openPayAccount(root, pid, id) {
-  const fields = [
-    { k: "payee_bank", l: "开户行", req: 1, ph: "如：中国银行北京朝阳支行" },
-    { k: "payee_account", l: "银行账号", req: 1, ph: "10~25 位数字，可含空格分隔" }
-  ];
-  const m = modal({
-    title: `登记收款账户 · ${id}`,
-    body: `<div class="hint" style="margin-bottom:12px">这笔付款单还没有收款账户。登记后才能执行付款；已付款的单子不可再改。</div>${formHtml(fields)}`,
-    footer: `<button class="btn btn-o" data-x="0">取消</button><button class="btn btn-p" data-x="1">保存</button>`
-  });
-  m.querySelector('[data-x="0"]').onclick = () => m.classList.remove("open");
-  m.querySelector('[data-x="1"]').onclick = async () => {
-    if (!validate(m, fields)) return;
-    try {
-      const r = await api.patch(`/api/payments/${id}/account`, readForm(m));
-      toast(r.message, "ok");
-      m.classList.remove("open");
-      await refresh(root, pid);
-    } catch (e) { toast(e.message, "warn"); }
   };
 }
 
