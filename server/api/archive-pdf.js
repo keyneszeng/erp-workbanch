@@ -30,6 +30,25 @@ function selectMaterials(pid,body,allKinds){
  const valid=new Set(allKinds.map(s=>s.kind));
  if(kinds.some(x=>!valid.has(x)))
    throw bad("存在不属于该项目的材料类别，请刷新后重选");
+ // Optional ordered selection of individual material IDs: validate against this project's
+ // active material rows; never accept arbitrary file keys or foreign-project IDs.
+ const orderedIds=body?.material_ids;
+ if(orderedIds!==undefined){
+   if(!Array.isArray(orderedIds)||!orderedIds.length||orderedIds.length>120||
+      orderedIds.some(id=>!Number.isSafeInteger(id)||id<1)||
+      new Set(orderedIds).size!==orderedIds.length)
+     throw bad("所选材料或排序参数不合法");
+   const placeholders=orderedIds.map(()=>"?").join(",");
+   const selectedRows=db.prepare(
+     "SELECT id,kind,name,version,file_key,file_name,file_mime,file_size FROM materials "+
+     "WHERE pid=? AND (deleted_at IS NULL OR deleted_at='') AND file_key IS NOT NULL AND file_key<>'' "+
+     "AND id IN ("+placeholders+")"
+   ).all(pid,...orderedIds);
+   const byId=new Map(selectedRows.map(m=>[m.id,m]));
+   if(selectedRows.length!==orderedIds.length||selectedRows.some(m=>!kinds.includes(m.kind)))
+     throw bad("所选材料不属于当前项目或未在勾选类目中，请刷新后重选");
+   return orderedIds.map(id=>byId.get(id));
+ }
  const placeholders=kinds.map(()=>"?").join(",");
  const materials=db.prepare(
    "SELECT id,kind,name,version,file_key,file_name,file_mime,file_size FROM materials WHERE pid=? "+
@@ -47,6 +66,14 @@ function availableKinds(pid){
  ).all(pid);
  return rows.map(row=>({kind:row.kind,entries:row.entries,files:Number(row.files)||0}));
 }
+/** Available originals within current project; limited fields, no raw file keys exposed in options. */
+function availableMaterials(pid){
+ return db.prepare(
+   "SELECT id,kind,name,file_name,file_mime FROM materials WHERE pid=? "+
+   "AND (deleted_at IS NULL OR deleted_at='') AND file_key IS NOT NULL AND file_key<>'' "+
+   "ORDER BY kind,id"
+ ).all(pid);
+}
 function parseWatermark(user,body={}){
  const mode=body.watermark_mode??"default";
  if(!["default","none","custom"].includes(mode))throw bad("水印模式不合法");
@@ -61,7 +88,7 @@ function register(router){
  router.get("/api/projects/:id/archive-pdf/options",async ctx=>{
    const project=getAllowedProject(ctx);
    return {project:{id:project.id,name:project.name,assoc:project.assoc,status:project.status},
-     categories:availableKinds(project.id),can_customize_watermark:isSuper(ctx.user)};
+     categories:availableKinds(project.id),materials:availableMaterials(project.id),can_customize_watermark:isSuper(ctx.user)};
  });
  const generate=async(ctx,legacyAll=false)=>{
    const project=getAllowedProject(ctx);
@@ -87,4 +114,4 @@ function register(router){
  router.get("/api/projects/:id/archive-pdf",async ctx=>generate(ctx,true));
  return router;
 }
-module.exports={register,assertArchiveDownloadAccess,selectMaterials,parseWatermark,availableKinds};
+module.exports={register,assertArchiveDownloadAccess,selectMaterials,parseWatermark,availableKinds,availableMaterials};
