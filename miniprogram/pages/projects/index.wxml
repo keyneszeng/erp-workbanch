@@ -1,16 +1,42 @@
 <view class="wrap">
- <view class="card">
-  <view class="heading">会议项目</view>
-  <view class="tab-row"><view wx:for="{{tabs}}" wx:key="key" class="tab-item {{tab===item.key?'selected':''}}"
-   data-tab="{{item.key}}" bindtap="changeTab">{{item.label}}</view></view>
-  <view class="muted">{{tab==='mine'?'按本人创建记录查询草稿、审批与执行进度':'仅列出当前角色权限范围内的会议'}} · 共 {{total}} 条</view>
-  <view wx:if="{{error}}" class="error">{{error}}</view>
-  <view class="meeting-item" wx:for="{{rows}}" wx:key="id" data-id="{{item.id}}" data-draft="{{tab==='mine' && item.ownDraft?'yes':'no'}}" bindtap="open">
-   <view class="row"><view class="meeting-name">{{item.name}}</view><text class="tag">{{item.status}}</text></view>
-   <view class="muted">{{item.date}} · {{item.assoc}}</view>
-   <view class="muted">{{item.id}}{{tab==='mine'&&item.ownDraft?' · 点击继续完善草稿':''}}</view>
+  <view class="card card-accent">
+    <view class="page-kicker">MEETING PROJECTS</view>
+    <view class="row">
+      <view>
+        <view class="heading">会议项目</view>
+        <view class="subtitle">{{tab==='mine'?'跟进本人提交的立项申请':'查看当前角色权限范围内的会议'}}</view>
+      </view>
+      <view class="status-pill status-muted">{{total}} 条</view>
+    </view>
+    <view class="tab-row space">
+      <view wx:for="{{tabs}}" wx:key="key" class="tab-item {{tab===item.key?'selected':''}}" data-tab="{{item.key}}" bindtap="changeTab">{{item.label}}</view>
+    </view>
+    <button wx:if="{{tab==='mine' && tabs.length>1}}" class="btn primary" bindtap="apply">＋ 新建立项申请</button>
   </view>
-  <view wx:if="{{!loading && !rows.length}}" class="empty-state">暂无记录。会议申请提交后将在这里显示审批进度。</view>
-  <view wx:if="{{loading}}" class="muted">正在加载…</view>
- </view>
+
+  <view wx:if="{{error}}" class="error"><text class="feedback-icon">!</text><text>{{error}}</text></view>
+
+  <view wx:for="{{rows}}" wx:key="id" class="meeting-item" data-id="{{item.id}}" data-draft="{{tab==='mine' && item.ownDraft?'yes':'no'}}" bindtap="open">
+    <view class="row">
+      <view class="meeting-name">{{item.name}}</view>
+      <text class="status-pill {{item.status==='已归档'||item.status==='已结算'||item.status==='已核销'?'status-success':item.status==='待审批'||item.status==='待核销'?'status-warning':item.status==='草稿'?'status-muted':''}}">{{item.status}}</text>
+    </view>
+    <view class="meeting-meta">
+      <text>{{item.date||'日期待定'}}</text><view class="meta-dot"></view><text>{{item.assoc||'协会待定'}}</text>
+    </view>
+    <view class="meeting-foot">
+      <text class="meeting-id">{{item.id}}</text>
+      <view class="row">
+        <text wx:if="{{tab==='mine'&&item.ownDraft}}" class="micro">继续完善草稿</text>
+        <text class="chevron">›</text>
+      </view>
+    </view>
+  </view>
+
+  <view wx:if="{{loading}}" class="loading-state"><view class="spinner"></view><text>正在加载会议项目</text></view>
+  <view wx:if="{{!loading && !rows.length}}" class="card empty-state">
+    <view class="empty-icon">会</view>
+    <view class="title">暂无会议记录</view>
+    <view class="muted space-sm">立项申请提交后，将在这里显示审批与执行进度。</view>
+  </view>
 </view>

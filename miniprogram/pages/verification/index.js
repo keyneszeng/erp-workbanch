@@ -23,7 +23,7 @@ const stepMaterials=(no,materials,contracts,sponsorRights)=>{
     if(!kinds.includes(m.kind))return false;
     if(no===6&&m.kind==="发票"&&!/会务|会议服务|会议执行/.test((m.name||"")+" "+(m.file_name||"")))return false;
     return true;
-  }).map(m=>({id:m.id,kind:m.kind,name:m.name||m.file_name||"未命名原件",fileName:m.file_name||"",key:m.file_key,
+  }).map(m=>({id:m.id,kind:m.kind,initial:String(m.kind||"档").slice(0,1),name:m.name||m.file_name||"未命名原件",fileName:m.file_name||"",key:m.file_key,
     version:m.version||""}));
 };
 Page({

@@ -1,15 +1,36 @@
 <view class="wrap">
- <view class="card">
-  <view class="heading">首次进入 · 手机号绑定</view>
-  <view class="muted">首次进入时，授权微信验证手机号，系统会自动匹配已有账号权限。不在系统白名单的手机号将创建普通用户账号。</view>
-  <view class="field">手机号将用于身份识别及与系统账号权限关联；不会用于公开展示。</view>
-  <checkbox-group bindchange="agree"><label class="muted"><checkbox value="agree" checked="{{consent}}"/> 我同意使用手机号进行账号绑定与权限匹配</label></checkbox-group>
-  <view wx:if="{{error}}" class="error">{{error}}</view>
-  <button class="btn primary" open-type="getPhoneNumber" bindgetphonenumber="getPhoneNumber" loading="{{busy}}" disabled="{{busy||!consent}}">微信手机号一键绑定并登录</button>
-  <view class="muted">后续将通过微信身份无感登录，权限由服务器中的账号授权决定。已有系统账号且使用初始密码的用户仍需完成首次密码安全设置。</view>
- </view>
- <view class="card">
-  <view class="section-caption">无需登录的公众活动申请</view>
-  <button class="btn ghost" bindtap="publicApply">公众活动申请（免登录）</button>
- </view>
+  <view class="card card-accent">
+    <view class="identity-mark">身份</view>
+    <view class="heading" style="text-align:center">微信身份绑定</view>
+    <view class="subtitle" style="text-align:center">首次进入时完成一次验证，后续可通过微信身份安全登录</view>
+
+    <view class="notice">
+      <text class="notice-icon">i</text>
+      <text>系统将通过微信验证手机号，并自动匹配已有账号权限；非白名单手机号将建立普通用户账号。</text>
+    </view>
+
+    <view class="consent-box">
+      <checkbox-group bindchange="agree">
+        <label class="consent-label">
+          <checkbox value="agree" checked="{{consent}}" color="#2e5fa3"/>
+          <text>我同意使用手机号进行身份识别、账号绑定与权限匹配。手机号不会在业务页面公开展示。</text>
+        </label>
+      </checkbox-group>
+    </view>
+
+    <view wx:if="{{error}}" class="error"><text class="feedback-icon">!</text><text>{{error}}</text></view>
+    <button class="btn primary" open-type="getPhoneNumber" bindgetphonenumber="getPhoneNumber" loading="{{busy}}" disabled="{{busy||!consent}}">
+      微信手机号一键绑定
+    </button>
+    <view class="privacy-note">绑定信息仅用于本系统登录与数据授权，业务权限由服务器统一管理。</view>
+  </view>
+
+  <view class="card entry-card" bindtap="publicApply">
+    <view class="entry-icon public">公众</view>
+    <view class="grow">
+      <view class="entry-title">不绑定，直接申请活动</view>
+      <view class="entry-sub">社会公众活动意向申请无需登录</view>
+    </view>
+    <view class="chevron">›</view>
+  </view>
 </view>
