@@ -88,10 +88,10 @@ test("核销劳务收款方自动关联开户行及加密银行账号，无需�
  assert.match(picker,/x\.source==="labor"&&x\.maskedAccount/);
  assert.match(picker,/由服务器安全填入/);
  assert.match(payees,/return \{name:x\.name,amount:x\.amount,bank:x\.bank,account,source:"labor"\}/);
- assert.match(api,/choice\?\.bank \|\| b\.payee_bank/);
- assert.match(api,/choice\?\.account \|\| b\.payee_account/);
+ assert.match(api,/const payeeBank=choice\?\.bank\|\|""/);
+ assert.match(api,/const payeeAccount=choice\?\.account\|\|""/);
  for(const p of [finance,project]){
-   assert.match(p,/source\.source!=="labor"/);
+   assert.doesNotMatch(p,/source\.source!=="labor"/);
  }
  assert.doesNotMatch(picker,/account_cipher|reveal\(/);
 });
@@ -110,4 +110,30 @@ test("核销判定可在线查看原件，第5步展示脱敏账号供人工核�
  assert.match(judge,/劳务表识别的收款账号（仅显示尾号）/);
  assert.doesNotMatch(judge,/bankAccount|bank_account|account_cipher/);
  assert.doesNotMatch(judge,/不从OCR自动导入付款系统/);
+});
+
+test("合同录入及付款申请无需银行信息，财务付款窗口展示关联文件原件",()=>{
+ const project=src("web/assets/js/pages/project.js");
+ const finance=src("web/assets/js/pages/finance.js");
+ const execution=src("web/assets/js/lib/payment-originals.js");
+ const backend=src("server/api/finance.js");
+ const db=src("server/lib/db.js");
+ const contract=project.split("function openContract(root, pid) {")[1]?.split("/** 补录收款账户")[0];
+ assert.ok(contract);
+ assert.doesNotMatch(contract,/payee_bank|payee_account/);
+ for(const source of [project,finance]){
+  const form=source.split("async function openPay(")[1]?.split("const m = modal(")[0];
+  assert.ok(form);
+  assert.doesNotMatch(form,/k: "payee_bank"|k: "payee_account"/);
+  assert.match(source,/executePaymentWithOriginals/);
+ }
+ assert.match(execution,/关联文件原件/);
+ assert.match(execution,/api\/payments\/.*\/originals/);
+ assert.match(execution,/api\/uploads\//);
+ assert.match(execution,/hasLinkedOriginal/);
+ assert.match(backend,/router\.get\("\/api\/payments\/:id\/originals"/);
+ assert.match(backend,/assertCan\(ctx\.user,"payment:pay"/);
+ assert.match(backend,/payee_option_id/);
+ assert.match(db,/addColumn\("payments", "payee_option_id"/);
+ assert.doesNotMatch(backend,/PAYEE_ACCOUNT_MISSING/);
 });
