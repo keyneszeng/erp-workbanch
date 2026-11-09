@@ -22,7 +22,7 @@ function validate(input){
  const topic=str(input.topic,120,"活动主题");
  const event_date=str(input.event_date,10,"活动日期");
  if(!/^\d{4}-\d{2}-\d{2}$/.test(event_date)||
-    new Date(event_date+"T00:00:00.000Z").toISOString().slice(0,10)!==event_date)
+    (!Number.isFinite(Date.parse(event_date+"T00:00:00.000Z")) || new Date(event_date+"T00:00:00.000Z").toISOString().slice(0,10)!==event_date))
     throw bad("请选择有效活动日期");
  const form=str(input.form,10,"活动形式");
  if(!FORMS.has(form))throw bad("活动形式只能是线上、线下或混合");
