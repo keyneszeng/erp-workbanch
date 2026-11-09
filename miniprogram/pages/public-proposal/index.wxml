@@ -16,6 +16,9 @@
   <view class="field"><text class="required">＊</text>活动时间
    <picker mode="date" value="{{event_date}}" bindchange="pickDate"><view class="field-value">{{event_date||'选择计划举办日期'}} ▾</view></picker>
   </view>
+  <view class="field"><text class="required">＊</text>计划开始时间
+   <picker mode="time" value="{{event_time}}" bindchange="pickTime"><view class="field-value">{{event_time||'选择开始时间'}} ▾</view></picker>
+  </view>
   <view class="field"><text class="required">＊</text>活动形式
    <picker mode="selector" range="{{forms}}" value="{{formIndex}}" bindchange="pickForm"><view class="field-value">{{form}} ▾</view></picker>
   </view>
