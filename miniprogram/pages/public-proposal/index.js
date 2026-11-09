@@ -24,7 +24,7 @@ Page({
   }catch(e){this.setData({error:e.message||"提交失败，请稍后重试"});}
   finally{this.setData({busy:false});}
  },
- again(){this.setData({topic:"",event_date:"",form:"线下",formIndex:0,budget:"",agenda:"",contact_name:"",
+ again(){this.setData({topic:"",event_date:"",event_time:"",form:"线下",formIndex:0,budget:"",agenda:"",contact_name:"",
    contact_phone:"",contact_info:"",consent:false,reference:"",submitted:false,error:""});},
  onShareAppMessage(){return {title:"社会公众活动立项申请",path:"/pages/public-proposal/index"};}
 });
