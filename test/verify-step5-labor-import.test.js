@@ -66,6 +66,9 @@ before(async()=>{
  // 模拟已完成 OCR/原生文本提取：文本层里含完整账号，报告对外必须脱敏。
  db.prepare("INSERT INTO material_ocr_results (material_id,pid,file_key,recognized_text,suggestions_json,engine,mode,pages,total_pages,truncated,updated_at,updated_by) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)")
   .run(Number(m.lastInsertRowid),pid,"labor.txt",LABOR_TEXT,"[]","文本内容提取 v1","native-text",1,1,0,at,"总管理员");
+ // 劳务专家合同：付款时选它也应自动带出同名劳务收款账号。
+ db.prepare("INSERT INTO contracts (id,pid,name,vendor,amount,sign_date,status,category,created_by,created_at,file_key) VALUES (?,?,?,?,?,?,?,?,?,?,?)")
+  .run("HT-LABOR-1",pid,"张伟明专家劳务合同","张伟明",1000,"2026-11-01","已签署","劳务专家",1,at,"labor-contract.pdf");
 });
 after(()=>{if(proc)proc.kill("SIGTERM");fs.rmSync(dir,{recursive:true,force:true});});
 
@@ -109,6 +112,17 @@ test("OCR 判定通过后账号加密入库，付款下拉可选到 labor 来源
  assert.equal(labor[0].maskedAccount,"尾号 "+A1.slice(-4));
  const text=JSON.stringify(po.body);
  assert.ok(!text.includes(A1)&&!text.includes(A2),"付款下拉不能暴露完整账号");
+
+ // 劳务专家合同应自动关联同名劳务账号：只保留一条，带开户行和尾号。
+ const zhang=po.body.rows.filter(x=>x.payee==="张伟明");
+ assert.equal(zhang.length,1,"张伟明不应出现合同/劳务两条重复选项");
+ assert.equal(zhang[0].id,"contract:HT-LABOR-1");
+ assert.equal(zhang[0].source,"labor");
+ assert.equal(zhang[0].linkedContract,true);
+ assert.equal(zhang[0].bank,"中国工商银行广州分行");
+ assert.equal(zhang[0].maskedAccount,"尾号 "+A1.slice(-4));
+ // 没有合同的劳务收款人仍单独列出
+ assert.ok(po.body.rows.some(x=>x.id.startsWith("labor:")&&x.payee==="李建国"));
 });
 
 test("判定不通过时清空已保存的劳务账号",async()=>{
