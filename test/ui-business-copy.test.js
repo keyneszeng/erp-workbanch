@@ -95,3 +95,19 @@ test("核销劳务收款方自动关联开户行及加密银行账号，无需�
  }
  assert.doesNotMatch(picker,/account_cipher|reveal\(/);
 });
+
+test("核销判定可在线查看原件，第5步展示脱敏账号供人工核对",()=>{
+ const judge=src("web/assets/js/lib/verify-ocr-judge.js");
+ const css=src("web/assets/app-extra.css");
+ // 在线预览窗口：PDF 用 iframe、图片用 img，并保留新窗口打开入口
+ assert.match(judge,/data-view=/);
+ assert.match(judge,/openViewer/);
+ assert.match(judge,/iframe src=/);
+ assert.match(judge,/新窗口打开/);
+ assert.match(css,/\.fv-box/);
+ // 第5步只展示尾号，绝不把完整账号渲染到页面
+ assert.match(judge,/laborRecordsMasked/);
+ assert.match(judge,/劳务表识别的收款账号（仅显示尾号）/);
+ assert.doesNotMatch(judge,/bankAccount|bank_account|account_cipher/);
+ assert.doesNotMatch(judge,/不从OCR自动导入付款系统/);
+});
