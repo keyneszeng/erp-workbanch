@@ -15,12 +15,18 @@ test("核销 CSV 有七项结果，不让例外单错位",()=>{
   has("server/api/system.js","step_no=7) AS s7");
   has("server/api/system.js",'r.s7 || "待判定/不适用"');
 });
-test("两个付款入口都支持分期期次且账户补录要求付款权限",()=>{
+test("两个付款入口都支持分期期次，付款执行统一走原件核对",()=>{
   for(const p of ["web/assets/js/pages/project.js","web/assets/js/pages/finance.js"]){
     has(p,'k: "period", l: "期次');
-    has(p,'y.status !== "已付款" && can("payment:pay")');
+    // PR #78 后：只有「已审批」且具付款权限才出现付款按钮；
+    // 账户不在列表里单独登记，改为执行付款时补录。
+    has(p,'y.status === "已审批" && can("payment:pay")');
+    no(p,'data-acct');
+    no(p,'data-pay-acct');
   }
   has("server/api/system.js",'r.period || ""');
+  has("web/assets/js/lib/payment-execution.js",'name="payee_account"');
+  has("web/assets/js/lib/payment-execution.js",'data-verified');
 });
 test("小程序赞助权益照片上传必须选择合同权益二级类目",()=>{
   const p="miniprogram/pages/materials/index.js";
