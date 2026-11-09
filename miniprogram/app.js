@@ -1,6 +1,20 @@
 const config = require("./config");
+const devMode = config.devMode === true;
+const apiBase = devMode && config.devApiBase ? config.devApiBase : config.apiBase;
+
+/**
+ * 生产只允许 HTTPS 域名；HTTP 仅在 devMode 下放行（微信开发者工具调试用）。
+ * 占位域名与 Cloudflare 演示域名任何时候都拒绝，避免误连非正式环境。
+ */
+function blockedOrigin(base) {
+  if (/production\.example\.com/.test(base)) return true;
+  if (/^https:\/\/erp\.aibuild\.work(?:\/|$)/i.test(base)) return true;
+  if (/^https:\/\//.test(base)) return false;
+  return !devMode;
+}
+
 App({
-  globalData: { apiBase: config.apiBase, token: "", user: null, perms: [] },
+  globalData: { apiBase, token: "", user: null, perms: [] },
   onLaunch() {
     this.globalData.token = wx.getStorageSync("erp_mini_token") || "";
   },
@@ -17,10 +31,10 @@ App({
     wx.removeStorageSync("erp_mini_token");
   },
   api(path, method = "GET", data = null, extraHeaders = {}) {
-    if (!/^https:\/\//.test(this.globalData.apiBase) ||
-        /production\.example\.com/.test(this.globalData.apiBase) ||
-        /^https:\/\/erp\.aibuild\.work(?:\/|$)/i.test(this.globalData.apiBase)) {
-      return Promise.reject(new Error("请先配置阿里云 HTTPS 正式 API 域名"));
+    if (blockedOrigin(this.globalData.apiBase)) {
+      return Promise.reject(new Error(devMode
+        ? "请先配置小程序接口地址"
+        : "请先配置阿里云 HTTPS 正式 API 域名"));
     }
     const token = this.globalData.token;
     const headers = { "Content-Type": "application/json", ...extraHeaders };
@@ -52,9 +66,10 @@ App({
       return Promise.reject(new Error("无效的材料文件标识"));
     const base = this.globalData.apiBase;
     const token = this.globalData.token;
-    if (!/^https:\/\//.test(base) || /production\.example\.com/.test(base) ||
-        /^https:\/\/erp\.aibuild\.work(?:\/|$)/i.test(base) || !token)
-      return Promise.reject(new Error("请先登录已配置的正式 HTTPS 服务"));
+    if (blockedOrigin(base) || !token)
+      return Promise.reject(new Error(devMode
+        ? "请先登录测试服务"
+        : "请先登录已配置的正式 HTTPS 服务"));
     return new Promise((resolve, reject) => wx.downloadFile({
       url: base + "/uploads/" + encodeURIComponent(fileKey),
       header: { Authorization: "Bearer " + token },
