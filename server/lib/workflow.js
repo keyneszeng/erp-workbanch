@@ -181,9 +181,11 @@ const GUARDS = {
       const paid = db.prepare("SELECT COUNT(*) AS n, COALESCE(SUM(amount),0) AS total FROM payments WHERE pid=? AND status='已付款'").get(p.id);
       if (!paid.n) return "结算前必须先申请付款并由财务完成实际付款，不能跳过付款直接结算";
       if (v.demandRequired) {
+        // 第 6 步新口径不再校验发票金额，只要求该步已判定通过
+        // （预算与已签会务合同一致、发票原件已关联在判定时已核过）。
         const step=v.steps.find(s=>s.no===6);
-        if(step?.result!=="通过" || !Number.isFinite(step.invoiceAmount))
-          return "已建立会务需求表时必须完成第6项会务需求表、会务合同及会务发票三单一致核验";
+        if(step?.result!=="通过")
+          return "已建立会务需求表时必须先完成第6项会务合同与发票关联核对";
       }
       const signedTotal=db.prepare("SELECT COALESCE(SUM(amount),0) AS total FROM contracts WHERE pid=? AND status='已签署' AND COALESCE(category,'')<>'企业赞助'").get(p.id).total;
       if(cents(paid.total)!==cents(signedTotal))

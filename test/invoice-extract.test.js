@@ -1,6 +1,6 @@
 "use strict";
 const {test}=require("node:test"),assert=require("node:assert/strict");
-const {extractInvoice,extractInvoiceNo,extractInvoiceAmount}=require("../server/lib/invoice-extract");
+const {extractInvoice,extractInvoiceNo,extractInvoiceAmount,sumInvoiceAmounts}=require("../server/lib/invoice-extract");
 
 test("增值税发票：自动提取发票号码及价税合计（不是未税金额/税额）",()=>{
  const result=extractInvoice([
@@ -48,4 +48,30 @@ test("OCR 页数截断说明以及可识别字段缺失的提示",()=>{
  assert.equal(r.fields.amount,null);
  assert.match(r.note,/前3页/);
  assert.equal(r.truncated,true);
+});
+
+test("核销第6项：增值税发票同时有未税金额/税额/价税合计时只汇总含税金额",()=>{
+ const first=[
+  "增值税电子普通发票",
+  "发票号码：12345678",
+  "金额 1000.00 税率 6% 税额 60.00",
+  "价税合计（小写）￥1,060.00"
+ ].join("\n");
+ const second=[
+  "电子发票（普通发票）",
+  "发票号码：25000000000012345678",
+  "金额：200.00",
+  "税额：12.00",
+  "价 税 合 计",
+  "（小写） ￥212.00"
+ ].join("\n");
+ assert.equal(sumInvoiceAmounts([first]),1060);
+ assert.equal(sumInvoiceAmounts([first,second]),1272);
+});
+test("核销第6项：发票缺失、含税金额不明或冲突时不得猜测合计金额",()=>{
+ assert.equal(sumInvoiceAmounts([]),null);
+ assert.equal(sumInvoiceAmounts(["金额：1000.00\n税额：60.00"]),null);
+ assert.equal(sumInvoiceAmounts(["价税合计：100元\n价税合计：200元"]),null);
+ assert.equal(sumInvoiceAmounts(["开票金额：100元","发票号码：12345678"]),null);
+ assert.equal(sumInvoiceAmounts(["价税合计：0.10","价税合计：0.20"]),0.3);
 });

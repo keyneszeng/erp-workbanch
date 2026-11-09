@@ -539,9 +539,10 @@ function register(router) {
     if(invoiceNo.length>40)throw bad("发票号不能超过 40 字");
     if (!isDemoMode()) {
       const v=verification(p.id);
-      if(v.demandRequired && (v.steps.find(s=>s.no===6)?.result!=="通过" ||
-          !Number.isFinite(v.steps.find(s=>s.no===6)?.invoiceAmount)))
-        throw conflict("存在会务需求时必须先完成第6项会务三单一致核验再请款","INVOICE_CHECK_REQUIRED");
+      // 第 6 步新口径不校验发票金额，这里只要求该步已判定通过；
+      // 旧的「必须识别出发票金额」会让扫描件/多张发票的项目永远请不了款。
+      if(v.demandRequired && v.steps.find(s=>s.no===6)?.result!=="通过")
+        throw conflict("存在会务需求时必须先完成第6项会务合同与发票关联核对再请款","INVOICE_CHECK_REQUIRED");
       const signed=db.prepare("SELECT COALESCE(SUM(amount),0) AS total FROM contracts WHERE pid=? AND status='已签署' AND COALESCE(category,'')<>'企业赞助'").get(p.id);
       const allocated=db.prepare("SELECT COALESCE(SUM(amount),0) AS total FROM payments WHERE pid=? AND status IN ('待审批','已审批','已付款')").get(p.id);
       const requested=Number(b.amount);

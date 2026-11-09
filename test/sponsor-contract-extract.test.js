@@ -59,3 +59,21 @@ test("OCR 合同常见排版：同一行甲乙方、跨行总额、大写金额"
  const amb=extractLedgerContract("甲方：甲科技有限公司\n乙方：乙科技有限公司\n合同总金额：20000元");
  assert.equal(amb.fields.vendor,"");
 });
+
+test("扫描件 OCR 逐字空格：标签与公司名仍能识别，且不会错取乙方",()=>{
+ const {extractLedgerContract}=require("../server/lib/sponsor-contract-extract");
+ // 真实扫描件经 RapidOCR 后常见形态：每个汉字之间被插入空格
+ const r=extractLedgerContract(
+  "甲 方 ： 广 州 康 泰 医 药 有 限 公 司\n乙 方 ： 广 东 省 医 学 会\n合 同 金 额 ： 300000 元");
+ assert.equal(r.fields.vendor,"广州康泰医药有限公司","签约方应为甲方公司，不能被错认成乙方协会");
+ assert.equal(r.fields.amount,300000);
+ assert.equal(r.status,"待人工确认");
+});
+
+test("逐字空格不能破坏同一行并排的甲乙方",()=>{
+ const {extractLedgerContract}=require("../server/lib/sponsor-contract-extract");
+ const r=extractLedgerContract(
+  "甲方：广东省医学会    乙方：深圳市卓越会务服务有限公司\n合同总价：人民币88,000.00元");
+ assert.equal(r.fields.vendor,"深圳市卓越会务服务有限公司");
+ assert.equal(r.fields.amount,88000);
+});

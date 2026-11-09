@@ -7,6 +7,8 @@ const {contractPool,linkLaborContracts}=require("./labor-contracts"),{demandSopS
 const {sponsorRights}=require("./sponsor-rights");
 const office=require("./verify-office-text");
 const agendaEvidence=require("./verify-agenda-evidence");
+const laborSheet=require("./labor-sheet-extract");
+const {extractInvoiceAmount}=require("./invoice-extract");
 const OCR_TYPES=new Set(["jpg","png","pdf"]),MAX_FILES=32;
 const KINDS={
  1:["会议通知","招商函","串场"],2:["终版议程","讲者照片"],
@@ -58,13 +60,24 @@ function persist(m,pid,result,operator){
  .run(m.id,pid,m.file_key,result.text,JSON.stringify(m.kind==="终版议程"?ocr.parseAgenda(result.text):[]),
   result.engine,result.mode,result.pages,result.totalPages,result.truncated?1:0,now(),operator);
 }
+/** 浏览器可见的报告：剔除完整银行账号，只保留尾号与条数。 */
+function publicReport(pid,no){
+ const r=report(pid,no);
+ if(r.laborRecords){
+  r.laborRecordsMasked=r.laborRecords.map(x=>({name:x.name,amount:x.amount,maskedAccount:laborSheet.mask(x.bankAccount)}));
+  delete r.laborRecords;
+ }
+ return r;
+}
 async function scan(pid,no,operator){
  const docs=materials(pid,no);
+ // Step 6 is a materials-link check; invoice OCR is not a prerequisite.
+ if(no===6)return {...publicReport(pid,no),processed:0};
  const available=ocr.enabled()&&storage().name==="fs";
  // Native Office files (including XLSX attendance) never require RapidOCR.
  // On demo installs do not simulate image recognition, but do read real Office bytes.
  const officePresent=docs.some(m=>office.SUPPORTED.has(m.file_key.split(".").pop().toLowerCase()));
- if(!isDemoMode()&&!available&&!officePresent&&no!==7)
+ if(!isDemoMode()&&!available&&!officePresent&&no!==7&&no!==6)
   throw Object.assign(new Error("当前部署未启用 RapidOCR，请在阿里云 ECS 配置 ERP_OCR_ENABLED=1，安装 RapidOCR (ONNX Runtime CPU) 和 Poppler；Excel原生表格可不依赖 RapidOCR 解析"),{status:503,code:"OCR_NOT_CONFIGURED"});
  // Step 7 can always be reviewed from the original signed sponsor agreements
  // and photos; image OCR cannot prove that contractual rights were delivered.
@@ -85,15 +98,12 @@ async function scan(pid,no,operator){
    // pretend a failed or ambiguous document was a verified attendance list.
   }
  }
- return {...report(pid,no),processed};
+ return {...publicReport(pid,no),processed};
 }
-function amounts(t){
- const list=[];
- for(const x of String(t||"").matchAll(/(?:价税合计|合计金额|发票金额|总金额|金额|人民币|[¥￥]|Total)\s*[:：]?\s*[¥￥]?\s*([0-9][0-9,]*(?:\.[0-9]{1,2})?)/gi)){
-  const n=Number(x[1].replace(/,/g,""));
-  if(n>0&&n<1e9)list.push(n);
- }
- return [...new Set(list)];
+// Compatibility helper: only the VAT-inclusive total is meaningful for an invoice.
+function amounts(text){
+ const value=extractInvoiceAmount(text);
+ return value===null?[]:[value];
 }
 function report(pid,no){
  const p=db.prepare("SELECT id,name,assoc,date,form FROM projects WHERE id=?").get(pid);
@@ -107,7 +117,7 @@ function report(pid,no){
  const by=k=>docs.filter(x=>x.kind===k),txt=k=>by(k).map(x=>x.text).filter(Boolean).join("\n");
  const checks=[],add=(name,value,detail,source=[])=>checks.push(cmp(name,value,detail,source));
  const agenda=txt("终版议程"),agendaDocs=by("终版议程");
- let invoiceAmount=null;
+ let invoiceAmount=null,laborExtract=null;
  if(no===1){
   const letters=[...by("会议通知"),...by("招商函")],hosts=by("串场");
   add("函件与串场原件",letters.length&&hosts.length?true:null,"函件"+letters.length+"份、串场"+hosts.length+"份",ids([...letters,...hosts]));
@@ -164,6 +174,9 @@ function report(pid,no){
   if(!courses.length)add("课件原件",null,"缺少已上传课件");
  }else if(no===5){
   const labor=[...by("劳务表"),...by("劳务登记表"),...by("劳务收集表")];
+  // 从劳务表原文提取「姓名+银行账号+金额」齐全的行；缺项的行只计数，交人工补录。
+  // 完整账号只在服务端内存中使用，对外一律只给尾号。
+  laborExtract=laborSheet.extractLaborRecords(labor.map(x=>x.text).filter(Boolean).join("\n"));
   const pool=contractPool(db,pid);
   const contractIds=new Set(pool.rows.map(x=>Number(x.id)));
   const contracts=docs.filter(x=>contractIds.has(Number(x.materialId)));
@@ -185,22 +198,32 @@ function report(pid,no){
   }))];
   const linked=names.length?linkLaborContracts(db,pid,names):null;
   add("劳务登记表原件",labor.some(x=>x.text)?true:null,
-    "已关联"+labor.length+"份劳务登记表；银行账号不显示或保存到核销证据",ids(labor));
+    "已关联"+labor.length+"份劳务登记表；银行账号仅显示尾号，原件供人工核对",ids(labor));
   add("劳务专家合同原件",contracts.length?true:null,
     "仅关联劳务专家类别或明确标注专家劳务的合同，共"+contracts.length+"份",ids(contracts));
   add("劳务姓名与专家合同",names.length?linked.missing.length===0&&linked.ambiguous.length===0:null,
     names.length?"提取"+names.length+"位人员，匹配"+linked.linked.length+"份专家合同；缺失"+
       linked.missing.length+"位，歧义"+linked.ambiguous.length+"位":"未可靠提取劳务名单，需人工核查",
     ids([...labor,...contracts]));
+  // 账号识别结果始终标记为「无法确认」：系统不代替人工核对原件。
+  // 判定通过时这些记录会加密入库，付款申请即可直接选用。
+  add("劳务收款账号识别",null,
+    laborExtract.records.length?
+      "识别到"+laborExtract.records.length+"条（姓名/账号/金额齐全）："+
+        laborExtract.records.map(x=>x.name+" "+laborSheet.mask(x.bankAccount)).join("、")+
+        (laborExtract.skipped?"；另有"+laborExtract.skipped+"行不完整需人工补录":"")+
+        "。请打开原件核对账号尾号后再判定":
+      "未能从劳务表可靠提取「姓名+银行账号+金额」，判定后不会自动导入付款，可对照原件人工登记",
+    ids(labor));
  }else if(no===6){
   const d=demandSopState(db,pid);
   const contractIds=new Set(d.agreements.map(x=>Number(x.id)));
   const invoiceIds=new Set(d.invoices.map(x=>Number(x.id)));
   const agreements=docs.filter(x=>contractIds.has(Number(x.materialId)));
   const invoices=docs.filter(x=>invoiceIds.has(Number(x.materialId)));
-  const extracted=invoices.map(x=>amounts(x.text));
-  invoiceAmount=extracted.length&&extracted.every(x=>x.length===1)?
-    extracted.reduce((n,x)=>n+Math.round(x[0]*100),0)/100:null;
+  // Step 6 requires a linked invoice original, not OCR extraction of its amount.
+  // Keep invoice text recognition optional; it must not block a linked-file check.
+  invoiceAmount=null;
   add("会务需求表",d.required?d.confirmed:null,
     d.required?"已登记需求表，确认归档："+(d.confirmed?"是":"否")+"；预算"+d.budgetTotal+"元":"未建立会务需求表");
   add("已签会务合同原件",d.contractCount&&agreements.length?true:null,
@@ -208,10 +231,8 @@ function report(pid,no){
   add("会务需求表与会务合同金额一致",d.contractCount?
     Math.round(d.budgetTotal*100)===Math.round(d.contractTotal*100):null,
     "需求表"+d.budgetTotal+"元，会务合同"+d.contractTotal+"元",ids(agreements));
-  add("会务发票与合同和需求表金额一致",invoiceAmount!==null?
-    Math.round(invoiceAmount*100)===Math.round(d.budgetTotal*100)&&
-      Math.round(invoiceAmount*100)===Math.round(d.contractTotal*100):null,
-    invoiceAmount!==null?"会务发票识别合计"+invoiceAmount+"元":"会务发票金额尚不能可靠唯一识别",ids(invoices));
+  add("已关联会务发票原件",invoices.length>0,
+    invoices.length?"已关联"+invoices.length+"份会务发票原件":"尚未关联会务发票原件",ids(invoices));
  }else if(no===7){
   const rights=sponsorRights(db,pid);
   add("赞助合同与权益来源",rights.activeContracts.length?true:null,
@@ -224,10 +245,10 @@ function report(pid,no){
    add("权益交付："+r.category,null,pictures.length+"份照片，OCR无法判断实际交付及照片真实性",pictures.map(x=>x.id));
   }
  }
- for(const file of docs.filter(x=>x.state!=="recognized"&&!(no===2&&x.kind==="讲者照片")))
+ for(const file of docs.filter(x=>x.state!=="recognized"&&no!==6&&!(no===2&&x.kind==="讲者照片")))
   add("文件识别："+file.name,null,file.state==="unsupported"?
     "该格式无法直接OCR，请补充 PDF/JPG/PNG 原件":"文件缺失、无文字或未识别成功",[file.materialId]);
- for(const file of docs.filter(x=>x.truncated))
+ for(const file of docs.filter(x=>x.truncated&&no!==6))
   add("超出扫描页数："+file.name,null,"共"+file.totalPages+"页，仅识别前"+file.pages+"页，需人工核对剩余页面",[file.materialId]);
  if(!docs.length)add("原件",null,"没有本步骤可以扫描的有效文件");
  const fingerprint={
@@ -243,12 +264,16 @@ function report(pid,no){
   checkSummary:{match:checks.filter(x=>x.status==="一致").length,mismatch:checks.filter(x=>x.status==="不一致").length,
     uncertain:checks.filter(x=>x.status==="无法确认").length},
   ...(no===2?{matchedSources:["终版议程","讲者照片"]}:{}),
-  ...(no===5?{laborSourceSignature:laborSheetInfo(db,pid).signature,contractPoolSignature:contractPool(db,pid).signature}:{}),
+  ...(no===5?{laborSourceSignature:laborSheetInfo(db,pid).signature,contractPoolSignature:contractPool(db,pid).signature,
+    laborAccounts:laborExtract.records.map(x=>({name:x.name,amount:x.amount,maskedAccount:laborSheet.mask(x.bankAccount)})),
+    laborSkipped:laborExtract.skipped,laborCount:laborExtract.records.length}:{}),
   ...(no===6?{demandSopSignature:demandSopState(db,pid).signature}:{}),
   ...(no===7?{rightsSignature:sponsorRights(db,pid).signature}:{})
  };
  return {pid,no,token,scanned:docs.filter(x=>x.state==="recognized").length,total:docs.length,
   invoiceAmount,checks,evidence,summary:evidence.checkSummary,
+  // 完整账号只给服务端判定逻辑使用；scan() 返回给浏览器前会剔除。
+  ...(no===5?{laborRecords:laborExtract.records}:{}),
   ...(no===6?{demandSheet:(d=>({exists:d.required,confirmed:d.confirmed,
     budgetTotal:d.budgetTotal,needCount:d.needCount,contractTotal:d.contractTotal}))(demandSopState(db,pid))}:{}),
   ...(no===7?{sponsorContracts:sponsorRights(db,pid).contracts.map(x=>({

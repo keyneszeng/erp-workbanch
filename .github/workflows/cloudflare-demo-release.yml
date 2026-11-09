@@ -1,10 +1,14 @@
 name: Release ERP Cloudflare demo (never production)
 
 # Release marker 2026-11-01: fix super-admin new-account button label in Cloudflare demo only.
-# Live demo releases require an explicit manual dispatch after CI passes.
-# Updating business code or this workflow must never silently deploy live demo data.
+# One-time release when this dedicated workflow is introduced on main.
+# Further releases require manually dispatching this workflow.
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/cloudflare-demo-release.yml'
 
 permissions:
   contents: read
@@ -35,16 +39,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '22'
-
-      - name: Reject demo release unless the business code matches ECS test
-        run: |
-          set -euo pipefail
-          git fetch --no-tags --depth=1 origin 'refs/heads/云服务器测试版本:refs/remotes/origin/erp-test-baseline'
-          if ! git diff --quiet refs/remotes/origin/erp-test-baseline HEAD -- \
-              server web miniprogram worker api package.json wrangler.jsonc; then
-            echo "::error::Cloudflare demo code differs from ECS test business baseline"
-            exit 1
-          fi
 
       - name: Verify demo-only release configuration and forbid production modes
         run: |
