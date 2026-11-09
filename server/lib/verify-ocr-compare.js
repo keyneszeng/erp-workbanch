@@ -11,7 +11,7 @@ const laborSheet=require("./labor-sheet-extract");
 const {extractInvoiceAmount}=require("./invoice-extract");
 const OCR_TYPES=new Set(["jpg","png","pdf"]),MAX_FILES=32;
 const KINDS={
- 1:["会议通知","招商函","串场"],2:["终版议程","讲者照片"],
+ 1:["会议通知","招商函","终版议程","串场"],2:["终版议程","讲者照片"],
  3:["签到表","在线记录","直播数据","在线时长","会议截图"],
  4:["终版议程","课件"],5:["劳务表","劳务登记表","劳务收集表"],
  6:[],
@@ -42,7 +42,7 @@ function materials(pid,no){
     (["合同","赞助合同"].includes(m.kind)&&keys.has(m.file_key))).slice(0,MAX_FILES);
  }
  return docs.filter(m=>((KINDS[no]||[]).includes(m.kind)||(expertIds?.has(Number(m.id))))
-  &&!(m.kind==="终版议程"&&((no===2||no===4)?m.version!=="终版":m.version==="历史版"))).slice(0,MAX_FILES);
+  &&!(m.kind==="终版议程"&&([1,2,4].includes(no)?m.version!=="终版":m.version==="历史版"))).slice(0,MAX_FILES);
 }
 function cache(m,pid){
  const row=db.prepare("SELECT recognized_text,engine,mode,pages,total_pages,truncated FROM material_ocr_results WHERE material_id=? AND pid=? AND file_key=?").get(m.id,pid,m.file_key);
@@ -120,11 +120,19 @@ function report(pid,no){
  let invoiceAmount=null,laborExtract=null;
  if(no===1){
   const letters=[...by("会议通知"),...by("招商函")],hosts=by("串场");
-  add("函件与串场原件",letters.length&&hosts.length?true:null,"函件"+letters.length+"份、串场"+hosts.length+"份",ids([...letters,...hosts]));
+  const sources=[...letters,...agendaDocs,...hosts],allSources=ids(sources);
+  add("盖章函件、当前终版议程与串场原件",
+   letters.length>0&&agendaDocs.length===1&&hosts.length>0?true:null,
+   "函件"+letters.length+"份、当前终版议程"+agendaDocs.length+"份、串场"+hosts.length+"份",allSources);
+  // All three primary source groups must be represented; OCR remains an assistive
+  // comparison and cannot establish the authenticity of a physical stamp.
   for(const [name,value,test] of [["会议标题",p.name,contains],["会议日期",p.date,dateContains],["所属协会",p.assoc,contains]]){
-   const a=letters.some(x=>x.text&&test(x.text,value)),b=hosts.some(x=>x.text&&test(x.text,value));
-   add(name,!letters.some(x=>x.text)||!hosts.some(x=>x.text)?null:a&&b,
-    "函件："+(a?"已识别":"未找到")+"，串场："+(b?"已识别":"未找到"),ids([...letters,...hosts]));
+   const a=letters.some(x=>x.text&&test(x.text,value));
+   const b=hosts.some(x=>x.text&&test(x.text,value));
+   const c=agendaDocs.some(x=>x.text&&test(x.text,value));
+   const ready=letters.some(x=>x.text)&&hosts.some(x=>x.text)&&agendaDocs.length===1&&!!agendaDocs[0].text;
+   add(name,ready?a&&b&&c:null,
+    "函件："+(a?"已识别":"未找到")+"，终版议程："+(c?"已识别":"未找到")+"，串场："+(b?"已识别":"未找到"),allSources);
   }
   add("原件盖章真实性",null,"OCR无法验证实体印章或签章法律效力，需人工查看");
  }else if(no===2){
@@ -263,6 +271,7 @@ function report(pid,no){
   sources:docs.map(x=>({materialId:x.materialId,kind:x.kind,fileKey:x.fileKey,state:x.state,pages:x.pages,totalPages:x.totalPages,truncated:x.truncated})),
   checkSummary:{match:checks.filter(x=>x.status==="一致").length,mismatch:checks.filter(x=>x.status==="不一致").length,
     uncertain:checks.filter(x=>x.status==="无法确认").length},
+  ...(no===1?{matchedSources:["盖章函件","终版议程","串场"]}:{}),
   ...(no===2?{matchedSources:["终版议程","讲者照片"]}:{}),
   ...(no===5?{laborSourceSignature:laborSheetInfo(db,pid).signature,contractPoolSignature:contractPool(db,pid).signature,
     laborAccounts:laborExtract.records.map(x=>({name:x.name,amount:x.amount,maskedAccount:laborSheet.mask(x.bankAccount)})),
