@@ -710,6 +710,7 @@ function migrate() {
   addColumn("payments", "dedupe_key", "dedupe_key TEXT");
   // 付款期次：分期付款常常两期金额相同，只靠「类型+收款方+金额」去重会把第二期误判成重复。
   addColumn("payments", "period", "period TEXT");
+  addColumn("payments", "payee_source_id", "payee_source_id TEXT");
   db.exec("CREATE UNIQUE INDEX IF NOT EXISTS ux_payments_active_dedupe ON payments(pid,dedupe_key) WHERE dedupe_key IS NOT NULL AND status <> '已驳回'");
   // V1.2.0：材料附件
   addColumn("materials", "file_key", "file_key TEXT");
