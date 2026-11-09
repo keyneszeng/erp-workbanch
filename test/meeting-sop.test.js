@@ -22,6 +22,7 @@ test("盖章函件与串场三个字段一致即可通过；不需要招商主�
  const result=validateSopEvidence(1,e,project,db);
  assert.equal(result.fieldsMatched,3);
  assert.equal(result.comparedWith,"串场");
+ assert.deepEqual(result.matchedSources,["会议通知","终版议程","串场"]);
  assert.ok(!Object.hasOwn(result,"sponsor"));
  expectBlock(1,{...e,stamped:false});
  expectBlock(1,{...e,final:false});
@@ -53,7 +54,28 @@ test("核销第1步页面不再有招商主体输入，需录入串场三项字�
  assert.match(form,/hostMeetingDate/);
  assert.match(form,/hostOrganizer/);
  assert.doesNotMatch(form,/招商主体/);
- assert.match(detail,/\["会议通知","招商函","串场"\]/);
+ assert.match(detail,/\["会议通知","招商函","终版议程","串场"\]/);
+});
+test("第1步须关联当前确认的终版议程，历史版不能通过",()=>{
+ const e={documentKind:"会议通知",meetingName:"会议甲",meetingDate:"2026-11-01",organizer:"学会甲",
+  hostMeetingName:"会议甲",hostMeetingDate:"2026-11-01",hostOrganizer:"学会甲",
+  stamped:true,final:true};
+ const oldAgenda={prepare(sql){return {get(pid,kind){
+  if(sql.includes("kind='终版议程'"))return {n:0};
+  return {n:1};
+ }};}};
+ assert.throws(()=>validateSopEvidence(1,e,project,oldAgenda),
+  x=>x.code==="SOP_MATERIAL_MISSING"&&/当前终版议程/.test(x.message));
+ const fs=require("node:fs"),path=require("node:path");
+ const root=path.join(__dirname,"..");
+ const detail=fs.readFileSync(path.join(root,"web/assets/js/lib/verify-detail.js"),"utf8");
+ const ocr=fs.readFileSync(path.join(root,"server/lib/verify-ocr-compare.js"),"utf8");
+ const verify=fs.readFileSync(path.join(root,"server/api/verify.js"),"utf8");
+ assert.match(detail,/1:\["会议通知","招商函","终版议程","串场"\]/);
+ assert.match(ocr,/1:\["会议通知","招商函","终版议程","串场"\]/);
+ assert.match(ocr,/agendaDocs.length===1/);
+ assert.match(ocr,/matchedSources:\["盖章函件","终版议程","串场"\]/);
+ assert.match(verify,/"终版议程":\[1,2,4,6\]/);
 });
 test("第2项只核对终版议程与讲者照片的原件姓名，签到表和劳务表无关",()=>{
  assert.equal(sameNames(["甲","乙"],["乙","甲"]),true);
