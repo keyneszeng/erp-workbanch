@@ -532,8 +532,10 @@ function register(router) {
     if(!payee)throw bad("收款方为必填项");
     if(payee.length>60)throw bad("收款方不能超过 60 字");
     if(choice && b.payee && String(b.payee).trim()!==choice.name)throw bad("收款方与选定的核销资料不一致");
-    const payeeBank=parseBankName(choice?.bank || b.payee_bank);
-    const payeeAccount=parseBankAccount(choice?.account || b.payee_account);
+    // Request stage never asks for bank details; verified labor data may be resolved
+    // server-side, otherwise finance enters it only when executing payment.
+    const payeeBank=choice?.bank?parseBankName(choice.bank):"";
+    const payeeAccount=choice?.account?parseBankAccount(choice.account):"";
     // 发票属于核销材料，不是付款单字段；专家费个人报销不存在发票号。
     const invoiceNo=String(b.invoice_no||"").trim(); // Legacy API remains readable/deduplicated; new UI omits this field.
     if(invoiceNo.length>40)throw bad("发票号不能超过 40 字");
@@ -617,7 +619,7 @@ function register(router) {
     }
     logAudit({
       user: ctx.user, module: "财务结算", action: "付款申请", target: p.id,
-      detail: `${id} ${b.type} ¥${amount.toLocaleString("zh-CN")}${period ? "（" + period + "）" : ""} → ${b.payee}（${payeeBank} 尾号 ${payeeAccount.slice(-4)}；核销已通过${force ? "；超预算特批" : ""}）`,
+      detail: `${id} ${b.type} ¥${amount.toLocaleString("zh-CN")}${period ? "（" + period + "）" : ""} → ${payee}（${payeeAccount ? "账户尾号 "+payeeAccount.slice(-4) : "财务付款时核对账户"}；核销已通过${force ? "；超预算特批" : ""}）`,
       ip: ctx.ip
     });
     return { payment: db.prepare("SELECT * FROM payments WHERE id = ?").get(id), message: `付款申请 ${id} 已提交，等待财务审批` };
@@ -650,6 +652,32 @@ function register(router) {
       detail: `${y.id} ${y.payee} → ${bank} 尾号 ${account.slice(-4)}`, ip: ctx.ip
     });
     return { payment: db.prepare("SELECT * FROM payments WHERE id = ?").get(y.id), message: `${y.id} 收款账户已登记` };
+  });
+
+  /**
+   * Execution evidence: linked expense contracts and meeting invoices.
+   * Only expose files from this payment's project and the selected contract,
+   * never sponsor agreements or unrelated project files.
+   */
+  router.get("/api/payments/:id/evidence", async (ctx) => {
+    const y=db.prepare("SELECT * FROM payments WHERE id=?").get(ctx.params.id);
+    if(!y)throw notFound("付款单不存在");
+    const p=getProject(y.pid);
+    assertProjectVisible(ctx.user,p);
+    assertCan(ctx.user,"payment:pay","只有财务执行人员可以查看付款依据原件");
+    const contracts=db.prepare(
+      "SELECT id,name,vendor,file_key,file_name,file_mime FROM contracts WHERE pid=? AND status='已签署' AND COALESCE(category,'')<>'企业赞助' AND vendor=? ORDER BY id"
+    ).all(y.pid,y.payee);
+    const invoices=db.prepare(
+      "SELECT id,kind,name,file_key,file_name,file_mime FROM materials WHERE pid=? AND (deleted_at IS NULL OR deleted_at='') AND kind IN ('会务发票','发票') AND file_key IS NOT NULL AND file_key<>'' ORDER BY id"
+    ).all(y.pid).filter(x=>x.kind==="会务发票" || /会务|会议服务|会议执行/.test(String(x.name||"")+" "+String(x.file_name||"")));
+    const evidence=[
+      ...contracts.filter(x=>x.file_key).map(x=>({type:"已签会务或劳务合同",id:x.id,name:x.name,fileKey:x.file_key,fileName:x.file_name,mime:x.file_mime})),
+      ...invoices.map(x=>({type:"项目关联会务发票",id:x.id,name:x.name,fileKey:x.file_key,fileName:x.file_name,mime:x.file_mime}))
+    ];
+    return {payment:{id:y.id,pid:y.pid,payee:y.payee,amount:y.amount,status:y.status,
+      bank:y.payee_bank||"",maskedAccount:y.payee_account?"尾号 "+String(y.payee_account).slice(-4):""},
+      evidence,warning:"发票按项目关联，未建立与本付款单的逐票绑定关系；执行付款前须核对原件、合同签约方与本次金额。"};
   });
 
   router.post("/api/payments/:id/approve", async (ctx) => {
