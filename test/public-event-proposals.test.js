@@ -8,7 +8,7 @@ const dir=fs.mkdtempSync(path.join(os.tmpdir(),"erp-public-intake-"));
 const dbFile=path.join(dir,"test.sqlite"),port=8947,base="http://127.0.0.1:"+port;
 let proc,db,adminCookie,guestCookie;
 const sample={
- topic:"2027年度学术交流活动",event_date:"2027-03-14",form:"混合",
+ topic:"2027年度学术交流活动",event_date:"2027-03-14",event_time:"09:30",form:"混合",
  budget:"15000.50",agenda:"09:00 开场\n10:00 专题交流",
  contact_name:"公众联系人",contact_phone:"13800138000",
  contact_info:"contact@example.org",consent:true,website:""
@@ -64,7 +64,7 @@ test("admin sees public inbox; guest and anonymous cannot access personal contac
 });
 test("public submissions validate required fields, consent and dates, and reject abuse",async()=>{
  for(const invalid of [
-  {topic:""},{event_date:"2027-99-99"},{event_date:"2027-02-30"},
+  {topic:""},{event_date:"2027-99-99"},{event_date:"2027-02-30"},{event_time:"25:00"},
   {form:"秘密"},{budget:"-1"},{budget:"1.234"},{budget:"1e9"},
   {agenda:""},{contact_phone:"bad"},{consent:false},{website:"bot"}
  ]){
