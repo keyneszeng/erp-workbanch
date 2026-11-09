@@ -27,7 +27,7 @@ const stepMaterials=(no,materials,contracts,sponsorRights)=>{
     version:m.version||""}));
 };
 Page({
- data:{pid:"",title:"",loading:false,error:"",steps:[],passed:0,total:0,openExceptions:0,complete:false,selectedNo:1,selected:null,files:[],canReview:false},
+ data:{pid:"",title:"",loading:false,error:"",steps:[],passed:0,total:0,openExceptions:0,complete:false,selectedNo:1,selected:null,files:[],canViewFiles:false},
  onLoad(q){this.setData({pid:q.pid||""});},
  onShow(){if(this.data.pid)this.load();},
  async load(){
@@ -38,14 +38,15 @@ Page({
    const r=await app.api("/projects/"+encodeURIComponent(pid));
    if(this.data.pid!==pid)return;
    if(!r.sectionAccess?.verify)throw new Error("当前账号无核销详情查看权限");
+   const canViewFiles=r.sectionAccess?.materials===true;
    const v=r.verification||{};
    const steps=(v.steps||[]).map(s=>({no:s.no,name:s.name,result:s.result||"待判定",
       required:s.required!==false,displayResult:s.required===false?"不适用":(s.result||"待判定")}));
-   this._source={materials:r.materials||[],contracts:r.contracts||[],sponsorRights:r.sponsorRights||{}};
+   this._source={materials:canViewFiles?(r.materials||[]):[],contracts:r.contracts||[],sponsorRights:r.sponsorRights||{}};
    this.setData({title:r.project?.name||pid,steps,passed:v.passed||0,total:v.total||0,
-    openExceptions:v.openExceptions||0,complete:!!v.complete,loading:false});
+    openExceptions:v.openExceptions||0,complete:!!v.complete,canViewFiles,loading:false});
    this.selectStep({currentTarget:{dataset:{no:this.data.selectedNo}}});
-  }catch(e){this.setData({loading:false,error:e.message||"核销信息读取失败",steps:[],selected:null,files:[]});}
+  }catch(e){this.setData({loading:false,error:e.message||"核销信息读取失败",steps:[],selected:null,files:[],canViewFiles:false});}
  },
  selectStep(e){
   const no=Number(e.currentTarget.dataset.no);
