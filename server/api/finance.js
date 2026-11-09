@@ -605,8 +605,8 @@ function register(router) {
         const same=findExistingPayment(p.id,b.type,payee,amount,period);
         if(same)throw duplicatePaymentError(same);
         id=nextId(db,"payments","id","PY");
-        db.prepare("INSERT INTO payments (id,pid,type,payee,payee_bank,payee_account,amount,invoice_no,dedupe_key,period,req_user,status,remark,created_by,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
-          .run(id,p.id,b.type,payee,payeeBank,payeeAccount,amount,invoiceNo,key,period,ctx.user.name,"待审批",remark,ctx.user.id,at);
+        db.prepare("INSERT INTO payments (id,pid,type,payee,payee_bank,payee_account,amount,invoice_no,dedupe_key,period,req_user,status,remark,created_by,created_at,payee_source_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
+          .run(id,p.id,b.type,payee,payeeBank,payeeAccount,amount,invoiceNo,key,period,ctx.user.name,"待审批",remark,ctx.user.id,at,choice?String(b.payee_option_id):null);
         const apId=nextId(db,"approvals","id","AP");
         db.prepare("INSERT INTO approvals (id,type,title,pid,ref_id,amount,by_user,sla,status,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)")
           .run(apId,"付款审批",`${b.type} ¥${amount.toLocaleString("zh-CN")}`,p.id,id,amount,ctx.user.name,"1 个工作日","待审批",at);
@@ -665,9 +665,11 @@ function register(router) {
     const p=getProject(y.pid);
     assertProjectVisible(ctx.user,p);
     assertCan(ctx.user,"payment:pay","只有财务执行人员可以查看付款依据原件");
-    const contracts=db.prepare(
-      "SELECT id,name,vendor,file_key,file_name,file_mime FROM contracts WHERE pid=? AND status='已签署' AND COALESCE(category,'')<>'企业赞助' AND vendor=? ORDER BY id"
-    ).all(y.pid,y.payee);
+    const selectedContract=String(y.payee_source_id||"").startsWith("contract:")?
+      String(y.payee_source_id).slice(9):null;
+    const contracts=selectedContract?
+      db.prepare("SELECT id,name,vendor,file_key,file_name,file_mime FROM contracts WHERE pid=? AND id=? AND status='已签署' AND COALESCE(category,'')<>'企业赞助'").all(y.pid,selectedContract):
+      db.prepare("SELECT id,name,vendor,file_key,file_name,file_mime FROM contracts WHERE pid=? AND status='已签署' AND COALESCE(category,'')<>'企业赞助' AND vendor=? ORDER BY id").all(y.pid,y.payee);
     const invoices=db.prepare(
       "SELECT id,kind,name,file_key,file_name,file_mime FROM materials WHERE pid=? AND (deleted_at IS NULL OR deleted_at='') AND kind IN ('会务发票','发票') AND file_key IS NOT NULL AND file_key<>'' ORDER BY id"
     ).all(y.pid).filter(x=>x.kind==="会务发票" || /会务|会议服务|会议执行/.test(String(x.name||"")+" "+String(x.file_name||"")));
