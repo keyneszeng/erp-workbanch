@@ -88,11 +88,15 @@ test("核销劳务收款方自动关联开户行及加密银行账号，无需�
  assert.match(picker,/x\.source==="labor"&&x\.maskedAccount/);
  assert.match(picker,/由服务器安全填入/);
  assert.match(payees,/return \{name:x\.name,amount:x\.amount,bank:x\.bank,account,source:"labor"\}/);
- assert.match(api,/choice\?\.bank \|\| b\.payee_bank/);
- assert.match(api,/choice\?\.account \|\| b\.payee_account/);
- for(const p of [finance,project]){
-   assert.match(p,/source\.source!=="labor"/);
- }
+ // 新版流程：付款申请不再填银行信息；劳务专家仍由服务端解析加密账号，
+ // 其它收款方的开户行/账号由财务在执行付款时核对原件后补录。
+ assert.ok(api.includes('choice?.bank?parseBankName(choice.bank):""'));
+ assert.ok(api.includes('choice?.account?parseBankAccount(choice.account):""'));
+ const exec=src("web/assets/js/lib/payment-execution.js");
+ assert.match(exec,/name="payee_bank"/);
+ assert.match(exec,/name="payee_account"/);
+ assert.match(exec,/\/account/);
+ for(const p of [finance,project]) assert.doesNotMatch(p,/name="payee_account"/);
  assert.doesNotMatch(picker,/account_cipher|reveal\(/);
 });
 

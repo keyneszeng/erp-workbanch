@@ -256,8 +256,8 @@ test("production: association member IDs, approved contract signing and pay-afte
   const settlementData={action:"settle",payee_bank:"中国银行北京分行",payee_account:"1234567890123456"};
   let settle=await request("POST","/api/projects/"+pid+"/transition",settlementData,cookie);
   assert.equal(settle.status,409,"no payment must block settlement");
-  const paymentData={pid,type:"学会公付",payee:"服务供应商",payee_bank:"中国银行北京分行",
-    payee_account:"1234567890123456",amount:8000,invoice_no:"INV-2027-001"};
+  // 新版流程：付款申请不填银行信息，财务执行付款时才登记账户（PATCH /account）。
+  const paymentData={pid,type:"学会公付",payee:"服务供应商",amount:8000,invoice_no:"INV-2027-001"};
   const payment=await request("POST","/api/payments",paymentData,cookie);
   assert.equal(payment.status,200,JSON.stringify(payment.body));
   settle=await request("POST","/api/projects/"+pid+"/transition",settlementData,cookie);
@@ -266,6 +266,12 @@ test("production: association member IDs, approved contract signing and pay-afte
   assert.equal(approved.status,200,JSON.stringify(approved.body));
   settle=await request("POST","/api/projects/"+pid+"/transition",settlementData,cookie);
   assert.equal(settle.status,409,"approved but unpaid payment blocks settlement");
+  const noAccount=await request("POST","/api/payments/"+payment.body.payment.id+"/pay",{},cookie);
+  assert.equal(noAccount.status,409,"执行付款前必须登记收款账户");
+  assert.equal(noAccount.body?.error?.code,"PAYEE_ACCOUNT_MISSING");
+  const acct=await request("PATCH","/api/payments/"+payment.body.payment.id+"/account",
+    {payee_bank:"中国银行北京分行",payee_account:"1234567890123456"},cookie);
+  assert.equal(acct.status,200,JSON.stringify(acct.body));
   const paid=await request("POST","/api/payments/"+payment.body.payment.id+"/pay",{},cookie);
   assert.equal(paid.status,200,JSON.stringify(paid.body));
   settle=await request("POST","/api/projects/"+pid+"/transition",settlementData,cookie);
