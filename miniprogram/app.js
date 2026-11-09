@@ -26,7 +26,7 @@ App({
     const headers = { "Content-Type": "application/json", ...extraHeaders };
     // Public invitation links must not transmit employee access tokens.
     if (token && !path.startsWith("/public/") && !path.startsWith("/mini/auth/login") &&
-        !path.startsWith("/mini/auth/bind") && !path.startsWith("/mini/auth/sms/send")) {
+        !path.startsWith("/mini/auth/bind") && !path.startsWith("/mini/auth/phone-bind") && !path.startsWith("/mini/auth/sms/send")) {
       headers.Authorization = "Bearer " + token;
     }
     return new Promise((resolve, reject) => wx.request({
