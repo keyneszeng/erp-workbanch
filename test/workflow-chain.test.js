@@ -227,14 +227,16 @@ test("全链路：立项 → 筹备 → 执行 → 核销（含例外）→ 付�
   assert.equal(vp.status, 200, vp.msg);
 
   const pay = await assoc("POST", "/api/payments", {
-    pid, type: "学会公付", payee: "测试会展公司", amount: PAY, invoice_no: "INV-FULL-001"
-  , payee_bank: "中国银行北京分行", payee_account: "3210987654321098"});
+    pid, type: "学会公付", payee: "测试会展公司", amount: PAY, invoice_no: "INV-FULL-001"});
   assert.equal(pay.status, 200, pay.msg);
   const payId = pay.data.payment.id;
   assert.equal((await finance("POST", `/api/payments/${payId}/approve`, { approve: true })).status, 200);
+  // 新流程：执行付款前由财务登记收款账户
+  assert.equal((await finance("PATCH", `/api/payments/${payId}/account`,
+    { payee_bank: "中国银行北京分行", payee_account: "3210987654321098" })).status, 200);
   assert.equal((await finance("POST", `/api/payments/${payId}/pay`, {})).status, 200);
 
-  const st = await finance("POST", `/api/projects/${pid}/transition`, { action: "settle", payee_bank: "中国银行北京分行", payee_account: "3210987654321098" });
+  const st = await finance("POST", `/api/projects/${pid}/transition`, { action: "settle" });
   assert.equal(st.status, 200, st.msg);
   const ar = await assoc("POST", `/api/projects/${pid}/transition`, { action: "archive" });
   assert.equal(ar.status, 200, ar.msg);
