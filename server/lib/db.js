@@ -506,6 +506,7 @@ CREATE TABLE IF NOT EXISTS public_event_proposals (
   id TEXT PRIMARY KEY,
   topic TEXT NOT NULL,
   event_date TEXT NOT NULL,
+  event_time TEXT NOT NULL,
   form TEXT NOT NULL,
   budget REAL NOT NULL,
   agenda TEXT NOT NULL,
