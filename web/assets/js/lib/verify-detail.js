@@ -75,16 +75,16 @@ export function stepBody(d,no){
    * 这里必须用**材料类别（kind）的真实取值**，且要与 server/lib/meeting-sop.js
    * 的校验保持一致——页面上写「要核 A」，服务端却要求 B，核销人就会一直撞墙。
    *
-   * 第 1 步服务端校验盖章函件（会议通知 / 招商函）与串场两份原件；
+   * 第 1 步关联当前终版议程、串场和盖章函件，并核对三份原件；
    * 第 4 步仅要求课件原件和当前已确认的终版议程；不需要串场或 Logo 材料。
    */
   const names={
-    1:["会议通知","招商函","串场"],2:["终版议程","讲者照片"],
+    1:["会议通知","招商函","终版议程","串场"],2:["终版议程","讲者照片"],
     3:["签到表"],4:["终版议程","课件"],
     5:["劳务表","劳务登记表","劳务收集表"],6:[],7:["权益照片"]
   };
   const note={
-    1:"盖章函件已盖章且为终版；核对函件与串场的会议名称、日期及主办方一致。",
+    1:"关联当前已确认的终版议程、串场材料及盖章函件原件；核对会议名称、日期与主办方是否一致，并人工确认函件盖章。",
     2:"只关联当前终版议程与讲者照片，提取议程讲者姓名并与照片原文件名逐人核对；签到表在第3项处理。",
     3:"线上有效讲者在线时长 >30 分钟；线下有签到原件；混合两项都需要。",
     4:"只关联当前终版议程与课件原件，核对课件主题是否逐个出现在议程中；不引用串场或其他材料。",
@@ -113,7 +113,8 @@ export function stepBody(d,no){
   const meetingInvoice=m=>m.file_key&&(m.kind==="会务发票"||
     (m.kind==="发票"&&/会务|会议服务|会议执行/.test((m.name||"")+" "+(m.file_name||""))));
   const sponsorKeys=new Set((d.sponsorRights?.contracts||[]).map(x=>x.file_key).filter(Boolean));
-  const selected=(d.materials||[]).filter(m=>(names[no]||[]).includes(m.kind)||
+  const selected=(d.materials||[]).filter(m=>((names[no]||[]).includes(m.kind)&&
+    !(m.kind==="终版议程"&&m.version!=="终版"))||
     (no===5&&isLaborContract(m))||
     (no===6&&(meetingAgreement(m)||meetingInvoice(m)))||
     (no===7&&["赞助合同","合同"].includes(m.kind)&&sponsorKeys.has(m.file_key)));

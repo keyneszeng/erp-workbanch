@@ -44,8 +44,15 @@ function validateSopEvidence(no, evidence, project, db, invoiceAmount) {
         fail("请先上传已盖章的会议通知或招商函原件","SOP_MATERIAL_MISSING");
       if (!materialExists(db,pid,["串场"],true))
         fail("请先上传串场原件，用于与盖章函件核对","SOP_MATERIAL_MISSING");
+      // Link only the current confirmed agenda: historical agendas must not be treated as evidence.
+      const finalAgenda=db.prepare(
+        "SELECT COUNT(*) AS n FROM materials WHERE pid=? AND kind='终版议程' AND version='终版' "+
+        "AND (deleted_at IS NULL OR deleted_at='') AND file_key IS NOT NULL AND file_key<>''"
+      ).get(pid);
+      if(!Number(finalAgenda?.n))
+        fail("请先上传并确认当前终版议程原件，用于与盖章函件和串场核验","SOP_MATERIAL_MISSING");
       return {documentKind:e.documentKind,stamped:true,final:true,fieldsMatched:3,
-        comparedWith:"串场"};
+        comparedWith:"串场",matchedSources:[e.documentKind,"终版议程","串场"]};
     }
     case 2: {
       // 核销第2项：当前终版议程的讲者 ↔ 讲者照片原始文件名。

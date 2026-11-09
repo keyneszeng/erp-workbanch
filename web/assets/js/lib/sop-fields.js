@@ -26,7 +26,7 @@ export function sopEvidenceForm(no,p,rightsData=null){
   const head=`<div class="gate" style="margin-bottom:9px">以下信息来自人工核验/结构化录入，系统只做字段比较；不具备自动 OCR。原件请先在材料中心上传。</div>`;
   const s={
     1:`<div class="fld"><label>盖章函件原件</label><select name="documentKind"><option value="会议通知">盖章会议通知</option><option value="招商函">盖章招商函</option></select></div>`
-       +`<div class="hint">请对照已上传的盖章函件与串场原件，分别填写两份材料中的信息。两边一致才能通过。</div>`
+       +`<div class="hint">请同时核对当前终版议程、串场材料和已盖章函件原件，会议名称、日期和主办方应一致。</div>`
        +input("meetingName","盖章函件 · 会议名称")
        +input("meetingDate","盖章函件 · 会议日期")
        +input("organizer","盖章函件 · 主办方")
