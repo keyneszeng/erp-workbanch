@@ -145,7 +145,8 @@ async function buildSelectedMaterialsPdf({project,materials,watermark,compressor
    dest.addPage(p);pageCount++;
   };
   // 压缩后仍然超限：只留说明页，跳过附件，保证其余材料照常导出。
-  if(needsOfficePages&&bytes.length>MAX_FILE_BYTES)\n   throw new HttpError(413,"MATERIAL_OFFICE_PDF_TOO_LARGE","Office 转换后 PDF 超过20MB，请拆分材料导出："+sanitize(originalFileName));
+  if(needsOfficePages&&bytes.length>MAX_FILE_BYTES)
+   throw new HttpError(413,"MATERIAL_OFFICE_PDF_TOO_LARGE","Office 转换后 PDF 超过20MB，请拆分材料导出："+sanitize(originalFileName));
   if(bytes.length>MAX_FILE_BYTES){
    await addNote((compressNote||"原件超过20MB")+"；压缩后仍超过单份限制，未随 PDF 附带，请在材料库单独下载。");
    originalCount++;
