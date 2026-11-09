@@ -54,16 +54,12 @@ function client(cookie) {
   const sample = pays.data.rows.find((x) => x.payee_account);
   if (sample) console.log(`      已登记示例：${sample.id} ${sample.payee} · ${sample.payee_bank} · ${sample.payee_account}`);
 
-  console.log("\n[2] 结算单带收款方与账户");
+  console.log("\n[2] 结算单只汇总收支结余，不再登记收款方");
   const sts = await finance("GET", "/api/settlements");
   check("结算列表可读", sts.status === 200);
-  const stKeys = Object.keys(sts.data.rows[0] || {});
-  check("返回字段含 payee / payee_bank / payee_account",
-    stKeys.includes("payee") && stKeys.includes("payee_bank") && stKeys.includes("payee_account"),
-    stKeys.join(","));
   const stWithPayee = sts.data.rows.filter((x) => x.payee);
-  console.log(`      线上结算单 ${sts.data.rows.length} 张，其中 ${stWithPayee.length} 张已登记收款方`);
-  console.log("      说明：存量结算单是这一版之前生成的，收款信息为空属正常；新生成的必须填。");
+  console.log(`      线上结算单 ${sts.data.rows.length} 张，其中 ${stWithPayee.length} 张带历史收款方`);
+  console.log("      说明：新版结算不再要求收款方/开户行/账号，历史数据保留但新单为空。");
 
   console.log("\n[3] 付款申请缺账户被拦（不会落库）");
   const before = (await finance("GET", "/api/payments?size=100")).data.rows.length;
@@ -89,12 +85,12 @@ function client(cookie) {
   check("付款明细含「银行账号」列", /银行账号/.test(payHead), payHead.slice(0, 120));
   const stCsv = await finance("GET", "/api/export/settlements");
   const stHead = String(stCsv.data).split("\r\n")[0] || "";
-  check("结算汇总含「收款方」列", /收款方/.test(stHead), stHead.slice(0, 120));
+  check("结算汇总不含「收款方」列", !/收款方/.test(stHead), stHead.slice(0, 120));
 
   console.log("\n[5] 前端已更新");
   const js = await fetch(`${BASE}/assets/js/pages/finance.js`).then((r) => r.text());
-  check("财务页含「开户行」字段", /开户行/.test(js));
-  check("财务页含「登记账户」入口", /登记账户/.test(js));
+  check("财务页引用执行付款弹窗", /payment-execution/.test(js));
+  check("财务页不再保留「登记账户」入口", !/登记账户/.test(js));
 
   console.log(`\n=== ${pass} 通过 / ${fail} 失败 ===`);
   process.exit(fail ? 1 : 0);

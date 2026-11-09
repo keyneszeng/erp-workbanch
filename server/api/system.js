@@ -287,7 +287,8 @@ const EXPORTS = {
   },
   settlements: {
     module: "财务结算", file: "结算汇总",
-    headers: ["结算单号", "项目编号", "项目", "项目预算", "已付支出", "预算结余", "收款方", "开户行", "银行账号", "状态", "生成时间"],
+    // 结算单只汇总预算/支出/结余；收款方与银行账户在付款单里，不重复导出。
+    headers: ["结算单号", "项目编号", "项目", "项目预算", "已付支出", "预算结余", "状态", "生成时间"],
     sql: (u) => {
       const { sql, params } = scopeFilter(u);
       return {
@@ -295,10 +296,7 @@ const EXPORTS = {
         params
       };
     },
-    map: (r, user) => [r.id, r.pid, r.pname, r.income, r.expense, r.profit,
-      r.payee || "", r.payee_bank || "",
-      can(user,"payment:pay") ? (r.payee_account || "") : (r.payee_account ? "****"+String(r.payee_account).slice(-4) : ""),
-      r.status, r.created_at]
+    map: (r) => [r.id, r.pid, r.pname, r.income, r.expense, r.profit, r.status, r.created_at]
   },
   audit: {
     module: "审计日志", file: "审计日志",

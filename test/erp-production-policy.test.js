@@ -253,7 +253,8 @@ test("production: association member IDs, approved contract signing and pay-afte
   assert.equal(status.body.verification.complete,true,"六项全部独立通过后恢复完整核销状态");
   step=await request("POST","/api/projects/"+pid+"/transition",{action:"verify_pass"},cookie);
   assert.equal(step.status,200,JSON.stringify(step.body));
-  const settlementData={action:"settle",payee_bank:"中国银行北京分行",payee_account:"1234567890123456"};
+  // 结算单只汇总收支结余，不再要求也不保存收款方/开户行/账号。
+  const settlementData={action:"settle"};
   let settle=await request("POST","/api/projects/"+pid+"/transition",settlementData,cookie);
   assert.equal(settle.status,409,"no payment must block settlement");
   // 新版流程：付款申请不填银行信息，财务执行付款时才登记账户（PATCH /account）。
@@ -276,5 +277,12 @@ test("production: association member IDs, approved contract signing and pay-afte
   assert.equal(paid.status,200,JSON.stringify(paid.body));
   settle=await request("POST","/api/projects/"+pid+"/transition",settlementData,cookie);
   assert.equal(settle.status,200,JSON.stringify(settle.body));
+  const stList=await request("GET","/api/settlements",undefined,cookie);
+  assert.equal(stList.status,200,JSON.stringify(stList.body));
+  const st=(stList.body?.rows||[]).find(x=>x.pid===pid);
+  assert.ok(st,"结算单应已生成");
+  assert.equal(st.payee||"","","结算单不应再登记收款方");
+  assert.equal(st.payee_bank||"","","结算单不应再登记开户行");
+  assert.equal(st.payee_account||"","","结算单不应再登记银行账号");
 
 });
