@@ -120,7 +120,7 @@ export async function render(root, params = []) {
             `${esc(x.payee || "—")}<div style="font-size:11px;color:var(--mute)">
               ${x.payee_account
                 ? `${esc(x.payee_bank || "")} · <span class="mono">${esc(can("payment:pay") ? x.payee_account : "尾号 " + String(x.payee_account).slice(-4))}</span>`
-                : "未登记收款账户"}
+                : "付款时核对原件"}
             </div>`,
             esc(x.created_by || ""), `<span class="mono">${esc(x.created_at)}</span>`,
             `<button type="button" class="link" aria-expanded="false" data-settlement-detail="${esc(x.id)}">查看结算单</button>`]
