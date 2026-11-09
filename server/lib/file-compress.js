@@ -32,44 +32,54 @@ function serial(fn){
  return next;
 }
 function extOf(name){return String(name||"").split(".").pop().toLowerCase();}
+/**
+ * 子进程统一用临时目录做 HOME/TMPDIR。
+ * 线上 systemd 开了 ProtectSystem=strict + ProtectHome=true，
+ * /var/lib/erp 是只读的，LibreOffice/ImageMagick 往 ~/.config 写配置会直接失败。
+ */
+const childEnv=dir=>({...process.env,HOME:dir,TMPDIR:dir,TMP:dir,TEMP:dir});
+const runIn=(cmd,args,dir,opts={})=>run(cmd,args,{...opts,env:childEnv(dir)});
 async function withTempDir(fn){
  const dir=await fs.mkdtemp(path.join(os.tmpdir(),"erp-compress-"));
  try{return await fn(dir);}
  finally{await fs.rm(dir,{recursive:true,force:true}).catch(()=>{});}
 }
-async function hasCommand(cmd){
- try{await run(cmd,["--version"],{timeout:8000});return true;}
+async function hasCommand(cmd,dir){
+ try{await runIn(cmd,["--version"],dir,{timeout:15000});return true;}
  catch{return false;}
 }
-async function gsCompress(input,output){
- await run("gs",["-q","-dNOPAUSE","-dBATCH","-dSAFER","-sDEVICE=pdfwrite",
+async function gsCompress(input,output,dir){
+ await runIn("gs",["-q","-dNOPAUSE","-dBATCH","-dSAFER","-sDEVICE=pdfwrite",
   "-dCompatibilityLevel=1.5","-dPDFSETTINGS=/ebook",
   "-dColorImageResolution=150","-dGrayImageResolution=150","-dMonoImageResolution=300",
   "-dEmbedAllFonts=true","-dSubsetFonts=true",
-  "-sOutputFile="+output,input],{timeout:CMD_TIMEOUT,maxBuffer:8*1024*1024});
+  "-sOutputFile="+output,input],dir,{timeout:CMD_TIMEOUT,maxBuffer:8*1024*1024});
  const stat=await fs.stat(output);
  return await fs.readFile(output).then(buf=>({buf,size:stat.size}));
 }
 async function compressImage(input,ext,dir){
- if(!await hasCommand("convert"))
+ if(!await hasCommand("convert",dir))
   throw Object.assign(new Error("未安装 ImageMagick，无法压缩图片"),{code:"COMPRESS_TOOL_MISSING"});
  const output=path.join(dir,"image.jpg");
  // 透明 PNG 铺白底，避免转 JPEG 后出现黑块。
- await run("convert",[input,"-auto-orient","-resize",MAX_EDGE+"x"+MAX_EDGE+">",
+ await runIn("convert",[input,"-auto-orient","-resize",MAX_EDGE+"x"+MAX_EDGE+">",
   "-background","white","-alpha","remove","-alpha","off",
-  "-strip","-quality",JPEG_QUALITY,output],{timeout:CMD_TIMEOUT,maxBuffer:8*1024*1024});
+  "-strip","-quality",JPEG_QUALITY,output],dir,{timeout:CMD_TIMEOUT,maxBuffer:8*1024*1024});
  return {buf:await fs.readFile(output),type:"image/jpeg"};
 }
 async function compressOffice(input,ext,dir,limitBytes){
- if(!await hasCommand("soffice"))
+ if(!await hasCommand("soffice",dir))
   throw Object.assign(new Error("未安装 LibreOffice，无法转换 Office 原件"),{code:"COMPRESS_TOOL_MISSING"});
- await run("soffice",["--headless","--norestore","--convert-to","pdf","--outdir",dir,input],
-  {timeout:CMD_TIMEOUT,maxBuffer:8*1024*1024});
+ // 独立 UserInstallation：不碰 ~/.config，也避免与其他实例抢 profile 锁。
+ const profile=path.join(dir,"lo-profile");
+ await runIn("soffice",["--headless","--norestore",
+  "-env:UserInstallation=file://"+profile,
+  "--convert-to","pdf","--outdir",dir,input],dir,{timeout:CMD_TIMEOUT,maxBuffer:8*1024*1024});
  const converted=path.join(dir,path.basename(input).replace(/\.[^.]+$/,"")+".pdf");
  const buf=await fs.readFile(converted);
  if(buf.length<=limitBytes)return {buf,type:"application/pdf"};
  // 转出来的 PDF 仍偏大时再用 gs 压一遍。
- const squeezed=await gsCompress(converted,path.join(dir,"office-squeezed.pdf"));
+ const squeezed=await gsCompress(converted,path.join(dir,"office-squeezed.pdf"),dir);
  return {buf:squeezed.buf,type:"application/pdf"};
 }
 /**
@@ -86,7 +96,7 @@ async function compressOriginal(bytes,{type,fileName}={}){
   const input=path.join(dir,"source."+ext);
   await fs.writeFile(input,bytes);
   if(isPdf){
-   const out=await gsCompress(input,path.join(dir,"compressed.pdf"));
+   const out=await gsCompress(input,path.join(dir,"compressed.pdf"),dir);
    return {bytes:out.buf,type:"application/pdf",method:"ghostscript",
     note:"PDF 已用 Ghostscript 重采样压缩"};
   }
