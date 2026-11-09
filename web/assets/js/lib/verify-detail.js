@@ -113,7 +113,8 @@ export function stepBody(d,no){
   const meetingInvoice=m=>m.file_key&&(m.kind==="会务发票"||
     (m.kind==="发票"&&/会务|会议服务|会议执行/.test((m.name||"")+" "+(m.file_name||""))));
   const sponsorKeys=new Set((d.sponsorRights?.contracts||[]).map(x=>x.file_key).filter(Boolean));
-  const selected=(d.materials||[]).filter(m=>((names[no]||[]).includes(m.kind)&&\n    !(m.kind==="终版议程"&&m.version!=="终版"))||
+  const selected=(d.materials||[]).filter(m=>((names[no]||[]).includes(m.kind)&&
+    !(m.kind==="终版议程"&&m.version!=="终版"))||
     (no===5&&isLaborContract(m))||
     (no===6&&(meetingAgreement(m)||meetingInvoice(m)))||
     (no===7&&["赞助合同","合同"].includes(m.kind)&&sponsorKeys.has(m.file_key)));
