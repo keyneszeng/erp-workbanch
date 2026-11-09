@@ -1,7 +1,7 @@
 {
   "pages":[
     "pages/home/index","pages/bind/index","pages/projects/index","pages/apply/index",
-    "pages/project/index","pages/approvals/index","pages/materials/index",
+    "pages/project/index","pages/verification/index","pages/approvals/index","pages/materials/index",
     "pages/account/index","pages/invite/index"
   ],
   "window":{

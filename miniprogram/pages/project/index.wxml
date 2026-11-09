@@ -17,6 +17,27 @@
    <view class="field">预计参会人数 <text class="field-value">{{p.people||0}} 人</text></view>
    <view class="section-caption space">议程要点</view><view class="muted whitespace">{{p.agenda||'暂无议程'}}</view>
   </view>
+  <view wx:if="{{canVerify}}" class="card">
+   <view class="section-caption">会后核销</view>
+   <view wx:if="{{verifySummary}}" class="field">已通过 {{verifySummary.passed}} / {{verifySummary.total}} 项 · {{verifySummary.complete?'已完成':'待处理'}}</view>
+   <view class="muted">七项核销原件及进度与网页测试版一致，含当前终版议程、串场和盖章函件关联。</view>
+   <button class="btn ghost" bindtap="verification">查看七项核销与原件</button>
+  </view>
+  <view wx:if="{{canFinance&&settlementSummary}}" class="card">
+   <view class="section-caption">结算单 · 财务汇总</view>
+   <view class="field">预算 <text class="field-value">¥{{settlementSummary.budget}}</text></view>
+   <view class="field">可用预算 <text class="field-value">¥{{settlementSummary.availableBudget}}</text></view>
+   <view class="field">已支付 <text class="field-value">¥{{settlementSummary.paid}}</text></view>
+   <view class="field">结余 <text class="field-value">¥{{settlementSummary.balance}}</text></view>
+   <view class="section-caption space">付款分类明细</view>
+   <view wx:for="{{settlementGroups}}" wx:key="key" class="item">
+    <view class="row"><text class="title">{{item.label}}</text><text>¥{{item.amount}} · {{item.count}} 笔</text></view>
+    <view wx:for="{{item.items}}" wx:for-item="payment" wx:key="id" class="field">
+     <view class="row"><text>{{payment.payee}} · {{payment.type}}</text><text>¥{{payment.amount}}</text></view>
+     <view class="muted">{{payment.id}} · {{payment.paidAt}} {{payment.remark}}</view>
+    </view>
+   </view>
+  </view>
   <view wx:if="{{isExecutor}}" class="card">
    <view class="section-caption">我的业务协作</view>
    <view class="quick-grid">

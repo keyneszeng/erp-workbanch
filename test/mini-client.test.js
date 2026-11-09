@@ -56,3 +56,62 @@ test("mini revoked session is cleared on 401, not on other errors", async () => 
   assert.equal(app.globalData.token, "");
   assert.equal(storage.has("erp_mini_token"), false);
 });
+
+test("private original preview requires a valid session, allowed file key and Bearer header",async()=>{
+ const downloads=[];
+ let opened=0;
+ const {app,wx}=client("https://erp-prod.example.org/api",()=>{});
+ wx.downloadFile=opts=>{downloads.push(opts);opts.success({statusCode:200,tempFilePath:"/tmp/original.pdf"});};
+ wx.openDocument=opts=>{opened++;opts.success();};
+ await assert.rejects(app.openOriginal("../another-project.pdf"),/无效/);
+ await assert.rejects(app.openOriginal("a".repeat(32)+".pdf"),/请先登录/);
+ app.setSession({accessToken:"session-test",user:{id:1},perms:[]});
+ await app.openOriginal("a".repeat(32)+".pdf");
+ assert.equal(downloads.length,1);
+ assert.equal(opened,1);
+ assert.equal(downloads[0].header.Authorization,"Bearer session-test");
+ assert.match(downloads[0].url,/\/api\/uploads\/a{32}\.pdf$/);
+});
+function miniPage(sourceFile,app){
+ let page;
+ const wx={navigateTo(){},stopPullDownRefresh(){}};
+ vm.runInNewContext(fs.readFileSync(path.join(__dirname,"..",sourceFile),"utf8"),
+  {getApp:()=>app,Page:obj=>{page=obj;},wx,Promise,Error,Set,Map,Number,String,encodeURIComponent});
+ page.setData=function(obj){this.data={...this.data,...obj};};
+ return page;
+}
+test("project page shows finance and verification only when project response grants section access",async()=>{
+ let response={project:{id:"MP-A",status:"执行中",name:"测试会议"},visibility:"participant"};
+ const app={globalData:{perms:[]},api:async()=>response};
+ const p=miniPage("miniprogram/pages/project/index.js",app);
+ p.data.id="MP-A";
+ await p.load();
+ assert.equal(p.data.canVerify,false);
+ assert.equal(p.data.canFinance,false);
+ assert.equal(p.data.settlementSummary,null);
+ response={project:{id:"MP-A",status:"已结算",name:"测试会议"},
+  sectionAccess:{verify:true,finance:true},
+  verification:{passed:4,total:4,complete:true},
+  settlementBreakdown:{summary:{budget:1000,available_budget:900,paid:400,balance:500},
+   groups:[{key:"labor",label:"劳务",amount:400,count:1,items:[{id:"PY-1",amount:400,type:"专家费",payee:"讲师",paid_at:"2026-11-09"}]}]}};
+ await p.load();
+ assert.equal(p.data.canVerify,true);
+ assert.equal(p.data.settlementSummary.balance,"500.00");
+ assert.equal(p.data.settlementGroups[0].items[0].amount,"400.00");
+});
+test("mini verification associates current agenda, host, and stamped letter, never a historical agenda",async()=>{
+ const materials=[
+  {id:1,kind:"终版议程",version:"历史版",file_key:"a".repeat(32)+".pdf"},
+  {id:2,kind:"终版议程",version:"终版",file_key:"b".repeat(32)+".pdf"},
+  {id:3,kind:"串场",file_key:"c".repeat(32)+".pptx"},
+  {id:4,kind:"会议通知",file_key:"d".repeat(32)+".pdf"}
+ ];
+ const app={api:async()=>({project:{name:"测试会议"},sectionAccess:{verify:true,materials:true},
+  verification:{passed:0,total:7,steps:[{no:1,name:"盖章函件与串场核验",result:"待判定"}]},
+  materials,contracts:[],sponsorRights:{}}),openOriginal:async()=>true};
+ const p=miniPage("miniprogram/pages/verification/index.js",app);
+ p.data.pid="MP-A";
+ await p.load();
+ assert.deepEqual(Array.from(p.data.files.map(x=>x.id)),[2,3,4]);
+ assert.equal(p.data.selected.no,1);
+});
