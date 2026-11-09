@@ -25,7 +25,7 @@ function validate(input){
     (!Number.isFinite(Date.parse(event_date+"T00:00:00.000Z")) || new Date(event_date+"T00:00:00.000Z").toISOString().slice(0,10)!==event_date))
     throw bad("请选择有效活动日期");
  const event_time=str(input.event_time,5,"活动时间");
- if(!/^([01]\\d|2[0-3]):[0-5]\\d$/.test(event_time))throw bad("请选择有效活动开始时间");
+ if(!/^([01]\d|2[0-3]):[0-5]\d$/.test(event_time))throw bad("请选择有效活动开始时间");
  const form=str(input.form,10,"活动形式");
  if(!FORMS.has(form))throw bad("活动形式只能是线上、线下或混合");
  // Amount is expressed as a currency decimal, disallow exponent and negatives.
