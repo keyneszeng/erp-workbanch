@@ -91,10 +91,14 @@ async function payAll(pid, amounts) {
   for (const amount of amounts) {
     const y = await admin("POST", "/api/payments", {
       pid, type: "学会公付", payee: `收款方${amount}`, amount, invoice_no: "", remark: ""
-    , payee_bank: "中国银行北京分行", payee_account: "3210987654321098"});
+    });
     assert.equal(y.status, 200, `付款 ${amount} 被拒：${y.code || ""} ${y.msg}`);
     const id = y.data.payment.id;
     assert.equal((await admin("POST", `/api/payments/${id}/approve`, { approve: true })).status, 200);
+    // 新付款流程：申请不填银行信息，执行付款前登记收款账户
+    assert.equal((await admin("PATCH", `/api/payments/${id}/account`, {
+      payee_bank: "中国银行北京分行", payee_account: "3210987654321098"
+    })).status, 200);
     assert.equal((await admin("POST", `/api/payments/${id}/pay`, {})).status, 200);
   }
 }

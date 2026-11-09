@@ -140,19 +140,29 @@ test("NEW-01 已结算项目付款：先给 SETTLED，而不是「开户行必�
   assert.equal(r.data.error.code, "SETTLED");
 });
 
-test("NEW-01 已核销项目付款：门禁放行后才校验字段", async () => {
+test("NEW-01 已核销项目付款：门禁放行后不拦申请，账户在执行时登记", async () => {
   const pid = await verifiedProject("门禁顺序-已核销");
+  // 新付款流程：申请阶段只写收款方，开户行/账号由财务执行付款时补录。
   const noBank = await admin("POST", "/api/payments", {
     pid, type: "学会公付", payee: "北京国际会议中心", amount: 1000
   });
-  assert.equal(noBank.status, 400, `门禁放行后应回到字段校验，实际 ${noBank.status}`);
-  assert.match(noBank.data.error.message, /开户行/);
+  assert.equal(noBank.status, 200, `门禁放行后申请应通过，实际 ${noBank.status}：${JSON.stringify(noBank.data)}`);
+  const id = noBank.data.payment.id;
 
-  const ok = await admin("POST", "/api/payments", {
-    pid, type: "学会公付", payee: "北京国际会议中心", amount: 1000,
-    payee_bank: BANK, payee_account: ACCT
-  });
+  assert.equal((await admin("POST", `/api/payments/${id}/approve`, { approve: true })).status, 200);
+  // 未登记收款账户不能付款
+  const blocked = await admin("POST", `/api/payments/${id}/pay`, {});
+  assert.equal(blocked.status, 409, `未登记账户应 409，实际 ${blocked.status}`);
+  assert.equal(blocked.data.error.code, "PAYEE_ACCOUNT_MISSING");
+
+  // 登记时才校验账号格式
+  const bad = await admin("PATCH", `/api/payments/${id}/account`, { payee_bank: BANK, payee_account: "12ab" });
+  assert.equal(bad.status, 400, `非法账号应 400，实际 ${bad.status}`);
+  assert.match(bad.data.error.message, /只能是数字/);
+
+  const ok = await admin("PATCH", `/api/payments/${id}/account`, { payee_bank: BANK, payee_account: ACCT });
   assert.equal(ok.status, 200, JSON.stringify(ok.data));
+  assert.equal((await admin("POST", `/api/payments/${id}/pay`, {})).status, 200);
 });
 
 /* ---------------- NEW-02 邀请函渠道就绪 ---------------- */
