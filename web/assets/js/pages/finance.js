@@ -1,3 +1,4 @@
+import {openPaymentExecution} from "../lib/payment-execution.js";
 import { api, can, state } from "../lib/api.js";
 import {bindPayeePicker} from "../lib/payee-picker.js";
 import {renderIncomeWorkbench} from "../lib/income-workbench.js";
@@ -97,8 +98,8 @@ export async function render(root, params = []) {
             esc(y.req_user || ""), badge(y.status),
             `<div class="tacts">
               ${y.status === "待审批" && can("payment:approve") ? `<button class="link" data-ok="${y.id}">审批</button><button class="link danger" data-no="${y.id}">驳回</button>` : ""}
-              ${y.status === "已审批" && can("payment:pay") && y.payee_account ? `<button class="link" data-pay="${y.id}">付款</button>` : ""}
-              ${y.status !== "已付款" && can("payment:pay") && !y.payee_account ? `<button class="link" data-acct="${y.id}">登记账户</button>` : ""}
+              ${y.status === "已审批" && can("payment:pay")  ? `<button class="link" data-pay="${y.id}">付款</button>` : ""}
+              
               ${y.status === "已付款" ? `<span style="font-size:11.5px;color:var(--mute)">${esc(y.paid_at || "")}</span>` : ""}
             </div>`]
         })), { empty: "暂无付款记录" })}
@@ -193,9 +194,7 @@ async function dl(path) {
 async function act(root, id, kind) {
   try {
     if (kind === "pay") {
-      if (!await confirmBox(`确认付款单 <b>${id}</b> 已在银行或线下完成实际付款，并将其登记为「已付款」？系统不会自动发起转账，请先核对银行回单。`, { ok: "确认付款" })) return;
-      const r = await api.post(`/api/payments/${id}/pay`, {});
-      toast(r.message, "ok");
+      return openPaymentExecution(id,()=>render(root));
     } else {
       const r = await api.post(`/api/payments/${id}/approve`, { approve: kind === "approve" });
       toast(r.message, "ok");
@@ -242,8 +241,6 @@ async function openPay(root, projects) {
       tip:"专家费与个人报销优先使用第 5 步核验的劳务表；其他收款方来自已签署合同。" },
     { k: "payee", l: "收款方", req: 1 },
     // V1.2.18：只写收款方名字，财务没法打款
-    { k: "payee_bank", l: "开户行", req: 0, ph: "如：中国银行北京朝阳支行" },
-    { k: "payee_account", l: "银行账号", req: 0, ph: "10~25 位数字，可含空格分隔" },
     { k: "amount", l: "付款金额（元）", t: "number", req: 1 },
     // 分期付款两期金额常常相同，不填期次会被当成重复申请
     { k: "period", l: "期次（可选）", req: 0, ph: "如：第1期 / 首付款 / 尾款" },
@@ -255,13 +252,6 @@ async function openPay(root, projects) {
   m.querySelector('[data-x="0"]').onclick = () => m.classList.remove("open");
   const submitButton=m.querySelector('[data-x="1"]');
   submitButton.onclick = async () => {
-    const selected=m.querySelector('[name="payee_option_id"]')?.value;
-    const acct=m.querySelector('[name="payee_account"]')?.value.trim();
-    const bank=m.querySelector('[name="payee_bank"]')?.value.trim();
-    const rows=m.querySelector('[name="payee_option_id"]')?.__rows||[];
-    const source=rows.find(x=>x.id===selected);
-    if((!source||!source.bank)&&!bank){toast("请填写收款方开户行","warn");return;}
-    if((!source||source.source!=="labor")&&!acct){toast("请填写银行账号；合同仅提供收款方名称","warn");return;}
     if (!validate(m, fields)) return;
     if(submitButton.disabled)return;
     submitButton.disabled=true;

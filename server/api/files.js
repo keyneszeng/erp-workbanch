@@ -115,7 +115,7 @@ function register(router) {
       assertProjectVisible(ctx.user, getProject(owner.pid));
       // 单纯是项目成员的嘉宾并不自动获得合同和财务凭证的读取权限。
       if (!can(ctx.user, "material:write") && !can(ctx.user, "contract:write") &&
-          !can(ctx.user, "verify:check") && !can(ctx.user, "archive:write")) {
+          !can(ctx.user, "verify:check") && !can(ctx.user, "archive:write") && !can(ctx.user,"payment:pay")) {
         throw forbidden("当前角色无权查看内部业务附件");
       }
     } else {
