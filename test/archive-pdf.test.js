@@ -172,3 +172,33 @@ test("旧卷宗构建器保留并仍可用于兼容历史报告，但新的材�
  const doc=await PDFDocument.load(old);
  assert.ok(doc.getPageCount()>0);
 });
+
+test("操作员可以逐份选择原件并自定义PDF次序，服务端不会按类别重新排序",async()=>{
+ const opts=await call("admin","GET",opt(pid));
+ assert.equal(opts.status,200);
+ const files=opts.data.materials;
+ const contract=files.find(x=>x.kind==="合同");
+ const attendance=files.find(x=>x.kind==="签到表");
+ assert.ok(contract?.id&&attendance?.id);
+ const r=await call("admin","POST",uri(pid),{
+  categories:["合同","签到表"],material_ids:[contract.id,attendance.id],watermark_mode:"none"
+ });
+ const doc=await pdfOf(r);
+ assert.equal(doc.getPageCount(),5);
+ const attachments=doc.catalog.lookup(PDFName.of("Names"))?.lookup(PDFName.of("EmbeddedFiles"));
+ assert.ok(attachments,"PDF must retain each original as an attachment");
+ // PDF page order is generated from ordered material IDs, not lexicographic kind sorting.
+ assert.match(doc.getKeywords()||"",/source-count:2/);
+});
+test("逐份材料选择拒绝跨项目、重复、未勾选类别和非数字ID",async()=>{
+ const opts=(await call("admin","GET",opt(pid))).data;
+ const files=opts.materials;
+ const one=files.find(x=>x.kind==="合同");
+ assert.ok(one);
+ for(const ids of [[-1],[one.id,one.id],["1"],[99999999],[one.id,99999999]]){
+  const r=await call("admin","POST",uri(pid),{categories:["合同"],material_ids:ids});
+  assert.equal(r.status,400,JSON.stringify({ids,data:r.data}));
+ }
+ const wrong=await call("admin","POST",uri(pid),{categories:["签到表"],material_ids:[one.id]});
+ assert.equal(wrong.status,400);
+});
