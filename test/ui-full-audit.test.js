@@ -76,3 +76,18 @@ test("核销第6项及合同待办审批权限口径统一",()=>{
   has("web/assets/js/pages/project.js","例外单审批通过不等于核销通过");
   has("server/api/system.js",'a.type === "合同审批" ? can(user, "contract:approve")');
 });
+
+test("生成结算单不再要求收款方/开户行/银行账号",()=>{
+  // 结算弹窗只发 action，不再带收款信息；也不再有补录账户弹窗
+  has("web/assets/js/pages/project.js",'{ action: "settle" }');
+  no("web/assets/js/pages/project.js",'action: "settle", ...v');
+  no("web/assets/js/pages/project.js","openPayAccount");
+  no("web/assets/js/pages/project.js","settle.payee");
+  // 结算列表不再有收款方/账户列
+  no("web/assets/js/pages/finance.js","收款方 / 收款账户");
+  // 后端结算不再校验银行字段
+  const flow=get("server/lib/workflow.js");
+  const settle=flow.slice(flow.indexOf('case "settle"'),flow.indexOf('case "archive"'));
+  assert.ok(!/parseBank/.test(settle),"结算不应再解析银行字段");
+  assert.ok(/payee,payee_bank,payee_account,status/.test(settle),"插入语句保留列名但写 NULL");
+});

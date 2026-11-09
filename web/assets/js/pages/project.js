@@ -221,9 +221,7 @@ function tabOverview(d, p) {
       <div style="margin-top:12px">${settle
         ? `<div class="gate ok"><b>结算单 ${settle.id} 已生成</b>
              项目预算 ¥${money(settle.income)} · 已付支出 ¥${money(settle.expense)} · 预算结余 ¥${money(settle.profit)}（${settle.created_at}）
-             <div style="margin-top:4px">收款方 ${esc(settle.payee || "—")}${
-               settle.payee_account ? ` · ${esc(settle.payee_bank || "")} <span class="mono">${esc("尾号 " + String(settle.payee_account).slice(-4))}</span>` : " · 未登记收款账户"
-             }</div></div>`
+           </div>`
         : `<div class="gate"><b>结算单未生成</b>适用核销项通过后，还须完成付款申请、审批和付款登记，并核对合同与实际付款金额后才能结算；生成后资料冻结。</div>`}</div>
       <div style="margin-top:10px">${PAYABLE.includes(p.status)
         ? `<div class="gate ok"><b>付款门禁已放行</b>项目已完成核销，可提交付款申请。</div>`
@@ -647,29 +645,22 @@ async function doTransition(root, pid, action, project) {
 }
 
 /**
- * 生成结算单（V1.2.18）。
+ * 生成结算单。
  *
- * 原来这里只有一句「确认继续？」。结算单是给财务的付款依据，
- * 上面必须写清楚结余打给谁、打到哪个账户 —— 否则财务拿到单子还得回头问人。
- * 收款方默认带出项目负责人（结余通常归负责人所属协会），开户行与账号必须手填。
+ * 结算单只汇总「项目预算 / 已付支出 / 结余」并冻结账目。
+ * 资金已在付款单里逐笔支付（银行信息由财务在执行付款时核对原件后补录），
+ * 结算阶段没有新的转账动作，因此不再要求填写收款方、开户行、银行账号。
  */
-function openSettle(root, pid, p) {
-  const fields = [
-    { k: "payee", l: "收款方", req: 1, v: p?.owner || "", ph: "默认取项目负责人" },
-    { k: "payee_bank", l: "开户行", req: 1, ph: "如：中国银行北京朝阳支行" },
-    { k: "payee_account", l: "银行账号", req: 1, ph: "10~25 位数字，可含空格分隔" }
-  ];
+function openSettle(root, pid) {
   const m = modal({
     title: "生成结算单",
-    body: `<div class="gate" style="margin-bottom:12px"><b>付款全部完成后才可生成结算单</b>结算单记录业务资金结算结果，收款方与账户请按实际信息填写。</div>${formHtml(fields)}`,
+    body: `<div class="gate" style="margin-bottom:12px"><b>付款全部完成后才可生成结算单</b>结算单只记录项目预算、已付支出与结余，并冻结账目；不登记收款方或银行账户——资金已按付款单逐笔支付。</div>`,
     footer: `<button class="btn btn-o" data-x="0">取消</button><button class="btn btn-p" data-x="1">确认生成</button>`
   });
   m.querySelector('[data-x="0"]').onclick = () => m.classList.remove("open");
   m.querySelector('[data-x="1"]').onclick = async () => {
-    if (!validate(m, fields)) return;
-    const v = readForm(m);
     try {
-      const r = await api.post(`/api/projects/${pid}/transition`, { action: "settle", ...v });
+      const r = await api.post(`/api/projects/${pid}/transition`, { action: "settle" });
       toast(r.message, "ok");
       m.classList.remove("open");
       await refresh(root, pid);
@@ -763,29 +754,6 @@ function openContract(root, pid) {
       btn.disabled = false;
       btn.textContent = "保存";
     }
-  };
-}
-
-/** 补录收款账户（与财务页同一个接口，V1.2.18） */
-function openPayAccount(root, pid, id) {
-  const fields = [
-    { k: "payee_bank", l: "开户行", req: 1, ph: "如：中国银行北京朝阳支行" },
-    { k: "payee_account", l: "银行账号", req: 1, ph: "10~25 位数字，可含空格分隔" }
-  ];
-  const m = modal({
-    title: `登记收款账户 · ${id}`,
-    body: `<div class="hint" style="margin-bottom:12px">这笔付款单还没有收款账户。登记后才能执行付款；已付款的单子不可再改。</div>${formHtml(fields)}`,
-    footer: `<button class="btn btn-o" data-x="0">取消</button><button class="btn btn-p" data-x="1">保存</button>`
-  });
-  m.querySelector('[data-x="0"]').onclick = () => m.classList.remove("open");
-  m.querySelector('[data-x="1"]').onclick = async () => {
-    if (!validate(m, fields)) return;
-    try {
-      const r = await api.patch(`/api/payments/${id}/account`, readForm(m));
-      toast(r.message, "ok");
-      m.classList.remove("open");
-      await refresh(root, pid);
-    } catch (e) { toast(e.message, "warn"); }
   };
 }
 

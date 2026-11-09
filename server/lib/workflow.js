@@ -6,7 +6,7 @@ const {sponsorRights}=require("./sponsor-rights");
 const { db } = require("./db");
 const {parseTaxFeeRate}=require("./budget-fee");
 const {withBudgetFee}=require("./budget-fee");
-const { now, nextId, conflict, forbidden, notFound, bad, cents, yuan, parseBankAccount, parseBankName } = require("./util");
+const { now, nextId, conflict, forbidden, notFound, bad, cents, yuan } = require("./util");
 const { can, isSuper, ROLES } = require("./rbac");
 const { logAudit } = require("./audit");
 const { FLOW, VERIFY_STEPS } = require("./constants");
@@ -313,21 +313,14 @@ function transition(projectId, action, user, payload = {}, ip = "") {
     case "settle": {
       const at = now();
       /**
-       * V1.2.18：结算单必须有收款方与收款账户。
+       * 结算单只汇总「项目预算 / 已付支出 / 结余」并冻结账目。
        *
-       * 老板 2026-10-28：「生成结算单 / 付款两个功能板块缺少了收款方和银行账号信息」。
-       * 结算单原来只有收入 / 支出 / 结余三个数，结余打给谁、打到哪个账户纸上一个字没有，
-       * 财务拿到单子还得回头问人。
-       *
-       * 收款方不传时默认取项目负责人（结余通常归负责人所属协会），
-       * 但开户行与账号必须显式填 —— 这个没法猜，猜错就是打错钱。
+       * 早期版本要求填收款方与银行账户（V1.2.18），但实际资金已在
+       * 付款单里逐笔付给各收款方，结算阶段没有新的转账动作；
+       * 新版付款流程也把银行信息移到财务执行付款时核对原件后补录。
+       * 因此结算不再收集、也不再校验收款方/开户行/账号，
+       * 历史 settlements.payee* 列保留（旧数据仍可读），新单一律为空。
        */
-      const payee = String((payload && payload.payee) || p.owner || "").trim();
-      if (!payee) throw bad("结算单收款方为必填项");
-      if (payee.length > 60) throw bad("收款方不能超过 60 字");
-      const payeeBank = parseBankName(payload && payload.payee_bank, "收款开户行");
-      const payeeAccount = parseBankAccount(payload && payload.payee_account, "收款账号");
-
       // 三个数都必须落在「分」上：140000 - 135580.6 = 4419.399999999994，
       // 不收敛的话结算单 profit 会带着 12 位小数入库，导出 CSV 也是这个数。
       const income = yuan(p.budget);
@@ -339,10 +332,10 @@ function transition(projectId, action, user, payload = {}, ip = "") {
       const id = nextId(db, "settlements", "id", "ST");
       db.prepare(
         "INSERT INTO settlements (id,pid,income,expense,profit,tax_fee_rate,payee,payee_bank,payee_account,status,created_by,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)"
-      ).run(id, p.id, income, expense, profit, parseTaxFeeRate(p.tax_fee_rate), payee, payeeBank, payeeAccount, "已生成", user.name, at);
+      ).run(id, p.id, income, expense, profit, parseTaxFeeRate(p.tax_fee_rate), null, null, null, "已生成", user.name, at);
       setStatus(p, "已结算", user, ip,
         `生成结算单 ${id}：收入 ¥${income.toLocaleString("zh-CN")} / 支出 ¥${expense.toLocaleString("zh-CN")} / ` +
-        `结余 ¥${profit.toLocaleString("zh-CN")}；收款方 ${payee}（${payeeBank} 尾号 ${payeeAccount.slice(-4)}）`);
+        `结余 ¥${profit.toLocaleString("zh-CN")}`);
       return { project: getProject(p.id), message: `结算单 ${id} 已生成，结论冻结` };
     }
     case "archive": {
