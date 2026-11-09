@@ -751,6 +751,8 @@ function migrate() {
    */
   addColumn("payments", "payee_bank", "payee_bank TEXT");
   addColumn("payments", "payee_account", "payee_account TEXT");
+  // Payment request retains its selected verified source to resolve the exact original at execution.
+  addColumn("payments", "payee_option_id", "payee_option_id TEXT");
   // 结算时锁定税费管理费率；旧单NULL按历史项目现存税率兼容展示。
   addColumn("settlements", "tax_fee_rate", "tax_fee_rate REAL");
   addColumn("settlements", "payee", "payee TEXT");
