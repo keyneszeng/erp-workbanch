@@ -1,5 +1,5 @@
 <view class="wrap">
- <view class="card"><view class="heading">立项申请</view>
+ <view class="card"><view class="heading">内部立项申请</view>
  <view class="muted">会议基本信息 → 草稿保存 → 提交审批 → 协会管理员审批。提交后不可直接改动。</view>
  <view wx:if="{{status!=='草稿'}}" class="error">当前状态：{{status}}。仅草稿可以编辑。</view>
  </view>
