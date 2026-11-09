@@ -1,13 +1,15 @@
 "use strict";
 /**
  * 按用户勾选的材料库类目生成 PDF：单页封面仅含活动名称、所属协会；随后为所选原件。
- * - 原始 PDF / JPEG / PNG 转成可见页；其他格式原文件作为 PDF 附件，并生成说明页。
+ * - Office OOXML 文件必须先转换为可见 PDF 页面，转换不可用时明确失败；原文件仍作为附件。\n * - 原始 PDF / JPEG / PNG 转成可见页；其他格式原文件作为 PDF 附件，并生成说明页。
  * - 所有页面包括封面、PDF 原件、图片/说明页均添加同一份可选文字水印。
  * - 所有原件来源由服务端按项目/类目查询，不接受请求体指定文件key。
  */
 const {PDFDocument,degrees}=require("pdf-lib");
 const {HttpError}=require("./util");
 const {compressOriginal}=require("./file-compress");
+const VISIBLE_OFFICE_EXT=new Set(["pptx","xlsx","docx"]);
+const extOfFile=name=>String(name||"").split(".").pop().toLowerCase();
 const PAGE_W=595.28,PAGE_H=841.89;
 const MAX_FILES=120,MAX_FILE_BYTES=20*1024*1024,MAX_TOTAL_BYTES=120*1024*1024,MAX_PAGES=300;
 function sanitize(s){return String(s??"").replace(/[\u0000-\u001f\u007f]/g," ").trim();}
@@ -103,14 +105,31 @@ async function buildSelectedMaterialsPdf({project,materials,watermark,compressor
   if(!object?.buffer)
    throw new HttpError(409,"MATERIAL_FILE_MISSING","材料库原件不存在："+sanitize(m.file_name||m.name));
   const original=Buffer.from(object.buffer);
+  const originalFileName=m.file_name||m.name||m.file_key;
+  const needsOfficePages=VISIBLE_OFFICE_EXT.has(extOfFile(originalFileName));
   let bytes=original,type=mime(original,m.file_mime),compressNote="";
   /**
    * 超过单份上限时先尝试自动压缩，而不是直接让整份导出失败。
    * 压缩策略见 file-compress.js：图片缩放、PDF 用 gs 重采样、Office 转 PDF。
    */
-  if(original.length>MAX_FILE_BYTES){
+  if(needsOfficePages){
+   // Office must render regardless of size. A compressed PDF can be larger than the
+   // source XLSX/PPTX; comparing byte lengths would incorrectly discard the PDF.
    try{
-    const squeezed=await compressor(original,{type,fileName:m.file_name||m.name||m.file_key});
+    const converted=await compressor(original,{type,fileName:originalFileName});
+    if(!converted?.bytes || converted.type!=="application/pdf" ||
+       !Buffer.from(converted.bytes).subarray(0,4).equals(Buffer.from("%PDF")))
+      throw new Error("Office 转换未返回有效 PDF");
+    bytes=Buffer.from(converted.bytes);
+    type="application/pdf";
+   }catch(err){
+    throw new HttpError(503,"MATERIAL_OFFICE_CONVERSION_FAILED",
+      "无法将 Office 原件转换为可见 PDF 页面："+sanitize(originalFileName)+
+      "。请检查服务器 LibreOffice 组件，转换失败不会生成只有提示页的归档文件。");
+   }
+  }else if(original.length>MAX_FILE_BYTES){
+   try{
+    const squeezed=await compressor(original,{type,fileName:originalFileName});
     if(squeezed?.bytes&&squeezed.bytes.length<original.length){
      bytes=squeezed.bytes;type=squeezed.type||type;
      compressNote=(squeezed.note||"原件已自动压缩")+"（"+mb(original.length)+" → "+mb(bytes.length)+"）";
@@ -126,6 +145,7 @@ async function buildSelectedMaterialsPdf({project,materials,watermark,compressor
    dest.addPage(p);pageCount++;
   };
   // 压缩后仍然超限：只留说明页，跳过附件，保证其余材料照常导出。
+  if(needsOfficePages&&bytes.length>MAX_FILE_BYTES)\n   throw new HttpError(413,"MATERIAL_OFFICE_PDF_TOO_LARGE","Office 转换后 PDF 超过20MB，请拆分材料导出："+sanitize(originalFileName));
   if(bytes.length>MAX_FILE_BYTES){
    await addNote((compressNote||"原件超过20MB")+"；压缩后仍超过单份限制，未随 PDF 附带，请在材料库单独下载。");
    originalCount++;
@@ -170,8 +190,10 @@ async function buildSelectedMaterialsPdf({project,materials,watermark,compressor
   }
   pageCount+=pagesAdded;
   originalCount++;
-  await dest.attach(bytes,fileName,{
-   mimeType:type,
+  // Always attach the original editable Office document, never the converted PDF instead.\n  const attachmentBytes=needsOfficePages?original:bytes;
+  const attachmentName=needsOfficePages?safeAttachmentName(originalFileName,index):fileName;
+  await dest.attach(attachmentBytes,attachmentName,{
+   mimeType:needsOfficePages?m.file_mime||"application/octet-stream":type,
    description:sanitize(m.kind)+" · "+sanitize(m.name)+(compressNote?"（"+compressNote+"）":""),
    creationDate:new Date()
   });
