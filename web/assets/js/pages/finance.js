@@ -194,9 +194,7 @@ async function dl(path) {
 async function act(root, id, kind) {
   try {
     if (kind === "pay") {
-      if (!await confirmBox(`确认付款单 <b>${id}</b> 已在银行或线下完成实际付款，并将其登记为「已付款」？系统不会自动发起转账，请先核对银行回单。`, { ok: "确认付款" })) return;
-      const r = await api.post(`/api/payments/${id}/pay`, {});
-      toast(r.message, "ok");
+      return openPaymentExecution(id,()=>render(root));
     } else {
       const r = await api.post(`/api/payments/${id}/approve`, { approve: kind === "approve" });
       toast(r.message, "ok");
