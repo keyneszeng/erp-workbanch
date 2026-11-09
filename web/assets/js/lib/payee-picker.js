@@ -32,21 +32,26 @@ export async function bindPayeePicker(modal,pid,watchProject=false){
    '<div class="dchk"><b>关联金额：</b>'+esc(amount==="未登记"?amount:"¥"+amount)+'</div>'+
    '<div class="dchk"><b>开户行：</b>'+esc(x.bank||"资料未登记，需在申请表补充")+'</div>'+
    '<div class="dchk"><b>银行账号：</b>'+esc(x.maskedAccount||"资料未登记，需在申请表补充")+'</div>'+
-   '<div class="hint">来源数据仅供核对；银行账号只显示尾号。合同未登记的银行信息须人工补充。</div>';
+   '<div class="hint">'+(x.source==="labor"&&x.maskedAccount?'开户行及银行账号已关联，提交付款申请时自动使用加密保存的账户，无需重新输入。':'来源数据仅供核对；银行账号只显示尾号。合同未登记的银行信息须人工补充。')+'</div>';
  };
  const changeChoice=()=>{
   // Do not retain a previous payee's bank details after switching recipients.
   const name=input("payee"),bank=input("payee_bank"),account=input("payee_account");
   if(name)name.value="";
   if(bank)bank.value="";
-  if(account){account.value="";account.placeholder="10~25 位数字，可含空格分隔";}
+  if(account){account.value="";account.readOnly=false;account.placeholder="10~25 位数字，可含空格分隔";}
   const rows=select.__rows||[];
   const x=rows.find(r=>r.id===select.value);
   showChoice();
   if(!x)return;
   if(name)name.value=x.payee;
   if(bank&&x.bank)bank.value=x.bank;
-  if(account&&x.maskedAccount)account.placeholder=x.maskedAccount+"（账号由服务器加密读取，不需重复填写）";
+  if(account&&x.source==="labor"&&x.maskedAccount){
+   // Full account stays server-side; the verified payee ID is submitted instead.
+   account.readOnly=true;
+   account.value="";
+   account.placeholder=x.maskedAccount+"（已自动关联，提交时由服务器安全填入）";
+  }
   const amount=input("amount");
   if(amount&&x.source==="labor"&&x.amount)amount.value=x.amount;
  };
