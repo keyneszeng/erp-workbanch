@@ -7,6 +7,7 @@
  */
 const {PDFDocument,degrees}=require("pdf-lib");
 const {HttpError}=require("./util");
+const {compressOriginal}=require("./file-compress");
 const PAGE_W=595.28,PAGE_H=841.89;
 const MAX_FILES=120,MAX_FILE_BYTES=20*1024*1024,MAX_TOTAL_BYTES=120*1024*1024,MAX_PAGES=300;
 function sanitize(s){return String(s??"").replace(/[\u0000-\u001f\u007f]/g," ").trim();}
@@ -78,7 +79,12 @@ function mime(bytes,fallback){
 function safeAttachmentName(name,index){
  return String(index+1).padStart(3,"0")+"_"+sanitize(name||"原件").replace(/[\\/:*?"<>|]/g,"_").slice(0,90);
 }
-async function buildSelectedMaterialsPdf({project,materials,watermark},store){
+const mb=n=>(n/1048576).toFixed(1)+"MB";
+/**
+ * @param {object} opts
+ * @param {Function} [opts.compressor] 测试可注入；默认按格式调用外部工具压缩。
+ */
+async function buildSelectedMaterialsPdf({project,materials,watermark,compressor=compressOriginal},store){
  if(!project||!Array.isArray(materials)||!materials.length)
   throw new HttpError(400,"MATERIALS_EMPTY","至少选择一个已上传的材料类别");
  if(materials.length>MAX_FILES)
@@ -96,19 +102,50 @@ async function buildSelectedMaterialsPdf({project,materials,watermark},store){
   }
   if(!object?.buffer)
    throw new HttpError(409,"MATERIAL_FILE_MISSING","材料库原件不存在："+sanitize(m.file_name||m.name));
-  const bytes=Buffer.from(object.buffer);
-  if(bytes.length>MAX_FILE_BYTES)throw new HttpError(413,"MATERIAL_EXPORT_FILE_LARGE","单个原件超过20MB，请分批处理");
+  const original=Buffer.from(object.buffer);
+  let bytes=original,type=mime(original,m.file_mime),compressNote="";
+  /**
+   * 超过单份上限时先尝试自动压缩，而不是直接让整份导出失败。
+   * 压缩策略见 file-compress.js：图片缩放、PDF 用 gs 重采样、Office 转 PDF。
+   */
+  if(original.length>MAX_FILE_BYTES){
+   try{
+    const squeezed=await compressor(original,{type,fileName:m.file_name||m.name||m.file_key});
+    if(squeezed?.bytes&&squeezed.bytes.length<original.length){
+     bytes=squeezed.bytes;type=squeezed.type||type;
+     compressNote=(squeezed.note||"原件已自动压缩")+"（"+mb(original.length)+" → "+mb(bytes.length)+"）";
+    }
+   }catch(err){
+    compressNote="自动压缩失败："+sanitize(err.message||"未知错误")+"（原件 "+mb(original.length)+"）";
+   }
+  }
+  const addNote=async reason=>{
+   if(pageCount+1>MAX_PAGES)throw new HttpError(413,"MATERIAL_EXPORT_PAGES","生成PDF超过300页，请减少勾选类别");
+   const explanation=await PDFDocument.load(notePage(m,reason));
+   const [p]=await dest.copyPages(explanation,[0]);
+   dest.addPage(p);pageCount++;
+  };
+  // 压缩后仍然超限：只留说明页，跳过附件，保证其余材料照常导出。
+  if(bytes.length>MAX_FILE_BYTES){
+   await addNote((compressNote||"原件超过20MB")+"；压缩后仍超过单份限制，未随 PDF 附带，请在材料库单独下载。");
+   originalCount++;
+   continue;
+  }
   byteTotal+=bytes.length;
-  if(byteTotal>MAX_TOTAL_BYTES)throw new HttpError(413,"MATERIAL_EXPORT_TOTAL_LARGE","所选原件超过120MB，请分批处理");
-  const type=mime(bytes,m.file_mime);
-  const fileName=safeAttachmentName(m.file_name||m.name||m.file_key,index);
+  if(byteTotal>MAX_TOTAL_BYTES)
+   throw new HttpError(413,"MATERIAL_EXPORT_TOTAL_LARGE","所选原件超过120MB，请分批处理");
+  if(compressNote)await addNote(compressNote+"；原文件可在材料库单独下载。");
+  const fileName=(()=>{
+   const base=safeAttachmentName(m.file_name||m.name||m.file_key,index);
+   return type==="application/pdf"&&!/\.pdf$/i.test(base)?base.replace(/\.[^.]+$/,"")+".pdf":base;
+  })();
   let pagesAdded=0;
   try{
    if(type==="application/pdf"){
-    const original=await PDFDocument.load(bytes,{updateMetadata:false});
-    if(pageCount+original.getPageCount()>MAX_PAGES)
+    const originalPdf=await PDFDocument.load(bytes,{updateMetadata:false});
+    if(pageCount+originalPdf.getPageCount()>MAX_PAGES)
       throw new HttpError(413,"MATERIAL_EXPORT_PAGES","生成PDF超过300页，请减少勾选类别");
-    const pages=await dest.copyPages(original,original.getPageIndices());
+    const pages=await dest.copyPages(originalPdf,originalPdf.getPageIndices());
     pages.forEach(page=>dest.addPage(page));
     pagesAdded=pages.length;
    }else if(type==="image/png"||type==="image/jpeg"){
@@ -134,8 +171,9 @@ async function buildSelectedMaterialsPdf({project,materials,watermark},store){
   pageCount+=pagesAdded;
   originalCount++;
   await dest.attach(bytes,fileName,{
-    mimeType:type,description:sanitize(m.kind)+" · "+sanitize(m.name),
-    creationDate:new Date()
+   mimeType:type,
+   description:sanitize(m.kind)+" · "+sanitize(m.name)+(compressNote?"（"+compressNote+"）":""),
+   creationDate:new Date()
   });
  }
  if(!originalCount)throw new HttpError(400,"MATERIALS_EMPTY","没有可生成PDF的有效原件");

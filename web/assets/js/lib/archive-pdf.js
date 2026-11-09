@@ -42,7 +42,7 @@ export async function downloadArchivePdf(pid,button){
       '<div class="material-export-options">'+rows+'</div>'+
       '<div class="material-export-tools" style="margin-top:14px"><b>自选原件及排序</b><span class="hint">勾选文件，点击上移/下移调整 PDF 先后顺序</span></div>'+
       '<div data-material-file-list class="material-export-options"></div>'+
-      '<div class="hint" style="margin:12px 0">PDF 首页面仅含活动标题和所属协会；原件按上方自定义顺序合并。PDF、JPG、PNG直接合并成可见页面，'+
+      '<div class="hint" style="margin:12px 0">PDF 首页面仅含活动标题和所属协会；原件按上方自定义顺序合并。单个原件超过 20MB 时会自动压缩（图片缩放、PDF 重采样、Office 转 PDF）后再合并。PDF、JPG、PNG直接合并成可见页面，'+
       '其他格式将保留原始附件并在 PDF 中注明，缺失原件会阻止导出。</div>'+
       watermarkOptions,
    footer:'<button class="btn btn-o" data-cancel>取消</button>'+
@@ -58,11 +58,17 @@ export async function downloadArchivePdf(pid,button){
   const renderFiles=()=>{
    const allowed=new Set(checkboxes.filter(x=>x.checked).map(x=>x.value));
    const visible=ordered.filter(x=>allowed.has(x.kind));
+   const sizeText=x=>{
+    const mb=Number(x.file_size||0)/1048576;
+    if(!mb)return "";
+    const big=Number(x.file_size)>20*1024*1024;
+    return " · "+mb.toFixed(1)+"MB"+(big?" · 超过20MB，生成时自动压缩":"");
+   };
    list.innerHTML=visible.length?visible.map((x,i)=>
       '<div class="material-export-choice" data-file-id="'+x.id+'" style="display:flex;align-items:center;gap:8px">'+
       '<input type="checkbox" data-file-select="'+x.id+'" '+(checkedIds.has(x.id)?'checked':'')+'>'+
       '<span style="flex:1;min-width:0"><b>'+esc(x.name||x.file_name||"未命名")+'</b>'+
-      '<small>'+esc(x.kind)+' · '+esc(x.file_name||"原件")+'</small></span>'+
+      '<small>'+esc(x.kind)+' · '+esc(x.file_name||"原件")+esc(sizeText(x))+'</small></span>'+
       '<button type="button" class="link" data-move-up="'+x.id+'" '+(i===0?'disabled':'')+'>上移</button>'+
       '<button type="button" class="link" data-move-down="'+x.id+'" '+(i===visible.length-1?'disabled':'')+'>下移</button></div>'
      ).join(""):'<div class="hint">当前类目无可选原件</div>';
@@ -106,7 +112,7 @@ export async function downloadArchivePdf(pid,button){
    if(wmMode==="custom"&&(!customText||customText.length>80)){
     toast("请输入1～80字的自定义文字水印","warn");return;
    }
-   submit.disabled=true;submit.textContent="正在生成 PDF…";
+   submit.disabled=true;submit.textContent="正在生成…（大文件自动压缩）";
    try{
     const result=await api.download(
       "/api/projects/"+encodeURIComponent(pid)+"/archive-pdf",{

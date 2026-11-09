@@ -69,7 +69,7 @@ function availableKinds(pid){
 /** Available originals within current project; limited fields, no raw file keys exposed in options. */
 function availableMaterials(pid){
  return db.prepare(
-   "SELECT id,kind,name,file_name,file_mime FROM materials WHERE pid=? "+
+   "SELECT id,kind,name,file_name,file_mime,file_size FROM materials WHERE pid=? "+
    "AND (deleted_at IS NULL OR deleted_at='') AND file_key IS NOT NULL AND file_key<>'' "+
    "ORDER BY kind,id"
  ).all(pid);
