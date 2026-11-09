@@ -47,7 +47,13 @@ function register(router){
   if(process.env.ERP_PUBLIC_PROPOSALS_ENABLED==="0")
    throw Object.assign(new Error("公众活动申请入口暂未开放"),{status:503,code:"PUBLIC_PROPOSALS_DISABLED"});
   const v=validate(ctx.body);
-  const hash=fingerprint(ctx.ip),at=new Date().toISOString();
+  // Alibaba Cloud nginx overwrites X-Real-IP with its verified client IP.
+  // Trust it only when reverse-proxy mode is enabled and the connection is local.
+  const proxyIp=String(ctx.req?.headers?.["x-real-ip"]||"");
+  const trustedProxy=process.env.ERP_TRUST_PROXY==="1"&&
+    ["127.0.0.1","::1","::ffff:127.0.0.1"].includes(String(ctx.ip));
+  const sourceIp=trustedProxy&&/^[a-f\d.:]{3,45}$/i.test(proxyIp)?proxyIp:ctx.ip;
+  const hash=fingerprint(sourceIp),at=new Date().toISOString();
   const since=new Date(Date.now()-60*60*1000).toISOString();
   const recent=db.prepare("SELECT COUNT(*) AS n FROM public_event_proposals WHERE submitter_fingerprint=? AND received_at>=?").get(hash,since);
   if(Number(recent?.n)>=8)
