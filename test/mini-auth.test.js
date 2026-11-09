@@ -98,7 +98,7 @@ test("first-time phone authorization matches system whitelist and preserves RBAC
  const phoneCode="phone_test_"+ADMIN;
  const code="test_seamless_admin";
  const invalid=await req("POST","/api/mini/auth/phone-bind",
-  {code,phone:ADMIN,phoneCode:"wrong"});
+  {code,phone:ADMIN,phoneCode:"wrong_code_123"});
  assert.equal(invalid.status,401,"client-supplied phone cannot bypass WeChat verification");
  const result=await req("POST","/api/mini/auth/phone-bind",{code,phoneCode});
  assert.equal(result.status,200,JSON.stringify(result.body));
