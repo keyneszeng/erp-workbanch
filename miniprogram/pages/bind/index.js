@@ -1,6 +1,7 @@
 const app = getApp();
 Page({
   data:{phone:"",password:"",newPassword:"",smsCode:"",error:"",busy:false},
+  publicApply(){wx.navigateTo({url:"/pages/public-proposal/index"});},
   input(e){this.setData({[e.currentTarget.dataset.key]:e.detail.value});},
   async send(){
     this.setData({error:""});

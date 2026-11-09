@@ -115,3 +115,17 @@ test("mini verification associates current agenda, host, and stamped letter, nev
  assert.deepEqual(Array.from(p.data.files.map(x=>x.id)),[2,3,4]);
  assert.equal(p.data.selected.no,1);
 });
+
+test("anonymous public event proposals do not require login or forward employee tokens",async()=>{
+ const calls=[];
+ const responder=opts=>{calls.push(opts);opts.success({statusCode:200,data:{reference:"PP-demo",status:"已接收"}});};
+ const anonymous=client("https://erp-prod.example.org/api",responder);
+ await anonymous.app.api("/public/event-proposals","POST",{topic:"活动"});
+ assert.equal(calls.length,1);
+ assert.equal(calls[0].header.Authorization,undefined);
+ const staff=client("https://erp-prod.example.org/api",responder);
+ staff.app.setSession({accessToken:"private-session",user:{id:2},perms:[]});
+ await staff.app.api("/public/event-proposals","POST",{topic:"活动"});
+ assert.equal(calls[1].header.Authorization,undefined);
+ assert.equal(staff.app.globalData.token,"private-session");
+});

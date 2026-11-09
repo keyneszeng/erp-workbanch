@@ -1,0 +1,16 @@
+<view class="wrap">
+ <view class="home-hero"><view class="hero-eyebrow">会规化会务执行系统</view>
+  <view class="hero-heading">活动立项申请</view>
+  <view class="hero-sub">向平台提交活动举办意向，无需注册或登录</view>
+ </view>
+ <view class="card">
+  <view class="section-caption">公众活动申请</view>
+  <view class="muted">面向社会公众，填写主题、时间、形式、预算、议程和联系方式，提交后直接送达总管理员，不进入审批流程。</view>
+  <button class="btn primary" bindtap="goPublic">填写公众活动申请</button>
+ </view>
+ <view class="card">
+  <view class="section-caption">内部员工工作台</view>
+  <view class="muted">系统内部会议立项、审批、核销与财务仍需登录并按授权操作，与公众申请互不混用。</view>
+  <button class="btn ghost" bindtap="goStaff">员工登录 / 内部立项</button>
+ </view>
+</view>

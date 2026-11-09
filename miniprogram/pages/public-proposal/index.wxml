@@ -1,0 +1,47 @@
+<view class="wrap">
+ <view class="card">
+  <view class="heading">公众活动立项申请</view>
+  <view class="muted">无需登录 · 提交后由总管理员接收归档 · 不属于内部立项审批，也不代表活动已获批准或确定举办。</view>
+ </view>
+ <view wx:if="{{submitted}}" class="card">
+  <view class="success-note">提交成功，总管理员已收到您的活动意向。</view>
+  <view class="field">申请编号：{{reference}}</view>
+  <view class="muted">此编号用于沟通查询。平台如需进一步了解活动，将通过您提供的联系方式联系。</view>
+  <button class="btn ghost" bindtap="again">填写另一份申请</button>
+ </view>
+ <view wx:else class="card">
+  <view class="field"><text class="required">＊</text>活动主题
+   <input value="{{topic}}" data-key="topic" bindinput="input" maxlength="120" placeholder="请输入活动主题"/>
+  </view>
+  <view class="field"><text class="required">＊</text>活动时间
+   <picker mode="date" value="{{event_date}}" bindchange="pickDate"><view class="field-value">{{event_date||'选择计划举办日期'}} ▾</view></picker>
+  </view>
+  <view class="field"><text class="required">＊</text>计划开始时间
+   <picker mode="time" value="{{event_time}}" bindchange="pickTime"><view class="field-value">{{event_time||'选择开始时间'}} ▾</view></picker>
+  </view>
+  <view class="field"><text class="required">＊</text>活动形式
+   <picker mode="selector" range="{{forms}}" value="{{formIndex}}" bindchange="pickForm"><view class="field-value">{{form}} ▾</view></picker>
+  </view>
+  <view class="field"><text class="required">＊</text>预计预算（元）
+   <input type="digit" value="{{budget}}" data-key="budget" bindinput="input" placeholder="请输入预算金额"/>
+  </view>
+  <view class="field"><text class="required">＊</text>活动议程
+   <textarea value="{{agenda}}" data-key="agenda" bindinput="input" maxlength="3000" placeholder="请填写计划议程、活动内容或主要环节"/>
+  </view>
+  <view class="field"><text class="required">＊</text>联系人
+   <input value="{{contact_name}}" data-key="contact_name" bindinput="input" maxlength="60" placeholder="请输入联系人姓名"/>
+  </view>
+  <view class="field"><text class="required">＊</text>联系电话
+   <input type="text" value="{{contact_phone}}" data-key="contact_phone" bindinput="input" maxlength="30" placeholder="手机号或联系电话"/>
+  </view>
+  <view class="field">补充联系方式（选填）
+   <input value="{{contact_info}}" data-key="contact_info" bindinput="input" maxlength="200" placeholder="例如邮箱、微信号或其他联系说明"/>
+  </view>
+  <checkbox-group bindchange="agree"><label class="muted">
+   <checkbox value="agree" checked="{{consent}}"/> 同意平台将本表联系人信息仅用于活动申请接收、归档与后续沟通。
+  </label></checkbox-group>
+  <view wx:if="{{error}}" class="error">{{error}}</view>
+  <button class="btn primary" loading="{{busy}}" disabled="{{busy}}" bindtap="submit">提交给总管理员</button>
+  <view class="muted">本表不需要微信账号绑定；提交不触发任何内部审批、自动立项或付款流程。</view>
+ </view>
+</view>

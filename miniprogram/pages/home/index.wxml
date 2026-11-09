@@ -11,9 +11,10 @@
   </view></view>
   <view wx:if="{{!stats.length}}" class="muted">当前账号未获得工作台统计权限，已隐藏业务数据。</view>
  </view>
+ <view class="card"><view class="section-caption">社会公众活动申请</view><view class="muted">公众活动意向无需内部账号，提交至总管理员收件箱，不走系统立项审批。</view><button class="btn ghost" bindtap="publicApply">进入公众申请表</button></view>
  <view class="quick-grid">
   <view wx:if="{{canApply}}" class="quick-tile quick-blue" data-page="apply" bindtap="go">
-   <view class="quick-icon">＋</view><view class="quick-title">立项申请</view><view class="quick-sub">发起会议项目</view>
+   <view class="quick-icon">＋</view><view class="quick-title">内部立项申请</view><view class="quick-sub">员工登录后进入审批流程</view>
   </view>
   <view wx:if="{{canApply}}" class="quick-tile quick-green" bindtap="myApplications">
    <view class="quick-icon">◉</view><view class="quick-title">我的申请</view><view class="quick-sub">查看审批进度</view>

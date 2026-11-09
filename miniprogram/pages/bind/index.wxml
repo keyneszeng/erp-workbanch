@@ -8,4 +8,5 @@
 <view class="muted">如果已经在 Web 端修改过初始密码，新密码一栏可留空。</view>
 <view wx:if="{{error}}" class="error">{{error}}</view>
 <button class="btn primary" loading="{{busy}}" disabled="{{busy}}" bindtap="bind">验证并绑定微信</button>
+<view class="muted">不是内部员工？无需登录即可提交活动意向。</view><button class="btn ghost" bindtap="publicApply">公众活动申请（免登录）</button>
 </view></view>
