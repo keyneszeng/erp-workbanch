@@ -15,7 +15,7 @@ export async function render(root){
       {t:"接收时间"},{t:"主题／日期／形式"},{t:"预算"},{t:"联系人"},{t:"议程及补充信息"}
     ],d.rows.map(x=>({c:[
      esc(x.received_at||""),
-     '<b>'+esc(x.topic)+'</b><div class="hint">'+esc(x.event_date)+' · '+esc(x.form)+'</div><div class="hint">'+esc(x.id)+'</div>',
+     '<b>'+esc(x.topic)+'</b><div class="hint">'+esc(x.event_date)+' '+esc(x.event_time)+' · '+esc(x.form)+'</div><div class="hint">'+esc(x.id)+'</div>',
      '¥'+Number(x.budget||0).toLocaleString("zh-CN",{minimumFractionDigits:2,maximumFractionDigits:2}),
      esc(x.contact_name)+'<div class="hint">'+esc(x.contact_phone)+'</div><div class="hint">'+esc(x.contact_info||"")+'</div>',
      '<div style="max-width:400px;white-space:pre-wrap;overflow-wrap:anywhere">'+esc(x.agenda)+'</div>'
