@@ -505,7 +505,7 @@ function wire(root, pid, d, body) {
   body.querySelectorAll("[data-pay-approve]").forEach((b) => b.onclick = () => payAct(root, pid, b.dataset.payApprove, "approve"));
   body.querySelectorAll("[data-pay-reject]").forEach((b) => b.onclick = () => payAct(root, pid, b.dataset.payReject, "reject"));
   body.querySelectorAll("[data-pay-pay]").forEach((b) => b.onclick = () => payAct(root, pid, b.dataset.payPay, "pay"));
-  body.querySelectorAll("[data-pay-acct]").forEach((b) => b.onclick = () => openPayAccount(root, pid, b.dataset.payAcct));
+  // 「登记账户」已并入财务执行付款弹窗（payment-execution.js），列表不再单独提供入口。
   // 「去登记材料 →」：切页签（tab 是模块级变量，直接改再重渲染）
   body.querySelectorAll("[data-goto-tab]").forEach((b) => b.onclick = () => {
     tab = b.dataset.gotoTab;

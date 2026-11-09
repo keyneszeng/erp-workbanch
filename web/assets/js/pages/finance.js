@@ -143,7 +143,7 @@ export async function render(root, params = []) {
   root.querySelectorAll("[data-ok]").forEach((b) => b.onclick = () => act(root, b.dataset.ok, "approve"));
   root.querySelectorAll("[data-no]").forEach((b) => b.onclick = () => act(root, b.dataset.no, "reject"));
   root.querySelectorAll("[data-pay]").forEach((b) => b.onclick = () => act(root, b.dataset.pay, "pay"));
-  root.querySelectorAll("[data-acct]").forEach((b) => b.onclick = () => openAccount(root, b.dataset.acct));
+  // 「登记账户」已并入执行付款弹窗（payment-execution.js），列表不再单独提供入口。
   const settleSlot=root.querySelector("#settlementDetail");
   root.querySelectorAll("[data-settlement-detail]").forEach(button=>button.onclick=async()=>{
     const id=button.dataset.settlementDetail;
