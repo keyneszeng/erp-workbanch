@@ -117,8 +117,13 @@ export async function openOcrJudge(pid,no,d,onDone){
    report=x.report;
    show(report);
    reject.disabled=false;
-   // 无可用OCR资料不能以“智能自动比对”名义直接确认通过；第三/七项需人工检查原件。
-   approve.disabled=!report.total||(!report.scanned&&![3,7].includes(no));
+   // 无可用OCR资料不能以“智能自动比对”名义直接确认通过；第三/六/七项需人工检查原件。
+   // 第6步是原件关联核对（需求表预算=会务合同总额+已关联发票），本就不做OCR，
+   // 不能因为 scanned=0 把「人工判定通过」永久置灰。
+   approve.disabled=!report.total||(!report.scanned&&![3,6,7].includes(no));
+   if(approve.disabled)area.insertAdjacentHTML("beforeend",'<p class="hint">'+
+    (no===6?"尚未关联会务合同或会务发票原件，请先在材料中心上传对应原件。":
+      "没有可识别的原件，无法提交核销结论；请补充 PDF/JPG/PNG 原件。")+'</p>');
   }catch(e){
    if(!closed)area.innerHTML='<div class="gate"><b>OCR扫描暂不可用</b>'+esc(e.message)+
     '。请检查服务器OCR配置或补充PDF/JPG/PNG原件。未生成比对报告，不能提交核销结论。</div>';
@@ -144,7 +149,7 @@ export async function openOcrJudge(pid,no,d,onDone){
    if(e.code==="OCR_REPORT_STALE"||e.code==="OCR_EVIDENCE_REQUIRED"){
     area.insertAdjacentHTML("beforeend",'<div class="gate">原件已更新或识别依据不足，请重新扫描。</div>');
    }
-  }finally{busy=false;if(!closed){approve.disabled=!report.total||(!report.scanned&&![3,7].includes(no));reject.disabled=false;rescan.disabled=false;}}
+  }finally{busy=false;if(!closed){approve.disabled=!report.total||(!report.scanned&&![3,6,7].includes(no));reject.disabled=false;rescan.disabled=false;}}
  };
  approve.onclick=()=>judge("通过");
  reject.onclick=()=>judge("不通过");

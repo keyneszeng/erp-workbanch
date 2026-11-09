@@ -95,7 +95,13 @@ function register(router) {
     const isAuto=ctx.body?.auto===true;
     // 防止绕过UI直接构造“已OCR一致”的请求；每次判定验证材料版本与缓存哈希。
     const ocrReport=isAuto?verifyOcr.verifiedReport(p.id,no,ctx.body?.scanToken):null;
-    if(isAuto && result==="通过" && (!ocrReport.total || (!ocrReport.scanned && ![3,7].includes(no))))
+    /**
+     * 第 6 步按设计不做 OCR：scan() 只做「会务需求表 + 会务合同原件 + 会务发票原件」
+     * 的结构化关联与金额一致性核对，invoiceAmount 也不再作为门禁。
+     * 因此不能要求 scanned>0，否则文件齐备、四项检查全「一致」时仍会被判
+     * OCR_EVIDENCE_REQUIRED，人工判定通过永远提交不了。
+     */
+    if(isAuto && result==="通过" && (!ocrReport.total || (!ocrReport.scanned && ![3,6,7].includes(no))))
       throw conflict("未取得有效的OCR比对资料，不能直接判定通过；请先上传可识别的PDF或图片原件","OCR_EVIDENCE_REQUIRED");
     let remark=isAuto
       ?(result==="不通过"?
