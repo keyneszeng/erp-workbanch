@@ -1,12 +1,15 @@
-<view class="wrap"><view class="card"><view class="heading">绑定企业白名单账号</view>
-<view class="muted">仅限管理员已登记的手机号。首次登录必须短信验证并修改初始密码。</view>
-<input class="field" placeholder="白名单手机号" type="number" maxlength="11" data-key="phone" bindinput="input" value="{{phone}}"/>
-<input class="field" placeholder="账号密码" password data-key="password" bindinput="input" value="{{password}}"/>
-<input class="field" placeholder="6 位短信验证码" type="number" maxlength="6" data-key="smsCode" bindinput="input" value="{{smsCode}}"/>
-<button class="btn" bindtap="send">发送验证码到登记手机</button>
-<input class="field" placeholder="首次登录：设置新密码（字母+数字，至少8位）" password data-key="newPassword" bindinput="input" value="{{newPassword}}"/>
-<view class="muted">如果已经在 Web 端修改过初始密码，新密码一栏可留空。</view>
-<view wx:if="{{error}}" class="error">{{error}}</view>
-<button class="btn primary" loading="{{busy}}" disabled="{{busy}}" bindtap="bind">验证并绑定微信</button>
-<view class="muted">不是内部员工？无需登录即可提交活动意向。</view><button class="btn ghost" bindtap="publicApply">公众活动申请（免登录）</button>
-</view></view>
+<view class="wrap">
+ <view class="card">
+  <view class="heading">首次进入 · 手机号绑定</view>
+  <view class="muted">首次进入时，授权微信验证手机号，系统会自动匹配已有账号权限。不在系统白名单的手机号将创建普通用户账号。</view>
+  <view class="field">手机号将用于身份识别及与系统账号权限关联；不会用于公开展示。</view>
+  <checkbox-group bindchange="agree"><label class="muted"><checkbox value="agree" checked="{{consent}}"/> 我同意使用手机号进行账号绑定与权限匹配</label></checkbox-group>
+  <view wx:if="{{error}}" class="error">{{error}}</view>
+  <button class="btn primary" open-type="getPhoneNumber" bindgetphonenumber="getPhoneNumber" loading="{{busy}}" disabled="{{busy||!consent}}">微信手机号一键绑定并登录</button>
+  <view class="muted">后续将通过微信身份无感登录，权限由服务器中的账号授权决定。已有系统账号且使用初始密码的用户仍需完成首次密码安全设置。</view>
+ </view>
+ <view class="card">
+  <view class="section-caption">无需登录的公众活动申请</view>
+  <button class="btn ghost" bindtap="publicApply">公众活动申请（免登录）</button>
+ </view>
+</view>

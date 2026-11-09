@@ -129,3 +129,29 @@ test("anonymous public event proposals do not require login or forward employee 
  assert.equal(calls[1].header.Authorization,undefined);
  assert.equal(staff.app.globalData.token,"private-session");
 });
+
+test("first phone binding uses public endpoint without sending old employee bearer",async()=>{
+ const seen=[];
+ const {app}=client("https://erp-prod.example.org/api",opts=>{
+   seen.push(opts);
+   opts.success({statusCode:200,data:{accessToken:"new-session",user:{role:"user"},perms:[]}});
+ });
+ app.setSession({accessToken:"previous-session",user:{id:99},perms:["project:approve"]});
+ const result=await app.api("/mini/auth/phone-bind","POST",{code:"test_identity",phoneCode:"phone_test_13800138000"});
+ assert.equal(result.accessToken,"new-session");
+ assert.equal(seen[0].header.Authorization,undefined);
+});
+test("WeChat silent login sends no old employee token and resumes the linked role",async()=>{
+ const seen=[];
+ const {app}=client("https://erp-prod.example.org/api",opts=>{
+   seen.push(opts);
+   opts.success({statusCode:200,data:{accessToken:"bound-session",
+     user:{role:"user",mustChangePassword:false},role:{modules:[]},perms:[]}});
+ });
+ const resumed=await app.resume();
+ assert.equal(resumed.user.role,"user");
+ assert.equal(app.globalData.token,"bound-session");
+ assert.equal(seen.length,1);
+ assert.equal(seen[0].header.Authorization,undefined);
+ assert.match(seen[0].url,/\/mini\/auth\/login$/);
+});

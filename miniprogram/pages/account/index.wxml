@@ -1,11 +1,14 @@
 <view class="wrap"><view class="card"><view class="heading">账户与安全</view>
 <view>{{user.name}} · {{user.phone}}</view>
 <view wx:if="{{user.mustChangePassword}}" class="error">必须短信验证并修改初始密码后，才能使用业务功能。</view>
+<view wx:if="{{miniOnly}}" class="muted">当前为微信手机号绑定的普通用户，无需设置后台登录密码。后续可通过微信身份自动登录。</view>
+<block wx:else>
 <input class="field" placeholder="当前密码" password data-key="oldPassword" bindinput="input"/>
 <input class="field" placeholder="新密码（字母和数字至少 8 位）" password data-key="newPassword" bindinput="input"/>
 <input class="field" placeholder="6 位短信验证码" type="number" maxlength="6" data-key="smsCode" bindinput="input"/>
 <button class="btn" bindtap="send">发送改密验证码</button>
 <view wx:if="{{error}}" class="error">{{error}}</view>
 <button class="btn primary" loading="{{busy}}" disabled="{{busy}}" bindtap="change">确认修改密码</button>
+</block>
 <button class="btn" bindtap="logout">退出登录</button>
 </view></view>
