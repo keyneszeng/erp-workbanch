@@ -6,6 +6,7 @@
  * Existing binding: wx.login code -> server-side OpenID -> same session DB as Web.
  * All ERP business routes reuse central role, project scope and force-password gates.
  */
+const crypto=require("node:crypto");
 const { db, transaction } = require("../lib/db");
 const { isDemoMode } = require("../lib/runtime");
 const { normalizePhone } = require("../lib/phone-whitelist");
@@ -153,8 +154,8 @@ function register(router) {
         user=db.prepare("SELECT * FROM users WHERE phone=?").get(phone);
         if(user&&!user.active)throw new HttpError(403,"ACCOUNT_DISABLED","该手机号对应系统账号已停用，请联系管理员");
         if(!user){
-          const random=hashPassword(require("node:crypto").randomBytes(32).toString("hex"));
-          const username="mini_"+require("node:crypto").randomBytes(12).toString("hex");
+          const random=hashPassword(crypto.randomBytes(32).toString("hex"));
+          const username="mini_"+crypto.randomBytes(12).toString("hex");
           db.prepare("INSERT INTO users (username,name,role,assoc,dept,phone,pass_salt,pass_hash,active,created_at,must_change_password,phone_verified_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)")
            .run(username,"普通用户","user",null,null,phone,random.salt,random.hash,1,at,0,at);
           user=db.prepare("SELECT * FROM users WHERE username=?").get(username);
