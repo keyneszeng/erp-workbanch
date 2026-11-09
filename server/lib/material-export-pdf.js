@@ -179,10 +179,12 @@ async function buildSelectedMaterialsPdf({project,materials,watermark,compressor
    }
   }catch(err){
    if(err instanceof HttpError)throw err;
+   if(needsOfficePages)throw new HttpError(503,"MATERIAL_OFFICE_PDF_INVALID","Office 文件已转换，但生成的 PDF 无法读取："+sanitize(originalFileName));
    // 破损/受保护的PDF不能作为可见页；依然嵌入原件并明确标明。
    pagesAdded=0;
   }
   if(!pagesAdded){
+   if(needsOfficePages)throw new HttpError(503,"MATERIAL_OFFICE_PDF_EMPTY","Office 转换结果没有可显示页面："+sanitize(originalFileName));
    if(pageCount+1>MAX_PAGES)throw new HttpError(413,"MATERIAL_EXPORT_PAGES","生成PDF超过300页，请减少勾选类别");
    const explanation=await PDFDocument.load(notePage(m,"原件已随PDF附件保存；此文件格式暂不能转换为可见页面。"));
    const [p]=await dest.copyPages(explanation,[0]);
@@ -191,7 +193,8 @@ async function buildSelectedMaterialsPdf({project,materials,watermark,compressor
   }
   pageCount+=pagesAdded;
   originalCount++;
-  // Always attach the original editable Office document, never the converted PDF instead.\n  const attachmentBytes=needsOfficePages?original:bytes;
+  // Always attach the original editable Office document, never the converted PDF instead.
+  const attachmentBytes=needsOfficePages?original:bytes;
   const attachmentName=needsOfficePages?safeAttachmentName(originalFileName,index):fileName;
   await dest.attach(attachmentBytes,attachmentName,{
    mimeType:needsOfficePages?m.file_mime||"application/octet-stream":type,
