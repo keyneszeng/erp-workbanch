@@ -106,7 +106,7 @@ test("mini verification associates current agenda, host, and stamped letter, nev
   {id:3,kind:"串场",file_key:"c".repeat(32)+".pptx"},
   {id:4,kind:"会议通知",file_key:"d".repeat(32)+".pdf"}
  ];
- const app={api:async()=>({project:{name:"测试会议"},sectionAccess:{verify:true},
+ const app={api:async()=>({project:{name:"测试会议"},sectionAccess:{verify:true,materials:true},
   verification:{passed:0,total:7,steps:[{no:1,name:"盖章函件与串场核验",result:"待判定"}]},
   materials,contracts:[],sponsorRights:{}}),openOriginal:async()=>true};
  const p=miniPage("miniprogram/pages/verification/index.js",app);
