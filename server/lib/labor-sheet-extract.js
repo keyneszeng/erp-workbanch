@@ -67,7 +67,10 @@ function parseByHeader(lines){
   const amountRaw=amountIdx>=0?String(cs[amountIdx]||"").replace(/[^\d.]/g,""):"";
   const amount=Number(amountRaw);
   if(!validName(name)||!validAccount(bankAccount)||!Number.isFinite(amount)||amount<=0){
-   skipped++;continue;
+   // 只有「姓名列确实是个姓名」的行才算漏项需人工补录；
+   // 工作表标题、表头、合计行不计入，否则 6 人表会误报 7 行待补录。
+   if(validName(name)&&!NOT_NAME.test(name))skipped++;
+   continue;
   }
   const bankName=bankIdx>=0?String(cs[bankIdx]||"").trim():"";
   const time=timeIdx>=0?dateOf(cs[timeIdx]||""):dateOf(line);
@@ -159,7 +162,8 @@ function extractLaborRecords(text){
   if(isHeader(line)&&!/\d{12,}/.test(line))continue;
   const row=parseLine(line);
   if(!row){
-   if(/\d/.test(line))skipped++;
+   // 标题、说明等没有长数字的行不算「未导入」；只有疑似账号行才提示人工补录。
+   if(/\d{10,}/.test(line))skipped++;
    continue;
   }
   const key=row.name+"\u001f"+row.bankAccount;
