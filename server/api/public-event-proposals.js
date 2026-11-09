@@ -24,6 +24,8 @@ function validate(input){
  if(!/^\d{4}-\d{2}-\d{2}$/.test(event_date)||
     (!Number.isFinite(Date.parse(event_date+"T00:00:00.000Z")) || new Date(event_date+"T00:00:00.000Z").toISOString().slice(0,10)!==event_date))
     throw bad("请选择有效活动日期");
+ const event_time=str(input.event_time,5,"活动时间");
+ if(!/^([01]\\d|2[0-3]):[0-5]\\d$/.test(event_time))throw bad("请选择有效活动开始时间");
  const form=str(input.form,10,"活动形式");
  if(!FORMS.has(form))throw bad("活动形式只能是线上、线下或混合");
  // Amount is expressed as a currency decimal, disallow exponent and negatives.
@@ -37,7 +39,7 @@ function validate(input){
  if(!/^[+\d][\d\s+()\-]{5,29}$/.test(contact_phone))throw bad("请填写有效联系电话");
  const contact_info=str(input.contact_info||"",200,"补充联系方式",{required:false});
  if(input.consent!==true)throw bad("请同意个人信息用于本次活动联系及管理");
- return {topic,event_date,form,budget,agenda,contact_name,contact_phone,contact_info};
+ return {topic,event_date,event_time,form,budget,agenda,contact_name,contact_phone,contact_info};
 }
 const fingerprint=ip=>crypto.createHash("sha256").update(
  String(process.env.ERP_PUBLIC_PROPOSAL_HASH_SALT||"erp-proposal")+"|"+String(ip||"unknown")
@@ -60,9 +62,9 @@ function register(router){
    throw Object.assign(new Error("提交过于频繁，请稍后再试"),{status:429,code:"PUBLIC_PROPOSAL_RATE_LIMIT"});
   const id="PP-"+crypto.randomBytes(12).toString("hex");
   db.prepare("INSERT INTO public_event_proposals "+
-   "(id,topic,event_date,form,budget,agenda,contact_name,contact_phone,contact_info,consent_at,received_at,submitter_fingerprint,status) "+
-   "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)")
-   .run(id,v.topic,v.event_date,v.form,v.budget,v.agenda,v.contact_name,v.contact_phone,v.contact_info,at,at,hash,"已接收");
+   "(id,topic,event_date,event_time,form,budget,agenda,contact_name,contact_phone,contact_info,consent_at,received_at,submitter_fingerprint,status) "+
+   "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
+   .run(id,v.topic,v.event_date,v.event_time,v.form,v.budget,v.agenda,v.contact_name,v.contact_phone,v.contact_info,at,at,hash,"已接收");
   return {reference:id,status:"已接收",message:"活动申请已送达总管理员收件箱，此提交不进入内部立项审批流程"};
  });
  router.get("/api/admin/public-event-proposals",async ctx=>{
@@ -70,7 +72,7 @@ function register(router){
   const page=Math.max(1,Math.min(10000,Number(ctx.query.page)||1));
   const size=Math.max(1,Math.min(100,Number(ctx.query.size)||30));
   const total=Number(db.prepare("SELECT COUNT(*) AS n FROM public_event_proposals").get().n);
-  const rows=db.prepare("SELECT id,topic,event_date,form,budget,agenda,contact_name,contact_phone,contact_info,received_at,status "+
+  const rows=db.prepare("SELECT id,topic,event_date,event_time,form,budget,agenda,contact_name,contact_phone,contact_info,received_at,status "+
      "FROM public_event_proposals ORDER BY received_at DESC,id DESC LIMIT ? OFFSET ?").all(size,(page-1)*size);
   return {rows,total,page,size};
  });
