@@ -147,6 +147,37 @@ function extractAmount(text){
  const values=[...new Set(tagged.filter(x=>x.rank===high).map(x=>x.value))];
  return values.length===1?values[0]:null;
 }
+/**
+ * Labor agreements often say "劳动报酬 / 劳务报酬" without a "合同金额" label.
+ * Only fixed monetary amounts are candidates: salary rates and payment schedules
+ * must never be guessed as the total contractual remuneration.
+ */
+function laborAmountEvidence(text){
+ const lines=clean(text).split("\n").map(normalizedLine);
+ const labels=/(?:劳动报酬|劳务报酬|劳务费用|劳务费|专家劳务费|专家服务费|专家酬金|专家报酬|讲者报酬|讲师报酬|讲师酬金|讲课费|授课费|劳动合同金额|报酬总额|酬金总额)\s*(?:总额|总金额|金额|合计|共计)?\s*(?:[（(](?:税前|税后|含税|不含税)[）)])?\s*(?:[:：]|为|是)?\s*/gu;
+ const values=[];
+ let labeled=false;
+ for(let i=0;i<lines.length;i++){
+  for(const match of lines[i].matchAll(labels)){
+   labeled=true;
+   const tail=lines[i].slice(match.index+match[0].length).trim().slice(0,100);
+   // Rates, not fixed contract totals: there is no safe amount to auto-fill.
+   if(/^(?:标准|单价|每(?:月|日|天|年|小时|场|次)|按(?:月|日|天|年|小时|场|次))/.test(tail))continue;
+   let value=moneyValue(tail.split(/[;；。]/)[0]);
+   if(value===null && !tail){
+    const next=(lines[i+1]||"").trim();
+    if(next&&!/^(?:甲方|乙方|身份证|合同编号|签订日期|支付方式|付款方式)/.test(next) &&
+       !/^(?:标准|单价|每(?:月|日|天|年|小时|场|次)|按(?:月|日|天|年|小时|场|次))/.test(next))
+      value=moneyValue(next.slice(0,80));
+   }
+   if(value!==null)values.push(value);
+  }
+ }
+ const distinct=[...new Set(values)];
+ return {detected:labeled,amount:distinct.length===1?distinct[0]:null,ambiguous:distinct.length>1};
+}
+function extractLaborAmount(text){return laborAmountEvidence(text).amount;}
+
 function sponsorOnce(source,meta){
  const fields={
    enterprise:extractEnterprise(source),amount:extractAmount(source),
@@ -171,20 +202,28 @@ function result(meta,fields,missing){
  return {status:missing.length?"待人工补全":"待人工确认",fields,note,
    engine:String(meta.engine||""),truncated,mode:String(meta.mode||"")};
 }
-function ledgerOnce(source,meta){
+function ledgerOnce(source,meta,options={}){
  const enterprise=extractEnterprise(source);
  const vendor=extractCounterparty(source)||enterprise;
- const amount=extractAmount(source),rightsContent=parseSponsorRights(source);
+ const labor=laborAmountEvidence(source);
+ const generic=extractAmount(source);
+ const isLabor=options.category==="劳务专家";
+ // For a labor contract, a clear "劳动报酬" is more specific than an unrelated
+ // amount (deposit/installment/other party). Conflicting remuneration stays blank.
+ const amount=isLabor?(labor.detected?labor.amount:generic):(generic??labor.amount);
+ const rightsContent=parseSponsorRights(source);
  const missing=[];
  if(!vendor)missing.push("签约方");
- if(amount===null)missing.push("合同金额");
- return result(meta,{vendor,enterprise,amount,rightsContent},missing);
+ if(amount===null)missing.push(labor.ambiguous?"合同报酬有多处不同金额，请人工核对":"合同金额／劳动报酬");
+ const answer=result(meta,{vendor,enterprise,amount,rightsContent,
+  amountSource:amount!==null&&labor.amount===amount?"劳动报酬":"合同金额"},missing);
+ return answer;
 }
-function extractLedgerContract(text,meta={}){
+function extractLedgerContract(text,meta={},options={}){
  const source=clean(text);
- const once=ledgerOnce(source,meta);
+ const once=ledgerOnce(source,meta,options);
  if(once.fields.vendor&&once.fields.amount!==null)return once;
  const alt=despace(source);
- return alt===source?once:(filledCount(ledgerOnce(alt,meta))>filledCount(once)?ledgerOnce(alt,meta):once);
+ return alt===source?once:(filledCount(ledgerOnce(alt,meta,options))>filledCount(once)?ledgerOnce(alt,meta,options):once);
 }
-module.exports={extractSponsorContract,extractEnterprise,extractCounterparty,extractAmount,extractLedgerContract,moneyValue};
+module.exports={extractSponsorContract,extractEnterprise,extractCounterparty,extractAmount,extractLaborAmount,extractLedgerContract,moneyValue};

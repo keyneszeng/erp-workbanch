@@ -77,3 +77,43 @@ test("逐字空格不能破坏同一行并排的甲乙方",()=>{
  assert.equal(r.fields.vendor,"深圳市卓越会务服务有限公司");
  assert.equal(r.fields.amount,88000);
 });
+
+test("劳动报酬／劳务报酬金额用于劳务合同 OCR 自动预填",()=>{
+ const {extractLaborAmount,extractLedgerContract}=require("../server/lib/sponsor-contract-extract");
+ const text=[
+   "专家劳务合同",
+   "甲方：广东省医学会",
+   "乙方：张三",
+   "劳动报酬（税前）：人民币12,600.50元",
+   "付款第1期：3000元",
+   "保证金：500元"
+ ].join("\n");
+ assert.equal(extractLaborAmount(text),12600.50);
+ const result=extractLedgerContract(text,{}, {category:"劳务专家"});
+ assert.equal(result.fields.amount,12600.5);
+ assert.equal(result.fields.amountSource,"劳动报酬");
+ assert.match(result.note,/签约方/,"个人姓名缺少可靠角色证据时应提示人工补填，但金额仍需正确预填");
+ assert.equal(extractLaborAmount("劳务报酬总额：1.25万元"),12500);
+ assert.equal(extractLaborAmount("专家劳务费：人民币壹万贰仟元整"),12000);
+ assert.equal(extractLaborAmount("讲课费：人民币800元"),800);
+});
+test("劳务专家 OCR 优先明确劳动报酬，避免误把其他合同条款金额写入",()=>{
+ const {extractLedgerContract,extractLaborAmount}=require("../server/lib/sponsor-contract-extract");
+ const sample="合同总金额：人民币20,000元\n劳务报酬：人民币18,000元\n第一期支付：人民币2,000元";
+ assert.equal(extractLedgerContract(sample,{}, {category:"劳务专家"}).fields.amount,18000);
+ assert.equal(extractLedgerContract(sample).fields.amount,20000);
+ assert.equal(extractLaborAmount("劳动报酬标准：每月 5000元\n合作期限：12个月"),null);
+ assert.equal(extractLaborAmount("专家报酬总额：1000元\n专家报酬总额：1200元"),null);
+ const ambiguous=extractLedgerContract("劳务报酬：1000元\n劳动报酬：1200元\n合同金额：5000元",{}, {category:"劳务专家"});
+ assert.equal(ambiguous.fields.amount,null);
+ assert.match(ambiguous.note,/多处不同金额/);
+});
+test("劳动报酬跨行／OCR汉字间空格可以读取，非报酬数字不被误识别",()=>{
+ const {extractLedgerContract}=require("../server/lib/sponsor-contract-extract");
+ const wrapped=extractLedgerContract("劳务报酬：\n人民币12,800元",{}, {category:"劳务专家"});
+ assert.equal(wrapped.fields.amount,12800);
+ const spaced=extractLedgerContract("劳 务 报 酬 ： 15000 元",{}, {category:"劳务专家"});
+ assert.equal(spaced.fields.amount,15000);
+ const unsupported=extractLedgerContract("劳动报酬标准：每场1000元\n合同期限：2027年",{}, {category:"劳务专家"});
+ assert.equal(unsupported.fields.amount,null);
+});
