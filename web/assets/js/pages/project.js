@@ -204,7 +204,14 @@ function tabOverview(d, p) {
       ["会议形式", esc(p.form)],
       ["会期", `${esc(p.date)} · ${p.days} 天`],
       ["预计人数", `${p.people || 0} 人`],
-      ["负责人", `${esc(p.owner || "—")} · ${esc(p.phone || "")}`],
+      ["负责人", d.sourcePublicProposalId ? esc(p.owner || "—") : `${esc(p.owner || "—")} · ${esc(p.phone || "")}`],
+      ...(d.sourcePublicProposalId ? [
+        ["公众申请来源", state.super ? `<a class="link" data-go="public-proposals">${esc(d.sourcePublicProposalId)}</a>` : esc(d.sourcePublicProposalId)],
+        ["计划开始时间", esc(p.public_event_time || "—")],
+        ["申请联系人", esc(p.public_contact_name || "—")],
+        ["申请联系电话", esc(p.phone || "—")],
+        ["补充联系方式", esc(p.public_contact_info || "—")]
+      ] : []),
       ["承办部门", esc(p.dept && (state.meta.depts || []).includes(p.dept) ? p.dept : (p.dept ? "历史部门（待重新分类）" : "—"))],
       ["预算", `<b class="num">¥${money(p.budget)}</b>`],
       ["税费管理费率", `${money(Number(p.tax_fee_rate)||0)}%`],
