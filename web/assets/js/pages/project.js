@@ -758,7 +758,7 @@ function openContract(root, pid) {
       if(vendor&&!vendor.dataset.userEdited&&(fields.vendor||fields.enterprise))
         {vendor.value=fields.vendor||fields.enterprise;vendor.dataset.ocrFilled="1";}
       note.textContent=(scan.note||"识别完成，请核对原件后保存。")+
-        (fields.amount!==null&&fields.amount!==undefined?" 已预填"+(fields.amountSource||"合同")+"金额：¥"+fields.amount:"");
+        (fields.amount!==null&&fields.amount!==undefined?" 已预填"+(fields.amountSource==="劳动报酬"?"劳动报酬":"合同")+"金额：¥"+fields.amount:"");
     })().catch(e=>{
       if(seq===token)note.textContent="OCR 未完成："+e.message+"；可人工填写金额后保存。";
     }).finally(()=>{if(seq===token){busy=false;btn.disabled=false;}});
