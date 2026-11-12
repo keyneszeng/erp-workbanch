@@ -94,9 +94,10 @@ test("mini public page does not depend on wx.login or internal draft approval",(
 });
 
 test("public proposal processing is superadmin-only and appears in the admin workbench todo",async()=>{
- const submitted=await req("/api/public/event-proposals","POST",{...sample,topic:"待办闭环测试申请"});
- assert.equal(submitted.status,200);
- const id=submitted.data.reference;
+ // Previous rate-limit test deliberately exhausts the anonymous submission allowance.
+ const pending=db.prepare("SELECT id FROM public_event_proposals WHERE status='已接收' ORDER BY received_at DESC LIMIT 1").get();
+ assert.ok(pending);
+ const id=pending.id;
  const guestProcess=await req("/api/admin/public-event-proposals/"+id+"/process","POST",{note:"guest attempt"},guestCookie);
  assert.equal(guestProcess.status,403);
  const dashboard=await req("/api/dashboard","GET",undefined,adminCookie);
