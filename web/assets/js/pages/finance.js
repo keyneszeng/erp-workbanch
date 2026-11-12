@@ -69,7 +69,7 @@ export async function render(root, params = []) {
 
     ${incomeReadable ? '<div id="incomeWorkbench"></div>' : ""}
     <div class="ux-finance-tabs" role="navigation" aria-label="财务业务分区">
-       ${incomeReadable ? '<button class="ux-finance-tab active" data-finance-jump="incomeWorkbench">会议收入 · 企业赞助</button>' : ""}
+       ${incomeReadable ? '<button class="ux-finance-tab active" data-finance-jump="incomeWorkbench">企业赞助</button>' : ""}
        <button class="ux-finance-tab ${incomeReadable ? "" : "active"}" data-finance-jump="fin-payments">付款申请与执行</button>
        <button class="ux-finance-tab" data-finance-jump="fin-settlements">结算与归档</button>
      </div>
