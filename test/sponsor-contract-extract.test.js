@@ -92,7 +92,7 @@ test("劳动报酬／劳务报酬金额用于劳务合同 OCR 自动预填",()=>
  const result=extractLedgerContract(text,{}, {category:"劳务专家"});
  assert.equal(result.fields.amount,12600.5);
  assert.equal(result.fields.amountSource,"劳动报酬");
- assert.match(result.note,/已识别并预填/);
+ assert.match(result.note,/签约方/,"个人姓名缺少可靠角色证据时应提示人工补填，但金额仍需正确预填");
  assert.equal(extractLaborAmount("劳务报酬总额：1.25万元"),12500);
  assert.equal(extractLaborAmount("专家劳务费：人民币壹万贰仟元整"),12000);
  assert.equal(extractLaborAmount("讲课费：人民币800元"),800);
