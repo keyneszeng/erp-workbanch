@@ -1,0 +1,72 @@
+<view class="wrap">
+  <view class="card card-accent">
+    <view class="page-kicker">PUBLIC EVENT PROPOSAL</view>
+    <view class="heading">公众活动立项申请</view>
+    <view class="subtitle">无需账号，提交活动举办意向，由平台总管理员统一接收</view>
+    <view class="notice"><text class="notice-icon">i</text><text>提交不代表活动获批或确定举办，也不会自动触发内部审批、立项及付款流程。</text></view>
+  </view>
+
+  <view wx:if="{{submitted}}" class="card card-accent">
+    <view class="identity-mark" style="background:#1f8a3e">✓</view>
+    <view class="heading" style="text-align:center">申请已提交</view>
+    <view class="subtitle" style="text-align:center">总管理员已收到您的活动意向</view>
+    <view class="notice space">
+      <view class="grow"><view class="micro">申请编号</view><view class="title space-sm">{{reference}}</view></view>
+    </view>
+    <view class="muted" style="text-align:center">请保存编号用于后续沟通。平台如需了解详情，将通过您填写的联系方式联系。</view>
+    <button class="btn ghost" bindtap="again">填写另一份申请</button>
+  </view>
+
+  <block wx:else>
+    <view class="form-section">
+      <view class="section-head"><view class="row"><view class="section-index">01</view><view class="section-caption">活动信息</view></view><view class="micro">带 * 为必填</view></view>
+      <view class="field">
+        <view class="field-label"><text class="required">*</text>活动主题</view>
+        <input class="field-control" value="{{topic}}" data-key="topic" bindinput="input" maxlength="120" placeholder="请输入活动主题"/>
+      </view>
+      <view class="field">
+        <view class="field-label"><text class="required">*</text>计划举办日期</view>
+        <picker mode="date" value="{{event_date}}" bindchange="pickDate"><view class="picker-control"><text>{{event_date||'选择日期'}}</text><text class="picker-arrow">⌄</text></view></picker>
+      </view>
+      <view class="field">
+        <view class="field-label"><text class="required">*</text>计划开始时间</view>
+        <picker mode="time" value="{{event_time}}" bindchange="pickTime"><view class="picker-control"><text>{{event_time||'选择开始时间'}}</text><text class="picker-arrow">⌄</text></view></picker>
+      </view>
+      <view class="field">
+        <view class="field-label"><text class="required">*</text>活动形式</view>
+        <picker mode="selector" range="{{forms}}" value="{{formIndex}}" bindchange="pickForm"><view class="picker-control"><text>{{form}}</text><text class="picker-arrow">⌄</text></view></picker>
+      </view>
+      <view class="field">
+        <view class="field-label"><text class="required">*</text>预计预算（元）</view>
+        <input class="field-control" type="digit" value="{{budget}}" data-key="budget" bindinput="input" placeholder="请输入预算金额"/>
+      </view>
+      <view class="field">
+        <view class="field-label"><text class="required">*</text>活动议程</view>
+        <textarea class="textarea-control" value="{{agenda}}" data-key="agenda" bindinput="input" maxlength="3000" placeholder="请填写计划议程、活动内容或主要环节"/>
+      </view>
+    </view>
+
+    <view class="form-section">
+      <view class="section-head"><view class="row"><view class="section-index">02</view><view class="section-caption">联系信息</view></view></view>
+      <view class="field">
+        <view class="field-label"><text class="required">*</text>联系人</view>
+        <input class="field-control" value="{{contact_name}}" data-key="contact_name" bindinput="input" maxlength="60" placeholder="请输入联系人姓名"/>
+      </view>
+      <view class="field">
+        <view class="field-label"><text class="required">*</text>联系电话</view>
+        <input class="field-control" type="text" value="{{contact_phone}}" data-key="contact_phone" bindinput="input" maxlength="30" placeholder="手机号或联系电话"/>
+      </view>
+      <view class="field">
+        <view class="field-label">补充联系方式</view>
+        <input class="field-control" value="{{contact_info}}" data-key="contact_info" bindinput="input" maxlength="200" placeholder="选填，例如邮箱、微信号或其他说明"/>
+      </view>
+      <view class="consent-box">
+        <checkbox-group bindchange="agree"><label class="consent-label"><checkbox value="agree" checked="{{consent}}" color="#2e5fa3"/><text>同意平台将本表联系人信息仅用于活动申请接收、归档与后续沟通。</text></label></checkbox-group>
+      </view>
+    </view>
+
+    <view wx:if="{{error}}" class="error"><text class="feedback-icon">!</text><text>{{error}}</text></view>
+    <button class="btn primary" loading="{{busy}}" disabled="{{busy}}" bindtap="submit">提交给总管理员</button>
+    <view class="privacy-note">联系人信息仅用于本次申请沟通，不在公开页面展示。</view>
+  </block>
+</view>

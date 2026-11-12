@@ -1,17 +1,23 @@
-<view class="wrap">
-  <view class="card">
-    <view class="heading">{{title}}</view>
-    <view class="subtitle">{{template}}</view>
-    <view wx:if="{{loading}}" class="status">正在读取邀请函…</view>
-    <view wx:elif="{{error}}" class="status error">{{error}}</view>
+<view class="wrap invitation-shell">
+  <view class="card invitation-card">
+    <view class="invitation-brand">会规化会务执行系统</view>
+    <view class="invitation-title">{{title}}</view>
+    <view class="invitation-template">{{template}}</view>
+    <view class="invitation-divider"></view>
+
+    <view wx:if="{{loading}}" class="loading-state"><view class="spinner"></view><text>正在读取邀请函</text></view>
+    <view wx:elif="{{error}}" class="error"><text class="feedback-icon">!</text><text>{{error}}</text></view>
     <block wx:else>
-      <view class="body">{{body}}</view>
-      <view class="status">{{isFinal ? '您已回复：'+status : '请核对内容，确认或暂不接受邀请'}}</view>
-      <button class="btn" bindtap="openPdf">查看 / 下载 PDF</button>
-      <button wx:if="{{!isFinal}}" class="btn primary" data-action="CONFIRM" bindtap="reply">确认接受邀请</button>
-      <button wx:if="{{!isFinal}}" class="btn" data-action="DECLINE" bindtap="reply">暂不接受</button>
+      <view class="invitation-body">{{body}}</view>
+      <view class="invitation-status">{{isFinal ? '您的回复：'+status : '请核对邀请内容，并选择是否接受本次邀请'}}</view>
+      <view wx:if="{{isFinal}}" class="success-note"><text class="feedback-icon">✓</text><text>回复已记录。如需变更，请联系会务负责人。</text></view>
+      <button class="btn ghost" bindtap="openPdf">查看 / 下载 PDF</button>
+      <view wx:if="{{!isFinal}}" class="button-row">
+        <button class="btn ghost" data-action="DECLINE" bindtap="reply">暂不接受</button>
+        <button class="btn primary" data-action="CONFIRM" bindtap="reply">确认接受</button>
+      </view>
       <button class="btn" open-type="share">分享邀请</button>
-      <view class="note">请勿将包含个人受邀信息的链接转发给无关人员。</view>
+      <view class="privacy-note">邀请链接可能包含个人受邀信息，请勿转发给无关人员。</view>
     </block>
   </view>
 </view>

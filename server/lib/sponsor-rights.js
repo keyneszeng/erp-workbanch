@@ -50,18 +50,27 @@ function sponsorRights(db,pid){
   const active=contracts.filter(c=>c.status==="已签署"&&c.rights_scan_status!=="确认无权益");
   const activeIds=new Set(active.map(c=>c.id));
   const needed=rights.filter(r=>activeIds.has(r.sponsor_id));
-  const associated=photos.filter(p=>p.sponsor_right_id!=null);
+  // Step 7 is conditional on real rights content/photos, not merely a signed
+  // sponsorship with no rights. Unsigned/orphan sources still trigger review;
+  // they cannot pass until correctly linked to a signed sponsor agreement.
+  const required=rights.length>0 || photos.some(p=>!!p.file_key);
   const signature=crypto.createHash("sha256").update(JSON.stringify({
-    contracts:active.map(c=>[c.id,c.status,c.file_key]),
-    rights:needed.map(r=>[r.id,r.sponsor_id,r.category,r.confirmed,r.updated_at]),
-    photos:associated.filter(p=>needed.some(r=>r.id===p.sponsor_right_id)).map(p=>[p.id,p.sponsor_right_id,p.name,p.file_key,p.version])
+    contracts:contracts.map(c=>[c.id,c.status,c.rights_scan_status,c.file_key]),
+    rights:rights.map(r=>[r.id,r.sponsor_id,r.category,r.confirmed,r.updated_at]),
+    photos:photos.map(p=>[p.id,p.sponsor_right_id,p.name,p.file_key,p.version])
   })).digest("hex");
-  return {required:active.length>0,contracts,rights,photos,activeContracts:active,
+  return {required,contracts,rights,photos,activeContracts:active,
     requiredRights:needed,signature};
 }
 function validateRightsEvidence(db,pid,evidence){
   const snap=sponsorRights(db,pid);
   if(!snap.required)throw Object.assign(new Error("没有已签署赞助合同，第7项不适用"),{status:409,code:"SOP_NOT_APPLICABLE"});
+  if(!snap.activeContracts.length)
+    throw Object.assign(new Error("已登记权益内容或权益照片，但没有已签署且包含权益的赞助合同，请先完成合同确认与关联"),{status:409,code:"SPONSOR_CONTRACT_REQUIRED"});
+  const validIds=new Set(snap.requiredRights.map(r=>Number(r.id)));
+  if(snap.rights.some(r=>!snap.activeContracts.some(c=>c.id===r.sponsor_id))||
+      snap.photos.some(p=>p.file_key&&!validIds.has(Number(p.sponsor_right_id))))
+    throw Object.assign(new Error("存在未归属到有效赞助合同权益的内容或照片，请先修正关联"),{status:409,code:"SPONSOR_RIGHTS_UNLINKED"});
   for(const c of snap.activeContracts){
     const items=snap.requiredRights.filter(r=>r.sponsor_id===c.id);
     if(!items.length || items.some(r=>!r.confirmed))

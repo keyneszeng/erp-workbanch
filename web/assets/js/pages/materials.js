@@ -1,7 +1,7 @@
 import { api, can } from "../lib/api.js";
 import {canDownloadArchivePdf,bindArchivePdfButtons} from "../lib/archive-pdf.js";
 import { bindPager, esc, formHtml, modal, pager, panel, readForm, table, toast, validate } from "../lib/ui.js";
-import { checkFile, compressImage, fileUrl, UPLOAD_ACCEPT, UPLOAD_TIP } from "../lib/upload.js";
+import { checkFile, fileUrl, formatBytes, UPLOAD_ACCEPT, UPLOAD_TIP } from "../lib/upload.js";
 import { openContractMaterialReplace } from "../lib/contract-material-replace.js";
 
 const PAGE_SIZE = 50;
@@ -69,46 +69,81 @@ export async function render(root) {
   });
 }
 
+/**
+ * 两处入口（会议项目→归档材料、材料中心）共享同一登记表单。
+ * 材料名称严格使用用户所选择文件的原始名称；附件不做有损压缩。
+ * 最多 20 份/批、并发 3 份，逐份显示结果，失败文件可单独重试。
+ */
 export function openMaterialRegistration(root, projects, kinds, defaultPid="", onSaved=null) {
-  if(!projects.length){toast("当前没有可登记材料的项目（已结算、已归档项目不允许新增材料）","warn");return;}
-  const fields = [
-    { k: "pid", l: "所属项目", t: "select", req: 1, v:defaultPid, opts: projects.map((p) => ({ v: p.id, l: `${p.id} ${p.name}` })) },
-    { k: "kind", l: "材料类别", t: "select", req: 1, custom: 1, ph: "如：盖章会议通知 / 招商函 / 终版议程 / 讲者照片",
-      opts: [...kinds, "会议通知", "招商函", "终版议程", "课件", "串场", "劳务表", "劳务收集表", "讲者照片", "权益照片"].filter((v, i, a) => a.indexOf(v) === i),
-      tip: "可任选类别或自定义类别；不要求固定类别全部上传。至少上传一份实际附件即可满足流程材料条件。" },
-    { k: "sponsor_right_id", l: "权益照片 · 二级类目（从赞助合同自动生成，可自定义）", t:"select",opts:[],
-      tip:"先选择项目及赞助合同权益，再上传对应照片。" },
-    { k: "name", l: "材料名称", req: 1, ph: "如：签到表-终版.pdf" },
-    { k: "version", l: "版本", v: "v1" },
-    {
-      k: "file", l: "附件", t: "file", full: 1,
-      accept: UPLOAD_ACCEPT,
-      tip: UPLOAD_TIP+" 讲者照片请在名称栏填写讲者姓名。"
-    }
+  if(!projects.length){
+    toast("当前没有可登记材料的项目（已结算、已归档项目不允许新增材料）","warn");
+    return;
+  }
+  const fields=[
+    {k:"pid",l:"所属项目",t:"select",req:1,v:defaultPid,
+      opts:projects.map(p=>({v:p.id,l:p.id+" "+p.name}))},
+    {k:"kind",l:"材料类别",t:"select",req:1,custom:1,
+      ph:"如：盖章会议通知 / 招商函 / 终版议程 / 讲者照片",
+      opts:[...kinds,"会议通知","招商函","终版议程","课件","串场","劳务表","劳务收集表","讲者照片","权益照片"]
+        .filter((v,i,a)=>a.indexOf(v)===i),
+      tip:"可任选或自定义类别。多份文件将分别登记到当前项目与材料类别。"},
+    {k:"sponsor_right_id",l:"权益照片 · 二级类目（从赞助合同自动生成，可自定义）",
+      t:"select",opts:[],tip:"先选择项目及赞助合同权益，再上传对应照片。"},
+    {k:"file",l:"选择材料文件",t:"file",full:1,accept:UPLOAD_ACCEPT,
+      tip:"一次最多选择 20 份，每份不超过 50 MB；支持并发上传。材料名称自动采用对应文件名，无需手动输入。"}
   ];
-  const m = modal({
-    title: "登记材料",
-    width: "620px",
-    body: formHtml(fields),
-    footer: `<button class="btn btn-o" data-x="0">取消</button><button class="btn btn-p" data-x="1">保存</button>`
+  const m=modal({
+    title:"登记材料",width:"660px",
+    body:formHtml(fields)+
+      '<div data-material-file-list aria-live="polite" class="fld full" style="grid-column:1/-1;margin-top:10px">'+
+      '<div class="hint">选择文件后，系统将在此列出每份文件的材料名称及上传状态。</div></div>'+
+      '<div class="hint" data-material-batch-status role="status" aria-live="polite" style="margin:10px 0"></div>',
+    footer:'<button class="btn btn-o" data-x="0">取消</button><button class="btn btn-p" data-x="1">上传并登记</button>'
   });
-
-  // 每个文件独立登记一个材料记录，保留既有原件/审计/版本约束。
   const picker=m.querySelector('input[name="file"]');
-  picker.multiple=true;
-  let picked=[];
   const kindSelect=m.querySelector('[name="kind"]');
   const saveButton=m.querySelector('[data-x="1"]');
+  const cancelButton=m.querySelector('[data-x="0"]');
   const rightSelect=m.querySelector('[name="sponsor_right_id"]');
   const rightField=rightSelect.closest(".fld");
   const pidSelect=m.querySelector('[name="pid"]');
-  let availableRights=[];
-  let rightsRequestId=0;
+  const fileList=m.querySelector("[data-material-file-list]");
+  const batchStatus=m.querySelector("[data-material-batch-status]");
+  const filenameCount=m.querySelector(".upload .fn");
+  let picked=[],busy=false,availableRights=[],rightsRequestId=0;
+
+  const drawFiles=()=>{
+    if(filenameCount)filenameCount.textContent=picked.length?picked.length+" 份文件已选择":"未选择";
+    if(!picked.length){
+      fileList.innerHTML='<div class="hint">尚未选择文件。上传后各材料名称将与对应文件名相同。</div>';
+      return;
+    }
+    fileList.innerHTML='<div class="hint">待登记材料名称（与文件名一致） · '+picked.length+' 份</div>'+
+      '<div style="max-height:240px;overflow:auto;margin-top:6px">'+
+      picked.map((item,i)=>'<div class="row" data-material-file="'+i+'" '+
+        'style="justify-content:space-between;gap:12px;padding:7px 0;border-bottom:1px solid var(--line)">'+
+        '<span style="overflow-wrap:anywhere;min-width:0">'+
+        '<b data-material-name>'+esc(item.file.name)+'</b>'+
+        '<span class="hint"> · '+formatBytes(item.file.size)+'</span></span>'+
+        '<span class="hint" data-material-status style="flex-shrink:0">'+
+        esc(item.status==='done'?'已登记':item.status==='uploading'?'上传中…':
+          item.status==='saving'?'归档中…':item.status==='error'?'失败，可重试':'待上传')+
+        '</span></div>'+
+        (item.error?'<div class="hint" style="color:var(--danger)">'+esc(item.error)+'</div>':'')).join("")+
+      '</div>';
+  };
+  const resetFiles=()=>{
+    if(busy)return;
+    picked=[];
+    picker.value="";
+    batchStatus.textContent="";
+    drawFiles();
+  };
   const loadRights=async()=>{
     const requestId=++rightsRequestId;
     const pid=pidSelect.value;
     availableRights=[];
-    rightSelect.innerHTML='<option value="">正在加载权益二级类目…</option>';
+    rightSelect.innerHTML='<option value="">正在加载权益内容…</option>';
     if(!pid){rightSelect.innerHTML='<option value="">请先选择所属项目</option>';return;}
     try{
       const data=await api.get("/api/projects/"+encodeURIComponent(pid)+"/sponsor-rights");
@@ -118,105 +153,125 @@ export function openMaterialRegistration(root, projects, kinds, defaultPid="", o
         .map(x=>({...x,enterprise:sponsors.get(x.sponsor_id).enterprise}));
     }catch(err){
       if(requestId!==rightsRequestId||pidSelect.value!==pid)return;
-      if(kindSelect.value==="权益照片")toast("读取权益二级类目失败："+err.message,"warn");
+      if(kindSelect.value==="权益照片")toast("读取权益内容失败："+err.message,"warn");
     }
     const old=rightSelect.value;
-    rightSelect.innerHTML='<option value="">选择赞助合同 → 权益二级类目</option>'+
-      availableRights.map(x=>'<option value="'+x.id+'">'+esc(x.enterprise)+" · "+esc(x.category)+(x.confirmed?"":"（待确认）")+'</option>').join("");
+    rightSelect.innerHTML='<option value="">选择赞助合同 → 权益内容</option>'+
+      availableRights.map(x=>'<option value="'+x.id+'">'+esc(x.enterprise)+" · "+esc(x.category)+
+        (x.confirmed?"":"（待确认）")+'</option>').join("");
     if(availableRights.some(x=>String(x.id)===old))rightSelect.value=old;
   };
-  pidSelect.addEventListener("change",loadRights);
-  loadRights();
 
-  // 终版议程只需上传一个文件，名称自动取文件名，版本自动确认为终版。
-  const syncAgendaForm=()=>{
+  const syncKind=()=>{
     const final=kindSelect.value==="终版议程";
     const photo=kindSelect.value==="讲者照片";
     const rightsPhoto=kindSelect.value==="权益照片";
     rightField.style.display=rightsPhoto?"":"none";
-    for(const field of ["name","version"]){
-      const el=m.querySelector('[name="'+field+'"]');
-      if(el?.closest(".fld"))el.closest(".fld").style.display=final?"none":"";
-    }
     picker.multiple=!final&&!photo;
     picker.accept=photo||rightsPhoto?".jpg,.jpeg,.png,.webp":UPLOAD_ACCEPT;
-    if(saveButton)saveButton.textContent=final?"确定终版议程":"保存";
+    saveButton.textContent=final?"确定终版议程":"上传并登记";
     const tip=m.querySelector(".upload")?.closest(".fld")?.querySelector(".tip");
     if(tip)tip.textContent=final
-      ? "上传一份终版议程原件，点击「确定终版议程」即完成；无需额外的讲者、课题或待办流程。"
-      : photo ? "每次登记一位讲者的 JPG/PNG/WebP 照片，材料名称必须填写对应讲者姓名，供核销第2步逐人核对。"
-        : rightsPhoto ? "选择赞助合同对应的权益二级类目，可为同一权益上传多张 JPG/PNG/WebP 照片。"
-        : UPLOAD_TIP+" 讲者照片请在名称栏填写讲者姓名。";
+      ?"终版议程只允许上传一份文件，材料名称与文件名相同，保存即自动确认为终版。"
+      :photo?"讲者照片每次上传一位讲者的一张 JPG/PNG/WebP 图片；文件名应包含讲者姓名。"
+      :rightsPhoto?"可同时上传同一权益的多张 JPG/PNG/WebP 照片，每张独立归档。"
+      :"一次最多选择 20 份、单份不超过 50 MB；并发上传并逐份归档，材料名称自动使用文件名。";
   };
-  kindSelect.addEventListener("change",syncAgendaForm);
-  syncAgendaForm();
+  pidSelect.addEventListener("change",()=>{resetFiles();loadRights();});
+  kindSelect.addEventListener("change",()=>{resetFiles();syncKind();});
+  syncKind();loadRights();drawFiles();
+
   picker.onchange=()=>{
-    const files=[...(picker.files||[])];
-    if(files.length>20){toast("单次最多选择 20 份附件","warn");picker.value="";picked=[];return;}
+    if(busy)return;
+    const files=Array.from(picker.files||[]);
+    const fail=msg=>{toast(msg,"warn");resetFiles();};
+    if(files.length>20)return fail("单次最多选择 20 份材料附件");
+    if(!files.length){resetFiles();return;}
     const error=files.map(checkFile).find(Boolean);
-    if(error){toast(error,"warn");picker.value="";picked=[];return;}
-    if(kindSelect.value==="终版议程"&&files.length!==1){toast("终版议程只能上传一份文件","warn");picker.value="";picked=[];return;}
-    if(kindSelect.value==="讲者照片"&&(files.length!==1||!/^image\/(jpeg|png|webp)$/.test(files[0].type||"") &&
-      !/\.(jpg|jpeg|png|webp)$/i.test(files[0].name||""))){
-      toast("讲者照片每次只能上传一张 JPG/PNG/WebP 图片","warn");picker.value="";picked=[];return;
-    }
-    if(kindSelect.value==="权益照片"&&files.some(f=>!/\.(jpe?g|png|webp)$/i.test(f.name||""))){
-      toast("权益照片仅支持 JPG/PNG/WebP 图片","warn");picker.value="";picked=[];return;
-    }
-    picked=files;
-    const count=m.querySelector(".upload .fn");
-    if(count)count.textContent=files.length?files.length+" 份文件已选择":"未选择";
-    const name=m.querySelector('[name="name"]');
-    if(name&&!name.value.trim()&&files[0])name.value=files[0].name;
+    if(error)return fail(error);
+    if(files.some(f=>!f.name.trim()||f.name.length>120))
+      return fail("材料文件名必须有效且不能超过 120 字符");
+    if(kindSelect.value==="终版议程"&&files.length!==1)
+      return fail("终版议程只能上传一份文件");
+    if(kindSelect.value==="讲者照片"&&(files.length!==1||
+      !/\.(jpe?g|png|webp)$/i.test(files[0].name||"")))
+      return fail("讲者照片请一次选择一位讲者的一张 JPG/PNG/WebP 图片");
+    if(kindSelect.value==="权益照片"&&files.some(f=>!/\.(jpe?g|png|webp)$/i.test(f.name||"")))
+      return fail("权益照片仅支持 JPG/PNG/WebP 图片");
+    picked=files.map(file=>({file,status:"pending",error:"",upload:null}));
+    batchStatus.textContent=files.length+" 份文件已选择；保存时将使用各自文件名作为材料名称。";
+    drawFiles();
   };
 
-  m.querySelector('[data-x="0"]').onclick = () => m.classList.remove("open");
-  const btn = saveButton;
-  btn.onclick = async () => {
-    const isFinalAgenda=kindSelect.value==="终版议程";
-    if(kindSelect.value==="权益照片"&&!availableRights.some(x=>String(x.id)===rightSelect.value)){
-      toast("请先选择当前合同的权益二级类目；识别失败请到赞助收入页面人工补录","warn");return;
-    }
-    if(!validate(m,isFinalAgenda?fields.filter(f=>f.k!=="name"):fields))return;
-    if(isFinalAgenda&&picked.length!==1){toast("请先选择一份终版议程文件","warn");return;}
+  cancelButton.onclick=()=>{if(!busy)m.classList.remove("open");};
+  saveButton.onclick=async()=>{
+    if(busy)return;
+    if(!validate(m,fields))return;
+    if(!picked.length){toast("请先选择至少一份材料文件","warn");return;}
+    const final=kindSelect.value==="终版议程";
+    if(final&&picked.length!==1){toast("终版议程只能上传一份文件","warn");return;}
     if(kindSelect.value==="讲者照片"&&picked.length!==1){
-      toast("讲者照片请一次选择一位讲者的一张图片","warn");return;
+      toast("讲者照片每次只能上传一位讲者的一张图片","warn");return;
     }
-    const v=readForm(m);
-    if(kindSelect.value==="权益照片")v.sponsor_right_id=Number(rightSelect.value);
-    else delete v.sponsor_right_id;
-    if(isFinalAgenda){
-      v.name=picked[0].name;
-      v.version="终版";
-    }else if(!v.name&&picked.length){
-      v.name=picked[0].name;
+    if(kindSelect.value==="权益照片"&&!availableRights.some(x=>String(x.id)===rightSelect.value)){
+      toast("请先选择与当前赞助合同对应的权益内容","warn");return;
     }
-    if(!String(v.name||"").trim()){toast("请填写材料名称或选择附件","warn");return;}
+    const data=readForm(m);
+    delete data.name;delete data.version;
+    data.version=final?"终版":"v1";
+    if(kindSelect.value==="权益照片")data.sponsor_right_id=Number(rightSelect.value);
+    else delete data.sponsor_right_id;
 
-    btn.disabled = true;
-    try {
-      if(!picked.length){
-        await api.post(`/api/projects/${v.pid}/materials`,v);
-      }else{
-        let saved=0;
-        for(const file of picked){
-          const payload=await compressImage(file);
-          btn.textContent=`正在上传 ${saved+1}/${picked.length}`;
-          const up=await api.upload(payload,{pid:v.pid});
-          await api.post(`/api/projects/${v.pid}/materials`,{
-            ...v,name:picked.length===1?v.name:`${v.name} · ${file.name}`,
+    const queue=picked.filter(x=>x.status!=="done");
+    if(!queue.length)return;
+    busy=true;saveButton.disabled=true;cancelButton.disabled=true;
+    picker.disabled=true;pidSelect.disabled=true;kindSelect.disabled=true;
+    const custom=m.querySelector('[name="kind__custom"]');
+    if(custom)custom.disabled=true;
+    rightSelect.disabled=true;
+    let cursor=0;
+    const worker=async()=>{
+      while(cursor<queue.length){
+        const item=queue[cursor++];
+        item.status="uploading";item.error="";drawFiles();
+        try{
+          // The uploaded bytes retain the original filename, extension and MIME:
+          // archived evidence must not silently turn a PNG into a JPEG.
+          const up=item.upload||await api.upload(item.file,{pid:data.pid});
+          item.upload=up;
+          item.status="saving";drawFiles();
+          await api.post("/api/projects/"+encodeURIComponent(data.pid)+"/materials",{
+            ...data,name:item.file.name,
             file_key:up.key,file_name:up.name,file_size:up.size,file_mime:up.mime
           });
-          saved++;
+          item.status="done";item.error="";
+        }catch(e){
+          item.status="error";item.error=e.message||"上传或登记失败";
         }
+        const done=picked.filter(x=>x.status==="done").length;
+        batchStatus.textContent="已登记 "+done+"/"+picked.length+" 份材料"+
+          (picked.some(x=>x.status==="error")?"，失败项可单独重试":"");
+        drawFiles();
       }
-      toast(isFinalAgenda?"终版议程已上传并确认":picked.length?`已登记 ${picked.length} 份材料附件`:"材料已登记","ok");
+    };
+    await Promise.all(Array.from({length:Math.min(3,queue.length)},()=>worker()));
+    busy=false;saveButton.disabled=false;cancelButton.disabled=false;
+    picker.disabled=false;pidSelect.disabled=false;kindSelect.disabled=false;
+    if(custom)custom.disabled=false;
+    rightSelect.disabled=false;
+    const done=picked.filter(x=>x.status==="done").length;
+    const failed=picked.length-done;
+    if(done){
+      try{if(onSaved)await onSaved();else await render(root);}
+      catch(e){toast("材料已登记，但刷新列表失败："+e.message,"warn");}
+    }
+    if(failed){
+      saveButton.textContent="重试失败的 "+failed+" 份";
+      batchStatus.textContent="成功登记 "+done+" 份，失败 "+failed+" 份。请查看每个文件的状态后重试。";
+      toast("已登记 "+done+" 份；另有 "+failed+" 份失败，可重试","warn");
+    }else{
+      toast(final?"终版议程已上传并确认":"已登记 "+done+" 份材料，名称与原文件名一致","ok");
       m.classList.remove("open");
-      if(onSaved)await onSaved(); else await render(root);
-    } catch (e) {
-      toast(e.message, "warn");
-      btn.disabled = false;
-      btn.textContent = isFinalAgenda ? "确定终版议程" : "保存";
     }
   };
 }

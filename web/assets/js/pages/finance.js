@@ -1,3 +1,4 @@
+import {openPaymentExecution} from "../lib/payment-execution.js";
 import { api, can, state } from "../lib/api.js";
 import {bindPayeePicker} from "../lib/payee-picker.js";
 import {renderIncomeWorkbench} from "../lib/income-workbench.js";
@@ -68,7 +69,7 @@ export async function render(root, params = []) {
 
     ${incomeReadable ? '<div id="incomeWorkbench"></div>' : ""}
     <div class="ux-finance-tabs" role="navigation" aria-label="财务业务分区">
-       ${incomeReadable ? '<button class="ux-finance-tab active" data-finance-jump="incomeWorkbench">会议收入 · 企业赞助</button>' : ""}
+       ${incomeReadable ? '<button class="ux-finance-tab active" data-finance-jump="incomeWorkbench">企业赞助</button>' : ""}
        <button class="ux-finance-tab ${incomeReadable ? "" : "active"}" data-finance-jump="fin-payments">付款申请与执行</button>
        <button class="ux-finance-tab" data-finance-jump="fin-settlements">结算与归档</button>
      </div>
@@ -97,8 +98,8 @@ export async function render(root, params = []) {
             esc(y.req_user || ""), badge(y.status),
             `<div class="tacts">
               ${y.status === "待审批" && can("payment:approve") ? `<button class="link" data-ok="${y.id}">审批</button><button class="link danger" data-no="${y.id}">驳回</button>` : ""}
-              ${y.status === "已审批" && can("payment:pay") && y.payee_account ? `<button class="link" data-pay="${y.id}">付款</button>` : ""}
-              ${y.status !== "已付款" && can("payment:pay") && !y.payee_account ? `<button class="link" data-acct="${y.id}">登记账户</button>` : ""}
+              ${y.status === "已审批" && can("payment:pay")  ? `<button class="link" data-pay="${y.id}">付款</button>` : ""}
+              
               ${y.status === "已付款" ? `<span style="font-size:11.5px;color:var(--mute)">${esc(y.paid_at || "")}</span>` : ""}
             </div>`]
         })), { empty: "暂无付款记录" })}
@@ -110,18 +111,11 @@ export async function render(root, params = []) {
       ${table(
         [{ t: "结算单号", w: "112px" }, { t: "项目" }, { t: "项目预算", w: "96px", cls: "num" },
          { t: "已付支出", w: "96px", cls: "num" }, { t: "结余", w: "96px", cls: "num" },
-         { t: "收款方 / 收款账户", w: "230px" },
          { t: "生成人", w: "70px" }, { t: "时间", w: "120px" },{ t:"操作",w:"100px" }],
         st.rows.map((x) => ({
           c: [`<span class="mono">${x.id}</span>`, `<a class="link" data-go="projects/${x.pid}">${esc(x.name)}</a>`,
             `¥${money(x.income)}`, `¥${money(x.expense)}`,
             `<span class="${x.profit >= 0 ? "pos" : "neg"}">¥${money(x.profit)}</span>`,
-            // V1.2.18：结余打给谁、打到哪个账户 —— 原来这一栏整个是空的
-            `${esc(x.payee || "—")}<div style="font-size:11px;color:var(--mute)">
-              ${x.payee_account
-                ? `${esc(x.payee_bank || "")} · <span class="mono">${esc(can("payment:pay") ? x.payee_account : "尾号 " + String(x.payee_account).slice(-4))}</span>`
-                : "未登记收款账户"}
-            </div>`,
             esc(x.created_by || ""), `<span class="mono">${esc(x.created_at)}</span>`,
             `<button type="button" class="link" aria-expanded="false" data-settlement-detail="${esc(x.id)}">查看结算单</button>`]
         })), { empty: "暂无结算单" })}
@@ -142,7 +136,7 @@ export async function render(root, params = []) {
   root.querySelectorAll("[data-ok]").forEach((b) => b.onclick = () => act(root, b.dataset.ok, "approve"));
   root.querySelectorAll("[data-no]").forEach((b) => b.onclick = () => act(root, b.dataset.no, "reject"));
   root.querySelectorAll("[data-pay]").forEach((b) => b.onclick = () => act(root, b.dataset.pay, "pay"));
-  root.querySelectorAll("[data-acct]").forEach((b) => b.onclick = () => openAccount(root, b.dataset.acct));
+  // 「登记账户」已并入执行付款弹窗（payment-execution.js），列表不再单独提供入口。
   const settleSlot=root.querySelector("#settlementDetail");
   root.querySelectorAll("[data-settlement-detail]").forEach(button=>button.onclick=async()=>{
     const id=button.dataset.settlementDetail;
@@ -193,9 +187,7 @@ async function dl(path) {
 async function act(root, id, kind) {
   try {
     if (kind === "pay") {
-      if (!await confirmBox(`确认付款单 <b>${id}</b> 已在银行或线下完成实际付款，并将其登记为「已付款」？系统不会自动发起转账，请先核对银行回单。`, { ok: "确认付款" })) return;
-      const r = await api.post(`/api/payments/${id}/pay`, {});
-      toast(r.message, "ok");
+      return openPaymentExecution(id,()=>render(root));
     } else {
       const r = await api.post(`/api/payments/${id}/approve`, { approve: kind === "approve" });
       toast(r.message, "ok");
@@ -242,8 +234,6 @@ async function openPay(root, projects) {
       tip:"专家费与个人报销优先使用第 5 步核验的劳务表；其他收款方来自已签署合同。" },
     { k: "payee", l: "收款方", req: 1 },
     // V1.2.18：只写收款方名字，财务没法打款
-    { k: "payee_bank", l: "开户行", req: 0, ph: "如：中国银行北京朝阳支行" },
-    { k: "payee_account", l: "银行账号", req: 0, ph: "10~25 位数字，可含空格分隔" },
     { k: "amount", l: "付款金额（元）", t: "number", req: 1 },
     // 分期付款两期金额常常相同，不填期次会被当成重复申请
     { k: "period", l: "期次（可选）", req: 0, ph: "如：第1期 / 首付款 / 尾款" },
@@ -255,13 +245,6 @@ async function openPay(root, projects) {
   m.querySelector('[data-x="0"]').onclick = () => m.classList.remove("open");
   const submitButton=m.querySelector('[data-x="1"]');
   submitButton.onclick = async () => {
-    const selected=m.querySelector('[name="payee_option_id"]')?.value;
-    const acct=m.querySelector('[name="payee_account"]')?.value.trim();
-    const bank=m.querySelector('[name="payee_bank"]')?.value.trim();
-    const rows=m.querySelector('[name="payee_option_id"]')?.__rows||[];
-    const source=rows.find(x=>x.id===selected);
-    if((!source||!source.bank)&&!bank){toast("请填写收款方开户行","warn");return;}
-    if((!source||source.source!=="labor")&&!acct){toast("请填写银行账号；合同仅提供收款方名称","warn");return;}
     if (!validate(m, fields)) return;
     if(submitButton.disabled)return;
     submitButton.disabled=true;

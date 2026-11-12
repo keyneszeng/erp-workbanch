@@ -9,6 +9,25 @@ async function request(method,url,body,cookie){
 }
 async function login(name){const x=await request("POST","/api/auth/login",{username:name,password:"123456"});assert.equal(x.status,200,JSON.stringify(x.data));return x.cookie;}
 const pdf=Buffer.from("%PDF-1.4\n1 0 obj\n<<>>\nendobj\n%%EOF");
+function docxBytes(){
+ const PizZip=require("pizzip");
+ const zip=new PizZip();
+ zip.file("[Content_Types].xml",'<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"/>');
+ zip.file("_rels/.rels",'<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"/>');
+ const lines=["赞助企业名称：广州睿康医疗科技有限公司","合同总金额：人民币12000元","权益内容：",
+   "1. 主会场背景板LOGO露出","2. 企业展位展示","付款约定：合同签署后支付"];
+ zip.file("word/document.xml",
+   '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>'+
+   lines.map(x=>'<w:p><w:r><w:t>'+x+'</w:t></w:r></w:p>').join("")+'</w:body></w:document>');
+ return zip.generate({type:"nodebuffer",compression:"DEFLATE"});
+}
+async function uploadDocx(cookie,pid){
+ const r=await fetch(base+"/api/uploads?pid="+encodeURIComponent(pid),{
+   method:"POST",headers:{Cookie:cookie,"Content-Type":"application/octet-stream","X-File-Name":"sponsor.docx"},
+   body:docxBytes()
+ });
+ const data=await r.json();assert.equal(r.status,200,JSON.stringify(data));return data.key;
+}
 async function upload(cookie,pid){
  const r=await fetch(base+"/api/uploads?pid="+encodeURIComponent(pid),{method:"POST",headers:{Cookie:cookie,"Content-Type":"application/octet-stream","X-File-Name":"sponsor.pdf"},body:pdf});
  const v=await r.json();assert.equal(r.status,200,JSON.stringify(v));return v.key;
@@ -24,14 +43,79 @@ before(async()=>{
  admin=await login("admin");exec=await login("exec");
 });
 after(()=>{child?.kill("SIGTERM");fs.rmSync(dir,{recursive:true,force:true});});
+test("合同台账企业赞助自动编码，OCR预填，并同步会议收入签署状态",async()=>{
+ const p=await request("POST","/api/projects",
+  {name:"合同台账关联赞助收入测试",assoc:"华东医学会",form:"线下",date:"2027-11-20",
+   budget:30000,people:30,owner:"陈静",agenda:"会务合作"},exec);
+ assert.equal(p.status,200,JSON.stringify(p.data));
+ const pid=p.data.project.id,key=await uploadDocx(exec,pid);
+ const ocr=await request("POST","/api/contracts/scan",{pid,file_key:key},exec);
+ assert.equal(ocr.status,200,JSON.stringify(ocr.data));
+ assert.equal(ocr.data.fields.vendor,"广州睿康医疗科技有限公司");
+ assert.equal(ocr.data.fields.enterprise,"广州睿康医疗科技有限公司");
+ assert.equal(ocr.data.fields.amount,12000);
+ assert.deepEqual(ocr.data.fields.rightsContent,["主会场背景板LOGO露出","企业展位展示"]);
+ const empty=await request("GET","/api/projects/"+pid+"/income",undefined,admin);
+ assert.equal(empty.data.contracts.length,0,"预览不得提前落库");
+ const bad=await request("POST","/api/contracts",{
+  pid,name:"无合同原件的企业赞助",vendor:"广州睿康医疗科技有限公司",
+  amount:12000,category:"企业赞助",status:"待签署"},exec);
+ assert.equal(bad.status,400);
+ const create=await request("POST","/api/contracts",{
+  pid,name:"2027年企业赞助合同",vendor:"广州睿康医疗科技有限公司",amount:12000,
+  category:"企业赞助",status:"待签署",file_key:key,file_name:"sponsor.docx",
+  rightsCategories:ocr.data.fields.rightsContent},exec);
+ assert.equal(create.status,200,JSON.stringify(create.data));
+ assert.match(create.data.contract.id,/^HT-\d{4}-\d{3,}$/);
+ assert.match(create.data.sponsorId,/^SC-\d{4}-\d{3,}$/);
+ const income=await request("GET","/api/projects/"+pid+"/income",undefined,admin);
+ assert.equal(income.data.contracts.length,1);
+ const sponsor=income.data.contracts[0];
+ assert.equal(sponsor.ledger_contract_id,create.data.contract.id);
+ assert.equal(sponsor.contract_no,create.data.contract.id,"跨模块合同编号须一致");
+ assert.equal(sponsor.enterprise,"广州睿康医疗科技有限公司");
+ assert.equal(sponsor.amount,12000);
+ assert.equal(income.data.rights.filter(r=>r.sponsor_id===sponsor.id).length,2);
+ assert.equal(income.data.summary.contracted,0,"待签署合同不能计作实际签署收入");
+ const list=await request("GET","/api/contracts?pid="+pid,undefined,admin);
+ assert.equal(list.data.rows.filter(r=>r.category==="企业赞助").length,1);
+ const approve=await request("POST","/api/projects/"+pid+"/income/contracts/"+sponsor.id+"/decide",{approve:true},admin);
+ assert.equal(approve.status,200,JSON.stringify(approve.data));
+ assert.equal(approve.data.summary.contracted,12000);
+ const after=await request("GET","/api/contracts?pid="+pid,undefined,admin);
+ assert.equal(after.data.rows.find(r=>r.id===create.data.contract.id).status,"已签署");
+ const ledger=await request("GET","/api/projects/"+pid+"/ledger",undefined,admin);
+ if(ledger.status===200){
+   assert.equal(ledger.data.financial_summary.signed_contracts,0,"赞助收入不得计入支出合同");
+   assert.equal(ledger.data.financial_summary.sponsor_contract_signed,12000);
+ }
+ const payees=await request("GET","/api/projects/"+pid+"/payee-options",undefined,admin);
+ if(payees.status===200)assert.ok(!payees.data.rows.some(x=>x.payee==="广州睿康医疗科技有限公司"),
+   "赞助企业不是供应商，不应成为可付款对象");
+});
+
 test("赞助合同/到账凭证/开票逐笔登记、授权与预算差额",async()=>{
  const p=await request("POST","/api/projects",{name:"赞助收入测试项目",assoc:"华东医学会",form:"线下",date:"2027-10-20",budget:10000,people:60,owner:"陈静",agenda:"学术会议"},exec);
  assert.equal(p.status,200,JSON.stringify(p.data));const pid=p.data.project.id;
  const initial=await request("GET","/api/projects/"+pid+"/income",undefined,admin);assert.equal(initial.status,200);assert.equal(initial.data.summary.budget,10000);
  const forbidden=await request("GET","/api/projects/"+pid+"/income");assert.equal(forbidden.status,401);
+ const docxKey=await uploadDocx(exec,pid);
+ const preview=await request("POST","/api/projects/"+pid+"/income/contracts/scan",{file_key:docxKey},exec);
+ assert.equal(preview.status,200,JSON.stringify(preview.data));
+ assert.equal(preview.data.fields.enterprise,"广州睿康医疗科技有限公司");
+ assert.equal(preview.data.fields.amount,12000);
+ assert.deepEqual(preview.data.fields.rightsContent,["主会场背景板LOGO露出","企业展位展示"]);
+ assert.equal((await request("GET","/api/projects/"+pid+"/income",undefined,admin)).data.contracts.length,0,
+   "扫描只能预填，不得提前创建赞助合同");
+ const badPreview=await request("POST","/api/projects/"+pid+"/income/contracts/scan",{file_key:"invalid.pdf"},exec);
+ assert.equal(badPreview.status,400,"扫描接口必须验证已上传文件归属");
  const contractKey=await upload(exec,pid);
- const c=await request("POST","/api/projects/"+pid+"/income/contracts",{enterprise:"测试赞助企业",contractNo:"SP-2027-001",amount:10000,file_key:contractKey,file_name:"sponsor.pdf"},exec);
+ const c=await request("POST","/api/projects/"+pid+"/income/contracts",{enterprise:"测试赞助企业",contractNo:"FORGED-NO",amount:10000,file_key:contractKey,file_name:"sponsor.pdf"},exec);
  assert.equal(c.status,200,JSON.stringify(c.data));
+ assert.match(c.data.contractNo,/^SC-\d{4}-\d{3,}$/);
+ assert.equal(c.data.contractNo,c.data.id,"合同编号由后端创建，并忽略客户端自行填写的编号");
+ const contractDetails=await request("GET","/api/projects/"+pid+"/income",undefined,admin);
+ assert.equal(contractDetails.data.contracts[0].contract_no,c.data.contractNo);
  assert.equal(c.data.summary.contracted,0);
  const over=await request("POST","/api/projects/"+pid+"/income/contracts/"+c.data.id+"/decide",{approve:true},exec);
  assert.equal(over.status,403,"execution role cannot approve sponsor contract");
@@ -102,4 +186,117 @@ test("赞助合同/到账凭证/开票逐笔登记、授权与预算差额",asyn
  assert.equal(state.data.contracts.length,2);assert.equal(state.data.receipts.length,1);assert.equal(state.data.invoices.length,1);
  const dup=await request("POST","/api/projects/"+pid+"/income/invoices",{sponsorId:c.data.id,amount:1,invoiceNo:"INV20270001",issuedDate:"2027-10-21",file_key:await upload(admin,pid)},admin);
  assert.equal(dup.status,409);
+});
+
+test("登记开票：上传真实 DOCX 发票、OCR 预览只读、自动候选字段可用于入账",async()=>{
+ const PizZip=require("pizzip");
+ const p=await request("POST","/api/projects",{
+  name:"开票OCR端到端测试",assoc:"华东医学会",form:"线下",date:"2027-11-20",
+  budget:954,people:30,owner:"陈静",agenda:"发票自动识别"
+ },exec);
+ assert.equal(p.status,200,JSON.stringify(p.data));
+ const pid=p.data.project.id;
+ const c=await request("POST","/api/projects/"+pid+"/income/contracts",{
+  enterprise:"某企业赞助单位",amount:954,file_key:await upload(exec,pid)
+ },exec);
+ assert.equal(c.status,200,JSON.stringify(c.data));
+ const approved=await request("POST","/api/projects/"+pid+"/income/contracts/"+c.data.id+"/decide",{approve:true},admin);
+ assert.equal(approved.status,200,JSON.stringify(approved.data));
+ const zip=new PizZip();
+ zip.file("[Content_Types].xml",'<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"/>');
+ zip.file("_rels/.rels",'<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"/>');
+ const lines=[
+  "电子发票（普通发票）","发票代码：044001234567",
+  "发票号码：25000000000012345678","金额：900.00","税额：54.00",
+  "价税合计（小写）￥954.00"
+ ];
+ zip.file("word/document.xml",
+  '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>'+
+  lines.map(x=>'<w:p><w:r><w:t>'+x+'</w:t></w:r></w:p>').join("")+
+  '</w:body></w:document>');
+ const raw=await fetch(base+"/api/uploads?pid="+encodeURIComponent(pid),{
+  method:"POST",
+  headers:{Cookie:admin,"Content-Type":"application/octet-stream","X-File-Name":"invoice.docx"},
+  body:zip.generate({type:"nodebuffer",compression:"DEFLATE"})
+ });
+ const uploaded=await raw.json();
+ assert.equal(raw.status,200,JSON.stringify(uploaded));
+ const url="/api/projects/"+pid+"/income/invoices/scan";
+ assert.equal((await request("POST",url,{file_key:"invalid.docx"},admin)).status,400);
+ assert.equal((await request("POST",url,{file_key:uploaded.key})).status,401);
+ const preview=await request("POST",url,{file_key:uploaded.key},admin);
+ assert.equal(preview.status,200,JSON.stringify(preview.data));
+ assert.equal(preview.data.fields.invoiceNo,"25000000000012345678");
+ assert.equal(preview.data.fields.amount,954);
+ assert.match(preview.data.note,/预填/);
+ const before=await request("GET","/api/projects/"+pid+"/income",undefined,admin);
+ assert.equal(before.data.invoices.length,0,"OCR 预览不得提前创建发票");
+ const saved=await request("POST","/api/projects/"+pid+"/income/invoices",{
+  sponsorId:c.data.id,amount:preview.data.fields.amount,
+  invoiceNo:preview.data.fields.invoiceNo,issuedDate:"2027-11-19",
+  file_key:uploaded.key,file_name:"invoice.docx"
+ },admin);
+ assert.equal(saved.status,200,JSON.stringify(saved.data));
+ assert.equal(saved.data.summary.invoiced,954);
+ const after=await request("GET","/api/projects/"+pid+"/income",undefined,admin);
+ assert.equal(after.data.invoices[0].invoice_no,"25000000000012345678");
+ assert.equal(after.data.invoices[0].amount,954);
+ const dup=await request("POST","/api/projects/"+pid+"/income/invoices",{
+  sponsorId:c.data.id,amount:1,invoiceNo:"25000000000012345678",
+  issuedDate:"2027-11-19",file_key:uploaded.key
+ },admin);
+ assert.equal(dup.status,409,"重复发票号码仍应被拦截");
+});
+
+
+test("登记回款：上传真实银行回单 DOCX，OCR 预览交易金额和流水号码，然后登记到账",async()=>{
+ const PizZip=require("pizzip");
+ const p=await request("POST","/api/projects",{
+  name:"银行回单OCR端到端",assoc:"华东医学会",form:"线下",date:"2027-12-01",
+  budget:12345.67,people:20,owner:"陈静",agenda:"银行回款识别"
+ },exec);
+ assert.equal(p.status,200,JSON.stringify(p.data));
+ const pid=p.data.project.id;
+ const c=await request("POST","/api/projects/"+pid+"/income/contracts",{
+  enterprise:"广州睿康医疗科技有限公司",amount:12345.67,file_key:await upload(exec,pid)
+ },exec);
+ assert.equal(c.status,200,JSON.stringify(c.data));
+ const approved=await request("POST","/api/projects/"+pid+"/income/contracts/"+c.data.id+"/decide",{approve:true},admin);
+ assert.equal(approved.status,200,JSON.stringify(approved.data));
+ const zip=new PizZip();
+ zip.file("[Content_Types].xml",'<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"/>');
+ zip.file("_rels/.rels",'<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"/>');
+ const lines=["银行电子回单","付款账号：6222000000001234567",
+  "收款账号：6217000000098765432","交易流水号：20261108000987654321",
+  "转账金额：人民币12,345.67元","账户余额：90,000元","手续费：5元","交易成功"];
+ zip.file("word/document.xml",
+  '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>'+
+  lines.map(x=>'<w:p><w:r><w:t>'+x+'</w:t></w:r></w:p>').join("")+'</w:body></w:document>');
+ const raw=await fetch(base+"/api/uploads?pid="+encodeURIComponent(pid),{
+  method:"POST",headers:{Cookie:admin,"Content-Type":"application/octet-stream","X-File-Name":"bank-receipt.docx"},
+  body:zip.generate({type:"nodebuffer",compression:"DEFLATE"})
+ });
+ const saved=await raw.json();assert.equal(raw.status,200,JSON.stringify(saved));
+ const endpoint="/api/projects/"+pid+"/income/receipts/scan";
+ assert.equal((await request("POST",endpoint,{file_key:saved.key})).status,401,"无权用户不能 OCR 读取银行凭据");
+ assert.equal((await request("POST",endpoint,{file_key:"invalid.docx"},admin)).status,400,"非法附件键不得扫描");
+ const preview=await request("POST",endpoint,{file_key:saved.key},admin);
+ assert.equal(preview.status,200,JSON.stringify(preview.data));
+ assert.equal(preview.data.fields.paymentRef,"20261108000987654321");
+ assert.equal(preview.data.fields.amount,12345.67);
+ assert.match(preview.data.note,/自动预填/);
+ const before=await request("GET","/api/projects/"+pid+"/income",undefined,admin);
+ assert.equal(before.data.receipts.length,0,"OCR 预览不能写入回款凭证");
+ const registered=await request("POST","/api/projects/"+pid+"/income/receipts",{
+  sponsorId:c.data.id,amount:preview.data.fields.amount,
+  paymentRef:preview.data.fields.paymentRef,receivedDate:"2027-11-29",
+  file_key:saved.key,file_name:"bank-receipt.docx"
+ },admin);
+ assert.equal(registered.status,200,JSON.stringify(registered.data));
+ assert.equal(registered.data.summary.received,12345.67);
+ const after=await request("GET","/api/projects/"+pid+"/income",undefined,admin);
+ assert.equal(after.data.receipts.length,1);
+ assert.equal(after.data.receipts[0].payment_ref,"20261108000987654321");
+ assert.equal(after.data.receipts[0].amount,12345.67);
+ assert.equal(after.data.receipts[0].file_key,saved.key);
 });

@@ -383,3 +383,17 @@ tr.row-focus td .mono{font-weight:600}
 .material-export-choice small{display:block;margin-top:3px;color:var(--sub);font-size:11px}
 [data-custom-watermark][hidden]{display:none!important}
 @media(max-width:580px){.material-export-options{grid-template-columns:1fr}}
+
+/* 核销判定：在线查看原件窗口（对照 OCR 结果与劳务表银行账号） */
+.fv{position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center}
+.fv-mask{position:absolute;inset:0;background:rgba(10,20,40,.58)}
+.fv-box{position:relative;width:min(1100px,94vw);height:min(88vh,900px);background:var(--card,#fff);
+ border-radius:10px;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.35)}
+.fv-hd{display:flex;align-items:center;justify-content:space-between;gap:12px;flex:none;
+ padding:10px 14px;border-bottom:1px solid var(--line);font-size:13.5px}
+.fv-hd b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fv-hd span{flex:none}
+.fv-bd{flex:1;min-height:0;overflow:auto;background:#f5f7fa;display:flex;align-items:center;justify-content:center}
+.fv-bd iframe{width:100%;height:100%;border:0;background:#fff}
+.fv-bd img{max-width:100%;max-height:100%;object-fit:contain}
+@media(max-width:640px){.fv-box{width:100vw;height:100vh;border-radius:0}}

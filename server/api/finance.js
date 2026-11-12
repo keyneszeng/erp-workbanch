@@ -1,5 +1,8 @@
 "use strict";
 const { db, transaction } = require("../lib/db");
+const { scanContract } = require("./income");
+const { normalizedCategories } = require("../lib/sponsor-rights");
+const { linkedSponsor,ensureSponsorSignable,setSponsorStatus } = require("../lib/sponsor-ledger");
 const { now, today, nextId, bad, notFound, conflict, forbidden, cents, yuan, parseBankAccount, parseBankName } = require("../lib/util");
 const { assertCan, assertModule, assertProjectVisible, scopeFilter, can, isSuper } = require("../lib/rbac");
 const { logAudit } = require("../lib/audit");
@@ -108,6 +111,19 @@ function register(router) {
     return { rows, total, page: paging.page, size: paging.size, pages: Math.max(1, Math.ceil(total / paging.size)), paged: true };
   });
 
+  /** 先上传再扫描，OCR仅预填，正式合同仍须人工核对后保存。 */
+  router.post("/api/contracts/scan",async ctx=>{
+    const b=ctx.body||{},p=getProject(b.pid);
+    assertProjectVisible(ctx.user,p);
+    assertCan(ctx.user,"contract:write","当前角色无合同录入权限");
+    const key=String(b.file_key||"");
+    if(!FILE_KEY_RE.test(key))throw bad("请先上传合同原件后进行OCR扫描");
+    assertUploadAttachable(key,p.id,ctx.user);
+    const category=String(b.category||"").trim();
+    if(category&&!CONTRACT_CATEGORIES.includes(category))throw bad("合同类别不合法");
+    return scanContract(key,true,category);
+  });
+
   router.post("/api/contracts", async (ctx) => {
     const b = ctx.body || {};
     const p = getProject(b.pid);
@@ -165,7 +181,12 @@ function register(router) {
       fmime = String(b.file_mime || "").slice(0, 60) || null;
     }
 
-    const id = nextId(db, "contracts", "id", "HT");
+    if(category==="企业赞助"&&!fk)throw bad("企业赞助合同必须上传原件，以便自动关联会议收入");
+    const draft=category==="企业赞助" && b.rightsCategories!=null?normalizedCategories(b.rightsCategories):null;
+    const scan=category==="企业赞助" && draft===null?await scanContract(fk):null;
+    let id,sponsorId=null;
+    transaction(()=>{
+    id=nextId(db, "contracts", "id", "HT");
     db.prepare("INSERT INTO contracts (id,pid,name,vendor,amount,sign_date,status,category,remark,created_by,created_at,file_key,file_name,file_size,file_mime) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
       .run(id, p.id, b.name, b.vendor, amount, isDemoMode() ? signDate : "", st, category, remark, ctx.user.id, now(), fk, fname, fsize, fmime);
     if(fk) {
@@ -175,11 +196,22 @@ function register(router) {
         VALUES (?,?,?,?,?,?,?,?,?,?)`)
         .run(p.id,"合同",id+" · "+b.name,st,ctx.user.name,now(),fk,fname,fsize,fmime);
     }
+    if(category==="企业赞助"){
+      sponsorId=nextId(db,"meeting_sponsor_contracts","id","SC");
+      const rights=draft===null?(scan?.fields?.rightsContent||[]):draft;
+      db.prepare("INSERT INTO meeting_sponsor_contracts(id,pid,enterprise,contract_no,ledger_contract_id,amount,status,file_key,file_name,created_by,created_at,rights_scan_status,rights_scan_note) "+
+        "VALUES (?,?,?,?,?,?,'待确认',?,?,?,?,?,?)")
+        .run(sponsorId,p.id,String(b.vendor).trim(),id,id,amount,fk,fname,ctx.user.id,now(),
+          rights.length?"待确认":"需人工补录",rights.length?"权益内容待人工核对":"未识别到权益内容，请人工补录");
+      const insert=db.prepare("INSERT INTO sponsor_rights(pid,sponsor_id,category,source,confirmed,updated_at) VALUES (?,?,?,?,0,?)");
+      for(const right of rights)insert.run(p.id,sponsorId,right,draft===null?"ocr":"draft",now());
+    }
     if (!isDemoMode() && st === "待签署") {
       const apId = nextId(db, "approvals", "id", "AP");
       db.prepare("INSERT INTO approvals (id,type,title,pid,ref_id,amount,by_user,sla,status,created_at,submitted_by_id) VALUES (?,?,?,?,?,?,?,?,?,?,?)")
         .run(apId, "合同审批", "合同签署：" + b.name, p.id, id, amount, ctx.user.name, "2 个工作日", "待审批", now(), ctx.user.id);
     }
+    });
     logAudit({
       user: ctx.user, module: "筹备管理", action: "合同录入", target: p.id,
       detail: `${id} ${b.name} / ${b.vendor} / ${category} / ¥${amount.toLocaleString("zh-CN")}${fk ? "（含原件）" : ""}`, ip: ctx.ip
@@ -187,7 +219,7 @@ function register(router) {
 
     // 合同总额超预算是要预警的业务事实（不是错误，可能确需超支）。
     // 硬拦会让人没法录真实合同，所以只回一个 warning 让前端提示，不阻断。
-    const contractSum = Number(db.prepare("SELECT COALESCE(SUM(amount),0) AS s FROM contracts WHERE pid = ?").get(p.id).s) || 0;
+    const contractSum = Number(db.prepare("SELECT COALESCE(SUM(amount),0) AS s FROM contracts WHERE pid = ? AND COALESCE(category,'')<>'企业赞助'").get(p.id).s) || 0;
     const budget = Number(p.budget) || 0;
     let warning = "";
     if (budget > 0 && contractSum > budget) {
@@ -197,6 +229,7 @@ function register(router) {
 
     return {
       contract: db.prepare("SELECT * FROM contracts WHERE id = ?").get(id),
+      sponsorId,
       message: `合同 ${id} 已保存${!isDemoMode() && st === "待签署" ? "并提交协会管理员或总管理员审批签署" : ""}`,
       warning
     };
@@ -246,6 +279,11 @@ function register(router) {
       assertUploadAttachable(newKey,p.id,ctx.user);
       db.prepare("UPDATE contracts SET file_key=?,file_name=?,file_size=?,file_mime=? WHERE id=?")
         .run(newKey,fileName,fileSize,mime,c.id);
+      if(c.category==="企业赞助"){
+        db.prepare("UPDATE meeting_sponsor_contracts SET file_key=?,file_name=?,rights_scan_status='需重新核对',rights_scan_note='原件已替换，须重新核对权益内容' WHERE ledger_contract_id=?")
+          .run(newKey,fileName,c.id);
+        db.prepare("UPDATE sponsor_rights SET confirmed=0 WHERE sponsor_id IN (SELECT id FROM meeting_sponsor_contracts WHERE ledger_contract_id=?)").run(c.id);
+      }
       // 原合同自动归档时登记的材料，需要一起换成新原件；不能留下旧合同副本。
       const material=db.prepare(
         "SELECT id FROM materials WHERE pid=? AND kind='合同' AND file_key=?"
@@ -366,8 +404,10 @@ function register(router) {
       checkDate(signDate, "签署日期");
     }
 
+    const sponsor=action==="sign"&&c.category==="企业赞助"?ensureSponsorSignable(db,p,c.id):null;
     db.prepare("UPDATE contracts SET status = ?, sign_date = COALESCE(?, sign_date) WHERE id = ?")
       .run(flow.to, signDate, c.id);
+    if(sponsor)setSponsorStatus(db,sponsor,true,ctx.user.id);
     if (!isDemoMode()) {
       if (action === "submit") {
         const duplicate = db.prepare("SELECT id FROM approvals WHERE type='合同审批' AND ref_id=? AND status='待审批'").get(c.id);
@@ -494,17 +534,20 @@ function register(router) {
     if(!payee)throw bad("收款方为必填项");
     if(payee.length>60)throw bad("收款方不能超过 60 字");
     if(choice && b.payee && String(b.payee).trim()!==choice.name)throw bad("收款方与选定的核销资料不一致");
-    const payeeBank=parseBankName(choice?.bank || b.payee_bank);
-    const payeeAccount=parseBankAccount(choice?.account || b.payee_account);
+    // Request stage never asks for bank details; verified labor data may be resolved
+    // server-side, otherwise finance enters it only when executing payment.
+    const payeeBank=choice?.bank?parseBankName(choice.bank):"";
+    const payeeAccount=choice?.account?parseBankAccount(choice.account):"";
     // 发票属于核销材料，不是付款单字段；专家费个人报销不存在发票号。
     const invoiceNo=String(b.invoice_no||"").trim(); // Legacy API remains readable/deduplicated; new UI omits this field.
     if(invoiceNo.length>40)throw bad("发票号不能超过 40 字");
     if (!isDemoMode()) {
       const v=verification(p.id);
-      if(v.demandRequired && (v.steps.find(s=>s.no===6)?.result!=="通过" ||
-          !Number.isFinite(v.steps.find(s=>s.no===6)?.invoiceAmount)))
-        throw conflict("存在会务需求时必须先完成第6项会务三单一致核验再请款","INVOICE_CHECK_REQUIRED");
-      const signed=db.prepare("SELECT COALESCE(SUM(amount),0) AS total FROM contracts WHERE pid=? AND status='已签署'").get(p.id);
+      // 第 6 步新口径不校验发票金额，这里只要求该步已判定通过；
+      // 旧的「必须识别出发票金额」会让扫描件/多张发票的项目永远请不了款。
+      if(v.demandRequired && v.steps.find(s=>s.no===6)?.result!=="通过")
+        throw conflict("存在会务需求时必须先完成第6项会务合同与发票关联核对再请款","INVOICE_CHECK_REQUIRED");
+      const signed=db.prepare("SELECT COALESCE(SUM(amount),0) AS total FROM contracts WHERE pid=? AND status='已签署' AND COALESCE(category,'')<>'企业赞助'").get(p.id);
       const allocated=db.prepare("SELECT COALESCE(SUM(amount),0) AS total FROM payments WHERE pid=? AND status IN ('待审批','已审批','已付款')").get(p.id);
       const requested=Number(b.amount);
       if(Number.isFinite(requested) && cents(allocated.total)+cents(requested)>cents(signed.total))
@@ -564,8 +607,8 @@ function register(router) {
         const same=findExistingPayment(p.id,b.type,payee,amount,period);
         if(same)throw duplicatePaymentError(same);
         id=nextId(db,"payments","id","PY");
-        db.prepare("INSERT INTO payments (id,pid,type,payee,payee_bank,payee_account,amount,invoice_no,dedupe_key,period,req_user,status,remark,created_by,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
-          .run(id,p.id,b.type,payee,payeeBank,payeeAccount,amount,invoiceNo,key,period,ctx.user.name,"待审批",remark,ctx.user.id,at);
+        db.prepare("INSERT INTO payments (id,pid,type,payee,payee_bank,payee_account,amount,invoice_no,dedupe_key,period,req_user,status,remark,created_by,created_at,payee_source_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
+          .run(id,p.id,b.type,payee,payeeBank,payeeAccount,amount,invoiceNo,key,period,ctx.user.name,"待审批",remark,ctx.user.id,at,choice?String(b.payee_option_id):null);
         const apId=nextId(db,"approvals","id","AP");
         db.prepare("INSERT INTO approvals (id,type,title,pid,ref_id,amount,by_user,sla,status,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)")
           .run(apId,"付款审批",`${b.type} ¥${amount.toLocaleString("zh-CN")}`,p.id,id,amount,ctx.user.name,"1 个工作日","待审批",at);
@@ -578,7 +621,7 @@ function register(router) {
     }
     logAudit({
       user: ctx.user, module: "财务结算", action: "付款申请", target: p.id,
-      detail: `${id} ${b.type} ¥${amount.toLocaleString("zh-CN")}${period ? "（" + period + "）" : ""} → ${b.payee}（${payeeBank} 尾号 ${payeeAccount.slice(-4)}；核销已通过${force ? "；超预算特批" : ""}）`,
+      detail: `${id} ${b.type} ¥${amount.toLocaleString("zh-CN")}${period ? "（" + period + "）" : ""} → ${payee}（${payeeAccount ? "账户尾号 "+payeeAccount.slice(-4) : "财务付款时核对账户"}；核销已通过${force ? "；超预算特批" : ""}）`,
       ip: ctx.ip
     });
     return { payment: db.prepare("SELECT * FROM payments WHERE id = ?").get(id), message: `付款申请 ${id} 已提交，等待财务审批` };
@@ -611,6 +654,34 @@ function register(router) {
       detail: `${y.id} ${y.payee} → ${bank} 尾号 ${account.slice(-4)}`, ip: ctx.ip
     });
     return { payment: db.prepare("SELECT * FROM payments WHERE id = ?").get(y.id), message: `${y.id} 收款账户已登记` };
+  });
+
+  /**
+   * Execution evidence: linked expense contracts and meeting invoices.
+   * Only expose files from this payment's project and the selected contract,
+   * never sponsor agreements or unrelated project files.
+   */
+  router.get("/api/payments/:id/evidence", async (ctx) => {
+    const y=db.prepare("SELECT * FROM payments WHERE id=?").get(ctx.params.id);
+    if(!y)throw notFound("付款单不存在");
+    const p=getProject(y.pid);
+    assertProjectVisible(ctx.user,p);
+    assertCan(ctx.user,"payment:pay","只有财务执行人员可以查看付款依据原件");
+    const selectedContract=String(y.payee_source_id||"").startsWith("contract:")?
+      String(y.payee_source_id).slice(9):null;
+    const contracts=selectedContract?
+      db.prepare("SELECT id,name,vendor,file_key,file_name,file_mime FROM contracts WHERE pid=? AND id=? AND status='已签署' AND COALESCE(category,'')<>'企业赞助'").all(y.pid,selectedContract):
+      db.prepare("SELECT id,name,vendor,file_key,file_name,file_mime FROM contracts WHERE pid=? AND status='已签署' AND COALESCE(category,'')<>'企业赞助' AND vendor=? ORDER BY id").all(y.pid,y.payee);
+    const invoices=db.prepare(
+      "SELECT id,kind,name,file_key,file_name,file_mime FROM materials WHERE pid=? AND (deleted_at IS NULL OR deleted_at='') AND kind IN ('会务发票','发票') AND file_key IS NOT NULL AND file_key<>'' ORDER BY id"
+    ).all(y.pid).filter(x=>x.kind==="会务发票" || /会务|会议服务|会议执行/.test(String(x.name||"")+" "+String(x.file_name||"")));
+    const evidence=[
+      ...contracts.filter(x=>x.file_key).map(x=>({type:"已签会务或劳务合同",id:x.id,name:x.name,fileKey:x.file_key,fileName:x.file_name,mime:x.file_mime})),
+      ...invoices.map(x=>({type:"项目关联会务发票",id:x.id,name:x.name,fileKey:x.file_key,fileName:x.file_name,mime:x.file_mime}))
+    ];
+    return {payment:{id:y.id,pid:y.pid,payee:y.payee,amount:y.amount,status:y.status,
+      bank:y.payee_bank||"",maskedAccount:y.payee_account?"尾号 "+String(y.payee_account).slice(-4):""},
+      evidence,warning:"发票按项目关联，未建立与本付款单的逐票绑定关系；执行付款前须核对原件、合同签约方与本次金额。"};
   });
 
   router.post("/api/payments/:id/approve", async (ctx) => {
@@ -762,8 +833,10 @@ function register(router) {
       if (!isDemoMode() && !isSuper(ctx.user) && Number(c.created_by) === Number(ctx.user.id))
         throw conflict("签署审批必须由其他协会管理员或总管理员完成", "NEED_SECOND_PERSON");
       const at = now();
+      const sponsor=approve&&c.category==="企业赞助"?ensureSponsorSignable(db,p,c.id):null;
       db.prepare("UPDATE contracts SET status=?,sign_date=? WHERE id=?")
         .run(approve ? "已签署" : "草稿", approve ? today() : "", c.id);
+      if(sponsor)setSponsorStatus(db,sponsor,true,ctx.user.id);
       db.prepare("UPDATE approvals SET status=?,decided_by=?,decided_at=?,comment=? WHERE id=?")
         .run(approve ? "已通过" : "已驳回",ctx.user.name,at,comment,a.id);
       logAudit({user:ctx.user,module:"筹备管理",action:approve?"合同签署审批通过":"合同签署驳回",target:p.id,detail:c.id+" "+c.name,ip:ctx.ip});

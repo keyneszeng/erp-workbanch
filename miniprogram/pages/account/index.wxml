@@ -1,11 +1,29 @@
-<view class="wrap"><view class="card"><view class="heading">账户与安全</view>
-<view>{{user.name}} · {{user.phone}}</view>
-<view wx:if="{{user.mustChangePassword}}" class="error">必须短信验证并修改初始密码后，才能使用业务功能。</view>
-<input class="field" placeholder="当前密码" password data-key="oldPassword" bindinput="input"/>
-<input class="field" placeholder="新密码（字母和数字至少 8 位）" password data-key="newPassword" bindinput="input"/>
-<input class="field" placeholder="6 位短信验证码" type="number" maxlength="6" data-key="smsCode" bindinput="input"/>
-<button class="btn" bindtap="send">发送改密验证码</button>
-<view wx:if="{{error}}" class="error">{{error}}</view>
-<button class="btn primary" loading="{{busy}}" disabled="{{busy}}" bindtap="change">确认修改密码</button>
-<button class="btn" bindtap="logout">退出登录</button>
-</view></view>
+<view class="wrap">
+  <view class="card profile-card">
+    <view class="profile-avatar">{{userInitial}}</view>
+    <view class="grow"><view class="profile-name">{{user.name||'已登录用户'}}</view><view class="profile-phone">{{user.phone||'手机号未显示'}}</view></view>
+    <view class="status-pill status-success">已登录</view>
+  </view>
+
+  <view wx:if="{{user.mustChangePassword}}" class="error"><text class="feedback-icon">!</text><text>当前仍使用初始密码，请完成短信验证并设置新密码后继续。</text></view>
+  <view wx:if="{{miniOnly}}" class="card">
+    <view class="section-caption">微信账号安全</view>
+    <view class="notice"><text class="notice-icon">i</text><text>当前为微信手机号绑定的普通用户，无需设置后台登录密码。后续可通过微信身份自动登录。</text></view>
+  </view>
+
+  <view wx:else class="form-section">
+    <view class="section-head"><view><view class="page-kicker">SECURITY</view><view class="section-caption">修改登录密码</view></view></view>
+    <view class="field"><view class="field-label"><text class="required">*</text>当前密码</view><input class="field-control" placeholder="请输入当前密码" password data-key="oldPassword" bindinput="input"/></view>
+    <view class="field"><view class="field-label"><text class="required">*</text>新密码</view><input class="field-control" placeholder="字母和数字至少 8 位" password data-key="newPassword" bindinput="input"/></view>
+    <view class="field"><view class="field-label"><text class="required">*</text>短信验证码</view><input class="field-control" placeholder="请输入 6 位验证码" type="number" maxlength="6" data-key="smsCode" bindinput="input"/></view>
+    <button class="btn ghost" bindtap="send">发送改密验证码</button>
+    <view wx:if="{{error}}" class="error"><text class="feedback-icon">!</text><text>{{error}}</text></view>
+    <button class="btn primary" loading="{{busy}}" disabled="{{busy}}" bindtap="change">确认修改密码</button>
+  </view>
+
+  <view class="card">
+    <view class="section-caption">登录管理</view>
+    <view class="muted space-sm">退出后将清除本机业务会话，下次进入需要重新进行微信身份验证。</view>
+    <button class="btn danger-btn" bindtap="logout">退出当前账号</button>
+  </view>
+</view>

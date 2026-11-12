@@ -196,9 +196,7 @@ test("production: association member IDs, approved contract signing and pay-afte
     3:{signedAttendance:true},
     4:{agendaTopics:["课题甲","课题乙"],courseTopics:["课题甲"]},
     5:{collectionRecords:[record]},
-    6:{agendaTitle:base.name,agendaTime:base.date,agendaFormat:base.form,
-      agreementTitle:base.name,agreementTime:base.date,agreementFormat:base.form,
-      agreementPartyA:base.assoc,agreementFinal:true}
+    6:{demandReviewed:true,meetingContractReviewed:true,meetingInvoiceReviewed:true}
   };
   // 真实例外单闭环：审批并不等于核销，必须登记整改和关联材料后再回原步骤。
   let failed=await request("POST","/api/projects/"+pid+"/verify/steps/1",
@@ -223,10 +221,12 @@ test("production: association member IDs, approved contract signing and pay-afte
     step=await request("POST","/api/projects/"+pid+"/verify/steps/"+no,{result:"通过",evidence:sop[no]},cookie);
     assert.equal(step.status,200,"out-of-order verification "+no+": "+JSON.stringify(step.body));
   }
+  // 第 6 步新口径：只核对「需求预算 == 已签会务合同总额」并已关联发票原件，
+  // 不校验发票金额。金额填多少都不应拦住判定（预算≠合同另有用例覆盖）。
   step=await request("POST","/api/projects/"+pid+"/verify/steps/6",{result:"通过",invoiceAmount:7999,evidence:sop[6]},cookie);
-  assert.equal(step.status,409,"invoice total cannot differ from signed contracts");
-  step=await request("POST","/api/projects/"+pid+"/verify/steps/6",{result:"通过",invoiceAmount:8000,evidence:sop[6]},cookie);
-  assert.equal(step.status,200,JSON.stringify(step.body));
+  assert.equal(step.status,200,"step 6 must not gate on invoice amount: "+JSON.stringify(step.body));
+  step=await request("POST","/api/projects/"+pid+"/verify/steps/6",{result:"通过",evidence:sop[6]},cookie);
+  assert.equal(step.status,200,"step 6 must pass without any invoice amount: "+JSON.stringify(step.body));
   assert.equal(step.body.verification.exceptions.find(x=>x.id===exceptionId).status,"已闭环",
     "整改必须在原步骤核销通过后才闭环");
   const freeze=await request("POST","/api/contracts",{pid,name:"Late Contract",vendor:"X",amount:1,status:"草稿"},cookie);
@@ -253,11 +253,12 @@ test("production: association member IDs, approved contract signing and pay-afte
   assert.equal(status.body.verification.complete,true,"六项全部独立通过后恢复完整核销状态");
   step=await request("POST","/api/projects/"+pid+"/transition",{action:"verify_pass"},cookie);
   assert.equal(step.status,200,JSON.stringify(step.body));
-  const settlementData={action:"settle",payee_bank:"中国银行北京分行",payee_account:"1234567890123456"};
+  // 结算单只汇总收支结余，不再要求也不保存收款方/开户行/账号。
+  const settlementData={action:"settle"};
   let settle=await request("POST","/api/projects/"+pid+"/transition",settlementData,cookie);
   assert.equal(settle.status,409,"no payment must block settlement");
-  const paymentData={pid,type:"学会公付",payee:"服务供应商",payee_bank:"中国银行北京分行",
-    payee_account:"1234567890123456",amount:8000,invoice_no:"INV-2027-001"};
+  // 新版流程：付款申请不填银行信息，财务执行付款时才登记账户（PATCH /account）。
+  const paymentData={pid,type:"学会公付",payee:"服务供应商",amount:8000,invoice_no:"INV-2027-001"};
   const payment=await request("POST","/api/payments",paymentData,cookie);
   assert.equal(payment.status,200,JSON.stringify(payment.body));
   settle=await request("POST","/api/projects/"+pid+"/transition",settlementData,cookie);
@@ -266,9 +267,22 @@ test("production: association member IDs, approved contract signing and pay-afte
   assert.equal(approved.status,200,JSON.stringify(approved.body));
   settle=await request("POST","/api/projects/"+pid+"/transition",settlementData,cookie);
   assert.equal(settle.status,409,"approved but unpaid payment blocks settlement");
+  const noAccount=await request("POST","/api/payments/"+payment.body.payment.id+"/pay",{},cookie);
+  assert.equal(noAccount.status,409,"执行付款前必须登记收款账户");
+  assert.equal(noAccount.body?.error?.code,"PAYEE_ACCOUNT_MISSING");
+  const acct=await request("PATCH","/api/payments/"+payment.body.payment.id+"/account",
+    {payee_bank:"中国银行北京分行",payee_account:"1234567890123456"},cookie);
+  assert.equal(acct.status,200,JSON.stringify(acct.body));
   const paid=await request("POST","/api/payments/"+payment.body.payment.id+"/pay",{},cookie);
   assert.equal(paid.status,200,JSON.stringify(paid.body));
   settle=await request("POST","/api/projects/"+pid+"/transition",settlementData,cookie);
   assert.equal(settle.status,200,JSON.stringify(settle.body));
+  const stList=await request("GET","/api/settlements",undefined,cookie);
+  assert.equal(stList.status,200,JSON.stringify(stList.body));
+  const st=(stList.body?.rows||[]).find(x=>x.pid===pid);
+  assert.ok(st,"结算单应已生成");
+  assert.equal(st.payee||"","","结算单不应再登记收款方");
+  assert.equal(st.payee_bank||"","","结算单不应再登记开户行");
+  assert.equal(st.payee_account||"","","结算单不应再登记银行账号");
 
 });

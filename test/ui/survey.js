@@ -221,13 +221,13 @@ const ACCT = "3210987654321098";
   /* ---------------- 6. 结算：财务 ---------------- */
   section("[7] 结算（财务）");
   const settle = await roles.finance("POST", `/api/projects/${pid}/transition`, {
-    action: "settle", payee: "华东医学会", payee_bank: BANK, payee_account: ACCT
+    action: "settle"
   });
   check("生成结算单", settle.status === 200, JSON.stringify(settle.data).slice(0, 160));
 
   const stList = await roles.finance("GET", "/api/settlements");
   const st = (stList.data?.rows || []).find((x) => x.pid === pid);
-  check("结算单带收款方与账户", !!st && st.payee && st.payee_account,
+  check("结算单不再登记收款方与账户", !!st && !st.payee && !st.payee_account,
     JSON.stringify(st || {}).slice(0, 160));
   if (st) {
     check("结算金额对得上（收入 = 预算 60000）", Number(st.income) === 60000, `收入 ${st.income}`);

@@ -1,0 +1,36 @@
+<view class="wrap">
+  <view class="home-hero">
+    <view class="hero-content">
+      <view class="hero-brand">
+        <view class="hero-brand-mark">会</view>
+        <view class="hero-eyebrow">会规化会务执行系统</view>
+      </view>
+      <view class="hero-heading">规范办会，协同更简单</view>
+      <view class="hero-sub">活动申请、内部立项与会务执行，按身份进入对应流程。</view>
+    </view>
+  </view>
+
+  <view class="page-kicker">请选择办理入口</view>
+  <view class="card entry-card" bindtap="goPublic">
+    <view class="entry-icon public">公众</view>
+    <view class="grow">
+      <view class="entry-title">公众活动申请</view>
+      <view class="entry-sub">无需注册登录，提交活动主题、时间、预算与联系方式</view>
+    </view>
+    <view class="chevron">›</view>
+  </view>
+
+  <view class="card entry-card" bindtap="goStaff">
+    <view class="entry-icon">内部</view>
+    <view class="grow">
+      <view class="entry-title">员工工作台</view>
+      <view class="entry-sub">内部立项、会议执行、审批、核销与材料归档</view>
+    </view>
+    <view class="chevron">›</view>
+  </view>
+
+  <view class="trust-row">
+    <view class="trust-item"><view class="trust-dot"></view>数据按权限展示</view>
+    <view class="trust-item"><view class="trust-dot"></view>业务全程留痕</view>
+  </view>
+</view>

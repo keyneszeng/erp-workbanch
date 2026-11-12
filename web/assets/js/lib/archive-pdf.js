@@ -13,6 +13,7 @@ export async function downloadArchivePdf(pid,button){
  try{
   const data=await api.get("/api/projects/"+encodeURIComponent(pid)+"/archive-pdf/options");
   const categories=data.categories||[];
+  const originals=data.materials||[];
   const available=categories.filter(c=>c.files>0);
   if(!available.length){toast("此会议材料库没有可导出的已上传附件","warn");return;}
   const superAdmin=data.can_customize_watermark===true;
@@ -39,7 +40,9 @@ export async function downloadArchivePdf(pid,button){
        '<button class="link" type="button" data-select-all>全选</button>'+
        '<button class="link" type="button" data-clear-all>清空</button></div>'+
       '<div class="material-export-options">'+rows+'</div>'+
-      '<div class="hint" style="margin:12px 0">PDF 首页面仅含活动标题和所属协会；PDF、JPG、PNG原件直接合并成可见页面，'+
+      '<div class="material-export-tools" style="margin-top:14px"><b>自选原件及排序</b><span class="hint">勾选文件，点击上移/下移调整 PDF 先后顺序</span></div>'+
+      '<div data-material-file-list class="material-export-options"></div>'+
+      '<div class="hint" style="margin:12px 0">PDF 首页面仅含活动标题和所属协会；原件按上方自定义顺序合并。单个原件超过 20MB 时会自动压缩（图片缩放、PDF 重采样、Office 转 PDF）后再合并。PDF、JPG、PNG直接合并成可见页面，'+
       '其他格式将保留原始附件并在 PDF 中注明，缺失原件会阻止导出。</div>'+
       watermarkOptions,
    footer:'<button class="btn btn-o" data-cancel>取消</button>'+
@@ -48,6 +51,47 @@ export async function downloadArchivePdf(pid,button){
   const checkboxes=[...m.querySelectorAll('input[name="material_category"]')];
   m.querySelector("[data-select-all]").onclick=()=>checkboxes.forEach(x=>{if(!x.disabled)x.checked=true;});
   m.querySelector("[data-clear-all]").onclick=()=>checkboxes.forEach(x=>x.checked=false);
+  const list=m.querySelector("[data-material-file-list]");
+  // Row order is the requested PDF order. The server rechecks each ID and category.
+  const ordered=originals.filter(x=>Number.isSafeInteger(x.id)&&x.id>0);
+  const checkedIds=new Set(ordered.map(x=>x.id));
+  const renderFiles=()=>{
+   const allowed=new Set(checkboxes.filter(x=>x.checked).map(x=>x.value));
+   const visible=ordered.filter(x=>allowed.has(x.kind));
+   const sizeText=x=>{
+    const mb=Number(x.file_size||0)/1048576;
+    if(!mb)return "";
+    const big=Number(x.file_size)>20*1024*1024;
+    return " · "+mb.toFixed(1)+"MB"+(big?" · 超过20MB，生成时自动压缩":"");
+   };
+   list.innerHTML=visible.length?visible.map((x,i)=>
+      '<div class="material-export-choice" data-file-id="'+x.id+'" style="display:flex;align-items:center;gap:8px">'+
+      '<input type="checkbox" data-file-select="'+x.id+'" '+(checkedIds.has(x.id)?'checked':'')+'>'+
+      '<span style="flex:1;min-width:0"><b>'+esc(x.name||x.file_name||"未命名")+'</b>'+
+      '<small>'+esc(x.kind)+' · '+esc(x.file_name||"原件")+esc(sizeText(x))+'</small></span>'+
+      '<button type="button" class="link" data-move-up="'+x.id+'" '+(i===0?'disabled':'')+'>上移</button>'+
+      '<button type="button" class="link" data-move-down="'+x.id+'" '+(i===visible.length-1?'disabled':'')+'>下移</button></div>'
+     ).join(""):'<div class="hint">当前类目无可选原件</div>';
+   list.querySelectorAll("[data-file-select]").forEach(el=>{
+    el.onchange=()=>{const id=Number(el.dataset.fileSelect);if(el.checked)checkedIds.add(id);else checkedIds.delete(id);};
+   });
+   const move=(id,delta)=>{
+    const index=ordered.findIndex(x=>x.id===id);
+    const next=visible[visible.findIndex(x=>x.id===id)+delta];
+    const target=next?ordered.findIndex(x=>x.id===next.id):-1;
+    if(index<0||target<0)return;
+    [ordered[index],ordered[target]]=[ordered[target],ordered[index]];
+    renderFiles();
+   };
+   list.querySelectorAll("[data-move-up]").forEach(el=>el.onclick=()=>move(Number(el.dataset.moveUp),-1));
+   list.querySelectorAll("[data-move-down]").forEach(el=>el.onclick=()=>move(Number(el.dataset.moveDown),1));
+  };
+  checkboxes.forEach(el=>el.addEventListener("change",renderFiles));
+  const selectAll=m.querySelector("[data-select-all]");
+  const clearAll=m.querySelector("[data-clear-all]");
+  selectAll.addEventListener("click",renderFiles);
+  clearAll.addEventListener("click",renderFiles);
+  renderFiles();
   m.querySelector("[data-cancel]").onclick=()=>m.classList.remove("open");
   const mode=m.querySelector('[name="watermark_mode"]');
   const custom=m.querySelector("[data-custom-watermark]");
@@ -60,16 +104,19 @@ export async function downloadArchivePdf(pid,button){
    if(submit.disabled)return;
    const selected=checkboxes.filter(x=>x.checked).map(x=>x.value);
    if(!selected.length){toast("请至少勾选一个已上传附件的材料类别","warn");return;}
+   const activeKinds=new Set(selected);
+   const materialIds=ordered.filter(x=>activeKinds.has(x.kind)&&checkedIds.has(x.id)).map(x=>x.id);
+   if(!materialIds.length){toast("请至少选择一份材料原件","warn");return;}
    const wmMode=mode?.value||"default";
    const customText=m.querySelector('[name="watermark_text"]')?.value.trim()||"";
    if(wmMode==="custom"&&(!customText||customText.length>80)){
     toast("请输入1～80字的自定义文字水印","warn");return;
    }
-   submit.disabled=true;submit.textContent="正在生成 PDF…";
+   submit.disabled=true;submit.textContent="正在生成…（大文件自动压缩）";
    try{
     const result=await api.download(
       "/api/projects/"+encodeURIComponent(pid)+"/archive-pdf",{
-       method:"POST",body:{categories:selected,watermark_mode:wmMode,watermark_text:customText}
+       method:"POST",body:{categories:selected,material_ids:materialIds,watermark_mode:wmMode,watermark_text:customText}
       });
     m.classList.remove("open");
     toast("材料 PDF 已生成："+result.name,"ok");

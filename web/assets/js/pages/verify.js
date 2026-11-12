@@ -14,7 +14,7 @@ async function renderList(root) {
   const pending = rows.filter((p) => p.status === "待核销").length;
 
   root.innerHTML = `<div class="phead">
-      <div><h2>核销看板</h2><p>核销项任意顺序办理 · 第5项按劳务表、第6项按会务需求、第7项按已签赞助合同自动决定是否必核</p></div>
+      <div><h2>7步核销看板</h2><p>共7项，前4项必核、后3项按条件适用；核销项任意顺序办理 · 第5项按劳务表、第6项按会务需求、第7项按权益内容或权益照片自动决定是否必核</p></div>
       <div class="acts">${can("export:any") ? '<button class="btn btn-o" id="exp">导出核销明细</button>' : ""}</div>
     </div>
     <div class="grid g4">

@@ -23,11 +23,11 @@ export function renderSettlementBreakdown(data){
         {t:"金额",w:"105px",cls:"num"},{t:"付款日期",w:"112px"},
         {t:"申请人",w:"85px"},{t:"发票号/备注"}],rows
     ):'<div class="empty">该分类暂无已付款明细</div>';
-    return '<details class="settlement-group" data-settlement-group="'+esc(group.key)+'">'
+    return '<details class="settlement-group" data-settlement-group="'+esc(group.key)+'"'+(rows.length?' open':'')+'>'
       +'<summary aria-label="展开'+esc(group.label)+'付款明细">'
       +'<span class="sg-name">'+esc(group.label)+'</span>'
       +'<span class="sg-amount">'+fmt(group.amount)+'</span>'
-      +'<span class="sg-count">'+group.count+' 笔已支付 · 点击查看明细</span></summary>'
+      +'<span class="sg-count">'+group.count+' 笔已支付 · 可展开/收起明细</span></summary>'
       +'<div class="sg-rows">'+detail+'</div></details>';
   }).join("");
   const reconcile=data.reconciliation?'<div class="sg-reconcile">'+esc(data.reconciliation.note)
@@ -38,7 +38,7 @@ export function renderSettlementBreakdown(data){
     +'<span class="hint">生成时间 '+esc(data.created_at||"—")+' · 税费管理费 '+esc(s.tax_fee_rate)
     +'%（'+fmt(s.tax_fee_amount)+'）</span></div>'
     +'<div class="settlement-summary">'+metricHtml+'</div>'
-    +'<div class="settlement-section-label">付款分类明细 <span class="hint">点击下面任一板块查看单笔付款 · 仅汇总已付款 '
+    +'<div class="settlement-section-label">付款分类明细 <span class="hint">明细在各板块内直接展示，可展开或收起 · 仅汇总已付款 '
     +s.payment_count+' 笔</span></div>'
     +'<div class="settlement-groups">'+groupHtml+'</div>'
     +'<div class="hint" style="margin-top:12px">结余 = 可用预算 − 已支付；待审批、已审批及已驳回不计入已支付。历史「个人报销」归入「协会报销」。</div>'

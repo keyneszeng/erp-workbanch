@@ -19,7 +19,7 @@ let scanningVerification=false;
 
 function register(router) {
   /**
-   * 核销看板：6 步 + 例外 + 结算 + 材料。
+   * 核销看板：7 步 + 例外 + 结算 + 材料（前四项必核、后三项按条件适用）。
    *
    * 同时把「核对所需的原始数据」一并带出去（材料 / 合同 / 付款）：
    * 判定人点「详情」时要能当场看到议程、签到表、票据、合同与付款金额，
@@ -95,7 +95,13 @@ function register(router) {
     const isAuto=ctx.body?.auto===true;
     // 防止绕过UI直接构造“已OCR一致”的请求；每次判定验证材料版本与缓存哈希。
     const ocrReport=isAuto?verifyOcr.verifiedReport(p.id,no,ctx.body?.scanToken):null;
-    if(isAuto && result==="通过" && (!ocrReport.total || (!ocrReport.scanned && ![3,7].includes(no))))
+    /**
+     * 第 6 步按设计不做 OCR：scan() 只做「会务需求表 + 会务合同原件 + 会务发票原件」
+     * 的结构化关联与金额一致性核对，invoiceAmount 也不再作为门禁。
+     * 因此不能要求 scanned>0，否则文件齐备、四项检查全「一致」时仍会被判
+     * OCR_EVIDENCE_REQUIRED，人工判定通过永远提交不了。
+     */
+    if(isAuto && result==="通过" && (!ocrReport.total || (!ocrReport.scanned && ![3,6,7].includes(no))))
       throw conflict("未取得有效的OCR比对资料，不能直接判定通过；请先上传可识别的PDF或图片原件","OCR_EVIDENCE_REQUIRED");
     let remark=isAuto
       ?(result==="不通过"?
@@ -107,26 +113,33 @@ function register(router) {
     if (String(remark || "").length > 1000) throw bad(`问题描述不能超过 1000 字（当前 ${String(remark).length} 字）`);
     if (result === "不通过" && !String(remark || "").trim()) throw bad("判定不通过必须填写问题描述");
 
-    // 六项核销彼此独立，可以任意顺序判定和重新判定。
-    // 仅在最终「核销通过」时检查六项全部通过且无未决例外。
+    // 七项核销彼此独立，可以任意顺序判定和重新判定。
+    // 仅在最终「核销通过」时检查当前适用步骤全部通过且无未决例外。
     const v = verification(p.id);
     const def = v.steps.find((s) => s.no === no);
     if(no===5 && !v.laborRequired)throw conflict("材料库无劳务表，第5项自动不适用，无需核销","SOP_NOT_APPLICABLE");
-    if(no===6 && !v.demandRequired)throw conflict("没有实际需要的会务需求，第6项自动不适用，无需核销","SOP_NOT_APPLICABLE");
-    if(no===7 && !v.rightsRequired)throw conflict("没有已签署赞助合同，第7项自动不适用","SOP_NOT_APPLICABLE");
+    if(no===6 && !v.demandRequired)throw conflict("尚未建立会务需求表，第6项不适用","SOP_NOT_APPLICABLE");
+    if(no===7 && !v.rightsRequired)throw conflict("当前没有赞助权益内容或权益照片，第7项不适用","SOP_NOT_APPLICABLE");
     let invoiceAmount = null;
     if (!isDemoMode() && no===6 && result==="通过") {
       const demand=require("../lib/meeting-demand-sop").demandSopState(db,p.id);
       if(!demand.confirmed)throw conflict("请先确认并归档会务需求","DEMAND_NOT_CONFIRMED");
       if(!demand.contractCount)throw conflict("没有已签署的会务合同","CONTRACT_NOT_SIGNED");
-      if(!demand.agreements.length || !demand.agenda.length || !demand.invoices.length)
-        throw conflict("需上传终版议程、终版会务协议及会务发票原件","SOP_MATERIAL_MISSING");
-      invoiceAmount=isAuto?ocrReport.invoiceAmount:Number(ctx.body?.invoiceAmount);
-      if((!isAuto&&(ctx.body?.invoiceAmount===""||ctx.body?.invoiceAmount==null))||invoiceAmount==null||!Number.isFinite(invoiceAmount)||
-         invoiceAmount<0||Number(invoiceAmount.toFixed(2))!==invoiceAmount)
-        throw bad(isAuto?"OCR未能从会务发票唯一可靠识别金额，请补充清晰的发票PDF/图片后重新扫描":"请输入会务发票总金额（精确到分）");
-      if(cents(demand.budgetTotal)!==cents(demand.contractTotal)||cents(invoiceAmount)!==cents(demand.budgetTotal))
-        throw conflict("会务需求总预算、会务合同总金额、会务发票金额三方必须一致","MEETING_THREE_WAY_MISMATCH");
+      if(!demand.agreements.length || !demand.invoices.length)
+        throw conflict("需上传会务需求类别合同对应原件及会务发票，不关联终版议程","SOP_MATERIAL_MISSING");
+      /**
+       * 第 6 步口径已改为「会务合同与发票关联核对」：只要求
+       * 会务需求预算 == 已签会务合同总额，并已关联发票原件，**不校验发票金额**。
+       * 旧版这里还强制 OCR 唯一识别发票金额并要求三方一致，导致项目里有多张
+       * 发票（会务发票 + 赞助发票）或发票是扫描件时，提示
+       * 「OCR未能从会务发票唯一可靠识别金额」永远判不了通过。
+       * invoice_amount 仍按可识别到的值记录供查阅，但不再作为门禁条件。
+       */
+      if(cents(demand.budgetTotal)!==cents(demand.contractTotal))
+        throw conflict("会务需求总预算与已签署会务合同总金额不一致","MEETING_THREE_WAY_MISMATCH");
+      const candidate=isAuto?ocrReport.invoiceAmount:ctx.body?.invoiceAmount;
+      invoiceAmount=(candidate===null||candidate===undefined||candidate==="")?null:Number(candidate);
+      if(invoiceAmount!==null&&(!Number.isFinite(invoiceAmount)||invoiceAmount<0))invoiceAmount=null;
     }
     if (!isDemoMode() && result==="通过") {
       const outstanding = db.prepare("SELECT id,resolved_at,evidence_material_id FROM exceptions WHERE pid=? AND step_no=? AND status='待复核'").all(p.id,no);
@@ -149,11 +162,22 @@ function register(router) {
       "INSERT OR REPLACE INTO verify_steps (pid,step_no,name,result,remark,invoice_amount,checked_by,checked_at,evidence_json) VALUES (?,?,?,?,?,?,?,?,?)"
     ).run(p.id, no, def.name, result, String(remark || ""), invoiceAmount, ctx.user.name, at,
       validated ? JSON.stringify(validated) : null);
-    // 第五步通过后保留 AES-GCM 加密的已核验劳务收款资料供财务选用。
-    // 如未配置服务器专用密钥，不落地敏感账号，仍需手工登记。
+    // 第五步通过后把劳务收款账号以 AES-GCM 加密保存，付款申请可直接选用。
+    // 手工判定取页面录入的劳务表；OCR 判定取服务端从原件识别出的记录
+    // （完整账号不经过浏览器，报告里只给尾号）。判定不通过或没有可用记录时清空。
     if(!isDemoMode() && no===5){
-      if(result!=="通过"||isAuto) db.prepare("DELETE FROM verified_labor_payees WHERE pid=?").run(p.id);
-      else require("../lib/verified-payees").saveLabor(p.id,ctx.body.evidence.collectionRecords);
+      const records=result==="通过"
+        ?(isAuto?(ocrReport.laborRecords||[]):(ctx.body?.evidence?.collectionRecords||[]))
+        :[];
+      const saved=records.length
+        ?require("../lib/verified-payees").saveLabor(p.id,records)
+        :{saved:false,count:0};
+      if(!saved.saved) db.prepare("DELETE FROM verified_labor_payees WHERE pid=?").run(p.id);
+      if(validated){
+        validated.laborAccountsStored=saved.saved?saved.count:0;
+        db.prepare("UPDATE verify_steps SET evidence_json=? WHERE pid=? AND step_no=5")
+          .run(JSON.stringify(validated),p.id);
+      }
     }
     if (!isDemoMode() && result==="通过") {
       const pendingReview = db.prepare("SELECT id FROM exceptions WHERE pid=? AND step_no=? AND status='待复核'").all(p.id,no);
@@ -234,7 +258,7 @@ function register(router) {
     // 参数校验放在阶段校验之前：参数本身就是错的（步骤越界、原因超长）应当直接 400，
     // 不该被「项目阶段不对」的 409 盖掉 —— 否则前端拿到的错误原因会误导人。
     //
-    // step_no = 0 是「不属于 6 步中任何一步」的整体性问题（如专家临时换人、场地变更），
+    // step_no = 0 是「不属于 7 步中任何一步」的整体性问题（如专家临时换人、场地变更），
     // 由人自己写一个事项名。它照样要审批，批完就不再阻塞核销门禁；
     // 区别只是不会把某一步标成「已解例外」—— 因为它本来就不针对某一步。
     const no = Number(step_no);
@@ -329,7 +353,7 @@ function register(router) {
       verification:verification(p.id)};
   });
 
-  /** 只有非步骤类（0）例外由财务复核处理结果后单独闭环；1～6 步须回原步骤复核。 */
+  /** 只有非步骤类（0）例外由财务复核处理结果后单独闭环；1～7 步须回原步骤复核。 */
   router.post("/api/exceptions/:id/close", async (ctx) => {
     const ex=db.prepare("SELECT * FROM exceptions WHERE id=?").get(ctx.params.id);
     if(!ex)throw notFound("例外单不存在");
@@ -337,7 +361,7 @@ function register(router) {
     assertProjectVisible(ctx.user,p);
     assertCan(ctx.user,"verify:exception_approve","仅核销审核人可确认整体性例外闭环");
     if(settlementOf(p.id))throw conflict("项目已结算，核销例外已冻结","FROZEN");
-    if(Number(ex.step_no)!==0)throw conflict("六步内例外必须返回原步骤复核，不得直接关闭","RECHECK_REQUIRED");
+    if(Number(ex.step_no)!==0)throw conflict("七步内例外必须返回原步骤复核，不得直接关闭","RECHECK_REQUIRED");
     if(ex.status!=="待复核"||!ex.resolved_at||!ex.evidence_material_id)
       throw conflict("例外处理人未提交证据与处理结果","EXCEPTION_REMEDIATION_REQUIRED");
     const comment=String(ctx.body?.comment||"").trim();
@@ -498,7 +522,7 @@ function register(router) {
     assertUploadAttachable(newKey,p.id,ctx.user);
     const uploaded=await storage().get(newKey);
     if(!uploaded?.buffer?.length)throw notFound("新文件不存在，请重新上传");
-    if(uploaded.buffer.length>MAX_BYTES)throw bad("新文件超出20MB限制");
+    if(uploaded.buffer.length>MAX_BYTES)throw bad("新文件超出50MB限制");
     const mime=sniffMime(uploaded.buffer,newKey);
     if(!mime || ALLOWED_MIME[mime]!==newKey.split(".").pop())
       throw bad("上传文件格式与实际内容不一致");
@@ -532,7 +556,7 @@ function register(router) {
         .run(at,ctx.user.name,id);
       const stepsByKind={
         "会议通知":[1],"招商函":[1],"串场":[1],
-        "终版议程":[2,4,6],"签到表":[2,3],"讲者照片":[2],
+        "终版议程":[1,2,4,6],"签到表":[2,3],"讲者照片":[2],
         "课件":[4],"劳务表":[5],"劳务收集表":[5],
         "合同":[5,6],"会务协议":[6],"发票":[6],"会务发票":[6],
         "权益照片":[7]

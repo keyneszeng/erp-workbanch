@@ -164,7 +164,7 @@ test("合同类别：未填按名称推断，非法值被拒", async () => {
   const auto2 = await apis.assoc("POST", "/api/contracts", {
     pid: "MP-2026-001", name: "直播平台与摄像服务", vendor: "某设备商", amount: 8000, status: "草稿"
   });
-  assert.equal(auto2.data.contract.category, "设备技术");
+  assert.equal(auto2.data.contract.category, "会务需求");
 
   const badCat = await apis.assoc("POST", "/api/contracts", {
     pid: "MP-2026-001", name: "x", vendor: "y", amount: 100, status: "草稿", category: "随便写"

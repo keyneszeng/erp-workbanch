@@ -1,6 +1,6 @@
 "use strict";
 /**
- * 图示 2026-11-01：会后核销六步结构化人工核验。
+ * 图示 2026-11-01：会后核销七步结构化人工核验。
  * 数据来源目前是人工确认/结构化录入，不声称具有 OCR、图像识别能力。
  * 银行账户和参会人员明细只在内存里进行等值比较，绝不写入 verify_steps 或审计日志。
  */
@@ -9,6 +9,7 @@ const {laborSheetInfo}=require("./labor-sop");
 const {linkLaborContracts}=require("./labor-contracts");
 const {demandSopState}=require("./meeting-demand-sop");
 const {validateRightsEvidence}=require("./sponsor-rights");
+const {photoName,compareNames,speakerName}=require("./verify-agenda-evidence");
 const eq = (a,b) => String(a ?? "").trim().replace(/\s+/g,"") === String(b ?? "").trim().replace(/\s+/g,"");
 const list = (a) => Array.isArray(a) ? a.map(x=>String(x ?? "").trim()).filter(Boolean) : [];
 function sameNames(a,b) {
@@ -43,29 +44,35 @@ function validateSopEvidence(no, evidence, project, db, invoiceAmount) {
         fail("请先上传已盖章的会议通知或招商函原件","SOP_MATERIAL_MISSING");
       if (!materialExists(db,pid,["串场"],true))
         fail("请先上传串场原件，用于与盖章函件核对","SOP_MATERIAL_MISSING");
+      // Link only the current confirmed agenda: historical agendas must not be treated as evidence.
+      const finalAgenda=db.prepare(
+        "SELECT COUNT(*) AS n FROM materials WHERE pid=? AND kind='终版议程' AND version='终版' "+
+        "AND (deleted_at IS NULL OR deleted_at='') AND file_key IS NOT NULL AND file_key<>''"
+      ).get(pid);
+      if(!Number(finalAgenda?.n))
+        fail("请先上传并确认当前终版议程原件，用于与盖章函件和串场核验","SOP_MATERIAL_MISSING");
       return {documentKind:e.documentKind,stamped:true,final:true,fieldsMatched:3,
-        comparedWith:"串场"};
+        comparedWith:"串场",matchedSources:[e.documentKind,"终版议程","串场"]};
     }
     case 2: {
-      // 以当前终版议程讲者名单为唯一基准：只核对签到表及讲者照片。
-      // 不引用劳务表、个人合同或其他台账中的名单。
-      const baseline=list(e.agendaSpeakers);
+      // 核销第2项：当前终版议程的讲者 ↔ 讲者照片原始文件名。
+      // 签到表仅供核销第3项使用；OCR模式从终版议程提取人名。
+      const baseline=list(e.agendaSpeakers).map(speakerName);
       if(!sameNames(baseline,baseline))
         fail("终版议程讲者名单不能为空或有重复姓名");
-      if(!sameNames(baseline,e.attendanceSpeakers))
-        fail("签到表中的讲者姓名与终版议程不一致，请核对缺失、多余或重复姓名");
-      if(!sameNames(baseline,e.photoSpeakers))
-        fail("讲者照片填写的姓名与终版议程不一致，请核对缺失、多余或重复姓名");
-      for(const kind of ["终版议程","签到表","讲者照片"])
+      for(const kind of ["终版议程","讲者照片"])
         if(!materialExists(db,pid,[kind],true))
           fail("第二步缺少已上传的 "+kind+" 原件","SOP_MATERIAL_MISSING");
       const current=db.prepare("SELECT COUNT(*) AS n FROM materials WHERE pid=? AND kind='终版议程' AND version='终版' AND (deleted_at IS NULL OR deleted_at='') AND file_key IS NOT NULL AND file_key<>''").get(pid);
       if(!Number(current?.n))fail("请上传并确认当前终版议程原件，历史版不能用于核销","SOP_MATERIAL_MISSING");
-      const photos=db.prepare("SELECT name FROM materials WHERE pid=? AND kind='讲者照片' AND (deleted_at IS NULL OR deleted_at='') AND file_key IS NOT NULL AND file_key<>''").all(pid).map(x=>String(x.name||"").trim());
-      if(!sameNames(baseline,photos))
-        fail("材料库讲者照片登记姓名与终版议程讲者名单不一致：请逐人上传照片并核对缺失、多余或重复");
-      if(e.noOmissions!==true)fail("须人工确认签到表与讲者照片名单均与终版议程一致，无漏项、冒名或重复");
-      return {matchedPeople:baseline.length,matchedSources:["终版议程","签到表","讲者照片"],
+      const photos=db.prepare("SELECT name,file_name FROM materials WHERE pid=? AND kind='讲者照片' AND (deleted_at IS NULL OR deleted_at='') AND file_key IS NOT NULL AND file_key<>''").all(pid);
+      const matched=compareNames(baseline,photos.map(photoName));
+      if(!matched.matched||matched.photoCount!==photos.length)
+        fail("讲者照片原始文件名与终版议程名单不一致，请检查缺失、多余、重复或无法识别姓名的照片");
+      if(Array.isArray(e.photoSpeakers)&&e.photoSpeakers.length&&!sameNames(baseline,e.photoSpeakers.map(speakerName)))
+        fail("人工录入的照片讲者名单与终版议程不一致");
+      if(e.noOmissions!==true)fail("须人工确认终版议程与讲者照片逐人一致，无漏项、冒名或重复");
+      return {matchedPeople:baseline.length,matchedSources:["终版议程","讲者照片"],
         photoRecordsMatched:photos.length,noOmissions:true};
     }
     case 3: {
@@ -112,7 +119,7 @@ function validateSopEvidence(no, evidence, project, db, invoiceAmount) {
         fail("劳务表存在重复讲者或重复劳务记录");
       if(rows.some(x=>!Number.isFinite(Number(x.amount))||Number(x.amount)<=0))
         fail("劳务金额必须为正数");
-      // 仅关联本项目材料库有效的个人合同原件，不以会务总合同替代。
+      // 第5项只关联劳务专家合同原件；会务合同、赞助合同均不得替代。
       const linked=linkLaborContracts(db,pid,rows.map(r=>r.name));
       if(linked.missing.length)
         fail("材料库缺少以下人员的同名合同原件："+linked.missing.join("、"),"SOP_PERSON_CONTRACT_MISSING");
@@ -126,34 +133,18 @@ function validateSopEvidence(no, evidence, project, db, invoiceAmount) {
     }
     case 6: {
       const d=demandSopState(db,pid);
-      if(!d.required)fail("当前没有标记「需要」的会务需求，第6项不适用","SOP_NOT_APPLICABLE");
-      if(!d.confirmed)fail("请先确认并归档会务需求清单","DEMAND_NOT_CONFIRMED");
-      if(!d.agenda.length)fail("请上传并确认当前终版议程原件","SOP_MATERIAL_MISSING");
-      if(!d.agreements.length)fail("请上传终版会务协议/会务合同原件（可在材料库「会务协议」或「合同」类别中登记）","SOP_MATERIAL_MISSING");
-      if(!d.contractCount)fail("请先签署会务合同，并在合同台账登记合同金额","CONTRACT_NOT_SIGNED");
+      if(!d.required)fail("尚未建立会务需求表，第6项不适用","SOP_NOT_APPLICABLE");
+      if(!d.confirmed)fail("请先确认并归档会务需求表","DEMAND_NOT_CONFIRMED");
+      if(!d.contractCount)fail("请先签署「会务需求」类别合同","CONTRACT_NOT_SIGNED");
+      if(!d.agreements.length)fail("请上传已签署会务合同对应的原件","SOP_MATERIAL_MISSING");
       if(!d.invoices.length)fail("请上传会务发票原件","SOP_MATERIAL_MISSING");
-      const fields=["agendaTitle","agendaTime","agendaFormat","agreementTitle","agreementTime","agreementFormat","agreementPartyA"];
-      if(fields.some(k=>!String(e[k]||"").trim()))
-        fail("请从终版议程和会务协议分别填写会议主题、时间、形式，以及协议甲方");
-      if(!eq(e.agendaTitle,e.agreementTitle)||!eq(e.agendaTime,e.agreementTime)||
-         !eq(e.agendaFormat,e.agreementFormat))
-        fail("会务协议中的会议主题、时间或形式与终版议程不一致");
-      if(!["线下","线上","混合"].includes(String(e.agendaFormat)))
-        fail("会议形式必须是线下、线上或混合");
-      if(!eq(e.agreementPartyA,project.assoc))
-        fail("会务协议甲方与本项目所属协会主体不一致");
-      if(e.agreementFinal!==true)
-        fail("须确认核对的会务协议是终版协议原件");
-      if(!Number.isFinite(invoiceAmount)||invoiceAmount<0)
-        throw bad("请输入核对后的会务发票总金额");
+      if(e.demandReviewed!==true||e.meetingContractReviewed!==true||e.meetingInvoiceReviewed!==true)
+        fail("请逐项人工检查会务需求表、已签会务合同和会务发票原件");
       if(cents(d.budgetTotal)!==cents(d.contractTotal))
         fail("会务需求总预算与已签署会务合同总金额不一致");
-      if(cents(invoiceAmount)!==cents(d.budgetTotal))
-        fail("会务发票总金额、会务需求总预算与已签署会务合同总金额不一致");
-      // 输入属于人工阅读原件后逐项录入。仅留摘要，避免把协议全文写进审计日志。
-      return {meetingMatched:true,matchedFields:4,meetingContractTotal:d.contractTotal,
-        demandBudget:d.budgetTotal,invoiceAmount,needCount:d.needCount,
-        demandSopSignature:d.signature,comparedWith:"终版议程+终版会务协议"};
+      return {meetingMatched:true,matchedFields:2,invoiceLinked:true,invoiceCount:d.invoices.length,meetingContractTotal:d.contractTotal,
+        demandBudget:d.budgetTotal,needCount:d.needCount,
+        demandSopSignature:d.signature,comparedWith:"会务需求表+会务合同+会务发票"};
     }
     case 7: return validateRightsEvidence(db,pid,e);
     default: throw bad("核销步骤必须为 1~7");

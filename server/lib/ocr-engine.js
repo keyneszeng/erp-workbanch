@@ -118,6 +118,38 @@ async function recognizeRapid(file,dir,ext,pages,exec){
   }
   return {text:cleanText(await runOne(file)),mode:"ocr",engine:"RapidOCR (rapidocr/ONNXRuntime)"};
 }
+/**
+ * Extract the existing PDF text layer without enabling RapidOCR/ONNX.
+ * A searchable PDF must remain usable when heavy image OCR is disabled.
+ */
+async function extractPdfText(buffer,opts={}){
+  if(!Buffer.isBuffer(buffer)||!buffer.length||buffer.length>MAX_SIZE)
+    throw fail("PDF_TEXT_INVALID","PDF 文件为空或超出大小限制",400);
+  const fs=process.getBuiltinModule?.("node:fs/promises");
+  const os=process.getBuiltinModule?.("node:os");
+  if(!fs||!os||!process.getBuiltinModule?.("node:child_process"))
+    throw fail("PDF_TEXT_UNAVAILABLE","该部署不支持本地 PDF 文字解析");
+  const {sniffMime}=require("./storage");
+  if(sniffMime(buffer)!=="application/pdf")
+    throw fail("PDF_TEXT_INVALID","原件不是有效的 PDF",400);
+  const dir=await fs.mkdtemp(path.join(os.tmpdir(),"erp-pdftext-"));
+  const file=path.join(dir,"contract.pdf");
+  const run=opts.exec||execNative;
+  try{
+    await fs.chmod(dir,0o700);
+    await fs.writeFile(file,buffer,{mode:0o600});
+    const info=await run("pdfinfo",[file],{timeout:12000});
+    const found=/^Pages:\s+(\d+)/im.exec(info);
+    if(!found||!(Number(found[1])>0))
+      throw fail("OCR_INVALID_PDF","无法读取 PDF 页数，请检查加密或损坏情况",422);
+    const totalPages=Number(found[1]),pages=Math.min(totalPages,MAX_PAGES);
+    const text=cleanText(await run("pdftotext",["-f","1","-l",String(pages),"-layout",file,"-"],{timeout:20000}));
+    return {text,mode:"pdf-text",engine:"Poppler pdftotext",pages,totalPages,
+      truncated:totalPages>pages};
+  }finally{
+    await fs.rm(dir,{recursive:true,force:true}).catch(()=>{});
+  }
+}
 async function recognize(buffer,ext,opts={}){
   if(!enabled())throw fail("OCR_DISABLED","OCR 尚未启用，请在 ECS 设置 ERP_OCR_ENABLED=1");
   if(!Buffer.isBuffer(buffer)||!buffer.length||buffer.length>MAX_SIZE)throw fail("OCR_INVALID_INPUT",`OCR 文件必须在 ${Math.round(MAX_SIZE/1024/1024)} MB 以内`,400);
@@ -376,5 +408,5 @@ function parseAgenda(raw){
     if(r.speaker&&r.topic)add(r.speaker,r.topic);
   return out;
 }
-module.exports={enabled,recognize,parseAgenda,parseAgendaRows,extractNames,extractTopics,cleanText,MAX_PAGES,
+module.exports={enabled,recognize,extractPdfText,parseAgenda,parseAgendaRows,extractNames,extractTopics,cleanText,MAX_PAGES,
   providerMatches,rapidItemsToText};

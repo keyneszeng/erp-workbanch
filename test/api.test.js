@@ -157,7 +157,7 @@ let pid;
 test("工作流：新建 → 提交 → 审批 → 筹备 → 执行 → 待核销", async () => {
   const created = await assoc("POST", "/api/projects", {
     name: "回归测试会议", assoc: "华东医学会", form: "线下", date: "2026-12-20",
-    budget: 100000, people: 80, owner: "王敏", agenda: "09:00 开幕 / 10:00 主题报告", dept: "会务部"
+    budget: 100000, people: 80, owner: "王敏", agenda: "09:00 开幕 / 10:00 主题报告", dept: "秘书处"
   });
   assert.equal(created.status, 200);
   pid = created.data.project.id;
@@ -255,7 +255,7 @@ test("核销：无劳务表和实际会务需求，第5/6项均自动不适用�
 });
 
 test("付款门禁：核销通过后付款可提交，审批 + 付款走通", async () => {
-  const c = await finance("POST", "/api/payments", { pid, type: "学会公付", payee: "测试酒店", amount: 32000, invoice_no: "INV-001" , payee_bank: "中国银行北京分行", payee_account: "3210987654321098"});
+  const c = await finance("POST", "/api/payments", { pid, type: "学会公付", payee: "测试酒店", amount: 32000, invoice_no: "INV-001" });
   assert.equal(c.status, 200);
   const payId = c.data.payment.id;
   assert.equal(c.data.payment.status, "待审批");
@@ -263,12 +263,15 @@ test("付款门禁：核销通过后付款可提交，审批 + 付款走通", as
   const a = await finance("POST", `/api/payments/${payId}/approve`, { approve: true });
   assert.equal(a.data.payment.status, "已审批");
 
+  // 新流程：申请阶段不填银行信息，执行付款前由财务登记收款账户
+  const acct = await finance("PATCH", `/api/payments/${payId}/account`, { payee_bank: "中国银行北京分行", payee_account: "3210987654321098" });
+  assert.equal(acct.status, 200);
   const p = await finance("POST", `/api/payments/${payId}/pay`, {});
   assert.equal(p.data.payment.status, "已付款");
 });
 
 test("结算：生成结算单后核销结论冻结", async () => {
-  const r = await finance("POST", `/api/projects/${pid}/transition`, { action: "settle", payee_bank: "中国银行北京分行", payee_account: "3210987654321098" });
+  const r = await finance("POST", `/api/projects/${pid}/transition`, { action: "settle" });
   assert.equal(r.status, 200);
   assert.equal(r.data.project.status, "已结算");
 

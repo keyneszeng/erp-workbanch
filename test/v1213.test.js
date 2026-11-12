@@ -119,10 +119,10 @@ test("合同没填类别时按名称推断，不再一律空着", async () => {
   const c = client(exec);
   const cases = [
     ["专家劳务协议（讲者）", "劳务专家"],
-    ["会场租赁及餐饮服务", "场地餐饮"],
-    ["主视觉与物料制作", "物料搭建"],
-    ["直播平台技术服务", "设备技术"],
-    ["第三方审计服务费", "其他"]
+    ["会场租赁及餐饮服务", "会务需求"],
+    ["主视觉与物料制作", "会务需求"],
+    ["直播平台技术服务", "会务需求"],
+    ["第三方审计服务费", "会务需求"]
   ];
   for (const [name, want] of cases) {
     const r = await c("POST", "/api/contracts", { pid, name, vendor: "某供应商", amount: 1000, status: "草稿" });
@@ -135,11 +135,15 @@ test("合同类别可以显式指定，非法值被拒", async () => {
   const pid = await freshProject();
   const c = client(exec);
   const ok = await c("POST", "/api/contracts", {
-    pid, name: "某个不好判断的服务", vendor: "某供应商", amount: 2000, status: "草稿", category: "物料搭建"
+    pid, name: "某个不好判断的服务", vendor: "某供应商", amount: 2000, status: "草稿", category: "会务需求"
   });
   assert.equal(ok.status, 200);
-  assert.equal(ok.data.contract.category, "物料搭建", "显式指定的类别应压过名称推断");
+  assert.equal(ok.data.contract.category, "会务需求", "显式指定的类别应采用三类合同口径");
 
+  const legacy = await c("POST", "/api/contracts", {
+    pid, name:"旧版物料搭建不能再选",vendor:"供应商",amount:100,status:"草稿",category:"物料搭建"
+  });
+  assert.equal(legacy.status,400,"旧分类不应再允许新合同选择");
   const bad = await c("POST", "/api/contracts", {
     pid, name: "x", vendor: "y", amount: 100, status: "草稿", category: "随便写一个"
   });

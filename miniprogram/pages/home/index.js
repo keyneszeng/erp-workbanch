@@ -1,6 +1,6 @@
 const app=getApp();
 Page({
- data:{user:null,role:"",loading:true,error:"",canApprove:false,canMaterials:false,
+ data:{user:null,userInitial:"会",role:"",loading:true,error:"",canApprove:false,canMaterials:false,
    canApply:false,canMeetings:false,isExecutor:false,dashboard:null,stats:[]},
  async onShow(){
   this.setData({loading:true,error:""});
@@ -24,7 +24,7 @@ Page({
     {label:"执行中",value:counts["执行中"]||0},
     {label:"待核销",value:counts["待核销"]||0}
    ] : [];
-   this.setData({user,role:state.role?.name||"",dashboard,stats,canApprove,canMaterials,
+   this.setData({user,userInitial:String(user?.name||"会").slice(0,1),role:state.role?.name||"",dashboard,stats,canApprove,canMaterials,
      canApply,canMeetings,isExecutor:canMaterials||canApprove,loading:false});
   }catch(e){this.setData({error:e.message,loading:false});}
  },
@@ -32,6 +32,7 @@ Page({
   const page=e.currentTarget.dataset.page;
   if(page)wx.navigateTo({url:"/pages/"+page+"/index"});
  },
+ publicApply(){wx.navigateTo({url:"/pages/public-proposal/index"});},
  myApplications(){wx.navigateTo({url:"/pages/projects/index?tab=mine"});},
  meetingList(){wx.navigateTo({url:"/pages/projects/index?tab=all"});}
 });
