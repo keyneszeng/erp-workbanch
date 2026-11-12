@@ -109,18 +109,18 @@ test("Unicode / emoji 项目名可正确存取", async () => {
   assert.equal(d.data.project.name, name);
 });
 
-test("超长项目名（>80 字）被拒", async () => {
+test("超长项目名（>120 字）被拒", async () => {
   const r = await assoc("POST", "/api/projects", {
-    name: "长".repeat(81), assoc: "华东医学会", form: "线下", date: "2027-02-01",
+    name: "长".repeat(121), assoc: "华东医学会", form: "线下", date: "2027-02-01",
     budget: 5000, owner: "王敏", agenda: "09:00 开幕"
   });
   assert.equal(r.status, 400);
 });
 
-test("超长议程（>2000 字）被拒", async () => {
+test("超长议程（>3000 字）被拒", async () => {
   const r = await assoc("POST", "/api/projects", {
     name: "议程超长", assoc: "华东医学会", form: "线下", date: "2027-02-01",
-    budget: 5000, owner: "王敏", agenda: "议".repeat(2001)
+    budget: 5000, owner: "王敏", agenda: "议".repeat(3001)
   });
   assert.equal(r.status, 400);
 });
