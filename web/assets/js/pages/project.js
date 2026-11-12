@@ -736,6 +736,8 @@ function openContract(root, pid) {
   bindFilePicker(m, "file", (file, err) => {
     const seq=++token;
     picked=err?null:file;uploaded=null;
+    if(amount&&!amount.dataset.userEdited&&amount.dataset.ocrFilled==="1"){amount.value="";delete amount.dataset.ocrFilled;}
+    if(vendor&&!vendor.dataset.userEdited&&vendor.dataset.ocrFilled==="1"){vendor.value="";delete vendor.dataset.ocrFilled;}
     if(err){note.textContent=err;toast(err,"warn");return;}
     if(!file){note.textContent="尚未选择合同原件。";return;}
     const nameInput=m.querySelector('[name="name"]');
@@ -752,9 +754,9 @@ function openContract(root, pid) {
       if(seq!==token)return;
       const fields=scan.fields||{};
       if(amount&&!amount.dataset.userEdited&&fields.amount!==null&&fields.amount!==undefined)
-        amount.value=String(fields.amount);
+        {amount.value=String(fields.amount);amount.dataset.ocrFilled="1";}
       if(vendor&&!vendor.dataset.userEdited&&(fields.vendor||fields.enterprise))
-        vendor.value=fields.vendor||fields.enterprise;
+        {vendor.value=fields.vendor||fields.enterprise;vendor.dataset.ocrFilled="1";}
       note.textContent=(scan.note||"识别完成，请核对原件后保存。")+
         (fields.amount!==null&&fields.amount!==undefined?" 已预填"+(fields.amountSource||"合同")+"金额：¥"+fields.amount:"");
     })().catch(e=>{
