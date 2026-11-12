@@ -518,6 +518,10 @@ CREATE TABLE IF NOT EXISTS public_event_proposals (
   submitter_fingerprint TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT '已接收' CHECK(status IN ('已接收','已归档'))
 );
+-- Processing metadata is separate from the public submission payload.
+ALTER TABLE public_event_proposals ADD COLUMN handled_at TEXT;
+ALTER TABLE public_event_proposals ADD COLUMN handled_by INTEGER REFERENCES users(id);
+ALTER TABLE public_event_proposals ADD COLUMN handling_note TEXT NOT NULL DEFAULT '';
 CREATE INDEX IF NOT EXISTS idx_public_event_proposals_received ON public_event_proposals(received_at DESC);
 CREATE INDEX IF NOT EXISTS idx_public_event_proposals_fingerprint ON public_event_proposals(submitter_fingerprint,received_at);
 
