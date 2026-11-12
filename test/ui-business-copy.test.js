@@ -22,6 +22,10 @@ test("七项核销的可选步骤有明确中性视觉态，不将不适用当�
 test("财务页显示企业赞助收入、分期期次并明确银行不自动转账", () => {
   const finance=src("web/assets/js/pages/finance.js");
   assert.match(finance,/data-finance-jump="incomeWorkbench"/);
+  assert.match(finance,/data-finance-jump="incomeWorkbench">企业赞助<\/button>/);
+  assert.doesNotMatch(finance,/会议收入 · 企业赞助/);
+  assert.match(finance,/data-finance-jump="fin-payments">付款申请与执行/);
+  assert.match(finance,/data-finance-jump="fin-settlements">结算与归档/);
   assert.match(finance,/const incomeReadable = /);
   assert.match(finance,/if \(incomeReadable\) renderIncomeWorkbench/);
   assert.match(finance,/金额／期次/);
