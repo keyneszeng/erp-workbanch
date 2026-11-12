@@ -175,6 +175,10 @@ function openCreate(root, projects) {
   });
   bindFilePicker(m,"file",(file,err)=>{
     const seq=++token;picked=err?null:file;uploaded=null;lastScan=null;
+    const amountField=m.querySelector('[name="amount"]');
+    if(amountField&&!amountField.dataset.userEdited&&amountField.dataset.ocrFilled==="1"){
+      amountField.value="";delete amountField.dataset.ocrFilled;
+    }
     if(err){note.textContent=err;toast(err,"warn");return;}
     if(!picked||!project.value)return;
     const name=m.querySelector('[name="name"]');
@@ -193,7 +197,7 @@ function openCreate(root, projects) {
       const f=scan.fields||{},sponsor=category.value==="企业赞助";
       if(party&&!party.dataset.userEdited&&(sponsor?f.enterprise||f.vendor:f.vendor||f.enterprise))
         party.value=(sponsor?f.enterprise||f.vendor:f.vendor||f.enterprise);
-      if(f.amount!==null&&f.amount!==undefined&&amount&&!amount.dataset.userEdited)amount.value=String(f.amount);
+      if(f.amount!==null&&f.amount!==undefined&&amount&&!amount.dataset.userEdited){amount.value=String(f.amount);amount.dataset.ocrFilled="1";}
       if(Array.isArray(f.rightsContent)&&f.rightsContent.length&&rights)rights.value=f.rightsContent.join("\n");
       note.textContent=scan.note||"扫描完成，请核对原件后保存。";
     })().catch(e=>{
