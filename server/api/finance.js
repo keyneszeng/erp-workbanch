@@ -119,7 +119,9 @@ function register(router) {
     const key=String(b.file_key||"");
     if(!FILE_KEY_RE.test(key))throw bad("请先上传合同原件后进行OCR扫描");
     assertUploadAttachable(key,p.id,ctx.user);
-    return scanContract(key,true);
+    const category=String(b.category||"").trim();
+    if(category&&!CONTRACT_CATEGORIES.includes(category))throw bad("合同类别不合法");
+    return scanContract(key,true,category);
   });
 
   router.post("/api/contracts", async (ctx) => {

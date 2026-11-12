@@ -22,7 +22,7 @@ const MONEY_FIELDS = ["budget","tax_fee_rate"];
 const MONEY_LABEL = { budget: "预算", tax_fee_rate:"税费管理费率" };
 
 /** 字段长度上限（字符数），防止超长文本撑爆列表 / 导出 / 前端渲染 */
-const MAX_LEN = { name: 80, assoc: 40, owner: 20, phone: 20, dept: 40, agenda: 2000 };
+const MAX_LEN = { name: 120, assoc: 40, owner: 20, phone: 30, dept: 40, agenda: 3000 };
 const LEN_LABEL = { name: "会议名称", assoc: "所属协会", owner: "项目负责人", phone: "联系电话", dept: "承办部门", agenda: "初版议程要点" };
 
 function checkLength(body) {
@@ -178,6 +178,7 @@ function detail(project, user) {
       actions: [], visibility: "participant" };
   }
   const pid = project.id;
+  const sourceProposal=db.prepare("SELECT proposal_id FROM public_proposal_project_links WHERE project_id=?").get(pid);
   const permitted=(mods,actions)=>isSuper(user)||mods.some(m=>hasModule(user,m))||actions.some(a=>can(user,a));
   const viewFinance=permitted(["finance"],["payment:create","payment:approve","payment:pay","settle:create","ledger:read"]);
   const viewContracts=permitted(["prep","finance"],["contract:write","contract:approve","verify:check","verify:conclude"]);
@@ -190,7 +191,7 @@ function detail(project, user) {
   const viewAudit=permitted(["audit"],["audit:read"]);
   const viewBudget=viewFinance||["project:create","project:edit","project:change","project:approve","verify:check","verify:conclude"].some(k=>can(user,k));
   const viewNotice=permitted(["prep"],["project:create","project:edit","project:change","project:approve"]);
-  const publicProject=()=>{const {budget,available_budget,tax_fee_rate,phone,...rest}=project;return rest;};
+  const publicProject=()=>{const {budget,available_budget,tax_fee_rate,phone,public_contact_name,public_contact_info,...rest}=project;return rest;};
   const members = db.prepare(
     `SELECT u.id, u.name, u.username, u.role, m.role AS member_role FROM project_members m
      JOIN users u ON u.id = m.user_id WHERE m.project_id = ?`
@@ -214,6 +215,7 @@ function detail(project, user) {
 
   return {
     project:viewBudget?project:publicProject(),
+    sourcePublicProposalId:sourceProposal?.proposal_id||null,
     sectionAccess:{finance:viewFinance,contracts:viewContracts,materials:viewMaterials,verify:viewVerify,demand:viewDemand,team:viewTeam,exec:viewExec,approvals:viewApprovals,audit:viewAudit,budget:viewBudget,notice:viewNotice},
     members: viewTeam?members:[],
     approvals: viewApprovals?approvals:[],

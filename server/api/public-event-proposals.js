@@ -4,9 +4,11 @@
  * initiation. No projects, approvals, members or workflow rows are created.
  */
 const crypto=require("node:crypto");
-const {db}=require("../lib/db");
+const {db,transaction}=require("../lib/db");
+const {now,nextId}=require("../lib/util");
 const {bad,forbidden}=require("../lib/util");
 const {isSuper}=require("../lib/rbac");
+const {logAudit}=require("../lib/audit");
 const FORMS=new Set(["线下","线上","混合"]);
 function str(v,max,label,{required=true}={}){
  if(typeof v!=="string")throw bad(label+"格式不正确");
@@ -72,9 +74,54 @@ function register(router){
   const page=Math.max(1,Math.min(10000,Number(ctx.query.page)||1));
   const size=Math.max(1,Math.min(100,Number(ctx.query.size)||30));
   const total=Number(db.prepare("SELECT COUNT(*) AS n FROM public_event_proposals").get().n);
-  const rows=db.prepare("SELECT id,topic,event_date,event_time,form,budget,agenda,contact_name,contact_phone,contact_info,received_at,status "+
-     "FROM public_event_proposals ORDER BY received_at DESC,id DESC LIMIT ? OFFSET ?").all(size,(page-1)*size);
+  const rows=db.prepare("SELECT p.id,p.topic,p.event_date,p.event_time,p.form,p.budget,p.agenda,p.contact_name,p.contact_phone,p.contact_info,p.received_at,p.status,p.handled_at,p.handled_by,p.handling_note,l.project_id "+
+     "FROM public_event_proposals p LEFT JOIN public_proposal_project_links l ON l.proposal_id=p.id "+
+     "ORDER BY p.received_at DESC,p.id DESC LIMIT ? OFFSET ?").all(size,(page-1)*size);
   return {rows,total,page,size};
+ });
+ router.post("/api/admin/public-event-proposals/:id/process",async ctx=>{
+  if(!isSuper(ctx.user))throw forbidden("只有总管理员可以处理公众活动申请");
+  const id=String(ctx.params.id||"");
+  const row=db.prepare("SELECT id,status FROM public_event_proposals WHERE id=?").get(id);
+  if(!row)throw Object.assign(new Error("公众活动申请不存在"),{status:404,code:"NOT_FOUND"});
+  if(row.status==="已归档")return {id,status:row.status,message:"该申请已处理"};
+  const note=String(ctx.body?.note||"").trim();
+  if(note.length>1000)throw bad("处理备注不能超过1000字");
+  const at=new Date().toISOString();
+  db.prepare("UPDATE public_event_proposals SET status='已归档',handled_at=?,handled_by=?,handling_note=? WHERE id=? AND status='已接收'")
+   .run(at,ctx.user.id,note,id);
+  require("../lib/audit").logAudit({user:ctx.user,module:"公众活动申请",action:"处理公众活动申请",target:id,detail:note||"已处理并归档",ip:ctx.ip});
+  return {id,status:"已归档",handled_at:at,message:"申请已处理并归档"};
+ });
+ router.post("/api/admin/public-event-proposals/:id/convert",async ctx=>{
+  if(!isSuper(ctx.user))throw forbidden("只有总管理员可以将公众活动申请转为内部立项");
+  const id=String(ctx.params.id||"");
+  const assoc=String(ctx.body?.assoc||"").trim();
+  if(!require("../lib/associations").has(assoc))throw bad("请选择有效的所属协会");
+  const output=transaction(()=>{
+   const previous=db.prepare("SELECT project_id FROM public_proposal_project_links WHERE proposal_id=?").get(id);
+   if(previous)return {project:{id:previous.project_id,status:db.prepare("SELECT status FROM projects WHERE id=?").get(previous.project_id)?.status||"草稿"},alreadyConverted:true};
+   const p=db.prepare("SELECT * FROM public_event_proposals WHERE id=?").get(id);
+   if(!p)throw Object.assign(new Error("公众活动申请不存在"),{status:404,code:"NOT_FOUND"});
+   const projectId=nextId(db,"projects","id","MP"),at=now();
+   const fields=["id","name","assoc","form","date","days","budget","tax_fee_rate","people",
+    "owner","owner_id","phone","dept","agenda","public_event_time","public_contact_name",
+    "public_contact_info","status","status_at","created_by","created_at","updated_at"];
+   const vals=[projectId,p.topic,assoc,p.form,p.event_date,1,Number(p.budget),0,0,
+    ctx.user.name,ctx.user.id,p.contact_phone,"",p.agenda,p.event_time,p.contact_name,
+    p.contact_info||"","草稿",at,ctx.user.id,at,at];
+   db.prepare("INSERT INTO projects ("+fields.join(",")+") VALUES ("+fields.map(()=>"?").join(",")+")").run(...vals);
+   db.prepare("INSERT OR IGNORE INTO project_members(project_id,user_id,role) VALUES (?,?,?)").run(projectId,ctx.user.id,"创建人");
+   db.prepare("INSERT INTO public_proposal_project_links(proposal_id,project_id,converted_by,converted_at) VALUES (?,?,?,?)")
+    .run(id,projectId,ctx.user.id,at);
+   db.prepare("UPDATE public_event_proposals SET status='已归档', handled_at=COALESCE(handled_at,?), handled_by=COALESCE(handled_by,?) WHERE id=?")
+    .run(at,ctx.user.id,id);
+   return {project:{id:projectId,status:"草稿"},alreadyConverted:false};
+  });
+  if(!output.alreadyConverted)logAudit({user:ctx.user,module:"项目管理",action:"公众活动申请转内部立项",target:output.project.id,
+    detail:"来源申请 "+id+"；总管理员创建草稿，未提交审批",ip:ctx.ip});
+  return {...output,sourceProposalId:id,
+    message:output.alreadyConverted?"该公众申请已有内部项目，已返回原项目":"已转入内部立项并保存为草稿（未提交审批）"};
  });
 }
 module.exports={register,validate};

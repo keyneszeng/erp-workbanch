@@ -132,7 +132,8 @@ function openCreate(root, projects) {
     { k:"pid",l:"所属项目",t:"select",req:1,opts:projects.map(p=>({v:p.id,l:p.id+" "+p.name})) },
     { k:"name",l:"合同名称",req:1,full:1 },
     { k:"vendor",l:"签约方",req:1 },
-    { k:"amount",l:"合同金额（元）",t:"number",req:1 },
+    { k:"amount",l:"合同金额（元）",t:"number",req:1,
+      tip:"劳务专家类合同优先识别原件中的劳动报酬／劳务报酬，OCR 仅预填，请人工核对。" },
     { k:"category",l:"合同类别",t:"select",req:1,opts:["会务需求","劳务专家","企业赞助"],
       tip:"企业赞助属于会议收入，不计入会务支出、付款或核销第6项合同金额。" },
     { k:"rightsCategories",l:"权益内容（每行一项）",t:"textarea",rows:4,full:1,
@@ -141,7 +142,7 @@ function openCreate(root, projects) {
     { k:"status",l:"状态",t:"select",opts: ["草稿", "待签署"],
       tip:"录入后须有权限人员确认签署。企业赞助会同步到会议收入。" },
     { k:"file",l:"合同原件",t:"file",full:1,accept:UPLOAD_ACCEPT,
-      tip:UPLOAD_TIP+" 上传后会自动扫描签约方、合同金额及企业赞助权益内容。" }
+      tip:UPLOAD_TIP+" 上传后会自动扫描签约方、合同金额（含劳动报酬）及赞助权益。" }
   ];
   const m=modal({title:"录入合同",width:"650px",
     body:'<div class="hint" style="padding-bottom:12px">合同编号由系统自动分配（HT-年份-流水号），不用填写。上传合同后可自动识别并预填，保存前请核对原件。</div>'+
@@ -162,8 +163,9 @@ function openCreate(root, projects) {
     }
   }
   syncCategory();
-  category.addEventListener("change",syncCategory);
+  category.addEventListener("change",()=>{category.dataset.userEdited="1";syncCategory();});
   m.querySelector('[name="vendor"]').addEventListener("input",e=>{e.target.dataset.userEdited="1";});
+  m.querySelector('[name="amount"]').addEventListener("input",e=>{e.target.dataset.userEdited="1";});
   project.addEventListener("change",()=>{
     token++;picked=null;uploaded=null;lastScan=null;busy=false;btn.disabled=false;
     const input=m.querySelector('[name="file"]');if(input)input.value="";
@@ -173,26 +175,32 @@ function openCreate(root, projects) {
   });
   bindFilePicker(m,"file",(file,err)=>{
     const seq=++token;picked=err?null:file;uploaded=null;lastScan=null;
+    const amountField=m.querySelector('[name="amount"]');
+    if(amountField&&!amountField.dataset.userEdited&&amountField.dataset.ocrFilled==="1"){
+      amountField.value="";delete amountField.dataset.ocrFilled;
+    }
     if(err){note.textContent=err;toast(err,"warn");return;}
     if(!picked||!project.value)return;
     const name=m.querySelector('[name="name"]');
     if(name&&!name.value.trim())name.value=file.name.replace(/\.[^.]+$/,"").slice(0,80);
+    if(!category.dataset.userEdited&&/劳务|劳动|专家|讲课|授课|讲师|讲者|酬金/.test(file.name))category.value="劳务专家";
     busy=true;btn.disabled=true;
-    note.textContent="正在上传并扫描合同原件…";
+    note.textContent="正在上传并识别合同金额／劳动报酬…";
     (async()=>{
       const saved=await api.upload(file,{pid:project.value});
       if(seq!==token)return;
       uploaded=saved;
-      const scan=await api.post("/api/contracts/scan",{pid:project.value,file_key:saved.key});
+      const scan=await api.post("/api/contracts/scan",{pid:project.value,file_key:saved.key,category:category.value});
       if(seq!==token)return;
       lastScan=scan;
       const party=m.querySelector('[name="vendor"]'),amount=m.querySelector('[name="amount"]'),rights=m.querySelector('[name="rightsCategories"]');
       const f=scan.fields||{},sponsor=category.value==="企业赞助";
       if(party&&!party.dataset.userEdited&&(sponsor?f.enterprise||f.vendor:f.vendor||f.enterprise))
         party.value=(sponsor?f.enterprise||f.vendor:f.vendor||f.enterprise);
-      if(f.amount!==null&&f.amount!==undefined&&amount)amount.value=String(f.amount);
+      if(f.amount!==null&&f.amount!==undefined&&amount&&!amount.dataset.userEdited){amount.value=String(f.amount);amount.dataset.ocrFilled="1";}
       if(Array.isArray(f.rightsContent)&&f.rightsContent.length&&rights)rights.value=f.rightsContent.join("\n");
-      note.textContent=scan.note||"扫描完成，请核对原件后保存。";
+      note.textContent=(scan.note||"扫描完成，请核对原件后保存。")+
+        (f.amount!==null&&f.amount!==undefined?" 已预填"+(f.amountSource==="劳动报酬"?"劳动报酬":"合同")+"金额：¥"+f.amount:"");
     })().catch(e=>{
       if(seq===token)note.textContent="扫描未完成："+e.message+"。可手工填写后保存。";
     }).finally(()=>{
