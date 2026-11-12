@@ -22,6 +22,14 @@ function countsByStatus(user) {
 function myTodos(user) {
   const { sql, params } = scopeFilter(user);
   const todos = [];
+  // 公众活动申请由总管理员统一接收与处理；作为工作台正式待办聚合。
+  if(isSuper(user) && canVisitNav(user,"public-proposals")) {
+    const proposals=db.prepare("SELECT id,topic,received_at FROM public_event_proposals WHERE status='已接收' ORDER BY received_at ASC").all();
+    for(const p of proposals)todos.push({
+      kind:"公众申请",title:"待处理公众活动申请："+p.topic,
+      pid:p.id,pname:"公众活动申请",ref:p.id,sla:"收到后及时联系申请人",go:"public-proposals"
+    });
+  }
   /**
    * 注意：这里不能加 LIMIT。
    * 待审批列表是「先按状态取一批，再按角色过滤」，如果 LIMIT 加在 SQL 上，
