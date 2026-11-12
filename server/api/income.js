@@ -60,7 +60,7 @@ function writable(ctx,p,perm){
   if(p.status==="已核销")throw conflict("项目已核销，收入凭证冻结，须先办理核销更正","INCOME_FROZEN");
 }
 /** 预览时只产生候选字段，不写入合同，不触发审批或权益确认。 */
-async function scanContract(fileKey,ledger=false){
+async function scanContract(fileKey,ledger=false,category=""){
   const ext=String(fileKey||"").split(".").pop().toLowerCase();
   const blank={vendor:"",enterprise:"",amount:null,rightsContent:[]};
   const manual=note=>({status:"需人工补录",fields:blank,note,engine:"",truncated:false,mode:""});
@@ -96,7 +96,7 @@ async function scanContract(fileKey,ledger=false){
     }
     if(!extracted?.text?.trim())
       return manual("原件中没有可识别的文字，请检查是否是扫描图片、加密 PDF 或纯图片 Word；也可人工填写。");
-    return ledger?extractLedgerContract(extracted.text,extracted):extractSponsorContract(extracted.text,extracted);
+    return ledger?extractLedgerContract(extracted.text,extracted,{category}):extractSponsorContract(extracted.text,extracted);
   }catch(e){
     return manual("合同文字识别失败（"+String(e.code||"SCAN_ERROR")+"），请检查原件与服务器 OCR 配置，或手工核对后填写。");
   }
