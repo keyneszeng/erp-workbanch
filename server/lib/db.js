@@ -518,10 +518,6 @@ CREATE TABLE IF NOT EXISTS public_event_proposals (
   submitter_fingerprint TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT '已接收' CHECK(status IN ('已接收','已归档'))
 );
--- Processing metadata is separate from the public submission payload.
-ALTER TABLE public_event_proposals ADD COLUMN handled_at TEXT;
-ALTER TABLE public_event_proposals ADD COLUMN handled_by INTEGER REFERENCES users(id);
-ALTER TABLE public_event_proposals ADD COLUMN handling_note TEXT NOT NULL DEFAULT '';
 CREATE INDEX IF NOT EXISTS idx_public_event_proposals_received ON public_event_proposals(received_at DESC);
 CREATE INDEX IF NOT EXISTS idx_public_event_proposals_fingerprint ON public_event_proposals(submitter_fingerprint,received_at);
 
@@ -710,6 +706,9 @@ function migrate() {
   // 生产白名单：所有新用户初次登录必须通过短信验证并修改默认密码。
   addColumn("users", "must_change_password", "must_change_password INTEGER NOT NULL DEFAULT 0");
   addColumn("users", "phone_verified_at", "phone_verified_at TEXT");
+  addColumn("public_event_proposals", "handled_at", "handled_at TEXT");
+  addColumn("public_event_proposals", "handled_by", "handled_by INTEGER REFERENCES users(id) ON DELETE SET NULL");
+  addColumn("public_event_proposals", "handling_note", "handling_note TEXT NOT NULL DEFAULT ''");
   // V1.0.3：跨实例吊销签名令牌
   addColumn("users", "token_ver", "token_ver INTEGER NOT NULL DEFAULT 0");
   // 显式按用户授权；迁移时不会将旧角色权限自动转为用户授权。
