@@ -8,6 +8,28 @@ const { db }=require("../lib/db");
 const { assertCan,scopeFilter,assertProjectVisible }=require("../lib/rbac");
 const { getProject }=require("../lib/workflow");
 const { bad, yuan, cents }=require("../lib/util");
+const { PAYMENT_TYPES }=require("../lib/constants");
+
+/** UI calls it 专家劳务费; actual payment records use the canonical type 专家费.
+ * Keep every recorded type visible, including historical legacy aliases. */
+function displayPaymentType(type){
+ const raw=String(type||"未分类");
+ return ["专家费","专家劳务费","劳务费"].includes(raw)?"专家劳务费":raw;
+}
+function summarizePaymentTypes(payments){
+ const names=[...new Set([
+   ...PAYMENT_TYPES.map(displayPaymentType),
+   ...payments.map(r=>displayPaymentType(r.type))
+ ])];
+ return names.map(type=>{
+  const rows=payments.filter(r=>displayPaymentType(r.type)===type);
+  return {
+   type,count:rows.length,
+   applied:total(rows,r=>r.status!=="已驳回"),
+   paid:total(rows,r=>r.status==="已付款")
+  };
+ });
+}
 
 function requireAdmin(ctx) {
   assertCan(ctx.user,"ledger:read","当前账号未获项目台账权限");
@@ -42,11 +64,7 @@ function summarize(x){
   const paid=total(payments,r=>r.status==="已付款");
   const active=total(payments,r=>r.status!=="已驳回");
   const pending=total(payments,r=>r.status==="待审批"||r.status==="已审批");
-  const payTypes=["学会公付","个人报销","厂家款"].map(type=>({
-    type,count:payments.filter(r=>r.type===type).length,
-    applied:total(payments,r=>r.type===type&&r.status!=="已驳回"),
-    paid:total(payments,r=>r.type===type&&r.status==="已付款")
-  }));
+  const payTypes=summarizePaymentTypes(payments);
   const invoiceNumberCount=payments.filter(r=>String(r.invoice_no||"").trim()).length;
   const invoiceFileCount=materials.filter(r=>/发票/.test(r.kind)&&!!r.file_key).length;
   const paymentVoucherFiles=materials.filter(r=>/付款凭证|厂家付款凭证/.test(r.kind)&&!!r.file_key).length;
@@ -109,6 +127,12 @@ function exportCsv(detail){
     const s=detail.settlement;
     rows.push([n,"结算",s.id,detail.project_name,s.status,s.expense,"","","收入 "+s.income+"；利润 "+s.profit]);
   }
+  for(const group of detail.payment_types){
+    rows.push([n,"分类付款对照","",detail.project_name,
+      group.type+" / 有效申请金额",group.applied,"","","单据数 "+group.count]);
+    rows.push([n,"分类付款对照","",detail.project_name,
+      group.type+" / 已付款金额",group.paid,"","","统计仅包括已付款记录"]);
+  }
   rows.push([n,"对账摘要","",detail.project_name,"预算",detail.financial_summary.budget,"","",""]);
   rows.push([n,"对账摘要","",detail.project_name,"已签署合同金额",detail.financial_summary.signed_contracts,"","",""]);
   rows.push([n,"对账摘要","",detail.project_name,"已付款金额",detail.financial_summary.payment_paid,"","",""]);
@@ -140,4 +164,4 @@ function register(router){
     return {__csv:exportCsv(detail),__filename:detail.meeting_no+"-项目台账.csv"};
   });
 }
-module.exports={register,buildDetail,exportCsv};
+module.exports={register,buildDetail,exportCsv,summarizePaymentTypes,displayPaymentType};
