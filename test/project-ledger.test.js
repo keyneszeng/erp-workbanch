@@ -121,3 +121,44 @@ test("不存在的会议编号不暴露数据",async()=>{
  const r=await request("admin","/api/project-ledger/MP-2099-999999");
  assert.equal(r.status,404);
 });
+
+test("分类付款对照必须包含专家劳务费／协会报销，区分已付未付和已驳回，CSV与页面同口径",async()=>{
+ const {DatabaseSync}=require("node:sqlite");
+ const pid="MP-2026-015";
+ const records=[
+  ["PY-LEDGER-EXPERT-1","专家费",1000.10,"已付款"],
+  ["PY-LEDGER-EXPERT-2","专家费",199.90,"已审批"],
+  ["PY-LEDGER-EXPERT-3","专家费",500,"已驳回"],
+  ["PY-LEDGER-EXPERT-OLD","专家劳务费",200.20,"已付款"],
+  ["PY-LEDGER-ASSOC","协会报销",300,"已付款"],
+  ["PY-LEDGER-LEGACY","历史其他付款",150.02,"已付款"]
+ ];
+ const direct=new DatabaseSync(DB);
+ try{
+  const insert=direct.prepare("INSERT INTO payments (id,pid,type,payee,amount,status,created_at) VALUES (?,?,?,?,?,?,?)");
+  for(const [id,type,amount,status] of records)
+   insert.run(id,pid,type,"测试收款人",amount,status,"2026-11-12T10:00:00Z");
+ }finally{direct.close();}
+ const response=await request("admin","/api/project-ledger/"+pid);
+ assert.equal(response.status,200,JSON.stringify(response.body));
+ const d=response.body;
+ const expert=d.payment_types.find(x=>x.type==="专家劳务费");
+ assert.ok(expert,"付款类型专家费必须展示为专家劳务费");
+ assert.equal(expert.count,4);
+ assert.equal(expert.applied,1400.2);
+ assert.equal(expert.paid,1200.3);
+ assert.ok(d.payment_types.some(x=>x.type==="协会报销"&&x.paid===300));
+ assert.ok(d.payment_types.some(x=>x.type==="历史其他付款"&&x.paid===150.02));
+ assert.ok(!d.payment_types.some(x=>x.type==="专家费"),"专家费和专家劳务费不得分成两个计数板块");
+ const categorized=d.payment_types.reduce((sum,r)=>sum+Math.round(r.paid*100),0);
+ assert.equal(categorized,Math.round(d.financial_summary.payment_paid*100),
+  "所有付款分类的已付款金额必须与台账已付款总额一致");
+ const exportResponse=await request("admin","/api/project-ledger/"+pid+"/export");
+ assert.equal(exportResponse.status,200);
+ assert.match(exportResponse.body,/分类付款对照/);
+ assert.match(exportResponse.body,/"专家劳务费 \/ 已付款金额","1200.3"/);
+ assert.match(exportResponse.body,/"专家劳务费 \/ 有效申请金额","1400.2"/);
+ const list=await request("admin","/api/project-ledger?q="+pid);
+ assert.equal(list.status,200);
+ assert.ok(list.body.rows[0].payment_types.some(x=>x.type==="专家劳务费"&&x.paid===1200.3));
+});

@@ -93,3 +93,43 @@ test("WeChat provider cannot be used with arbitrary test code or invalid session
   assert.equal((await req("GET","/api/mini/auth/me",null,{Authorization:"Basic abc"})).status,401);
   assert.equal((await req("GET","/api/mini/auth/me",null,{Authorization:"Bearer invalid"})).status,401);
 });
+
+test("first-time phone authorization matches system whitelist and preserves RBAC",async()=>{
+ const phoneCode="phone_test_"+ADMIN;
+ const code="test_seamless_admin";
+ const invalid=await req("POST","/api/mini/auth/phone-bind",
+  {code,phone:ADMIN,phoneCode:"wrong_code_123"});
+ assert.equal(invalid.status,401,"client-supplied phone cannot bypass WeChat verification");
+ const result=await req("POST","/api/mini/auth/phone-bind",{code,phoneCode});
+ assert.equal(result.status,200,JSON.stringify(result.body));
+ assert.equal(result.body.user.role,"admin");
+ assert.ok(result.body.perms.includes("project:approve"));
+ assert.equal(result.body.user.phone,ADMIN);
+ const again=await req("POST","/api/mini/auth/login",{code});
+ assert.equal(again.status,200,"same WeChat OpenID resumes without phone authorization");
+ const clash=await req("POST","/api/mini/auth/phone-bind",
+  {code:"test_other_admin",phoneCode});
+ assert.equal(clash.status,409,"existing privileged phone cannot bind second OpenID");
+});
+test("phone not in staff whitelist creates restricted ordinary user without project grants",async()=>{
+ const phone="13700137088",code="test_public_member";
+ const bind=await req("POST","/api/mini/auth/phone-bind",
+  {code,phoneCode:"phone_test_"+phone});
+ assert.equal(bind.status,200,JSON.stringify(bind.body));
+ assert.equal(bind.body.user.role,"user");
+ assert.equal(bind.body.user.phone,phone);
+ assert.equal(bind.body.user.mustChangePassword,false);
+ assert.equal(bind.body.perms.includes("mini:apply"),false);
+ assert.equal(bind.body.perms.includes("project:approve"),false);
+ const token=bearer(bind.body.accessToken);
+ assert.equal((await req("GET","/api/projects",null,token)).status,403);
+ assert.equal((await req("GET","/api/admin/public-event-proposals",null,token)).status,403);
+ assert.equal((await req("POST","/api/mini/applications",{name:"越权立项"},token)).status,403);
+ assert.equal((await req("POST","/api/mini/auth/login",{code})).status,200);
+ const rebind=await req("POST","/api/mini/auth/phone-bind",
+   {code,phoneCode:"phone_test_13900139099"});
+ assert.equal(rebind.status,409,"bound WeChat cannot silently change verified phone");
+ const another=await req("POST","/api/mini/auth/phone-bind",
+   {code:"test_second_member",phoneCode:"phone_test_"+phone});
+ assert.equal(another.status,409,"phone cannot be stolen by a new OpenID");
+});

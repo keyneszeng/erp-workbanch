@@ -54,7 +54,10 @@ test("上传任意一种权益照片附件即可进入下一阶段，原先其�
   assert.deepEqual(st.missing,[]);
   assert.ok(st.have.includes("权益照片"));
   assert.equal(GUARDS.request_verify(project),null);
-  assert.match(GUARDS.verify_pass(project),/项必核步骤未判定/,"无劳务表和会务需求时仅四项必核");
+  const {verification}=require("../server/lib/workflow");
+  assert.equal(verification(pid).total,5,"只要存在权益照片，第7项就成为必核项");
+  assert.equal(verification(pid).steps[6].required,true);
+  assert.match(GUARDS.verify_pass(project),/项必核步骤未判定/);
   assert.match(GUARDS.archive(project),/结算单未生成/,"仍必须完成结算");
 });
 
@@ -87,17 +90,23 @@ test("第5项随劳务表真实附件出现和移除，换表后旧证据失效"
   assert.equal(verification(pid).total,5);
   assert.equal(verification(pid).steps[4].result,"待判定");
   db.prepare("INSERT INTO materials(pid,kind,name,file_name,file_key,created_at) VALUES (?,?,?,?,?,?)")
-    .run(pid,"合同","甲","甲合同.pdf","contract-proof-v1.pdf","2026-11-06");
+    .run(pid,"劳务专家合同","甲","甲合同.pdf","contract-proof-v1.pdf","2026-11-06");
   db.prepare("INSERT INTO verify_steps(pid,step_no,name,result,evidence_json) VALUES (?,?,?,?,?)")
     .run(pid,5,"劳务表五字段核验","通过",JSON.stringify({
       laborSourceSignature:laborSheetInfo(db,pid).signature,
       contractPoolSignature:contractPool(db,pid).signature
     }));
   assert.equal(verification(pid).steps[4].result,"通过");
-  db.prepare("UPDATE materials SET file_key=? WHERE pid=? AND kind='合同'")
+  db.prepare("INSERT INTO materials(pid,kind,name,file_name,file_key,created_at) VALUES (?,?,?,?,?,?)")
+    .run(pid,"合同","会务服务合同","会务服务合同.pdf","meeting-proof.pdf","2026-11-06");
+  db.prepare("INSERT INTO materials(pid,kind,name,file_name,file_key,created_at) VALUES (?,?,?,?,?,?)")
+    .run(pid,"合同","赞助合同","企业赞助合同.pdf","sponsor-proof.pdf","2026-11-06");
+  assert.equal(verification(pid).steps[4].result,"通过",
+    "会务合同和赞助合同不应改变已核销劳务来源指纹");
+  db.prepare("UPDATE materials SET file_key=? WHERE pid=? AND kind='劳务专家合同'")
     .run("contract-proof-v2.pdf",pid);
   assert.equal(verification(pid).steps[4].result,"待判定","替换个人合同应使历史核销失效");
-  db.prepare("UPDATE materials SET file_key=? WHERE pid=? AND kind='合同'")
+  db.prepare("UPDATE materials SET file_key=? WHERE pid=? AND kind='劳务专家合同'")
     .run("contract-proof-v1.pdf",pid);
   assert.equal(verification(pid).steps[4].result,"通过");
   db.prepare("INSERT INTO materials(pid,kind,name,file_key,created_at) VALUES (?,?,?,?,?)")
@@ -107,6 +116,22 @@ test("第5项随劳务表真实附件出现和移除，换表后旧证据失效"
     .run("2026-11-06",pid);
   assert.equal(verification(pid).total,4);
   assert.equal(verification(pid).steps[4].result,"不适用");
+});
+test("前四项永远必核，第6项由真实会务需求单触发，不由需要的预算条目数量决定",()=>{
+  const {verification}=require("../server/lib/workflow");
+  const fresh=verification(pid);
+  assert.equal(fresh.total,4);
+  assert.deepEqual(fresh.steps.slice(0,4).map(s=>s.required),[true,true,true,true]);
+  const at="2026-11-08";
+  db.prepare("INSERT INTO demand_sheets(pid,confirmed,created_at,updated_at) VALUES (?,0,?,?)")
+    .run(pid,at,at);
+  const withDemand=verification(pid);
+  assert.equal(withDemand.total,5);
+  assert.equal(withDemand.steps[5].required,true);
+  assert.equal(withDemand.steps[5].result,"待判定");
+  assert.match(GUARDS.verify_pass(project),/必核步骤未判定/);
+  db.prepare("DELETE FROM demand_sheets WHERE pid=?").run(pid);
+  assert.equal(verification(pid).total,4);
 });
 test("自定义材料分类没有数量上限，仍保留归档后冻结及财务审批等独立门禁",()=>{
   const st=materialsStatus(pid);

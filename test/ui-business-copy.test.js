@@ -22,6 +22,10 @@ test("七项核销的可选步骤有明确中性视觉态，不将不适用当�
 test("财务页显示企业赞助收入、分期期次并明确银行不自动转账", () => {
   const finance=src("web/assets/js/pages/finance.js");
   assert.match(finance,/data-finance-jump="incomeWorkbench"/);
+  assert.match(finance,/data-finance-jump="incomeWorkbench">企业赞助<\/button>/);
+  assert.doesNotMatch(finance,/会议收入 · 企业赞助/);
+  assert.match(finance,/data-finance-jump="fin-payments">付款申请与执行/);
+  assert.match(finance,/data-finance-jump="fin-settlements">结算与归档/);
   assert.match(finance,/const incomeReadable = /);
   assert.match(finance,/if \(incomeReadable\) renderIncomeWorkbench/);
   assert.match(finance,/金额／期次/);
@@ -55,4 +59,63 @@ test("逐页 UI 文字与操作入口符合测试版实际行为", () => {
   const materials=src("web/assets/js/pages/materials.js");
   assert.match(materials,/if\(requestId!==rightsRequestId\|\|pidSelect\.value!==pid\)return/);
   assert.match(materials,/esc\(p\.status\)/);
+});
+
+test("付款申请可查看已关联收款方资料，合同与劳务均只显示脱敏账户",()=>{
+ const picker=src("web/assets/js/lib/payee-picker.js");
+ const project=src("web/assets/js/pages/project.js");
+ const finance=src("web/assets/js/pages/finance.js");
+ assert.match(picker,/data-payee-linked-details/);
+ for(const label of ["关联收款方资料（只读）","收款方：","关联金额：","开户行：","银行账号："]){
+  assert.ok(picker.includes(label),label);
+ }
+ assert.match(picker,/x\.maskedAccount/);
+ assert.doesNotMatch(picker,/x\.account\b|account_cipher|reveal\(/);
+ assert.match(picker,/account\.value=""/);
+ assert.match(picker,/bank\.value=""/);
+ assert.match(picker,/changeChoice\(\)/);
+ assert.match(picker,/seq/);
+ assert.match(project,/await bindPayeePicker\(m,pid,false\)/);
+ assert.match(finance,/await bindPayeePicker\(m,projects\[0\]\.id,true\)/);
+ assert.match(src("server/lib/verified-payees.js"),/maskedAccount:"尾号 "\+account\.slice\(-4\)/);
+});
+
+test("核销劳务收款方自动关联开户行及加密银行账号，无需页面填写完整账号",()=>{
+ const picker=src("web/assets/js/lib/payee-picker.js");
+ const finance=src("web/assets/js/pages/finance.js");
+ const project=src("web/assets/js/pages/project.js");
+ const payees=src("server/lib/verified-payees.js");
+ const api=src("server/api/finance.js");
+ assert.match(picker,/bank\.value=x\.bank/);
+ assert.match(picker,/account\.readOnly=true/);
+ assert.match(picker,/account\.value=""/);
+ assert.match(picker,/x\.source==="labor"&&x\.maskedAccount/);
+ assert.match(picker,/由服务器安全填入/);
+ assert.match(payees,/return \{name:x\.name,amount:x\.amount,bank:x\.bank,account,source:"labor"\}/);
+ // 新版流程：付款申请不再填银行信息；劳务专家仍由服务端解析加密账号，
+ // 其它收款方的开户行/账号由财务在执行付款时核对原件后补录。
+ assert.ok(api.includes('choice?.bank?parseBankName(choice.bank):""'));
+ assert.ok(api.includes('choice?.account?parseBankAccount(choice.account):""'));
+ const exec=src("web/assets/js/lib/payment-execution.js");
+ assert.match(exec,/name="payee_bank"/);
+ assert.match(exec,/name="payee_account"/);
+ assert.match(exec,/\/account/);
+ for(const p of [finance,project]) assert.doesNotMatch(p,/name="payee_account"/);
+ assert.doesNotMatch(picker,/account_cipher|reveal\(/);
+});
+
+test("核销判定可在线查看原件，第5步展示脱敏账号供人工核对",()=>{
+ const judge=src("web/assets/js/lib/verify-ocr-judge.js");
+ const css=src("web/assets/app-extra.css");
+ // 在线预览窗口：PDF 用 iframe、图片用 img，并保留新窗口打开入口
+ assert.match(judge,/data-view=/);
+ assert.match(judge,/openViewer/);
+ assert.match(judge,/iframe src=/);
+ assert.match(judge,/新窗口打开/);
+ assert.match(css,/\.fv-box/);
+ // 第5步只展示尾号，绝不把完整账号渲染到页面
+ assert.match(judge,/laborRecordsMasked/);
+ assert.match(judge,/劳务表识别的收款账号（仅显示尾号）/);
+ assert.doesNotMatch(judge,/bankAccount|bank_account|account_cipher/);
+ assert.doesNotMatch(judge,/不从OCR自动导入付款系统/);
 });

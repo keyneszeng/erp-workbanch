@@ -40,5 +40,9 @@ test("department choices retire meeting department and include supplier / non-su
  assert.ok(USER_DEPTS.includes("供应商"));
  assert.ok(USER_DEPTS.includes("非供应商"));
  assert.equal(new Set(USER_DEPTS).size,USER_DEPTS.length,"部门分类不可重复");
- assert.ok(DEPTS.includes("会务部"),"项目承办部门保持独立，不影响原有工作流");
+ assert.deepEqual(DEPTS,USER_DEPTS,"立项承办部门必须与系统账号部门分类一致");
+ assert.equal(DEPTS.includes("会务部"),false,"废弃的会务部不得再成为新立项的选项");
+ const {validate}=require("../server/api/projects");
+ assert.doesNotThrow(()=>validate({dept:"秘书处"},true));
+ assert.throws(()=>validate({dept:"会务部"},true),/承办部门不合法/);
 });

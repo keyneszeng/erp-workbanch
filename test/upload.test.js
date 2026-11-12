@@ -94,7 +94,7 @@ test("上传能力探测：本地磁盘后端可用", async () => {
   assert.equal(r.status, 200);
   assert.equal(r.data.enabled, true);
   assert.equal(r.data.backend, "fs");
-  assert.equal(r.data.maxBytes, 20 * 1024 * 1024);
+  assert.equal(r.data.maxBytes, 50 * 1024 * 1024);
 });
 
 test("未登录不能上传", async () => {
@@ -125,10 +125,17 @@ test("伪造扩展名被文件头嗅探拦下", async () => {
   assert.match(r.data.error.message, /无法识别文件类型/);
 });
 
-test("超过 20 MB 被拒绝", async () => {
-  const big = Buffer.concat([JPEG, Buffer.alloc(20 * 1024 * 1024)]);
-  const r = await upload(exec, big);
-  assert.equal(r.status, 413);
+test("上传文件支持恰好 50 MB，超过 50 MB 立刻返回 413", async () => {
+  const exact = Buffer.alloc(50 * 1024 * 1024);
+  JPEG.copy(exact, 0);
+  const ok = await upload(exec, exact, { name: "50MB边界.jpg" });
+  assert.equal(ok.status, 200, JSON.stringify(ok.data));
+  assert.equal(ok.data.size, 50 * 1024 * 1024);
+  assert.match(ok.data.key, /^[a-f0-9]{32}\.jpg$/);
+  const tooBig = Buffer.concat([exact, Buffer.from([0])]);
+  const rejected = await upload(exec, tooBig, { name: "50MB超限.jpg" });
+  assert.equal(rejected.status, 413);
+  assert.match(rejected.data.error.message, /50|51/);
 });
 
 test("空文件被拒绝", async () => {
@@ -172,6 +179,7 @@ test("材料软删保留附件与历史证据", async () => {
   const row = all.data.rows.find((m) => m.file_key === up.data.key);
   assert.ok(row, "材料行应写入 file_key");
   assert.equal(row.file_size, JPEG.length);
+  assert.equal(row.version, "v1", "登记材料表单移除版本后，后端应继续自动赋默认版本");
   assert.equal(row.file_mime, "image/jpeg");
 
   // 关联后仍可下载

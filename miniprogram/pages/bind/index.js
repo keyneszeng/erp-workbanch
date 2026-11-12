@@ -1,26 +1,22 @@
-const app = getApp();
+const app=getApp();
 Page({
-  data:{phone:"",password:"",newPassword:"",smsCode:"",error:"",busy:false},
-  input(e){this.setData({[e.currentTarget.dataset.key]:e.detail.value});},
-  async send(){
-    this.setData({error:""});
-    try {
-      await app.api("/mini/auth/sms/send","POST",{phone:this.data.phone,password:this.data.password});
-      wx.showToast({title:"验证码已发送",icon:"success"});
-    }catch(e){this.setData({error:e.message});}
-  },
-  async bind(){
-    if(this.data.busy)return;
-    this.setData({busy:true,error:""});
-    try{
-      const code=await app.wechatCode();
-      const result=await app.api("/mini/auth/bind","POST",{
-        code,phone:this.data.phone,password:this.data.password,
-        smsCode:this.data.smsCode,newPassword:this.data.newPassword
-      });
-      app.setSession(result);
-      wx.reLaunch({url:"/pages/home/index"});
-    }catch(e){this.setData({error:e.message});}
-    finally{this.setData({busy:false});}
-  }
+ data:{busy:false,error:"",consent:false},
+ publicApply(){wx.navigateTo({url:"/pages/public-proposal/index"});},
+ agree(e){this.setData({consent:(e.detail.value||[]).includes("agree")});},
+ async getPhoneNumber(e){
+  if(this.data.busy)return;
+  if(!this.data.consent){this.setData({error:"请先同意手机号用于账号匹配与登录"});return;}
+  const phoneCode=e.detail?.code;
+  if(!phoneCode){this.setData({error:"未获得微信手机号授权，请点击按钮并同意授权"});return;}
+  this.setData({busy:true,error:""});
+  try{
+   // wx.login credential (OpenID) and getPhoneNumber credential (phone) differ.
+   const code=await app.wechatCode();
+   const result=await app.api("/mini/auth/phone-bind","POST",{code,phoneCode});
+   app.setSession(result);
+   wx.showToast({title:"绑定成功",icon:"success"});
+   wx.reLaunch({url:"/pages/home/index"});
+  }catch(err){this.setData({error:err.message||"手机号绑定失败"});}
+  finally{this.setData({busy:false});}
+ }
 });

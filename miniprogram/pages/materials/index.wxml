@@ -1,34 +1,51 @@
 <view class="wrap">
- <view class="card"><view class="heading">材料收集</view>
- <view class="muted">按会议与类别归档照片；原始文件、权限和历史保留由 ERP 统一管理。</view>
- <picker mode="selector" range="{{projects}}" range-key="name" value="{{index}}" bindchange="select">
-  <view class="field">所属会议：{{projects[index].name||'请选择项目'}} ▾</view>
- </picker>
- <view wx:if="{{locked}}" class="error">当前项目已结算或归档，材料被冻结，无法继续上传。</view>
- </view>
- <view class="card">
-  <view class="section-caption">01 · 材料类别（自由选择）</view>
-  <view class="muted">请选择需要归档的材料类别，也可以自定义名称。不要求固定类别齐全，上传任意一份附件后即可继续后续业务流程。</view>
-  <view class="chip-list">
-   <view wx:for="{{activeKinds}}" wx:key="*this" data-kind="{{item}}" bindtap="chooseKind"
-     class="select-chip {{!custom&&kind===item?'chip-selected':''}}">{{item}}</view>
-   <view bindtap="chooseCustom" class="select-chip {{custom?'chip-selected':''}}">＋ 自定义类别</view>
+  <view class="card card-accent">
+    <view class="page-kicker">MATERIAL WORKBENCH</view>
+    <view class="heading">材料收集</view>
+    <view class="subtitle">选择会议和材料类别，将照片或文件归档到 ERP 材料库</view>
+    <view class="field space-sm">
+      <view class="field-label"><text class="required">*</text>所属会议</view>
+      <picker mode="selector" range="{{projects}}" range-key="name" value="{{index}}" bindchange="select">
+        <view class="picker-control"><text class="picker-value">{{projects[index].name||'请选择会议项目'}}</text><text class="picker-arrow">⌄</text></view>
+      </picker>
+    </view>
+    <view wx:if="{{locked}}" class="lock-banner"><view class="lock-mark">锁</view><view class="grow"><view class="title">材料已冻结</view><view class="muted">项目已结算或归档，无法继续上传。</view></view></view>
   </view>
-  <input wx:if="{{custom}}" class="field" value="{{customKind}}" data-key="customKind" bindinput="input" placeholder="请输入自定义材料类别"/>
-  <view wx:if="{{!custom&&kind==='权益照片'}}" class="field">
-   <view class="section-caption">赞助合同 · 权益二级类目（必选）</view>
-   <picker mode="selector" range="{{sponsorRights}}" range-key="label" value="{{rightIndex}}" bindchange="pickRight">
-    <view class="field-value">{{sponsorRights[rightIndex].label}} ▾</view>
-   </picker>
-   <view class="muted">权益类目需先在 Web 端确认，才能按赞助合同关联照片。</view>
+
+  <view class="form-section">
+    <view class="section-head"><view class="row"><view class="section-index">01</view><view class="section-caption">选择材料类别</view></view></view>
+    <view class="muted">停用类别会自动隐藏；如没有合适选项，可使用自定义类别。</view>
+    <view class="chip-list">
+      <view wx:for="{{activeKinds}}" wx:key="*this" data-kind="{{item}}" bindtap="chooseKind" class="select-chip {{!custom&&kind===item?'chip-selected':''}}">{{item}}</view>
+      <view bindtap="chooseCustom" class="select-chip {{custom?'chip-selected':''}}">＋ 自定义</view>
+    </view>
+    <view wx:if="{{custom}}" class="field">
+      <view class="field-label"><text class="required">*</text>自定义类别</view>
+      <input class="field-control" value="{{customKind}}" data-key="customKind" bindinput="input" placeholder="20 字以内"/>
+    </view>
+    <view wx:if="{{!custom&&kind==='权益照片'}}" class="field">
+      <view class="field-label"><text class="required">*</text>赞助合同 · 权益二级类目</view>
+      <picker mode="selector" range="{{sponsorRights}}" range-key="label" value="{{rightIndex}}" bindchange="pickRight"><view class="picker-control"><text class="picker-value">{{sponsorRights[rightIndex].label}}</text><text class="picker-arrow">⌄</text></view></picker>
+      <view class="field-hint">权益类目需先在 Web 端确认，照片才能关联到对应赞助合同。</view>
+    </view>
   </view>
-  <view class="section-caption space">02 · 材料记录</view>
-  <input wx:if="{{custom||kind!=='终版议程'}}" class="field" placeholder="材料名称，例如：张老师课件／签到照片" data-key="name" value="{{name}}" bindinput="input"/>
-  <view wx:if="{{!custom&&kind==='终版议程'}}" class="muted">只需选择一个终版议程文件上传，即自动确认为终版；无需填写名称或生成待办。</view>
-  <view wx:if="{{error}}" class="error">{{error}}</view>
-  <view wx:if="{{uploaded}}" class="success-note">{{uploaded}}</view>
-  <button class="btn primary" loading="{{busy}}" disabled="{{busy||locked||!pid||(!custom&&kind==='权益照片'&&!rightId)}}" bindtap="addPhoto">拍照或从相册选择并归档</button>
-  <button class="btn ghost" loading="{{busy}}" disabled="{{busy||locked||!pid||(!custom&&kind==='权益照片'&&!rightId)}}" bindtap="addFile">选择 Excel XLS / XLSX、Word、PPT、PDF、CSV / TXT 附件</button>
-  <view class="muted">每次上传 1 个附件、最多 20 MB。支持旧版 Excel XLS、Word DOC；Office 文件作为附件存储下载，不在小程序内执行宏，OCR 识别不等于核销通过。</view>
- </view>
+
+  <view class="form-section">
+    <view class="section-head"><view class="row"><view class="section-index">02</view><view class="section-caption">填写材料信息</view></view></view>
+    <view wx:if="{{custom||kind!=='终版议程'}}" class="field">
+      <view class="field-label"><text class="required">*</text>材料名称</view>
+      <input class="field-control" placeholder="例如：张老师课件 / 现场签到照片" data-key="name" value="{{name}}" bindinput="input"/>
+    </view>
+    <view wx:if="{{!custom&&kind==='终版议程'}}" class="notice"><text class="notice-icon">i</text><text>选择一个终版议程文件上传后，系统将自动确认为终版，无需填写名称。</text></view>
+    <view wx:if="{{error}}" class="error"><text class="feedback-icon">!</text><text>{{error}}</text></view>
+    <view wx:if="{{uploaded}}" class="success-note"><text class="feedback-icon">✓</text><text>{{uploaded}}</text></view>
+
+    <button class="upload-panel" loading="{{busy}}" disabled="{{busy||locked||!pid||(!custom&&kind==='权益照片'&&!rightId)}}" bindtap="addPhoto">
+      <view class="upload-icon">照</view><view class="upload-title">拍照或从相册选择</view><view class="upload-sub">适合现场照片、签到表与图片材料</view>
+    </button>
+    <button class="upload-panel" loading="{{busy}}" disabled="{{busy||locked||!pid||(!custom&&kind==='权益照片'&&!rightId)}}" bindtap="addFile">
+      <view class="upload-icon" style="background:#1f5f8b">档</view><view class="upload-title">从微信会话选择文件</view><view class="upload-sub">支持 Office、PDF、CSV、TXT 与常见图片</view>
+    </button>
+    <view class="privacy-note">每次上传 1 个附件，最大 20 MB。OCR 结果仅辅助识别，不代表核销通过。</view>
+  </view>
 </view>

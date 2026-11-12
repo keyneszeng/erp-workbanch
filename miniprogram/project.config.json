@@ -1,5 +1,5 @@
 {
-  "description": "协会会议执行 ERP 邀请函最小小程序入口，替换 appid 后发布",
+  "description": "会规化会务执行系统 · 微信小程序端（协会会议执行 ERP）",
   "setting": {
     "urlCheck": true,
     "es6": true,
@@ -7,7 +7,7 @@
     "minified": true
   },
   "compileType": "miniprogram",
-  "appid": "touristappid",
-  "projectname": "erp-invitation",
+  "appid": "wx0fef5a5d2d30df95",
+  "projectname": "erp-workbanch-mini",
   "miniprogramRoot": "./"
 }

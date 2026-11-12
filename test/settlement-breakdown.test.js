@@ -106,3 +106,20 @@ test("无权角色不能绕过财务模块权限直接读取结算单明细",asy
  const missing=await req(adminCookie,"GET","/api/settlements/ST-NOT-FOUND/breakdown");
  assert.equal(missing.status,404);
 });
+
+test("四分类付款明细在结算单小板块默认展开，零记录板块不默认展开",()=>{
+ const fs=require("node:fs"),path=require("node:path");
+ const source=fs.readFileSync(path.join(__dirname,"../web/assets/js/lib/settlement-breakdown.js"),"utf8");
+ assert.match(source,/\[\["预算",s\.budget\],\["可用预算",s\.available_budget\],\["已支付",s\.paid\],\["结余",s\.balance\]\]/);
+ assert.ok(source.includes("(rows.length?' open':'')"));
+ assert.match(source,/sg-rows/);
+ assert.match(source,/data-settlement-group/);
+ assert.match(source,/可展开或收起/);
+ const groups=buildSettlementBreakdown(
+   {id:"ST-LINES",pid:"MP-X",income:1000,expense:50,tax_fee_rate:0},
+   {tax_fee_rate:0},[invoice("专家费",50)]
+ ).groups;
+ assert.deepEqual(groups.map(x=>x.label),["劳务","会务","协会报销","其他"]);
+ assert.equal(groups[0].items[0].amount,50);
+ assert.ok(groups.slice(1).every(x=>x.items.length===0));
+});

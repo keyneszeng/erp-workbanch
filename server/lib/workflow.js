@@ -6,7 +6,7 @@ const {sponsorRights}=require("./sponsor-rights");
 const { db } = require("./db");
 const {parseTaxFeeRate}=require("./budget-fee");
 const {withBudgetFee}=require("./budget-fee");
-const { now, nextId, conflict, forbidden, notFound, bad, cents, yuan, parseBankAccount, parseBankName } = require("./util");
+const { now, nextId, conflict, forbidden, notFound, bad, cents, yuan } = require("./util");
 const { can, isSuper, ROLES } = require("./rbac");
 const { logAudit } = require("./audit");
 const { FLOW, VERIFY_STEPS } = require("./constants");
@@ -37,7 +37,7 @@ function verification(pid) {
         !evidence?.contractPoolSignature || evidence.contractPoolSignature!==contractPool(db,pid).signature)) ||
       (def.no===2 && !isDemoMode() && (
         !Array.isArray(evidence?.matchedSources) ||
-        evidence.matchedSources.join("|")!=="终版议程|签到表|讲者照片"
+        evidence.matchedSources.join("|")!=="终版议程|讲者照片"
       )) ||
       (def.no===6 && !isDemoMode() && evidence?.demandSopSignature!==demand.signature) ||
       (def.no===7 && !isDemoMode() && evidence?.rightsSignature!==sponsor.signature)
@@ -153,6 +153,7 @@ const GUARDS = {
   submit(p) {
     if (!p.agenda || String(p.agenda).trim().length < 4) return "立项必须填写初版议程要点";
     if (!(p.budget > 0)) return "预算必须大于 0";
+    if (!Number.isFinite(Number(p.budget)) || Number(p.budget)>1e9) return "预算不能超过 10 亿元，请先修改立项草稿";
     return null;
   },
   // 只要求登记并上传至少一份材料原件；不限制类别、数量或固定清单。
@@ -163,7 +164,7 @@ const GUARDS = {
   verify_pass(p) {
     if (!materialsStatus(p.id).ok) return "会议材料附件已全部删除，请至少保留一份上传附件";
     const v = verification(p.id);
-    if (v.judged < v.total) return `还有 ${v.total - v.judged} 项必核步骤未判定，第5项看劳务表、第6项看会务需求、第7项看已签赞助合同`;
+    if (v.judged < v.total) return `还有 ${v.total - v.judged} 项必核步骤未判定；前四项恒为必核，第5项有劳务表、第6项有需求单、第7项有权益或照片时必核`;
     if (v.failedSteps.length) return `第 ${v.failedSteps.join("、")} 步不通过，需提交例外单并获批`;
     if (v.openExceptions > 0) return `存在 ${v.openExceptions} 张未完成处理或待复核的例外单`;
     if (!v.complete) return "适用核销项须全部通过；不接受缺少证据的旧结论或以例外审批代替核销";
@@ -181,11 +182,13 @@ const GUARDS = {
       const paid = db.prepare("SELECT COUNT(*) AS n, COALESCE(SUM(amount),0) AS total FROM payments WHERE pid=? AND status='已付款'").get(p.id);
       if (!paid.n) return "结算前必须先申请付款并由财务完成实际付款，不能跳过付款直接结算";
       if (v.demandRequired) {
+        // 第 6 步新口径不再校验发票金额，只要求该步已判定通过
+        // （预算与已签会务合同一致、发票原件已关联在判定时已核过）。
         const step=v.steps.find(s=>s.no===6);
-        if(step?.result!=="通过" || !Number.isFinite(step.invoiceAmount))
-          return "会务需求存在时必须完成第6项会务协议、预算、合同及发票核对，才能结算";
+        if(step?.result!=="通过")
+          return "已建立会务需求表时必须先完成第6项会务合同与发票关联核对";
       }
-      const signedTotal=db.prepare("SELECT COALESCE(SUM(amount),0) AS total FROM contracts WHERE pid=? AND status='已签署'").get(p.id).total;
+      const signedTotal=db.prepare("SELECT COALESCE(SUM(amount),0) AS total FROM contracts WHERE pid=? AND status='已签署' AND COALESCE(category,'')<>'企业赞助'").get(p.id).total;
       if(cents(paid.total)!==cents(signedTotal))
         return `已付款总额 ¥${yuan(paid.total)} 与已核销合同请款总额 ¥${yuan(signedTotal)} 不一致，不能结算；含免票专家劳务费`;
     }
@@ -311,21 +314,14 @@ function transition(projectId, action, user, payload = {}, ip = "") {
     case "settle": {
       const at = now();
       /**
-       * V1.2.18：结算单必须有收款方与收款账户。
+       * 结算单只汇总「项目预算 / 已付支出 / 结余」并冻结账目。
        *
-       * 老板 2026-10-28：「生成结算单 / 付款两个功能板块缺少了收款方和银行账号信息」。
-       * 结算单原来只有收入 / 支出 / 结余三个数，结余打给谁、打到哪个账户纸上一个字没有，
-       * 财务拿到单子还得回头问人。
-       *
-       * 收款方不传时默认取项目负责人（结余通常归负责人所属协会），
-       * 但开户行与账号必须显式填 —— 这个没法猜，猜错就是打错钱。
+       * 早期版本要求填收款方与银行账户（V1.2.18），但实际资金已在
+       * 付款单里逐笔付给各收款方，结算阶段没有新的转账动作；
+       * 新版付款流程也把银行信息移到财务执行付款时核对原件后补录。
+       * 因此结算不再收集、也不再校验收款方/开户行/账号，
+       * 历史 settlements.payee* 列保留（旧数据仍可读），新单一律为空。
        */
-      const payee = String((payload && payload.payee) || p.owner || "").trim();
-      if (!payee) throw bad("结算单收款方为必填项");
-      if (payee.length > 60) throw bad("收款方不能超过 60 字");
-      const payeeBank = parseBankName(payload && payload.payee_bank, "收款开户行");
-      const payeeAccount = parseBankAccount(payload && payload.payee_account, "收款账号");
-
       // 三个数都必须落在「分」上：140000 - 135580.6 = 4419.399999999994，
       // 不收敛的话结算单 profit 会带着 12 位小数入库，导出 CSV 也是这个数。
       const income = yuan(p.budget);
@@ -337,10 +333,10 @@ function transition(projectId, action, user, payload = {}, ip = "") {
       const id = nextId(db, "settlements", "id", "ST");
       db.prepare(
         "INSERT INTO settlements (id,pid,income,expense,profit,tax_fee_rate,payee,payee_bank,payee_account,status,created_by,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)"
-      ).run(id, p.id, income, expense, profit, parseTaxFeeRate(p.tax_fee_rate), payee, payeeBank, payeeAccount, "已生成", user.name, at);
+      ).run(id, p.id, income, expense, profit, parseTaxFeeRate(p.tax_fee_rate), null, null, null, "已生成", user.name, at);
       setStatus(p, "已结算", user, ip,
         `生成结算单 ${id}：收入 ¥${income.toLocaleString("zh-CN")} / 支出 ¥${expense.toLocaleString("zh-CN")} / ` +
-        `结余 ¥${profit.toLocaleString("zh-CN")}；收款方 ${payee}（${payeeBank} 尾号 ${payeeAccount.slice(-4)}）`);
+        `结余 ¥${profit.toLocaleString("zh-CN")}`);
       return { project: getProject(p.id), message: `结算单 ${id} 已生成，结论冻结` };
     }
     case "archive": {
@@ -361,7 +357,7 @@ function transition(projectId, action, user, payload = {}, ip = "") {
 /**
  * 核销通过 → 把同协会的财务负责人加进项目成员。
  *
- * 测试报告 FLOW-01：项目 6/6 核销通过后，finance 生成结算单 403「不在你的数据范围内」，
+ * 测试报告 FLOW-01：项目适用核销项全部通过后，finance 生成结算单 403「不在你的数据范围内」，
  * 只能让超管代劳或临时加成员 —— 流程在这里断了一刀，规模化后就是一堆「已核销未结算」。
  *
  * 为什么在这一步自动授权：结算单是核销结论的下一步，财务不是「来旁听」的，

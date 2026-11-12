@@ -1,100 +1,120 @@
 "use strict";
+/** Step 6 is strictly meeting demand form + meeting-demand ledger contract + meeting invoice. */
 const {test}=require("node:test");
 const assert=require("node:assert/strict");
 const {DatabaseSync}=require("node:sqlite");
 const {demandSopState}=require("../server/lib/meeting-demand-sop");
 const {validateSopEvidence}=require("../server/lib/meeting-sop");
 const project={id:"MP-MEETING-DEMAND",name:"年度论坛",date:"2027-08-10",assoc:"测试医学会",form:"线下"};
-const fields={
-  agendaTitle:"医学交流论坛",agendaTime:"2027-08-10 09:00-17:00",agendaFormat:"线下",
-  agreementTitle:"医学交流论坛",agreementTime:"2027-08-10 09:00-17:00",agreementFormat:"线下",
-  agreementPartyA:"测试医学会",agreementFinal:true
-};
+const reviewed={demandReviewed:true,meetingContractReviewed:true,meetingInvoiceReviewed:true};
 function setup(){
-  const db=new DatabaseSync(":memory:");
-  db.exec("CREATE TABLE demand_sheets(pid TEXT PRIMARY KEY,confirmed INTEGER);"+
-    "CREATE TABLE demand_items(id INTEGER PRIMARY KEY,pid TEXT,grp TEXT,item TEXT,need TEXT,budget TEXT,quantity TEXT,unit_price TEXT);"+
-    "CREATE TABLE contracts(id TEXT PRIMARY KEY,pid TEXT,name TEXT,category TEXT,amount REAL,status TEXT,file_key TEXT);"+
-    "CREATE TABLE materials(id INTEGER PRIMARY KEY,pid TEXT,kind TEXT,name TEXT,file_name TEXT,file_key TEXT,version TEXT,deleted_at TEXT)");
-  const addMaterial=(kind,name,version="终版")=>db.prepare(
-    "INSERT INTO materials(pid,kind,name,file_name,file_key,version) VALUES(?,?,?,?,?,?)"
-  ).run(project.id,kind,name,name+".pdf","file-"+name+".pdf",version);
-  return {db,addMaterial};
+ const db=new DatabaseSync(":memory:");
+ db.exec("CREATE TABLE demand_sheets(pid TEXT PRIMARY KEY,confirmed INTEGER);"+
+  "CREATE TABLE demand_items(id INTEGER PRIMARY KEY,pid TEXT,grp TEXT,item TEXT,need TEXT,budget TEXT,quantity TEXT,unit_price TEXT);"+
+  "CREATE TABLE contracts(id TEXT PRIMARY KEY,pid TEXT,name TEXT,category TEXT,amount REAL,status TEXT,file_key TEXT);"+
+  "CREATE TABLE materials(id INTEGER PRIMARY KEY,pid TEXT,kind TEXT,name TEXT,file_name TEXT,file_key TEXT,version TEXT,deleted_at TEXT)");
+ const addMaterial=(kind,name,fileKey=null)=>db.prepare(
+  "INSERT INTO materials(pid,kind,name,file_name,file_key,version) VALUES (?,?,?,?,?,'v1')"
+ ).run(project.id,kind,name,name+".pdf",fileKey||"file-"+name+".pdf");
+ const addContract=(id,name,category,amount=8000,fileKey=null)=>db.prepare(
+  "INSERT INTO contracts(id,pid,name,category,amount,status,file_key) VALUES (?,?,?,?,?,'已签署',?)"
+ ).run(id,project.id,name,category,amount,fileKey);
+ return {db,addMaterial,addContract};
 }
 function addDemand(db,need="需要",budget="8000"){
-  db.prepare("INSERT INTO demand_sheets(pid,confirmed) VALUES (?,1)").run(project.id);
-  db.prepare("INSERT INTO demand_items(pid,grp,item,need,budget,quantity,unit_price) VALUES (?,?,?,?,?,?,?)")
-    .run(project.id,"执行","会务执行服务",need,budget,"1",budget);
+ db.prepare("INSERT INTO demand_sheets(pid,confirmed) VALUES (?,1)").run(project.id);
+ db.prepare("INSERT INTO demand_items(pid,grp,item,need,budget,quantity,unit_price) VALUES (?,?,?,?,?,?,?)")
+  .run(project.id,"执行","会务执行服务",need,budget,"1",budget);
 }
-function addRequired(db,addMaterial,amount=8000){
-  db.prepare("INSERT INTO contracts(id,pid,name,category,amount,status) VALUES (?,?,?,?,?,?)")
-    .run("HT-MEETING",project.id,"会务服务合同","其他",amount,"已签署");
-  addMaterial("终版议程","终版议程","终版");
-  addMaterial("会务协议","会务执行协议","终版");
-  addMaterial("会务发票","会务发票","终版");
+function addThreeSources(db,addMaterial,addContract,amount=8000){
+ addContract("HT-MEETING","会务执行合同","会务需求",amount,"meeting.pdf");
+ addMaterial("合同","HT-MEETING · 会务执行合同","meeting.pdf");
+ addMaterial("会务发票","会务发票","invoice.pdf");
 }
-test("未建需求单/仅有默认不需要条目：第6项自动不适用",()=>{
-  const {db}=setup();
-  assert.equal(demandSopState(db,project.id).required,false);
-  assert.throws(()=>validateSopEvidence(6,fields,project,db,0),e=>e.code==="SOP_NOT_APPLICABLE");
-  addDemand(db,"不需要","8000");
-  assert.equal(demandSopState(db,project.id).required,false);
-  db.close();
+test("第6项：没有会务需求单不适用；即使全为不需要，有真实需求单仍必核",()=>{
+ const {db}=setup();
+ assert.equal(demandSopState(db,project.id).required,false);
+ assert.throws(()=>validateSopEvidence(6,reviewed,project,db,0),
+  e=>e.code==="SOP_NOT_APPLICABLE");
+ addDemand(db,"不需要","8000");
+ const state=demandSopState(db,project.id);
+ assert.equal(state.required,true);
+ assert.equal(state.budgetTotal,0);
+ assert.equal(state.needCount,0);
+ db.close();
 });
-test("有实际需要且确认：终版议程与会务协议字段匹配且预算=合同=发票",()=>{
-  const {db,addMaterial}=setup();
-  addDemand(db);addRequired(db,addMaterial);
-  const state=demandSopState(db,project.id);
-  assert.equal(state.required,true);assert.equal(state.budgetTotal,8000);
-  assert.equal(state.contractTotal,8000);
-  const r=validateSopEvidence(6,fields,project,db,8000);
-  assert.equal(r.meetingMatched,true);
-  assert.equal(r.needCount,1);
-  assert.equal(r.meetingContractTotal,8000);
-  assert.equal(r.demandBudget,8000);
-  assert.ok(r.demandSopSignature);
-  db.close();
+test("三单一致：仅会务需求表、会务需求类别合同原件和会务发票，终版议程不参与",()=>{
+ const {db,addMaterial,addContract}=setup();
+ addDemand(db);addThreeSources(db,addMaterial,addContract);
+ const d=demandSopState(db,project.id);
+ assert.equal(d.required,true);
+ assert.equal(d.contractCount,1);
+ assert.deepEqual(d.agreements.map(x=>x.file_key),["meeting.pdf"]);
+ assert.deepEqual(d.invoices.map(x=>x.file_key),["invoice.pdf"]);
+ assert.equal(d.budgetTotal,8000);
+ const result=validateSopEvidence(6,reviewed,project,db,8000);
+ // 新口径只比对「需求预算 vs 已签会务合同总额」两项，发票金额不再参与
+ assert.equal(result.matchedFields,2);
+ assert.equal(result.meetingMatched,true);
+ assert.equal(result.comparedWith,"会务需求表+会务合同+会务发票");
+ assert.equal(result.demandBudget,8000);
+ db.close();
 });
-test("缺会务协议、历史议程、缺发票原件不得核销",()=>{
-  for(const kind of ["会务协议","终版议程","会务发票"]){
-    const {db,addMaterial}=setup();
-    addDemand(db);addRequired(db,addMaterial);
-    db.prepare("DELETE FROM materials WHERE pid=? AND kind=?").run(project.id,kind);
-    assert.throws(()=>validateSopEvidence(6,fields,project,db,8000),e=>e.code==="SOP_MATERIAL_MISSING");
-    db.close();
-  }
-});
-test("主题、时间、形式、协议甲方逐字段不一致拦截；终版确认不得省略",()=>{
-  const {db,addMaterial}=setup();addDemand(db);addRequired(db,addMaterial);
-  for(const [k,v] of [["agreementTitle","另一场活动"],["agreementTime","2027-08-11"],["agreementFormat","混合"],
-                       ["agreementPartyA","其他协会"],["agreementFinal",false]]){
-    assert.throws(()=>validateSopEvidence(6,{...fields,[k]:v},project,db,8000),/不一致|终版/);
-  }
+test("缺会务合同原件或会务发票不得通过；删终版议程不影响第6项",()=>{
+ for(const kind of ["合同","会务发票"]){
+  const {db,addMaterial,addContract}=setup();addDemand(db);
+  addThreeSources(db,addMaterial,addContract);
+  db.prepare("DELETE FROM materials WHERE pid=? AND kind=?").run(project.id,kind);
+  assert.throws(()=>validateSopEvidence(6,reviewed,project,db,8000),
+   e=>e.code==="SOP_MATERIAL_MISSING");
   db.close();
+ }
 });
-test("会务需求预算、会务合同总额、发票金额分别发生差异时必须阻断",()=>{
-  const {db,addMaterial}=setup();addDemand(db);addRequired(db,addMaterial);
-  assert.throws(()=>validateSopEvidence(6,fields,project,db,7999),/发票/);
-  db.prepare("UPDATE contracts SET amount=7999 WHERE id='HT-MEETING'").run();
-  assert.throws(()=>validateSopEvidence(6,fields,project,db,8000),/总预算/);
-  db.close();
+test("三方原件须人工检查；不能用原来的议程七字段冒充核验",()=>{
+ const {db,addMaterial,addContract}=setup();addDemand(db);
+ addThreeSources(db,addMaterial,addContract);
+ for(const k of Object.keys(reviewed))
+  assert.throws(()=>validateSopEvidence(6,{...reviewed,[k]:false},project,db,8000),/人工检查/);
+ assert.throws(()=>validateSopEvidence(6,{agendaTitle:"论坛",agreementFinal:true},project,db,8000),/人工检查/);
+ db.close();
 });
-test("劳务专家合同不计入会务合同总额；文件或需求预算变化令摘要签名失效",()=>{
-  const {db,addMaterial}=setup();addDemand(db);addRequired(db,addMaterial);
-  db.prepare("INSERT INTO contracts(id,pid,name,category,amount,status) VALUES (?,?,?,?,?,?)")
-    .run("HT-LABOR",project.id,"讲者合同","劳务专家",1000,"已签署");
-  assert.equal(demandSopState(db,project.id).contractTotal,8000);
-  const first=demandSopState(db,project.id).signature;
-  db.prepare("UPDATE materials SET file_key='changed-agreement.pdf' WHERE kind='会务协议'").run();
-  assert.notEqual(demandSopState(db,project.id).signature,first);
-  const changed=demandSopState(db,project.id).signature;
-  db.prepare("UPDATE demand_items SET budget='8001' WHERE pid=? AND need='需要'").run(project.id);
-  assert.notEqual(demandSopState(db,project.id).signature,changed);
-  db.close();
+test("新口径：发票金额不参与判定，但预算与已签会务合同总额不一致仍拦截",()=>{
+ const {db,addMaterial,addContract}=setup();addDemand(db);
+ addThreeSources(db,addMaterial,addContract);
+ // 发票金额填什么都不影响第 6 步（扫描件/多张发票时 OCR 常取不到唯一值）
+ assert.doesNotThrow(()=>validateSopEvidence(6,reviewed,project,db,7999));
+ assert.doesNotThrow(()=>validateSopEvidence(6,reviewed,project,db,null));
+ // 预算与已签会务合同总额不一致仍必须拦
+ db.prepare("UPDATE contracts SET amount=7999 WHERE id='HT-MEETING'").run();
+ assert.throws(()=>validateSopEvidence(6,reviewed,project,db,8000),/总预算/);
+ db.close();
 });
-test("真实需求必须先确认归档，空需求不允许靠预填金额强行判定",()=>{
-  const {db,addMaterial}=setup();addDemand(db);addRequired(db,addMaterial);
-  db.prepare("UPDATE demand_sheets SET confirmed=0").run();
-  assert.throws(()=>validateSopEvidence(6,fields,project,db,8000),e=>e.code==="DEMAND_NOT_CONFIRMED");
-  db.close();
+test("劳务专家、企业赞助合同和无关材料不参与第6项金额及证据签名",()=>{
+ const {db,addMaterial,addContract}=setup();addDemand(db);
+ addThreeSources(db,addMaterial,addContract);
+ addContract("HT-LABOR","张三讲课合同","劳务专家",1000,"labor.pdf");
+ addContract("HT-SPONSOR","企业赞助合同","企业赞助",12000,"sponsor.pdf");
+ addMaterial("合同","企业赞助合同","sponsor.pdf");
+ addMaterial("合同","劳务专家合同","labor.pdf");
+ addMaterial("终版议程","终版议程","agenda.pdf");
+ addMaterial("发票","普通收据","other-invoice.pdf");
+ const d=demandSopState(db,project.id);
+ assert.equal(d.contractTotal,8000);
+ assert.deepEqual(d.agreements.map(x=>x.file_key),["meeting.pdf"]);
+ assert.deepEqual(d.invoices.map(x=>x.file_key),["invoice.pdf"]);
+ const first=d.signature;
+ db.prepare("UPDATE contracts SET amount=14000 WHERE id='HT-SPONSOR'").run();
+ db.prepare("UPDATE materials SET file_key='agenda-new.pdf' WHERE kind='终版议程'").run();
+ assert.equal(demandSopState(db,project.id).signature,first);
+ db.prepare("UPDATE materials SET file_key='meeting-replaced.pdf' WHERE file_key='meeting.pdf'").run();
+ assert.notEqual(demandSopState(db,project.id).signature,first);
+ db.close();
+});
+test("会务需求表未确认归档，不得用已录金额直接通过",()=>{
+ const {db,addMaterial,addContract}=setup();addDemand(db);
+ addThreeSources(db,addMaterial,addContract);
+ db.prepare("UPDATE demand_sheets SET confirmed=0").run();
+ assert.throws(()=>validateSopEvidence(6,reviewed,project,db,8000),
+  e=>e.code==="DEMAND_NOT_CONFIRMED");
+ db.close();
 });

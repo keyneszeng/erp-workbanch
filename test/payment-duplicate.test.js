@@ -56,6 +56,9 @@ test("已审批、已付款以及管理员 force 都不能重复请款",async()=
  let duplicate=await send(input);
  assert.equal(duplicate.status,409);
  assert.equal(duplicate.data.error.code,"DUPLICATE_PAYMENT");
+ const acct=await call("PATCH","/api/payments/"+id+"/account",
+   {payee_bank:"中国银行北京分行",payee_account:"1234567890123456"});
+ assert.equal(acct.status,200,JSON.stringify(acct.data));
  const paid=await call("POST","/api/payments/"+id+"/pay",{});
  assert.equal(paid.status,200,JSON.stringify(paid.data));
  duplicate=await send({...input,force:true});

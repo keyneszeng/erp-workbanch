@@ -58,6 +58,12 @@ test("mobile participant application: own-association draft, edit, submit and ma
   "ordinary user cannot bypass the dedicated application API");
  assert.equal((await req("POST","/api/mini/applications",{...base,assoc:ASSOCS[1]},alice)).status,403,
   "participant cannot apply to another association");
+ const meta=await req("GET","/api/meta",undefined,alice);
+ assert.equal(meta.status,200);
+ assert.deepEqual(meta.body.projectDepts,meta.body.depts,"网页和小程序须使用同一份部门目录");
+ assert.ok(!meta.body.depts.includes("会务部"));
+ const rejectedDept=await req("POST","/api/mini/applications",{...base,dept:"会务部"},alice);
+ assert.equal(rejectedDept.status,400,"旧部门不能用于新立项");
  const created=await req("POST","/api/mini/applications",base,alice);
  assert.equal(created.status,200,JSON.stringify(created.body));
  const id=created.body.project.id;

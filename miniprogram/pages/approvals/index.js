@@ -1,6 +1,6 @@
 const app=getApp();
 Page({
- data:{rows:[],error:"",busy:false},
+ data:{rows:[],error:"",busy:false,loading:true},
  canDecide(type){
   const ps=app.globalData.perms||[];
   const perm={"立项审批":"project:approve","变更审批":"project:approve","例外单审批":"verify:exception_approve",
@@ -8,8 +8,9 @@ Page({
   return !!perm&&ps.includes(perm);
  },
  onShow(){this.load();},
- async load(){try{const r=await app.api("/approvals?status="+encodeURIComponent("待审批"));
- this.setData({rows:(r.rows||[]).filter(x=>this.canDecide(x.type)),error:""});}catch(e){this.setData({error:e.message});}},
+ async load(){this.setData({loading:true});try{const r=await app.api("/approvals?status="+encodeURIComponent("待审批"));
+ this.setData({rows:(r.rows||[]).filter(x=>this.canDecide(x.type)),error:""});}catch(e){this.setData({error:e.message});}
+ finally{this.setData({loading:false});}},
  decide(e){
   if(this.data.busy)return;
   const id=e.currentTarget.dataset.id,approve=e.currentTarget.dataset.approve==="yes";

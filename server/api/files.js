@@ -9,7 +9,7 @@
  *
  * 安全上有三道：
  *   1) 类型白名单 + 文件头嗅探（不信 Content-Type，防改名上传可执行文件）；
- *   2) 单文件 8 MB 上限；
+ *   2) 单文件 50 MB 上限（统一由 storage.MAX_BYTES 限制）；
  *   3) 下载时按文件所属单据（材料 / 合同）的项目校验数据范围，不是登录就能看任意 key。
  */
 const { db } = require("../lib/db");
@@ -115,7 +115,7 @@ function register(router) {
       assertProjectVisible(ctx.user, getProject(owner.pid));
       // 单纯是项目成员的嘉宾并不自动获得合同和财务凭证的读取权限。
       if (!can(ctx.user, "material:write") && !can(ctx.user, "contract:write") &&
-          !can(ctx.user, "verify:check") && !can(ctx.user, "archive:write")) {
+          !can(ctx.user, "verify:check") && !can(ctx.user, "archive:write") && !can(ctx.user,"payment:pay")) {
         throw forbidden("当前角色无权查看内部业务附件");
       }
     } else {

@@ -1,11 +1,14 @@
-# Cloudflare 部署安全说明
+# Cloudflare：仅演示环境（不得部署生产系统）
 
-- 生产部署由 GitHub Actions 从 `main` **手动触发**，不再因自动 QA 成功直接推送现有线上环境。
-- 必要 GitHub Actions variable：`ERP_HEALTHCHECK_URL`，设置为实际生产域名的 HTTPS `/api/health` 地址；不可指向演示站。
-- 必要 GitHub Actions secrets：`CLOUDFLARE_API_TOKEN`、`CLOUDFLARE_ACCOUNT_ID`，均使用最小授权；禁止粘贴到聊天、Issue、PR、代码或日志。
-- 生产 Worker Secret：首次空库引导使用 `ERP_BOOTSTRAP_ADMIN_PASSWORD`；邮件配置使用 `ERP_MAIL_CONFIG_KEY`。
-- Cloudflare 生产模式需要 `ERP_DB` Durable Object 和 `ERP_FILES` R2 附件存储；后者当前尚未在仓库默认配置中启用。
-- 当前默认域名 `erp.aibuild.work` 为历史演示环境，生产必须另建独立资源，不能直接切换旧数据库模式。
-- 部署前运行 `npm test`、`npm run cf:build`，部署后确认功能及权限并验证备份和恢复。
+**唯一用途：`erp.aibuild.work` 的演示版。**
 
-详见 [完整生产部署指南](production-deployment.md)。
+- 本项目正式业务服务器指定为**阿里云 ECS**，不再创建 Cloudflare 生产 Worker / Durable Object / R2。
+- `wrangler.jsonc` 固定 Worker 名为 `erp-workbanch`、域名为 `erp.aibuild.work`，并显式设置 `ERP_DEMO_MODE=1`。
+- `worker/index.mjs` 与 `worker/do.mjs` 都加了运行时门禁：缺少演示标记或配置为生产模式时直接拒绝。
+- 历史 `.github/workflows/cloudflare-deploy.yml` 已改为只做演示配置检查，**无上传、无部署步骤**。
+- 历史 `npm run cf:deploy` 与 `scripts/check-production-deploy.cjs` 永久拒绝 Cloudflare 生产发布。
+- `npm run cf:build` 仅是本地/CI dry-run 打包兼容性检查，不会更新在线演示站。
+- 不得向演示 Worker 配置真实管理员手机号、生产短信凭据、真实会议/财务/嘉宾资料。
+- 保留现有在线演示站及其历史数据；本次更改只影响后续源码，不触发实际演示站部署。
+
+正式生产上线配置见 [阿里云 ECS 生产指南](production-deployment.md)。

@@ -1,3 +1,4 @@
+import {openPaymentExecution} from "../lib/payment-execution.js";
 import { api, can, state } from "../lib/api.js";
 import {bindBudgetFeePreview} from "../lib/budget-fee.js";
 import {bindPayeePicker} from "../lib/payee-picker.js";
@@ -203,8 +204,15 @@ function tabOverview(d, p) {
       ["会议形式", esc(p.form)],
       ["会期", `${esc(p.date)} · ${p.days} 天`],
       ["预计人数", `${p.people || 0} 人`],
-      ["负责人", `${esc(p.owner || "—")} · ${esc(p.phone || "")}`],
-      ["承办部门", esc(p.dept || "—")],
+      ["负责人", d.sourcePublicProposalId ? esc(p.owner || "—") : `${esc(p.owner || "—")} · ${esc(p.phone || "")}`],
+      ...(d.sourcePublicProposalId ? [
+        ["公众申请来源", state.super ? `<a class="link" data-go="public-proposals">${esc(d.sourcePublicProposalId)}</a>` : esc(d.sourcePublicProposalId)],
+        ["计划开始时间", esc(p.public_event_time || "—")],
+        ["申请联系人", esc(p.public_contact_name || "—")],
+        ["申请联系电话", esc(p.phone || "—")],
+        ["补充联系方式", esc(p.public_contact_info || "—")]
+      ] : []),
+      ["承办部门", esc(p.dept && (state.meta.depts || []).includes(p.dept) ? p.dept : (p.dept ? "历史部门（待重新分类）" : "—"))],
       ["预算", `<b class="num">¥${money(p.budget)}</b>`],
       ["税费管理费率", `${money(Number(p.tax_fee_rate)||0)}%`],
       ["可用预算", `<b class="num">¥${money(p.available_budget ?? p.budget)}</b>`],
@@ -220,9 +228,7 @@ function tabOverview(d, p) {
       <div style="margin-top:12px">${settle
         ? `<div class="gate ok"><b>结算单 ${settle.id} 已生成</b>
              项目预算 ¥${money(settle.income)} · 已付支出 ¥${money(settle.expense)} · 预算结余 ¥${money(settle.profit)}（${settle.created_at}）
-             <div style="margin-top:4px">收款方 ${esc(settle.payee || "—")}${
-               settle.payee_account ? ` · ${esc(settle.payee_bank || "")} <span class="mono">${esc("尾号 " + String(settle.payee_account).slice(-4))}</span>` : " · 未登记收款账户"
-             }</div></div>`
+           </div>`
         : `<div class="gate"><b>结算单未生成</b>适用核销项通过后，还须完成付款申请、审批和付款登记，并核对合同与实际付款金额后才能结算；生成后资料冻结。</div>`}</div>
       <div style="margin-top:10px">${PAYABLE.includes(p.status)
         ? `<div class="gate ok"><b>付款门禁已放行</b>项目已完成核销，可提交付款申请。</div>`
@@ -386,8 +392,8 @@ function tabPayments(d, p) {
         `<span class="mono">${esc(y.invoice_no || "—")}</span>`, esc(y.req_user || ""), badge(y.status),
         `<div class="tacts">
           ${y.status === "待审批" && can("payment:approve") ? `<button class="link" data-pay-approve="${y.id}">审批</button>` : ""}
-          ${y.status === "已审批" && can("payment:pay") && y.payee_account ? `<button class="link" data-pay-pay="${y.id}">付款</button>` : ""}
-          ${y.status !== "已付款" && can("payment:pay") && !y.payee_account ? `<button class="link" data-pay-acct="${y.id}">登记账户</button>` : ""}
+          ${y.status === "已审批" && can("payment:pay")  ? `<button class="link" data-pay-pay="${y.id}">付款</button>` : ""}
+          
           ${y.status === "待审批" && can("payment:approve") ? `<button class="link danger" data-pay-reject="${y.id}">驳回</button>` : ""}
         </div>`]
     })), { empty: "暂无付款记录" }),
@@ -449,11 +455,11 @@ function tabMaterials(d, p) {
   const sponsorsById=new Map((d.sponsorRights?.contracts||[]).map(c=>[c.id,c]));
   return panel("归档材料",
     `已上传 ${ms.uploadedCount || 0} 份附件 · ${ms.have.length} 类 · ${ms.ok ? "可进入后续流程" : "请先上传至少一份附件"}`, `
-    <div class="hint" style="padding:8px 14px">材料类别可自由选择（「权益照片」须选择合同对应权益二级类目），不再要求固定类别齐全；至少上传一份原件即可满足材料门槛。核销与财务独立审批仍须按流程完成。</div>
+    <div class="hint" style="padding:8px 14px">材料类别可自由选择（「权益照片」须选择合同对应权益内容），不再要求固定类别齐全；至少上传一份原件即可满足材料门槛。核销与财务独立审批仍须按流程完成。</div>
     <div class="chips">${ms.have.map((k) => `<span class="chip"><i>✓</i><b>${esc(k)}</b></span>`).join("")}</div>
     ${table([{ t: "类别", w: "104px" }, { t: "材料名称" }, { t: "附件", w: "84px" }, { t: "版本", w: "56px" },
       { t: "上传人", w: "76px" }, { t: "时间", w: "130px" }, { t: "操作", w: "120px" }],
-      d.materials.map((m) => ({
+      (d.materials||[]).filter(m=>!m.deleted_at).map((m) => ({
         c: [
           esc(m.kind)+(m.kind==="权益照片"?`<div class="hint">${esc(sponsorsById.get(rightById.get(Number(m.sponsor_right_id))?.sponsor_id)?.enterprise||"未关联赞助合同")} · ${esc(rightById.get(Number(m.sponsor_right_id))?.category||"未关联权益类目")}</div>`:""), esc(m.name),
           m.file_key
@@ -504,7 +510,7 @@ function wire(root, pid, d, body) {
   body.querySelectorAll("[data-pay-approve]").forEach((b) => b.onclick = () => payAct(root, pid, b.dataset.payApprove, "approve"));
   body.querySelectorAll("[data-pay-reject]").forEach((b) => b.onclick = () => payAct(root, pid, b.dataset.payReject, "reject"));
   body.querySelectorAll("[data-pay-pay]").forEach((b) => b.onclick = () => payAct(root, pid, b.dataset.payPay, "pay"));
-  body.querySelectorAll("[data-pay-acct]").forEach((b) => b.onclick = () => openPayAccount(root, pid, b.dataset.payAcct));
+  // 「登记账户」已并入财务执行付款弹窗（payment-execution.js），列表不再单独提供入口。
   // 「去登记材料 →」：切页签（tab 是模块级变量，直接改再重渲染）
   body.querySelectorAll("[data-goto-tab]").forEach((b) => b.onclick = () => {
     tab = b.dataset.gotoTab;
@@ -646,29 +652,22 @@ async function doTransition(root, pid, action, project) {
 }
 
 /**
- * 生成结算单（V1.2.18）。
+ * 生成结算单。
  *
- * 原来这里只有一句「确认继续？」。结算单是给财务的付款依据，
- * 上面必须写清楚结余打给谁、打到哪个账户 —— 否则财务拿到单子还得回头问人。
- * 收款方默认带出项目负责人（结余通常归负责人所属协会），开户行与账号必须手填。
+ * 结算单只汇总「项目预算 / 已付支出 / 结余」并冻结账目。
+ * 资金已在付款单里逐笔支付（银行信息由财务在执行付款时核对原件后补录），
+ * 结算阶段没有新的转账动作，因此不再要求填写收款方、开户行、银行账号。
  */
-function openSettle(root, pid, p) {
-  const fields = [
-    { k: "payee", l: "收款方", req: 1, v: p?.owner || "", ph: "默认取项目负责人" },
-    { k: "payee_bank", l: "开户行", req: 1, ph: "如：中国银行北京朝阳支行" },
-    { k: "payee_account", l: "银行账号", req: 1, ph: "10~25 位数字，可含空格分隔" }
-  ];
+function openSettle(root, pid) {
   const m = modal({
     title: "生成结算单",
-    body: `<div class="gate" style="margin-bottom:12px"><b>付款全部完成后才可生成结算单</b>结算单记录业务资金结算结果，收款方与账户请按实际信息填写。</div>${formHtml(fields)}`,
+    body: `<div class="gate" style="margin-bottom:12px"><b>付款全部完成后才可生成结算单</b>结算单只记录项目预算、已付支出与结余，并冻结账目；不登记收款方或银行账户——资金已按付款单逐笔支付。</div>`,
     footer: `<button class="btn btn-o" data-x="0">取消</button><button class="btn btn-p" data-x="1">确认生成</button>`
   });
   m.querySelector('[data-x="0"]').onclick = () => m.classList.remove("open");
   m.querySelector('[data-x="1"]').onclick = async () => {
-    if (!validate(m, fields)) return;
-    const v = readForm(m);
     try {
-      const r = await api.post(`/api/projects/${pid}/transition`, { action: "settle", ...v });
+      const r = await api.post(`/api/projects/${pid}/transition`, { action: "settle" });
       toast(r.message, "ok");
       m.classList.remove("open");
       await refresh(root, pid);
@@ -694,9 +693,7 @@ async function exDecide(root, pid, id, ok) {
 async function payAct(root, pid, id, kind) {
   try {
     if (kind === "pay") {
-      if (!await confirmBox(`确认对付款单 <b>${id}</b> 执行付款？付款后不可撤销。`, { ok: "确认付款" })) return;
-      const r = await api.post(`/api/payments/${id}/pay`, {});
-      toast(r.message, "ok");
+      return openPaymentExecution(id,()=>refresh(root,pid));
     } else {
       const r = await api.post(`/api/payments/${id}/approve`, { approve: kind === "approve" });
       toast(r.message, "ok");
@@ -709,9 +706,10 @@ function openContract(root, pid) {
   const fields = [
     { k: "name", l: "合同名称", req: 1, full: 1 },
     { k: "vendor", l: "签约方", req: 1 },
-    { k: "amount", l: "合同金额（元）", t: "number", req: 1 },
-    { k: "category", l: "合同类别", t: "select", opts: state.meta.contractCategories || [],
-      tip: "合同类别用于合同台账及会务费用比对。核销第5项必须从材料库按完整姓名核对个人劳务合同，不能只用合同台账总合同代替。" },
+    { k: "amount", l: "合同金额（元）", t: "number", req: 1,
+      tip: "劳务专家合同优先识别原件中的劳动报酬／劳务报酬金额；OCR 结果仅用于预填，请核对后保存。" },
+    { k: "category", l: "合同类别", t: "select", req: 1, opts: ["会务需求","劳务专家","企业赞助"],
+      tip: "会务需求关联核销第6项，劳务专家关联第5项，企业赞助关联收入与第7项权益。" },
     { k: "sign_date", l: "签署日期", t: "date" },
     { k: "status", l: "状态", t: "select", opts: ["草稿", "待签署", "已签署"], tip: "已签署需要管理员审批，不能通过录入直接跳过审批" },
     {
@@ -721,31 +719,61 @@ function openContract(root, pid) {
     }
   ];
   const m = modal({
-    title: "录入合同", width: "620px", body: formHtml(fields),
+    title: "录入合同", width: "620px",
+    body: '<div class="hint" style="padding-bottom:12px">选择合同原件后自动上传并识别签约方、合同金额（含劳动报酬）。请人工核对，识别不清时仍可手动输入。</div>'+
+      formHtml(fields)+'<div class="hint" role="status" data-contract-scan style="padding:10px 0">尚未选择合同原件。</div>',
     footer: `<button class="btn btn-o" data-x="0">取消</button><button class="btn btn-p" data-x="1">保存</button>`
   });
 
-  let picked = null;
-  bindFilePicker(m, "file", (f, err) => {
-    if (err) { picked = null; toast(err, "warn"); return; }
-    picked = f;
-    const nameInput = m.querySelector('[name="name"]');
-    if (nameInput && !nameInput.value.trim()) {
-      nameInput.value = f.name.replace(/\.[^.]+$/, "").slice(0, 80);
-    }
+  let picked=null,uploaded=null,token=0,busy=false;
+  const btn=m.querySelector('[data-x="1"]');
+  const note=m.querySelector("[data-contract-scan]");
+  const amount=m.querySelector('[name="amount"]'),vendor=m.querySelector('[name="vendor"]');
+  const category=m.querySelector('[name="category"]');
+  amount?.addEventListener("input",()=>{amount.dataset.userEdited="1";});
+  vendor?.addEventListener("input",()=>{vendor.dataset.userEdited="1";});
+  category?.addEventListener("change",()=>{category.dataset.userEdited="1";});
+  bindFilePicker(m, "file", (file, err) => {
+    const seq=++token;
+    picked=err?null:file;uploaded=null;
+    if(amount&&!amount.dataset.userEdited&&amount.dataset.ocrFilled==="1"){amount.value="";delete amount.dataset.ocrFilled;}
+    if(vendor&&!vendor.dataset.userEdited&&vendor.dataset.ocrFilled==="1"){vendor.value="";delete vendor.dataset.ocrFilled;}
+    if(err){note.textContent=err;toast(err,"warn");return;}
+    if(!file){note.textContent="尚未选择合同原件。";return;}
+    const nameInput=m.querySelector('[name="name"]');
+    if(nameInput&&!nameInput.value.trim())nameInput.value=file.name.replace(/\.[^.]+$/,"").slice(0,80);
+    if(category&&!category.dataset.userEdited&&/劳务|劳动|专家|讲课|授课|讲师|讲者|酬金/.test(file.name))
+      category.value="劳务专家";
+    busy=true;btn.disabled=true;
+    note.textContent="正在上传并 OCR 识别合同金额／劳动报酬…";
+    (async()=>{
+      const saved=await api.upload(file,{pid});
+      if(seq!==token)return;
+      uploaded=saved;
+      const scan=await api.post("/api/contracts/scan",{pid,file_key:saved.key,category:category?.value||""});
+      if(seq!==token)return;
+      const fields=scan.fields||{};
+      if(amount&&!amount.dataset.userEdited&&fields.amount!==null&&fields.amount!==undefined)
+        {amount.value=String(fields.amount);amount.dataset.ocrFilled="1";}
+      if(vendor&&!vendor.dataset.userEdited&&(fields.vendor||fields.enterprise))
+        {vendor.value=fields.vendor||fields.enterprise;vendor.dataset.ocrFilled="1";}
+      note.textContent=(scan.note||"识别完成，请核对原件后保存。")+
+        (fields.amount!==null&&fields.amount!==undefined?" 已预填"+(fields.amountSource==="劳动报酬"?"劳动报酬":"合同")+"金额：¥"+fields.amount:"");
+    })().catch(e=>{
+      if(seq===token)note.textContent="OCR 未完成："+e.message+"；可人工填写金额后保存。";
+    }).finally(()=>{if(seq===token){busy=false;btn.disabled=false;}});
   });
-
-  m.querySelector('[data-x="0"]').onclick = () => m.classList.remove("open");
-  const btn = m.querySelector('[data-x="1"]');
+  m.querySelector('[data-x="0"]').onclick = () => {token++;m.classList.remove("open");};
   btn.onclick = async () => {
+    if(busy){toast("合同原件正在识别，请核对结果后保存","warn");return;}
     if (!validate(m, fields)) return;
     const v = readForm(m);
     btn.disabled = true;
     try {
       let meta = {};
       if (picked) {
-        btn.textContent = "上传中 0%";
-        const up = await api.upload(picked, {
+        btn.textContent = uploaded?"保存中…":"上传中 0%";
+        const up = uploaded||await api.upload(picked, {
           onProgress: (p) => { btn.textContent = `上传中 ${Math.round(p * 100)}%`; },
           pid
         });
@@ -767,29 +795,6 @@ function openContract(root, pid) {
   };
 }
 
-/** 补录收款账户（与财务页同一个接口，V1.2.18） */
-function openPayAccount(root, pid, id) {
-  const fields = [
-    { k: "payee_bank", l: "开户行", req: 1, ph: "如：中国银行北京朝阳支行" },
-    { k: "payee_account", l: "银行账号", req: 1, ph: "10~25 位数字，可含空格分隔" }
-  ];
-  const m = modal({
-    title: `登记收款账户 · ${id}`,
-    body: `<div class="hint" style="margin-bottom:12px">这笔付款单还没有收款账户。登记后才能执行付款；已付款的单子不可再改。</div>${formHtml(fields)}`,
-    footer: `<button class="btn btn-o" data-x="0">取消</button><button class="btn btn-p" data-x="1">保存</button>`
-  });
-  m.querySelector('[data-x="0"]').onclick = () => m.classList.remove("open");
-  m.querySelector('[data-x="1"]').onclick = async () => {
-    if (!validate(m, fields)) return;
-    try {
-      const r = await api.patch(`/api/payments/${id}/account`, readForm(m));
-      toast(r.message, "ok");
-      m.classList.remove("open");
-      await refresh(root, pid);
-    } catch (e) { toast(e.message, "warn"); }
-  };
-}
-
 async function openPay(root, pid, d) {
   const fields = [
     { k: "type", l: "付款类型", t: "select", req: 1, opts: state.meta.paymentTypes },
@@ -797,8 +802,6 @@ async function openPay(root, pid, d) {
       tip:"专家费与个人报销优先使用第 5 步核验的劳务表；其他收款方来自已签署合同。" },
     { k: "payee", l: "收款方", req: 1 },
     // V1.2.18：财务要照着这两行打款
-    { k: "payee_bank", l: "开户行", req: 0, ph: "如：中国银行北京朝阳支行" },
-    { k: "payee_account", l: "银行账号", req: 0, ph: "10~25 位数字，可含空格分隔" },
     { k: "amount", l: "付款金额（元）", t: "number", req: 1 },
     { k: "period", l: "期次（可选）", ph: "第1期 / 第2期 / 尾款", tip: "同额分期务必填写不同期次，否则会按重复付款申请拦截；最多20字。" },
     { k: "remark", l: "备注", t: "textarea", full: 1, rows: 2 }
@@ -812,13 +815,6 @@ async function openPay(root, pid, d) {
   m.querySelector('[data-x="0"]').onclick = () => m.classList.remove("open");
   const submitButton=m.querySelector('[data-x="1"]');
   submitButton.onclick = async () => {
-    const selected=m.querySelector('[name="payee_option_id"]')?.value;
-    const acct=m.querySelector('[name="payee_account"]')?.value.trim();
-    const bank=m.querySelector('[name="payee_bank"]')?.value.trim();
-    const rows=m.querySelector('[name="payee_option_id"]')?.__rows||[];
-    const source=rows.find(x=>x.id===selected);
-    if((!source||!source.bank)&&!bank){toast("请填写收款方开户行","warn");return;}
-    if((!source||source.source!=="labor")&&!acct){toast("请填写银行账号；合同仅提供收款方名称","warn");return;}
     if (!validate(m, fields)) return;
     if(submitButton.disabled)return;
     submitButton.disabled=true;
@@ -936,7 +932,11 @@ async function openEdit(root, pid, p) {
     { k: "people", l: "预计人数", t: "number" },
     { k: "owner_id", l: "负责人（协会成员）", t: "select", req: 1, opts: members.map((u) => ({v:String(u.id),l:u.name+"（"+u.role_name+"）"})) },
     { k: "phone", l: "联系电话" },
-    { k: "dept", l: "承办部门", t: "select", opts: state.meta.projectDepts || [] },
+    { k: "dept", l: "承办部门", t: "select", req: 1, opts: [
+      {v:"",l:"请选择承办部门"},
+      ...(p.dept && !(state.meta.depts || []).includes(p.dept) ? [{v:p.dept,l:"历史部门（待重新分类）"}] : []),
+      ...(state.meta.depts || []).map(d=>({v:d,l:d}))
+    ] },
     { k: "agenda", l: "议程要点", t: "textarea", req: 1, full: 1, rows: 3 }
   ];
   const m = modal({ title: "编辑项目资料", width: "640px", body: formHtml(fields, p),

@@ -22,7 +22,7 @@ const MONEY_FIELDS = ["budget","tax_fee_rate"];
 const MONEY_LABEL = { budget: "预算", tax_fee_rate:"税费管理费率" };
 
 /** 字段长度上限（字符数），防止超长文本撑爆列表 / 导出 / 前端渲染 */
-const MAX_LEN = { name: 80, assoc: 40, owner: 20, phone: 20, dept: 40, agenda: 2000 };
+const MAX_LEN = { name: 120, assoc: 40, owner: 20, phone: 30, dept: 40, agenda: 3000 };
 const LEN_LABEL = { name: "会议名称", assoc: "所属协会", owner: "项目负责人", phone: "联系电话", dept: "承办部门", agenda: "初版议程要点" };
 
 function checkLength(body) {
@@ -85,6 +85,25 @@ function validate(body, partial = false) {
   }
 }
 
+// Project-list and paged-list counts share the exact seven-step business gates.
+const STEP5_APPLIES = `EXISTS(SELECT 1 FROM materials m WHERE m.pid=p.id
+ AND m.kind IN ('劳务表','劳务登记表','劳务收集表')
+ AND (m.deleted_at IS NULL OR m.deleted_at='')
+ AND m.file_key IS NOT NULL AND m.file_key<>'')`;
+const STEP6_APPLIES = "EXISTS(SELECT 1 FROM demand_sheets ds WHERE ds.pid=p.id)";
+const STEP7_APPLIES = `(EXISTS(SELECT 1 FROM sponsor_rights sr WHERE sr.pid=p.id)
+ OR EXISTS(SELECT 1 FROM materials m WHERE m.pid=p.id AND m.kind='权益照片'
+ AND (m.deleted_at IS NULL OR m.deleted_at='')
+ AND m.file_key IS NOT NULL AND m.file_key<>''))`;
+const VERIFY_PROGRESS_SQL = `(SELECT COUNT(*) FROM verify_steps v WHERE v.pid=p.id
+ AND v.step_no BETWEEN 1 AND 7 AND v.result IN ('通过','已解例外')
+ AND (v.step_no<=4 OR (v.step_no=5 AND ${STEP5_APPLIES})
+ OR (v.step_no=6 AND ${STEP6_APPLIES})
+ OR (v.step_no=7 AND ${STEP7_APPLIES}))) AS v_passed,
+ (4 + CASE WHEN ${STEP5_APPLIES} THEN 1 ELSE 0 END
+ + CASE WHEN ${STEP6_APPLIES} THEN 1 ELSE 0 END
+ + CASE WHEN ${STEP7_APPLIES} THEN 1 ELSE 0 END) AS v_total`;
+
 function listProjects(user, { status, q, assoc, stage, page, size } = {}) {
   const { sql, params } = scopeFilter(user);
   const where = [sql];
@@ -108,14 +127,7 @@ function listProjects(user, { status, q, assoc, stage, page, size } = {}) {
     return db.prepare(
       `SELECT p.*, (SELECT COUNT(*) FROM payments y WHERE y.pid = p.id) AS pay_cnt,
               (SELECT COALESCE(ROUND(SUM(y.amount),2),0) FROM payments y WHERE y.pid = p.id AND y.status='已付款') AS paid_amt,
-              (SELECT COUNT(*) FROM verify_steps v WHERE v.pid=p.id AND v.result IN ('通过','已解例外')
-                AND (v.step_no NOT IN (5,6) OR
-                  (v.step_no=5 AND EXISTS(SELECT 1 FROM materials m WHERE m.pid=p.id AND m.kind IN ('劳务表','劳务收集表') AND m.deleted_at IS NULL AND m.file_key IS NOT NULL AND m.file_key<>'')) OR
-                  (v.step_no=6 AND EXISTS(SELECT 1 FROM demand_items di WHERE di.pid=p.id AND di.need='需要')) OR
-                  (v.step_no=7 AND EXISTS(SELECT 1 FROM meeting_sponsor_contracts sc WHERE sc.pid=p.id AND sc.status='已签署')))) AS v_passed,
-              (7 - (CASE WHEN EXISTS(SELECT 1 FROM materials m WHERE m.pid=p.id AND m.kind IN ('劳务表','劳务收集表') AND m.deleted_at IS NULL AND m.file_key IS NOT NULL AND m.file_key<>'') THEN 0 ELSE 1 END)
-                 - (CASE WHEN EXISTS(SELECT 1 FROM demand_items di WHERE di.pid=p.id AND di.need='需要') THEN 0 ELSE 1 END)
-                 - (CASE WHEN EXISTS(SELECT 1 FROM meeting_sponsor_contracts sc WHERE sc.pid=p.id AND sc.status='已签署') THEN 0 ELSE 1 END)) AS v_total,
+              ${VERIFY_PROGRESS_SQL},
               (SELECT COUNT(*) FROM exceptions e WHERE e.pid = p.id AND e.status='待审批') AS ex_open,
               (SELECT id FROM settlements s WHERE s.pid = p.id) AS st_id
        FROM projects p WHERE ${whereSql} ORDER BY p.date DESC, p.id`
@@ -133,14 +145,7 @@ function listProjects(user, { status, q, assoc, stage, page, size } = {}) {
   const rows = db.prepare(
     `SELECT p.*, (SELECT COUNT(*) FROM payments y WHERE y.pid = p.id) AS pay_cnt,
             (SELECT COALESCE(ROUND(SUM(y.amount),2),0) FROM payments y WHERE y.pid = p.id AND y.status='已付款') AS paid_amt,
-            (SELECT COUNT(*) FROM verify_steps v WHERE v.pid=p.id AND v.result IN ('通过','已解例外')
-                AND (v.step_no NOT IN (5,6) OR
-                  (v.step_no=5 AND EXISTS(SELECT 1 FROM materials m WHERE m.pid=p.id AND m.kind IN ('劳务表','劳务收集表') AND m.deleted_at IS NULL AND m.file_key IS NOT NULL AND m.file_key<>'')) OR
-                  (v.step_no=6 AND EXISTS(SELECT 1 FROM demand_items di WHERE di.pid=p.id AND di.need='需要')) OR
-                  (v.step_no=7 AND EXISTS(SELECT 1 FROM meeting_sponsor_contracts sc WHERE sc.pid=p.id AND sc.status='已签署')))) AS v_passed,
-              (7 - (CASE WHEN EXISTS(SELECT 1 FROM materials m WHERE m.pid=p.id AND m.kind IN ('劳务表','劳务收集表') AND m.deleted_at IS NULL AND m.file_key IS NOT NULL AND m.file_key<>'') THEN 0 ELSE 1 END)
-                 - (CASE WHEN EXISTS(SELECT 1 FROM demand_items di WHERE di.pid=p.id AND di.need='需要') THEN 0 ELSE 1 END)
-                 - (CASE WHEN EXISTS(SELECT 1 FROM meeting_sponsor_contracts sc WHERE sc.pid=p.id AND sc.status='已签署') THEN 0 ELSE 1 END)) AS v_total,
+            ${VERIFY_PROGRESS_SQL},
             (SELECT COUNT(*) FROM exceptions e WHERE e.pid = p.id AND e.status='待审批') AS ex_open,
             (SELECT id FROM settlements s WHERE s.pid = p.id) AS st_id
      FROM projects p WHERE ${whereSql} ORDER BY p.date DESC, p.id LIMIT ? OFFSET ?`
@@ -173,6 +178,7 @@ function detail(project, user) {
       actions: [], visibility: "participant" };
   }
   const pid = project.id;
+  const sourceProposal=db.prepare("SELECT proposal_id FROM public_proposal_project_links WHERE project_id=?").get(pid);
   const permitted=(mods,actions)=>isSuper(user)||mods.some(m=>hasModule(user,m))||actions.some(a=>can(user,a));
   const viewFinance=permitted(["finance"],["payment:create","payment:approve","payment:pay","settle:create","ledger:read"]);
   const viewContracts=permitted(["prep","finance"],["contract:write","contract:approve","verify:check","verify:conclude"]);
@@ -185,7 +191,7 @@ function detail(project, user) {
   const viewAudit=permitted(["audit"],["audit:read"]);
   const viewBudget=viewFinance||["project:create","project:edit","project:change","project:approve","verify:check","verify:conclude"].some(k=>can(user,k));
   const viewNotice=permitted(["prep"],["project:create","project:edit","project:change","project:approve"]);
-  const publicProject=()=>{const {budget,available_budget,tax_fee_rate,phone,...rest}=project;return rest;};
+  const publicProject=()=>{const {budget,available_budget,tax_fee_rate,phone,public_contact_name,public_contact_info,...rest}=project;return rest;};
   const members = db.prepare(
     `SELECT u.id, u.name, u.username, u.role, m.role AS member_role FROM project_members m
      JOIN users u ON u.id = m.user_id WHERE m.project_id = ?`
@@ -200,13 +206,16 @@ function detail(project, user) {
   const guests = db.prepare("SELECT * FROM guests WHERE pid = ? ORDER BY id").all(pid);
   const tasks = db.prepare("SELECT * FROM tasks WHERE pid = ? ORDER BY id").all(pid);
   const issues = db.prepare("SELECT * FROM issues WHERE pid = ? ORDER BY id").all(pid);
-  const materials = db.prepare("SELECT * FROM materials WHERE pid = ? ORDER BY id").all(pid);
+  // Project detail only exposes ACTIVE materials; deleted originals remain in the
+   // audit trail/database but must never reappear in the archive-materials list.
+   const materials = db.prepare("SELECT * FROM materials WHERE pid = ? AND deleted_at IS NULL ORDER BY id").all(pid);
   const timeline = db.prepare(
     "SELECT at, user_name, role, action, detail FROM audit_logs WHERE target = ? ORDER BY id DESC LIMIT 30"
   ).all(pid);
 
   return {
     project:viewBudget?project:publicProject(),
+    sourcePublicProposalId:sourceProposal?.proposal_id||null,
     sectionAccess:{finance:viewFinance,contracts:viewContracts,materials:viewMaterials,verify:viewVerify,demand:viewDemand,team:viewTeam,exec:viewExec,approvals:viewApprovals,audit:viewAudit,budget:viewBudget,notice:viewNotice},
     members: viewTeam?members:[],
     approvals: viewApprovals?approvals:[],
@@ -284,7 +293,7 @@ function register(router) {
       `INSERT INTO projects (id,name,assoc,form,date,days,budget,tax_fee_rate,people,owner,owner_id,phone,dept,agenda,status,status_at,created_by,created_at,updated_at)
        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
     ).run(id, b.name, b.assoc, b.form, b.date, Number(b.days) || 1, Number(b.budget), parseTaxFeeRate(b.tax_fee_rate), Number(b.people) || 0,
-      b.owner, ownerId, b.phone || "", b.dept || "会务部", b.agenda, "草稿", at, ctx.user.id, at, at);
+      b.owner, ownerId, b.phone || "", b.dept || "", b.agenda, "草稿", at, ctx.user.id, at, at);
     db.prepare("INSERT OR IGNORE INTO project_members (project_id,user_id,role) VALUES (?,?,?)").run(id, ctx.user.id, "创建人");
     // 注意：不要在这里把负责人自动写进 project_members。
     // 数据范围同时认 owner_id 和成员表，一旦入库，换负责人时旧负责人仍能靠成员关系看到项目
@@ -351,7 +360,10 @@ function register(router) {
     const patch = {};
     for (const k of EDITABLE) if (k in b && String(b[k] ?? "") !== String(p[k] ?? "")) patch[k] = b[k];
     if (!Object.keys(patch).length) return { project: p, message: "没有需要修改的字段" };
-    validate({ ...p, ...patch }, true);
+    // 历史立项可能仍保存旧部门；不修改部门时允许编辑其他资料，避免误迁移历史归属。
+    const toValidate = { ...p, ...patch };
+    if (!("dept" in patch) && toValidate.dept && !DEPTS.includes(toValidate.dept)) delete toValidate.dept;
+    validate(toValidate, true);
 
     // 预算/税费管理费变更后必须确保「可用预算」仍覆盖已占用支出。
     // 预算下调到低于已占用金额（待审批 + 已审批 + 已付款）会让账实直接打架：

@@ -39,8 +39,10 @@ export async function render(root) {
   const [c, proj] = await Promise.all([api.get("/api/contracts"), api.get("/api/projects")]);
   if (seq !== renderSeq) return;
   const rows = c.rows.filter((r) => !q || (r.name + r.vendor + r.pname + r.id).includes(q));
-  const total = rows.reduce((s, r) => s + Number(r.amount || 0), 0);
-  const signed = rows.filter((r) => r.status === "已签署").reduce((s, r) => s + Number(r.amount || 0), 0);
+  const expenseRows=rows.filter(r=>r.category!=="企业赞助");
+  const total = expenseRows.reduce((s, r) => s + Number(r.amount || 0), 0);
+  const signed = expenseRows.filter((r) => r.status === "已签署").reduce((s, r) => s + Number(r.amount || 0), 0);
+  const sponsorTotal=rows.filter(r=>r.category==="企业赞助").reduce((s,r)=>s+Number(r.amount||0),0);
   const withFile = rows.filter((r) => r.file_key).length;
 
   root.innerHTML = `<div class="phead">
@@ -52,12 +54,12 @@ export async function render(root) {
     </div>
     <div class="grid g4">
       <div class="kpi"><div class="t">合同数</div><div class="v">${rows.length}<span class="u">份</span></div></div>
-      <div class="kpi k2"><div class="t">合同总额</div><div class="v">¥${money(total)}</div></div>
-      <div class="kpi k4"><div class="t">已签署金额</div><div class="v">¥${money(signed)}</div></div>
-      <div class="kpi k3"><div class="t">已传原件</div><div class="v">${withFile}<span class="u">/${rows.length}</span></div></div>
+      <div class="kpi k2"><div class="t">支出合同总额</div><div class="v">¥${money(total)}</div></div>
+      <div class="kpi k4"><div class="t">已签署支出合同</div><div class="v">¥${money(signed)}</div></div>
+      <div class="kpi k3"><div class="t">赞助合同金额（收入）</div><div class="v">¥${money(sponsorTotal)}</div></div>
     </div>
     <div class="panel mt">
-      <div class="panel-h"><h2>合同清单</h2><span class="hint">${rows.length} 份</span></div>
+      <div class="panel-h"><h2>合同清单</h2><span class="hint">${rows.length} 份 · 原件 ${withFile} 份</span></div>
       <div class="filters"><input type="search" id="q" placeholder="搜索合同 / 签约方 / 项目" value="${esc(q)}"></div>
       ${table(
         [{ t: "合同编号", w: "112px" }, { t: "项目", w: "170px" }, { t: "合同名称" }, { t: "签约方", w: "150px" },
@@ -126,69 +128,109 @@ async function contractFlow(root, id, action) {
 }
 
 function openCreate(root, projects) {
-  const fields = [
-    { k: "pid", l: "所属项目", t: "select", req: 1, opts: projects.map((p) => ({ v: p.id, l: `${p.id} ${p.name}` })) },
-    { k: "name", l: "合同名称", req: 1, full: 1 },
-    { k: "vendor", l: "签约方", req: 1 },
-    { k: "amount", l: "合同金额（元）", t: "number", req: 1 },
-    { k: "category", l: "合同类别", t: "select", opts: state.meta.contractCategories || [],
-      tip: "合同类别用于台账和会务费用核对；第5项需在材料库按完整姓名匹配个人劳务合同，不能用台账合同替代。第6项核对实际会务需求、已签会务合同和会务发票。" },
-    { k: "sign_date", l: "签署日期", t: "date" },
-    // 录入只能选草稿 / 待签署：已签署必须走「确认签署」，
-    // 否则两步流转等于没做，台账上的「已签署金额」也没有可信来源
-    { k: "status", l: "状态", t: "select", opts: ["草稿", "待签署"], tip: "录入后必须由有权人员确认签署，不能在新建时跳过确认流程" },
-    {
-      k: "file", l: "合同原件", t: "file", full: 1,
-      accept: UPLOAD_ACCEPT,
-      tip: UPLOAD_TIP
-    }
+  const fields=[
+    { k:"pid",l:"所属项目",t:"select",req:1,opts:projects.map(p=>({v:p.id,l:p.id+" "+p.name})) },
+    { k:"name",l:"合同名称",req:1,full:1 },
+    { k:"vendor",l:"签约方",req:1 },
+    { k:"amount",l:"合同金额（元）",t:"number",req:1,
+      tip:"劳务专家类合同优先识别原件中的劳动报酬／劳务报酬，OCR 仅预填，请人工核对。" },
+    { k:"category",l:"合同类别",t:"select",req:1,opts:["会务需求","劳务专家","企业赞助"],
+      tip:"企业赞助属于会议收入，不计入会务支出、付款或核销第6项合同金额。" },
+    { k:"rightsCategories",l:"权益内容（每行一项）",t:"textarea",rows:4,full:1,
+      ph:"主会场背景板 LOGO 露出\n企业展位展示" },
+    { k:"sign_date",l:"签署日期",t:"date" },
+    { k:"status",l:"状态",t:"select",opts: ["草稿", "待签署"],
+      tip:"录入后须有权限人员确认签署。企业赞助会同步到会议收入。" },
+    { k:"file",l:"合同原件",t:"file",full:1,accept:UPLOAD_ACCEPT,
+      tip:UPLOAD_TIP+" 上传后会自动扫描签约方、合同金额（含劳动报酬）及赞助权益。" }
   ];
-  const m = modal({
-    title: "录入合同",
-    width: "620px",
-    body: formHtml(fields),
-    footer: `<button class="btn btn-o" data-x="0">取消</button><button class="btn btn-p" data-x="1">保存</button>`
+  const m=modal({title:"录入合同",width:"650px",
+    body:'<div class="hint" style="padding-bottom:12px">合同编号由系统自动分配（HT-年份-流水号），不用填写。上传合同后可自动识别并预填，保存前请核对原件。</div>'+
+      formHtml(fields)+'<div class="hint" role="status" data-contract-scan style="padding:10px 0">尚未选择合同文件。</div>',
+    footer:'<button class="btn btn-o" data-x="0">取消</button><button class="btn btn-p" data-x="1">保存</button>'
   });
-
-  let picked = null;
-  bindFilePicker(m, "file", (f, err) => {
-    if (err) { picked = null; toast(err, "warn"); return; }
-    picked = f;
-    // 名称留空时用文件名去掉扩展名，省一次输入
-    const nameInput = m.querySelector('[name="name"]');
-    if (nameInput && !nameInput.value.trim()) {
-      nameInput.value = f.name.replace(/\.[^.]+$/, "").slice(0, 80);
+  const btn=m.querySelector('[data-x="1"]');
+  const category=m.querySelector('[name="category"]'),project=m.querySelector('[name="pid"]');
+  const note=m.querySelector("[data-contract-scan]");
+  const rightsField=m.querySelector('[name="rightsCategories"]').closest(".fld");
+  let picked=null,uploaded=null,token=0,busy=false,lastScan=null;
+  function syncCategory(){
+    const sponsor=category.value==="企业赞助";
+    rightsField.style.display=sponsor?"":"none";
+    const vendor=m.querySelector('[name="vendor"]');
+    if(lastScan&&vendor&&!vendor.dataset.userEdited){
+      vendor.value=(sponsor?lastScan.fields?.enterprise:"")||lastScan.fields?.vendor||vendor.value;
     }
+  }
+  syncCategory();
+  category.addEventListener("change",()=>{category.dataset.userEdited="1";syncCategory();});
+  m.querySelector('[name="vendor"]').addEventListener("input",e=>{e.target.dataset.userEdited="1";});
+  m.querySelector('[name="amount"]').addEventListener("input",e=>{e.target.dataset.userEdited="1";});
+  project.addEventListener("change",()=>{
+    token++;picked=null;uploaded=null;lastScan=null;busy=false;btn.disabled=false;
+    const input=m.querySelector('[name="file"]');if(input)input.value="";
+    const filename=input?.closest(".upload")?.querySelector(".fn");
+    if(filename)filename.textContent="未选择";
+    note.textContent="项目已切换，请重新选择合同原件。";
   });
-
-  m.querySelector('[data-x="0"]').onclick = () => m.classList.remove("open");
-  const btn = m.querySelector('[data-x="1"]');
-  btn.onclick = async () => {
-    if (!validate(m, fields)) return;
-    const v = readForm(m);
-
-    btn.disabled = true;
-    try {
-      let meta = {};
-      if (picked) {
-        btn.textContent = "上传中 0%";
-        const up = await api.upload(picked, {
-          onProgress: (p) => { btn.textContent = `上传中 ${Math.round(p * 100)}%`; },
-          pid: v.pid
-        });
-        meta = { file_key: up.key, file_name: up.name, file_size: up.size, file_mime: up.mime };
+  bindFilePicker(m,"file",(file,err)=>{
+    const seq=++token;picked=err?null:file;uploaded=null;lastScan=null;
+    const amountField=m.querySelector('[name="amount"]');
+    if(amountField&&!amountField.dataset.userEdited&&amountField.dataset.ocrFilled==="1"){
+      amountField.value="";delete amountField.dataset.ocrFilled;
+    }
+    if(err){note.textContent=err;toast(err,"warn");return;}
+    if(!picked||!project.value)return;
+    const name=m.querySelector('[name="name"]');
+    if(name&&!name.value.trim())name.value=file.name.replace(/\.[^.]+$/,"").slice(0,80);
+    if(!category.dataset.userEdited&&/劳务|劳动|专家|讲课|授课|讲师|讲者|酬金/.test(file.name))category.value="劳务专家";
+    busy=true;btn.disabled=true;
+    note.textContent="正在上传并识别合同金额／劳动报酬…";
+    (async()=>{
+      const saved=await api.upload(file,{pid:project.value});
+      if(seq!==token)return;
+      uploaded=saved;
+      const scan=await api.post("/api/contracts/scan",{pid:project.value,file_key:saved.key,category:category.value});
+      if(seq!==token)return;
+      lastScan=scan;
+      const party=m.querySelector('[name="vendor"]'),amount=m.querySelector('[name="amount"]'),rights=m.querySelector('[name="rightsCategories"]');
+      const f=scan.fields||{},sponsor=category.value==="企业赞助";
+      if(party&&!party.dataset.userEdited&&(sponsor?f.enterprise||f.vendor:f.vendor||f.enterprise))
+        party.value=(sponsor?f.enterprise||f.vendor:f.vendor||f.enterprise);
+      if(f.amount!==null&&f.amount!==undefined&&amount&&!amount.dataset.userEdited){amount.value=String(f.amount);amount.dataset.ocrFilled="1";}
+      if(Array.isArray(f.rightsContent)&&f.rightsContent.length&&rights)rights.value=f.rightsContent.join("\n");
+      note.textContent=(scan.note||"扫描完成，请核对原件后保存。")+
+        (f.amount!==null&&f.amount!==undefined?" 已预填"+(f.amountSource==="劳动报酬"?"劳动报酬":"合同")+"金额：¥"+f.amount:"");
+    })().catch(e=>{
+      if(seq===token)note.textContent="扫描未完成："+e.message+"。可手工填写后保存。";
+    }).finally(()=>{
+      if(seq===token){busy=false;btn.disabled=false;}
+    });
+  });
+  m.querySelector('[data-x="0"]').onclick=()=>{token++;m.classList.remove("open");};
+  btn.onclick=async()=>{
+    if(busy){toast("文件正在扫描，请核对结果后提交","warn");return;}
+    if(!validate(m,fields))return;
+    const v=readForm(m);
+    if(v.category==="企业赞助"&&!picked){toast("企业赞助合同必须上传合同原件","warn");return;}
+    if(v.category==="企业赞助"){
+      const rights=String(v.rightsCategories||"").split(/[\n；;]+/).map(x=>x.trim()).filter(Boolean);
+      if(rights.length)v.rightsCategories=rights;else delete v.rightsCategories;
+    }else delete v.rightsCategories;
+    btn.disabled=true;
+    try{
+      let meta={};
+      if(picked){
+        btn.textContent=uploaded?"保存中…":"上传中…";
+        const up=uploaded||await api.upload(picked,{pid:v.pid});
+        meta={file_key:up.key,file_name:up.name,file_size:up.size,file_mime:up.mime};
       }
-      btn.textContent = "保存中…";
-      const r = await api.post("/api/contracts", { ...v, ...meta });
-      // 附件回执和超预算预警都要说，不能因为预警把「原件已附上」吞掉
-      const base = picked ? `${r.message}，原件已附上` : r.message;
-      toast(r.warning ? `${base}；${r.warning}` : base, r.warning ? "warn" : "ok");
+      btn.textContent="保存中…";
+      const r=await api.post("/api/contracts",{...v,...meta});
+      const base=(r.message||"合同已登记")+(r.sponsorId?"；已关联会议收入 "+r.sponsorId:"");
+      toast(r.warning?base+"；"+r.warning:base,r.warning?"warn":"ok");
       m.classList.remove("open");
       await render(root);
-    } catch (e) {
-      toast(e.message, "warn");
-      btn.disabled = false;
-      btn.textContent = "保存";
-    }
+    }catch(e){toast(e.message,"warn");btn.disabled=false;btn.textContent="保存";}
   };
 }

@@ -114,6 +114,9 @@ CREATE TABLE IF NOT EXISTS projects (
   phone       TEXT,
   dept        TEXT,
   agenda      TEXT,
+  public_event_time TEXT,
+  public_contact_name TEXT,
+  public_contact_info TEXT,
   status      TEXT NOT NULL DEFAULT '草稿',
   status_at   TEXT,
   created_by  INTEGER REFERENCES users(id),
@@ -176,6 +179,7 @@ CREATE TABLE IF NOT EXISTS meeting_sponsor_contracts (
   pid TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
   enterprise TEXT NOT NULL,
   contract_no TEXT NOT NULL,
+  ledger_contract_id TEXT,
   amount REAL NOT NULL,
   status TEXT NOT NULL DEFAULT '待确认',
   file_key TEXT NOT NULL,
@@ -500,6 +504,34 @@ CREATE TABLE IF NOT EXISTS project_notices (
 );
 
 -- 项目筹备邀请函：内置固定模板、已生成 PDF 的快照与发送/回复追踪。
+-- 公众活动意向申请：独立收件箱，绝不写入 projects / approvals。
+CREATE TABLE IF NOT EXISTS public_event_proposals (
+  id TEXT PRIMARY KEY,
+  topic TEXT NOT NULL,
+  event_date TEXT NOT NULL,
+  event_time TEXT NOT NULL,
+  form TEXT NOT NULL,
+  budget REAL NOT NULL,
+  agenda TEXT NOT NULL,
+  contact_name TEXT NOT NULL,
+  contact_phone TEXT NOT NULL,
+  contact_info TEXT NOT NULL DEFAULT '',
+  consent_at TEXT NOT NULL,
+  received_at TEXT NOT NULL,
+  submitter_fingerprint TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT '已接收' CHECK(status IN ('已接收','已归档'))
+);
+CREATE INDEX IF NOT EXISTS idx_public_event_proposals_received ON public_event_proposals(received_at DESC);
+CREATE INDEX IF NOT EXISTS idx_public_event_proposals_fingerprint ON public_event_proposals(submitter_fingerprint,received_at);
+CREATE TABLE IF NOT EXISTS public_proposal_project_links (
+ proposal_id TEXT PRIMARY KEY REFERENCES public_event_proposals(id),
+ project_id TEXT NOT NULL UNIQUE REFERENCES projects(id) ON DELETE CASCADE,
+ converted_by INTEGER NOT NULL REFERENCES users(id),
+ converted_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_public_proposal_links_project ON public_proposal_project_links(project_id);
+
+
 CREATE TABLE IF NOT EXISTS prep_invitations (
   id               TEXT PRIMARY KEY,
   pid              TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
@@ -668,6 +700,8 @@ function migrate() {
   addColumn("materials","sponsor_right_id","sponsor_right_id INTEGER");
   addColumn("meeting_sponsor_contracts","rights_scan_status","rights_scan_status TEXT NOT NULL DEFAULT '未识别'");
   addColumn("meeting_sponsor_contracts","rights_scan_note","rights_scan_note TEXT");
+  addColumn("meeting_sponsor_contracts","ledger_contract_id","ledger_contract_id TEXT");
+  db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_sponsor_ledger_link ON meeting_sponsor_contracts(ledger_contract_id) WHERE ledger_contract_id IS NOT NULL");
   // Existing projects keep historical evidence, only the displayed SOP labels are corrected.
   db.exec("UPDATE verify_steps SET name='盖章函件与立项信息核验' WHERE step_no=1 AND name='盖章通知／招商函核验'");
   db.exec("UPDATE verify_steps SET name='课件与串场内容核验' WHERE step_no=4 AND name='课件／串场一致性'");
@@ -683,6 +717,13 @@ function migrate() {
   // 生产白名单：所有新用户初次登录必须通过短信验证并修改默认密码。
   addColumn("users", "must_change_password", "must_change_password INTEGER NOT NULL DEFAULT 0");
   addColumn("users", "phone_verified_at", "phone_verified_at TEXT");
+  addColumn("projects","public_event_time","public_event_time TEXT");
+  addColumn("projects","public_contact_name","public_contact_name TEXT");
+  addColumn("projects","public_contact_info","public_contact_info TEXT");
+
+  addColumn("public_event_proposals", "handled_at", "handled_at TEXT");
+  addColumn("public_event_proposals", "handled_by", "handled_by INTEGER REFERENCES users(id) ON DELETE SET NULL");
+  addColumn("public_event_proposals", "handling_note", "handling_note TEXT NOT NULL DEFAULT ''");
   // V1.0.3：跨实例吊销签名令牌
   addColumn("users", "token_ver", "token_ver INTEGER NOT NULL DEFAULT 0");
   // 显式按用户授权；迁移时不会将旧角色权限自动转为用户授权。
@@ -707,6 +748,7 @@ function migrate() {
   addColumn("payments", "dedupe_key", "dedupe_key TEXT");
   // 付款期次：分期付款常常两期金额相同，只靠「类型+收款方+金额」去重会把第二期误判成重复。
   addColumn("payments", "period", "period TEXT");
+  addColumn("payments", "payee_source_id", "payee_source_id TEXT");
   db.exec("CREATE UNIQUE INDEX IF NOT EXISTS ux_payments_active_dedupe ON payments(pid,dedupe_key) WHERE dedupe_key IS NOT NULL AND status <> '已驳回'");
   // V1.2.0：材料附件
   addColumn("materials", "file_key", "file_key TEXT");
@@ -767,6 +809,12 @@ function migrate() {
   } catch {
     /* 旧库没有 contracts 表，忽略 */
   }
+
+  // 三类合同口径：保留历史合同/附件不变，只迁移旧分类标签。
+  // 可重复执行；不将明确的劳务专家或企业赞助记录覆盖。
+  try {
+    db.exec("UPDATE contracts SET category='会务需求' WHERE category IN ('场地餐饮','物料搭建','设备技术','其他','会务服务')");
+  } catch { /* 旧库过渡期保持兼容 */ }
 
   // 附件查询走 file_key，补索引（旧库没有）
   try {
