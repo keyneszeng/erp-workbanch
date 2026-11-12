@@ -167,3 +167,18 @@ test("superadmin converts an archived public proposal into exactly one editable 
  const dashboard=await req("/api/dashboard","GET",undefined,adminCookie);
  assert.equal(dashboard.data.todos.some(t=>t.pid===src.id&&t.kind==="公众申请"),false);
 });
+
+test("unhandled public intake conversion clears only its own superadmin todo, never submits an approval",async()=>{
+ const pending=db.prepare("SELECT id FROM public_event_proposals WHERE status='已接收' ORDER BY received_at DESC LIMIT 1").get();
+ assert.ok(pending);
+ const before=await req("/api/dashboard","GET",undefined,adminCookie);
+ assert.ok(before.data.todos.some(t=>t.kind==="公众申请"&&t.pid===pending.id));
+ const assoc=(await req("/api/associations","GET",undefined,adminCookie)).data.rows[0];
+ const approvalsBefore=db.prepare("SELECT COUNT(*) n FROM approvals").get().n;
+ const result=await req("/api/admin/public-event-proposals/"+pending.id+"/convert","POST",{assoc},adminCookie);
+ assert.equal(result.status,200,JSON.stringify(result.data));
+ assert.equal(result.data.project.status,"草稿");
+ const after=await req("/api/dashboard","GET",undefined,adminCookie);
+ assert.equal(after.data.todos.some(t=>t.kind==="公众申请"&&t.pid===pending.id),false);
+ assert.equal(db.prepare("SELECT COUNT(*) n FROM approvals").get().n,approvalsBefore);
+});
