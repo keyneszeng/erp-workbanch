@@ -199,7 +199,8 @@ function openCreate(root, projects) {
         party.value=(sponsor?f.enterprise||f.vendor:f.vendor||f.enterprise);
       if(f.amount!==null&&f.amount!==undefined&&amount&&!amount.dataset.userEdited){amount.value=String(f.amount);amount.dataset.ocrFilled="1";}
       if(Array.isArray(f.rightsContent)&&f.rightsContent.length&&rights)rights.value=f.rightsContent.join("\n");
-      note.textContent=scan.note||"扫描完成，请核对原件后保存。";
+      note.textContent=(scan.note||"扫描完成，请核对原件后保存。")+
+        (f.amount!==null&&f.amount!==undefined?" 已预填"+(f.amountSource==="劳动报酬"?"劳动报酬":"合同")+"金额：¥"+f.amount:"");
     })().catch(e=>{
       if(seq===token)note.textContent="扫描未完成："+e.message+"。可手工填写后保存。";
     }).finally(()=>{
