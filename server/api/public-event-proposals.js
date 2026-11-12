@@ -72,7 +72,7 @@ function register(router){
   const page=Math.max(1,Math.min(10000,Number(ctx.query.page)||1));
   const size=Math.max(1,Math.min(100,Number(ctx.query.size)||30));
   const total=Number(db.prepare("SELECT COUNT(*) AS n FROM public_event_proposals").get().n);
-  const rows=db.prepare("SELECT id,topic,event_date,event_time,form,budget,agenda,contact_name,contact_phone,contact_info,received_at,status "+
+  const rows=db.prepare("SELECT id,topic,event_date,event_time,form,budget,agenda,contact_name,contact_phone,contact_info,received_at,status,handled_at,handled_by,handling_note "+
      "FROM public_event_proposals ORDER BY received_at DESC,id DESC LIMIT ? OFFSET ?").all(size,(page-1)*size);
   return {rows,total,page,size};
  });
