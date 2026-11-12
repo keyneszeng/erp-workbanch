@@ -72,6 +72,7 @@ async function open(root,pid){
     '<div class="acts"><button class="btn btn-o" id="ledgerGoProject">会议项目</button> <button class="btn btn-p" id="ledgerCsv">导出项目台账 CSV</button></div></div>'+
     '<div class="grid g4">'+kpis.map(x=>'<div class="kpi"><div class="t">'+esc(x[0])+'</div><div class="v">'+(x[1]===null?"—":num(x[1]))+'</div></div>').join("")+'</div>'+
     '<h3 style="margin:22px 0 10px">分类付款对照</h3>'+
+    '<p class="hint">专家劳务费对应原付款单类型「专家费」；按实际付款单汇总，不把合同报酬或待审批款视为已付款。</p>'+
     table([{t:"付款类型"},{t:"单据数"},{t:"有效申请金额"},{t:"已付款金额"}],
       d.payment_types.map(x=>({c:[td(x.type),String(x.count),num(x.applied),num(x.paid)]})),{empty:"无付款"})+
     '<h3 style="margin:22px 0 10px">合同原始记录</h3>'+
