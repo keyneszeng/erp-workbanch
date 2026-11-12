@@ -706,7 +706,8 @@ function openContract(root, pid) {
   const fields = [
     { k: "name", l: "合同名称", req: 1, full: 1 },
     { k: "vendor", l: "签约方", req: 1 },
-    { k: "amount", l: "合同金额（元）", t: "number", req: 1 },
+    { k: "amount", l: "合同金额（元）", t: "number", req: 1,
+      tip: "劳务专家合同优先识别原件中的劳动报酬／劳务报酬金额；OCR 结果仅用于预填，请核对后保存。" },
     { k: "category", l: "合同类别", t: "select", req: 1, opts: ["会务需求","劳务专家","企业赞助"],
       tip: "会务需求关联核销第6项，劳务专家关联第5项，企业赞助关联收入与第7项权益。" },
     { k: "sign_date", l: "签署日期", t: "date" },
@@ -718,31 +719,59 @@ function openContract(root, pid) {
     }
   ];
   const m = modal({
-    title: "录入合同", width: "620px", body: formHtml(fields),
+    title: "录入合同", width: "620px",
+    body: '<div class="hint" style="padding-bottom:12px">选择合同原件后自动上传并识别签约方、合同金额（含劳动报酬）。请人工核对，识别不清时仍可手动输入。</div>'+
+      formHtml(fields)+'<div class="hint" role="status" data-contract-scan style="padding:10px 0">尚未选择合同原件。</div>',
     footer: `<button class="btn btn-o" data-x="0">取消</button><button class="btn btn-p" data-x="1">保存</button>`
   });
 
-  let picked = null;
-  bindFilePicker(m, "file", (f, err) => {
-    if (err) { picked = null; toast(err, "warn"); return; }
-    picked = f;
-    const nameInput = m.querySelector('[name="name"]');
-    if (nameInput && !nameInput.value.trim()) {
-      nameInput.value = f.name.replace(/\.[^.]+$/, "").slice(0, 80);
-    }
+  let picked=null,uploaded=null,token=0,busy=false;
+  const btn=m.querySelector('[data-x="1"]');
+  const note=m.querySelector("[data-contract-scan]");
+  const amount=m.querySelector('[name="amount"]'),vendor=m.querySelector('[name="vendor"]');
+  const category=m.querySelector('[name="category"]');
+  amount?.addEventListener("input",()=>{amount.dataset.userEdited="1";});
+  vendor?.addEventListener("input",()=>{vendor.dataset.userEdited="1";});
+  category?.addEventListener("change",()=>{category.dataset.userEdited="1";});
+  bindFilePicker(m, "file", (file, err) => {
+    const seq=++token;
+    picked=err?null:file;uploaded=null;
+    if(err){note.textContent=err;toast(err,"warn");return;}
+    if(!file){note.textContent="尚未选择合同原件。";return;}
+    const nameInput=m.querySelector('[name="name"]');
+    if(nameInput&&!nameInput.value.trim())nameInput.value=file.name.replace(/\.[^.]+$/,"").slice(0,80);
+    if(category&&!category.dataset.userEdited&&/劳务|劳动|专家|讲课|授课|讲师|讲者|酬金/.test(file.name))
+      category.value="劳务专家";
+    busy=true;btn.disabled=true;
+    note.textContent="正在上传并 OCR 识别合同金额／劳动报酬…";
+    (async()=>{
+      const saved=await api.upload(file,{pid});
+      if(seq!==token)return;
+      uploaded=saved;
+      const scan=await api.post("/api/contracts/scan",{pid,file_key:saved.key,category:category?.value||""});
+      if(seq!==token)return;
+      const fields=scan.fields||{};
+      if(amount&&!amount.dataset.userEdited&&fields.amount!==null&&fields.amount!==undefined)
+        amount.value=String(fields.amount);
+      if(vendor&&!vendor.dataset.userEdited&&(fields.vendor||fields.enterprise))
+        vendor.value=fields.vendor||fields.enterprise;
+      note.textContent=(scan.note||"识别完成，请核对原件后保存。")+
+        (fields.amount!==null&&fields.amount!==undefined?" 已预填"+(fields.amountSource||"合同")+"金额：¥"+fields.amount:"");
+    })().catch(e=>{
+      if(seq===token)note.textContent="OCR 未完成："+e.message+"；可人工填写金额后保存。";
+    }).finally(()=>{if(seq===token){busy=false;btn.disabled=false;}});
   });
-
-  m.querySelector('[data-x="0"]').onclick = () => m.classList.remove("open");
-  const btn = m.querySelector('[data-x="1"]');
+  m.querySelector('[data-x="0"]').onclick = () => {token++;m.classList.remove("open");};
   btn.onclick = async () => {
+    if(busy){toast("合同原件正在识别，请核对结果后保存","warn");return;}
     if (!validate(m, fields)) return;
     const v = readForm(m);
     btn.disabled = true;
     try {
       let meta = {};
       if (picked) {
-        btn.textContent = "上传中 0%";
-        const up = await api.upload(picked, {
+        btn.textContent = uploaded?"保存中…":"上传中 0%";
+        const up = uploaded||await api.upload(picked, {
           onProgress: (p) => { btn.textContent = `上传中 ${Math.round(p * 100)}%`; },
           pid
         });
