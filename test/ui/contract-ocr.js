@@ -116,14 +116,16 @@ async function run(){
  assert.match(await laborForm.locator('[data-contract-scan]').innerText(),/劳动报酬/);
  // A manual correction always wins over an OCR suggestion on the next file.
  await laborForm.locator('[name="amount"]').fill("12900");
+ const rescanned=page.waitForResponse(r=>r.url().includes("/api/contracts/scan")&&r.status()===200,{timeout:20000});
  await laborForm.locator('input[name="file"]').setInputFiles({
   name:"专家劳动报酬合同-更新.docx",
   mimeType:"application/vnd.openxmlformats-officedocument.wordprocessingml.document",
   buffer:laborDoc
  });
+ await rescanned;
  await page.waitForFunction(()=>{
    const root=document.querySelector("#modal.open");
-   return root?.querySelector('[data-contract-scan]')?.textContent.includes("已识别并预填");
+   return root?.querySelector('[data-contract-scan]')?.textContent.includes("已预填劳动报酬金额");
  },null,{timeout:20000});
  assert.equal(await laborForm.locator('[name="amount"]').inputValue(),"12900",
   "manual contract amount should not be overwritten by repeat OCR");
