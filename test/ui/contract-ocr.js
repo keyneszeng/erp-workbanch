@@ -75,8 +75,60 @@ async function run(){
  assert.match(note,/已识别并预填/);
  const rights=await form.locator('[name="rightsCategories"]').inputValue();
  assert.match(rights,/主会场背景板/);
+ await form.locator('[data-x="0"]').click();
+ const projectId=await page.evaluate(async()=>{
+   const r=await fetch("/api/projects",{credentials:"same-origin"});
+   const d=await r.json();
+   return d.rows.find(p=>!["已归档","已结算","已核销"].includes(p.status))?.id;
+ });
+ assert.ok(projectId,"need a writable project for in-project contract entry");
+ await page.goto(origin+"/#/projects/"+projectId,{waitUntil:"domcontentloaded"});
+ await page.locator('[data-tab="contracts"]').waitFor({timeout:15000});
+ await page.locator('[data-tab="contracts"]').first().click();
+ await page.locator("#addContract").waitFor({timeout:15000});
+ await page.locator("#addContract").click();
+ const laborForm=page.locator("#modal.open");
+ await laborForm.locator('[name="category"]').selectOption("劳务专家");
+ const laborDoc=docx([
+  "专家劳动报酬合同","甲方：广东省医学会","乙方：张三",
+  "合同总金额：人民币20,000元",
+  "劳动报酬（税前）：人民币12,600.50元",
+  "其他费用：3000元"
+ ]);
+ await laborForm.locator('input[name="file"]').setInputFiles({
+  name:"专家劳动报酬合同.docx",
+  mimeType:"application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  buffer:laborDoc
+ });
+ try{
+  await page.waitForFunction(()=>{
+   const root=document.querySelector("#modal.open");
+   return root?.querySelector('[name="amount"]')?.value==="12600.5";
+  },null,{timeout:20000});
+ }catch(e){
+  const snapshot=await laborForm.evaluate(root=>({
+   amount:root.querySelector('[name="amount"]')?.value,
+   category:root.querySelector('[name="category"]')?.value,
+   note:root.querySelector('[data-contract-scan]')?.textContent
+  }));
+  throw Error("Project contract labor remuneration OCR did not auto-fill: "+JSON.stringify(snapshot)+"\n"+e.message);
+ }
+ assert.match(await laborForm.locator('[data-contract-scan]').innerText(),/劳动报酬/);
+ // A manual correction always wins over an OCR suggestion on the next file.
+ await laborForm.locator('[name="amount"]').fill("12900");
+ await laborForm.locator('input[name="file"]').setInputFiles({
+  name:"专家劳动报酬合同-更新.docx",
+  mimeType:"application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  buffer:laborDoc
+ });
+ await page.waitForFunction(()=>{
+   const root=document.querySelector("#modal.open");
+   return root?.querySelector('[data-contract-scan]')?.textContent.includes("已识别并预填");
+ },null,{timeout:20000});
+ assert.equal(await laborForm.locator('[name="amount"]').inputValue(),"12900",
+  "manual contract amount should not be overwritten by repeat OCR");
  assert.deepEqual(errors,[],"page JavaScript errors");
- console.log("PASS: real browser DOCX upload -> OCR API -> auto-filled vendor, amount, sponsor rights");
+ console.log("PASS: ledger sponsor OCR and project contract labor remuneration OCR auto-fill");
 }
 run().then(async()=>{
  await browser?.close();proc?.kill("SIGTERM");rmSync(dir,{recursive:true,force:true});
