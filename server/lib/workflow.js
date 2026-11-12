@@ -153,6 +153,7 @@ const GUARDS = {
   submit(p) {
     if (!p.agenda || String(p.agenda).trim().length < 4) return "立项必须填写初版议程要点";
     if (!(p.budget > 0)) return "预算必须大于 0";
+    if (!Number.isFinite(Number(p.budget)) || Number(p.budget)>1e9) return "预算不能超过 10 亿元，请先修改立项草稿";
     return null;
   },
   // 只要求登记并上传至少一份材料原件；不限制类别、数量或固定清单。

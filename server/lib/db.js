@@ -114,6 +114,9 @@ CREATE TABLE IF NOT EXISTS projects (
   phone       TEXT,
   dept        TEXT,
   agenda      TEXT,
+  public_event_time TEXT,
+  public_contact_name TEXT,
+  public_contact_info TEXT,
   status      TEXT NOT NULL DEFAULT '草稿',
   status_at   TEXT,
   created_by  INTEGER REFERENCES users(id),
@@ -520,6 +523,14 @@ CREATE TABLE IF NOT EXISTS public_event_proposals (
 );
 CREATE INDEX IF NOT EXISTS idx_public_event_proposals_received ON public_event_proposals(received_at DESC);
 CREATE INDEX IF NOT EXISTS idx_public_event_proposals_fingerprint ON public_event_proposals(submitter_fingerprint,received_at);
+CREATE TABLE IF NOT EXISTS public_proposal_project_links (
+ proposal_id TEXT PRIMARY KEY REFERENCES public_event_proposals(id),
+ project_id TEXT NOT NULL UNIQUE REFERENCES projects(id) ON DELETE CASCADE,
+ converted_by INTEGER NOT NULL REFERENCES users(id),
+ converted_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_public_proposal_links_project ON public_proposal_project_links(project_id);
+
 
 CREATE TABLE IF NOT EXISTS prep_invitations (
   id               TEXT PRIMARY KEY,
@@ -706,6 +717,10 @@ function migrate() {
   // 生产白名单：所有新用户初次登录必须通过短信验证并修改默认密码。
   addColumn("users", "must_change_password", "must_change_password INTEGER NOT NULL DEFAULT 0");
   addColumn("users", "phone_verified_at", "phone_verified_at TEXT");
+  addColumn("projects","public_event_time","public_event_time TEXT");
+  addColumn("projects","public_contact_name","public_contact_name TEXT");
+  addColumn("projects","public_contact_info","public_contact_info TEXT");
+
   addColumn("public_event_proposals", "handled_at", "handled_at TEXT");
   addColumn("public_event_proposals", "handled_by", "handled_by INTEGER REFERENCES users(id) ON DELETE SET NULL");
   addColumn("public_event_proposals", "handling_note", "handling_note TEXT NOT NULL DEFAULT ''");

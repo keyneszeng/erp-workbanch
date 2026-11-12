@@ -116,3 +116,74 @@ test("public proposal processing is superadmin-only and appears in the admin wor
  assert.equal(repeat.status,200);
  assert.equal(db.prepare("SELECT handling_note FROM public_event_proposals WHERE id=?").get(id).handling_note,"已电话联系，等待补充材料");
 });
+
+test("superadmin converts an archived public proposal into exactly one editable internal draft",async()=>{
+ const src=db.prepare("SELECT * FROM public_event_proposals WHERE status='已归档' ORDER BY received_at DESC LIMIT 1").get();
+ assert.ok(src,"expected a prior archived public proposal");
+ const assocResponse=await req("/api/associations","GET",undefined,adminCookie);
+ assert.equal(assocResponse.status,200);
+ const assoc=assocResponse.data.rows[0];
+ assert.ok(assoc);
+ const fullAgenda="议程完整保留："+("议程安排 ".repeat(290)).slice(0,2800);
+ db.prepare("UPDATE public_event_proposals SET agenda=? WHERE id=?").run(fullAgenda,src.id);
+ const beforeProjects=db.prepare("SELECT COUNT(*) AS n FROM projects").get().n;
+ const beforeApprovals=db.prepare("SELECT COUNT(*) AS n FROM approvals").get().n;
+ const route="/api/admin/public-event-proposals/"+src.id+"/convert";
+ assert.equal((await req(route,"POST",{assoc},guestCookie)).status,403);
+ assert.equal((await req(route,"POST",{assoc:"不存在的协会"},adminCookie)).status,400);
+ const converted=await req(route,"POST",{assoc},adminCookie);
+ assert.equal(converted.status,200,JSON.stringify(converted.data));
+ assert.equal(converted.data.project.status,"草稿");
+ assert.match(converted.data.project.id,/^MP-\d{4}-\d+$/);
+ const p=db.prepare("SELECT * FROM projects WHERE id=?").get(converted.data.project.id);
+ assert.equal(p.name,src.topic);
+ assert.equal(p.assoc,assoc);
+ assert.equal(p.form,src.form);
+ assert.equal(p.date,src.event_date);
+ assert.equal(p.public_event_time,src.event_time);
+ assert.equal(p.budget,src.budget);
+ assert.equal(p.agenda,fullAgenda);
+ assert.equal(p.phone,src.contact_phone);
+ assert.equal(p.public_contact_name,src.contact_name);
+ assert.equal(p.public_contact_info,src.contact_info);
+ assert.equal(p.status,"草稿");
+ const linked=db.prepare("SELECT * FROM public_proposal_project_links WHERE proposal_id=?").get(src.id);
+ assert.equal(linked.project_id,p.id);
+ assert.equal(db.prepare("SELECT status FROM public_event_proposals WHERE id=?").get(src.id).status,"已归档");
+ assert.equal(db.prepare("SELECT COUNT(*) AS n FROM projects").get().n,beforeProjects+1);
+ assert.equal(db.prepare("SELECT COUNT(*) AS n FROM approvals").get().n,beforeApprovals,"conversion must never submit approval");
+ const detail=await req("/api/projects/"+p.id,"GET",undefined,adminCookie);
+ assert.equal(detail.status,200,JSON.stringify(detail.data));
+ assert.equal(detail.data.sourcePublicProposalId,src.id);
+ assert.equal(detail.data.project.public_contact_name,src.contact_name);
+ const inbox=await req("/api/admin/public-event-proposals","GET",undefined,adminCookie);
+ assert.ok(inbox.data.rows.some(row=>row.id===src.id&&row.project_id===p.id));
+ const duplicate=await req(route,"POST",{assoc},adminCookie);
+ assert.equal(duplicate.status,200);
+ assert.equal(duplicate.data.project.id,p.id);
+ assert.equal(duplicate.data.alreadyConverted,true);
+ assert.equal(db.prepare("SELECT COUNT(*) AS n FROM projects").get().n,beforeProjects+1);
+ assert.equal(db.prepare("SELECT COUNT(*) AS n FROM approvals").get().n,beforeApprovals);
+ const dashboard=await req("/api/dashboard","GET",undefined,adminCookie);
+ assert.equal(dashboard.data.todos.some(t=>t.pid===src.id&&t.kind==="公众申请"),false);
+});
+
+test("unhandled public intake conversion clears only its own superadmin todo, never submits an approval",async()=>{
+ const pending=db.prepare("SELECT id FROM public_event_proposals WHERE status='已接收' ORDER BY received_at DESC LIMIT 1").get();
+ assert.ok(pending);
+ const before=await req("/api/dashboard","GET",undefined,adminCookie);
+ assert.ok(before.data.todos.some(t=>t.kind==="公众申请"&&t.pid===pending.id));
+ const assoc=(await req("/api/associations","GET",undefined,adminCookie)).data.rows[0];
+ // Public applications may carry a larger estimated budget than internal approval policy.
+ // Import exactly as received, but prevent accidental submission until corrected.
+ db.prepare("UPDATE public_event_proposals SET budget=? WHERE id=?").run(2000000000,pending.id);
+ const approvalsBefore=db.prepare("SELECT COUNT(*) n FROM approvals").get().n;
+ const result=await req("/api/admin/public-event-proposals/"+pending.id+"/convert","POST",{assoc},adminCookie);
+ assert.equal(result.status,200,JSON.stringify(result.data));
+ assert.equal(result.data.project.status,"草稿");
+ const blocked=await req("/api/projects/"+result.data.project.id+"/transition","POST",{action:"submit"},adminCookie);
+ assert.equal(blocked.status,409,"an oversized imported budget must be corrected before internal approval");
+ const after=await req("/api/dashboard","GET",undefined,adminCookie);
+ assert.equal(after.data.todos.some(t=>t.kind==="公众申请"&&t.pid===pending.id),false);
+ assert.equal(db.prepare("SELECT COUNT(*) n FROM approvals").get().n,approvalsBefore);
+});
