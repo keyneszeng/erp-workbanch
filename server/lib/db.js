@@ -706,6 +706,9 @@ function migrate() {
   // 生产白名单：所有新用户初次登录必须通过短信验证并修改默认密码。
   addColumn("users", "must_change_password", "must_change_password INTEGER NOT NULL DEFAULT 0");
   addColumn("users", "phone_verified_at", "phone_verified_at TEXT");
+  addColumn("public_event_proposals", "handled_at", "handled_at TEXT");
+  addColumn("public_event_proposals", "handled_by", "handled_by INTEGER REFERENCES users(id) ON DELETE SET NULL");
+  addColumn("public_event_proposals", "handling_note", "handling_note TEXT NOT NULL DEFAULT ''");
   // V1.0.3：跨实例吊销签名令牌
   addColumn("users", "token_ver", "token_ver INTEGER NOT NULL DEFAULT 0");
   // 显式按用户授权；迁移时不会将旧角色权限自动转为用户授权。

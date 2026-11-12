@@ -72,9 +72,23 @@ function register(router){
   const page=Math.max(1,Math.min(10000,Number(ctx.query.page)||1));
   const size=Math.max(1,Math.min(100,Number(ctx.query.size)||30));
   const total=Number(db.prepare("SELECT COUNT(*) AS n FROM public_event_proposals").get().n);
-  const rows=db.prepare("SELECT id,topic,event_date,event_time,form,budget,agenda,contact_name,contact_phone,contact_info,received_at,status "+
+  const rows=db.prepare("SELECT id,topic,event_date,event_time,form,budget,agenda,contact_name,contact_phone,contact_info,received_at,status,handled_at,handled_by,handling_note "+
      "FROM public_event_proposals ORDER BY received_at DESC,id DESC LIMIT ? OFFSET ?").all(size,(page-1)*size);
   return {rows,total,page,size};
+ });
+ router.post("/api/admin/public-event-proposals/:id/process",async ctx=>{
+  if(!isSuper(ctx.user))throw forbidden("只有总管理员可以处理公众活动申请");
+  const id=String(ctx.params.id||"");
+  const row=db.prepare("SELECT id,status FROM public_event_proposals WHERE id=?").get(id);
+  if(!row)throw Object.assign(new Error("公众活动申请不存在"),{status:404,code:"NOT_FOUND"});
+  if(row.status==="已归档")return {id,status:row.status,message:"该申请已处理"};
+  const note=String(ctx.body?.note||"").trim();
+  if(note.length>1000)throw bad("处理备注不能超过1000字");
+  const at=new Date().toISOString();
+  db.prepare("UPDATE public_event_proposals SET status='已归档',handled_at=?,handled_by=?,handling_note=? WHERE id=? AND status='已接收'")
+   .run(at,ctx.user.id,note,id);
+  require("../lib/audit").logAudit({user:ctx.user,module:"公众活动申请",action:"处理公众活动申请",target:id,detail:note||"已处理并归档",ip:ctx.ip});
+  return {id,status:"已归档",handled_at:at,message:"申请已处理并归档"};
  });
 }
 module.exports={register,validate};

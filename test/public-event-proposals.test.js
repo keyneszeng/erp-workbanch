@@ -92,3 +92,27 @@ test("mini public page does not depend on wx.login or internal draft approval",(
  const app=fs.readFileSync(path.join(__dirname,"../miniprogram/app.js"),"utf8");
  assert.match(app,/!path.startsWith\("\/public\/"\)/);
 });
+
+test("public proposal processing is superadmin-only and appears in the admin workbench todo",async()=>{
+ // Previous rate-limit test deliberately exhausts the anonymous submission allowance.
+ const pending=db.prepare("SELECT id FROM public_event_proposals WHERE status='已接收' ORDER BY received_at DESC LIMIT 1").get();
+ assert.ok(pending);
+ const id=pending.id;
+ const guestProcess=await req("/api/admin/public-event-proposals/"+id+"/process","POST",{note:"guest attempt"},guestCookie);
+ assert.equal(guestProcess.status,403);
+ const dashboard=await req("/api/dashboard","GET",undefined,adminCookie);
+ assert.ok(dashboard.data.todos.some(t=>t.kind==="公众申请"&&t.pid===id&&t.go==="public-proposals"));
+ const processed=await req("/api/admin/public-event-proposals/"+id+"/process","POST",{note:"已电话联系，等待补充材料"},adminCookie);
+ assert.equal(processed.status,200,JSON.stringify(processed.data));
+ assert.equal(processed.data.status,"已归档");
+ const row=db.prepare("SELECT status,handled_by,handled_at,handling_note FROM public_event_proposals WHERE id=?").get(id);
+ assert.equal(row.status,"已归档");
+ assert.ok(row.handled_by);
+ assert.ok(row.handled_at);
+ assert.equal(row.handling_note,"已电话联系，等待补充材料");
+ const after=await req("/api/dashboard","GET",undefined,adminCookie);
+ assert.equal(after.data.todos.some(t=>t.kind==="公众申请"&&t.pid===id),false);
+ const repeat=await req("/api/admin/public-event-proposals/"+id+"/process","POST",{note:"再次点击"},adminCookie);
+ assert.equal(repeat.status,200);
+ assert.equal(db.prepare("SELECT handling_note FROM public_event_proposals WHERE id=?").get(id).handling_note,"已电话联系，等待补充材料");
+});
