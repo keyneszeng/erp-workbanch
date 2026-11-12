@@ -174,10 +174,15 @@ test("unhandled public intake conversion clears only its own superadmin todo, ne
  const before=await req("/api/dashboard","GET",undefined,adminCookie);
  assert.ok(before.data.todos.some(t=>t.kind==="公众申请"&&t.pid===pending.id));
  const assoc=(await req("/api/associations","GET",undefined,adminCookie)).data.rows[0];
+ // Public applications may carry a larger estimated budget than internal approval policy.
+ // Import exactly as received, but prevent accidental submission until corrected.
+ db.prepare("UPDATE public_event_proposals SET budget=? WHERE id=?").run(2000000000,pending.id);
  const approvalsBefore=db.prepare("SELECT COUNT(*) n FROM approvals").get().n;
  const result=await req("/api/admin/public-event-proposals/"+pending.id+"/convert","POST",{assoc},adminCookie);
  assert.equal(result.status,200,JSON.stringify(result.data));
  assert.equal(result.data.project.status,"草稿");
+ const blocked=await req("/api/projects/"+result.data.project.id+"/transition","POST",{action:"submit"},adminCookie);
+ assert.equal(blocked.status,409,"an oversized imported budget must be corrected before internal approval");
  const after=await req("/api/dashboard","GET",undefined,adminCookie);
  assert.equal(after.data.todos.some(t=>t.kind==="公众申请"&&t.pid===pending.id),false);
  assert.equal(db.prepare("SELECT COUNT(*) n FROM approvals").get().n,approvalsBefore);
