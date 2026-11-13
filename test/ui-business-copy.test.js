@@ -119,3 +119,29 @@ test("核销判定可在线查看原件，第5步展示脱敏账号供人工核�
  assert.doesNotMatch(judge,/bankAccount|bank_account|account_cipher/);
  assert.doesNotMatch(judge,/不从OCR自动导入付款系统/);
 });
+
+test("企业云端电路 LOGO 同步接入网页、微信小程序和浏览器标签",()=>{
+  const web=fs.readFileSync(path.join(__dirname,"../web/assets/brand-logo.jpg"));
+  const mini=fs.readFileSync(path.join(__dirname,"../miniprogram/assets/brand-logo.jpg"));
+  assert.deepEqual(web,mini,"web 和小程序应使用同一份企业 LOGO");
+  assert.deepEqual([...web.subarray(0,3)],[0xff,0xd8,0xff],"LOGO 应是可识别的 JPEG 图片");
+  assert.equal(web.length,3451,"LOGO 资源应为经过压缩并验证的版本");
+  const html=src("web/index.html");
+  assert.match(html,/class="brand-logo" src="\/assets\/brand-logo\.jpg"/);
+  assert.match(html,/<link rel="icon" type="image\/jpeg" href="\/assets\/brand-logo\.jpg">/);
+  const login=src("web/assets/js/pages/login.js");
+  assert.match(login,/class="login-brand-logo" src="\/assets\/brand-logo\.jpg"/);
+  assert.match(login,/class="login-mobile-brand"/);
+  assert.match(src("web/assets/app.css"),/\.brand-logo\{/);
+  assert.match(src("web/assets/app-extra.css"),/\.login-brand-logo\{/);
+  for(const file of [
+    "miniprogram/pages/welcome/index.wxml",
+    "miniprogram/pages/home/index.wxml",
+    "miniprogram/pages/bind/index.wxml",
+    "miniprogram/pages/public-proposal/index.wxml"
+  ]){
+    assert.match(src(file),/<image[^>]+src="\/assets\/brand-logo\.jpg"/,file);
+  }
+  assert.doesNotMatch(src("miniprogram/pages/welcome/index.wxml"),/hero-brand-mark/);
+  assert.doesNotMatch(src("miniprogram/pages/home/index.wxml"),/hero-brand-mark/);
+});
