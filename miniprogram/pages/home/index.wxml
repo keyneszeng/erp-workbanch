@@ -2,7 +2,7 @@
   <view class="home-hero">
     <view class="hero-content">
       <view class="hero-brand">
-        <view class="hero-brand-mark">会</view>
+        <image class="hero-brand-logo" src="/assets/brand-logo.jpg" mode="aspectFit" aria-label="企业 LOGO"/>
         <view class="hero-eyebrow">移动协同工作台</view>
       </view>
       <view class="hero-heading">{{user ? user.name + '，您好' : '会务协同，一站完成'}}</view>

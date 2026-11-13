@@ -20,6 +20,10 @@
   color:#dbe6f4;padding:44px 40px;display:flex;flex-direction:column;gap:18px;position:relative}
 .login-left::after{content:"";position:absolute;right:-60px;bottom:-80px;width:260px;height:260px;
   border-radius:50%;background:rgba(255,255,255,.05)}
+.login-identity{display:flex;align-items:center;gap:14px}
+.login-brand-logo{width:88px;height:64px;object-fit:contain;background:#fff;border-radius:10px;flex-shrink:0}
+.login-mobile-brand{display:none;align-items:center;gap:12px;color:var(--navy);font-size:15px}
+.login-mobile-brand img{width:70px;height:50px;object-fit:contain;border-radius:8px;background:#fff}
 .login-left h1{font-size:24px;letter-spacing:.5px;color:#fff}
 .login-left .sub{font-size:12.5px;color:#9fb3cc;letter-spacing:2px}
 .login-left p{font-size:13px;line-height:1.9;color:#c2d0e2}
@@ -125,6 +129,7 @@ td .mono, td.mono{white-space:nowrap}
 @media (max-width:980px){
   .login-box{grid-template-columns:1fr}
   .login-left{display:none}
+  .login-mobile-brand{display:flex}
 }
 
 /* ---------- 分页条 ---------- */

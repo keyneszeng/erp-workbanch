@@ -1,6 +1,6 @@
 <view class="wrap">
   <view class="card card-accent">
-    <view class="page-kicker">PUBLIC EVENT PROPOSAL</view>
+    <view class="public-brand-row"><image class="public-brand-logo" src="/assets/brand-logo.jpg" mode="aspectFit" aria-label="企业 LOGO"/><view class="page-kicker">PUBLIC EVENT PROPOSAL</view></view>
     <view class="heading">公众活动立项申请</view>
     <view class="subtitle">无需账号，提交活动举办意向，由平台总管理员统一接收</view>
     <view class="notice"><text class="notice-icon">i</text><text>提交不代表活动获批或确定举办，也不会自动触发内部审批、立项及付款流程。</text></view>
