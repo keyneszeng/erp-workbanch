@@ -2,7 +2,7 @@
   <view class="home-hero">
     <view class="hero-content">
       <view class="hero-brand">
-        <view class="hero-brand-mark">会</view>
+        <image class="hero-brand-logo" src="/assets/brand-logo.jpg" mode="aspectFit" aria-label="企业 LOGO"/>
         <view class="hero-eyebrow">会规化会务执行系统</view>
       </view>
       <view class="hero-heading">规范办会，协同更简单</view>
