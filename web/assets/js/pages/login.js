@@ -12,9 +12,10 @@ const DEMO = [
 export function render(root, onSuccess, { demo = false } = {}) {
   root.innerHTML = `<div class="login-box">
     <div class="login-left">
-      <div>
-        <div class="sub">会规化会务执行系统 ERP</div>
-        <h1>会规化会务执行系统</h1>
+      <div class="login-identity">
+        <img class="login-brand-logo" src="/assets/brand-logo.jpg" alt="企业 LOGO" width="88" height="64">
+        <div><div class="sub">会规化会务执行系统 ERP</div>
+        <h1>会规化会务执行系统</h1></div>
       </div>
       <p>从立项审批到数字卷宗，一条链跑完会议全生命周期。<br>通过七项核销规则中的全部适用项后，才能申请付款。</p>
       <div class="login-points">
@@ -25,6 +26,7 @@ export function render(root, onSuccess, { demo = false } = {}) {
       </div>
     </div>
     <div class="login-right">
+      <div class="login-mobile-brand"><img src="/assets/brand-logo.jpg" alt="企业 LOGO" width="70" height="50"><strong>会规化会务执行系统</strong></div>
       <div>
         <h2>登录工作台<span style="${demo ? "display:inline-block;" : "display:none;"}margin-left:8px;padding:2px 9px;border-radius:999px;background:#fdf8ec;color:#b7791f;border:1px solid #f0dfb8;font-size:11px;font-weight:600;vertical-align:middle;letter-spacing:0">演示环境 · 数据非真实</span></h2>
         <div class="hint">${demo ? "使用演示账号登录" : "仅允许白名单手机号登录；初始密码 123456，首次必须短信验证并改密"}，功能权限由总管理员逐账号分配；数据范围依协会与项目归属控制${demo ? "；演示数据可由总管理员重置" : ""}</div>
