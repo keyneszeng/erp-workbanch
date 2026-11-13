@@ -94,6 +94,21 @@ button::after { border: 0; }
   background: #ffffff;
   border-radius: 12rpx;
 }
+.hero-brand-logo {
+  width: 76rpx;
+  height: 56rpx;
+  flex-shrink: 0;
+  background: #fff;
+  border-radius: 12rpx;
+}
+.identity-brand-logo {
+  display: block;
+  width: 150rpx;
+  height: 110rpx;
+  margin: 0 auto 20rpx;
+  background: #fff;
+  border-radius: 16rpx;
+}
 .hero-eyebrow { color: rgba(255,255,255,.78); font-size: 22rpx; font-weight: 600; letter-spacing: 2rpx; }
 .hero-heading { margin: 26rpx 0 8rpx; font-size: 44rpx; font-weight: 750; letter-spacing: 1rpx; line-height: 1.25; }
 .hero-sub { max-width: 560rpx; color: rgba(255,255,255,.78); font-size: 25rpx; line-height: 1.6; }
