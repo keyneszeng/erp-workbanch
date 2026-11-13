@@ -101,6 +101,9 @@ button::after { border: 0; }
   background: #fff;
   border-radius: 12rpx;
 }
+.public-brand-row { display: flex; align-items: center; gap: 14rpx; margin-bottom: 10rpx; }
+.public-brand-row .page-kicker { margin-bottom: 0; }
+.public-brand-logo { width: 92rpx; height: 66rpx; background: #fff; border: 1rpx solid #e3e8ef; border-radius: 10rpx; }
 .identity-brand-logo {
   display: block;
   width: 150rpx;
