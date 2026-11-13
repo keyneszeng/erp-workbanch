@@ -1,6 +1,6 @@
 <view class="wrap">
   <view class="card card-accent">
-    <view class="identity-mark">身份</view>
+    <image class="identity-brand-logo" src="/assets/brand-logo.jpg" mode="aspectFit" aria-label="企业 LOGO"/>
     <view class="heading" style="text-align:center">微信身份绑定</view>
     <view class="subtitle" style="text-align:center">首次进入时完成一次验证，后续可通过微信身份安全登录</view>
 
