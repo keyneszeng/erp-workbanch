@@ -174,7 +174,7 @@ export function openMaterialRegistration(root, projects, kinds, defaultPid="", o
     saveButton.textContent="上传并登记";
     const tip=m.querySelector(".upload")?.closest(".fld")?.querySelector(".tip");
     if(tip)tip.textContent=final
-      ?"终版议程只允许上传一份文件，材料名称与文件名相同，保存即自动确认为终版。"
+      ?`终版议程一次可选择最多 ${MAX_MATERIAL_FILES_PER_BATCH} 份；按选择顺序登记，最后一份确认为当前终版，其余归为历史版。`
       :photo?`讲者照片一次可选择最多 ${MAX_MATERIAL_FILES_PER_BATCH} 张 JPG/PNG/WebP 图片，每张对应一位讲者；请在文件名中填写对应讲者姓名，便于终版议程核验。`
       :rightsPhoto?"可同时上传同一权益的多张 JPG/PNG/WebP 照片，每张独立归档。"
       :`一次最多选择 ${MAX_MATERIAL_FILES_PER_BATCH} 份、单份不超过 50 MB；并发上传并逐份归档，材料名称自动使用文件名。`;
