@@ -63,3 +63,21 @@ test("漏人、增人、重复同名照片、照片文件名与显示名称冲�
   db.close();
  }
 });
+
+test("归档材料批量上传允许多位讲者照片，最多10份并保留原始文件名",()=>{
+ const fs=require("node:fs"),path=require("node:path");
+ const source=fs.readFileSync(path.join(__dirname,"../web/assets/js/pages/materials.js"),"utf8");
+ assert.match(source,/picker\.multiple=!final;/);
+ assert.match(source,/files\.length>10/);
+ assert.match(source,/kindSelect\.value==="讲者照片"&&files\.some/);
+ assert.match(source,/name:item\.file\.name/);
+ assert.doesNotMatch(source,/讲者照片每次只能上传|files\.length!==1\|\|/);
+ const {photoName,compareNames}=require("../server/lib/verify-agenda-evidence");
+ const speakers=["张三教授","李四主任","王五医生"];
+ const photos=["张三照片.jpg","李四主任.png","王五.webp"].map(file_name=>({file_name,name:"系统应读取文件名"}));
+ const matched=compareNames(speakers,photos.map(photoName));
+ assert.equal(matched.matched,true,"原始文件名应逐一识别讲者并与议程名单关联");
+ assert.equal(matched.photoCount,3);
+ const duplicate=compareNames(speakers,[photos[0],photos[0],photos[2]].map(photoName));
+ assert.equal(duplicate.matched,false,"重复讲者不得被默默接受");
+});
