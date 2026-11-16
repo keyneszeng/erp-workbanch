@@ -169,13 +169,13 @@ export function openMaterialRegistration(root, projects, kinds, defaultPid="", o
     const photo=kindSelect.value==="讲者照片";
     const rightsPhoto=kindSelect.value==="权益照片";
     rightField.style.display=rightsPhoto?"":"none";
-    picker.multiple=!final&&!photo;
+    picker.multiple=!final;
     picker.accept=photo||rightsPhoto?".jpg,.jpeg,.png,.webp":UPLOAD_ACCEPT;
     saveButton.textContent=final?"确定终版议程":"上传并登记";
     const tip=m.querySelector(".upload")?.closest(".fld")?.querySelector(".tip");
     if(tip)tip.textContent=final
       ?"终版议程只允许上传一份文件，材料名称与文件名相同，保存即自动确认为终版。"
-      :photo?"讲者照片每次上传一位讲者的一张 JPG/PNG/WebP 图片；文件名应包含讲者姓名。"
+      :photo?`讲者照片一次可选择最多 ${MAX_MATERIAL_FILES_PER_BATCH} 张 JPG/PNG/WebP 图片，每张对应一位讲者；请在文件名中填写对应讲者姓名，便于终版议程核验。`
       :rightsPhoto?"可同时上传同一权益的多张 JPG/PNG/WebP 照片，每张独立归档。"
       :`一次最多选择 ${MAX_MATERIAL_FILES_PER_BATCH} 份、单份不超过 50 MB；并发上传并逐份归档，材料名称自动使用文件名。`;
   };
@@ -195,9 +195,8 @@ export function openMaterialRegistration(root, projects, kinds, defaultPid="", o
       return fail("材料文件名必须有效且不能超过 120 字符");
     if(kindSelect.value==="终版议程"&&files.length!==1)
       return fail("终版议程只能上传一份文件");
-    if(kindSelect.value==="讲者照片"&&(files.length!==1||
-      !/\.(jpe?g|png|webp)$/i.test(files[0].name||"")))
-      return fail("讲者照片请一次选择一位讲者的一张 JPG/PNG/WebP 图片");
+    if(kindSelect.value==="讲者照片"&&files.some(f=>!/\.(jpe?g|png|webp)$/i.test(f.name||"")))
+      return fail("讲者照片仅支持 JPG/PNG/WebP 图片，文件名应包含对应讲者姓名");
     if(kindSelect.value==="权益照片"&&files.some(f=>!/\.(jpe?g|png|webp)$/i.test(f.name||"")))
       return fail("权益照片仅支持 JPG/PNG/WebP 图片");
     picked=files.map(file=>({file,status:"pending",error:"",upload:null}));
@@ -213,9 +212,6 @@ export function openMaterialRegistration(root, projects, kinds, defaultPid="", o
     if(picked.length>MAX_MATERIAL_FILES_PER_BATCH){toast(`单次最多登记 ${MAX_MATERIAL_FILES_PER_BATCH} 份材料附件`,"warn");return;}
     const final=kindSelect.value==="终版议程";
     if(final&&picked.length!==1){toast("终版议程只能上传一份文件","warn");return;}
-    if(kindSelect.value==="讲者照片"&&picked.length!==1){
-      toast("讲者照片每次只能上传一位讲者的一张图片","warn");return;
-    }
     if(kindSelect.value==="权益照片"&&!availableRights.some(x=>String(x.id)===rightSelect.value)){
       toast("请先选择与当前赞助合同对应的权益内容","warn");return;
     }
