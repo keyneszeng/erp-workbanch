@@ -72,8 +72,10 @@ export async function render(root) {
 /**
  * 两处入口（会议项目→归档材料、材料中心）共享同一登记表单。
  * 材料名称严格使用用户所选择文件的原始名称；附件不做有损压缩。
- * 最多 20 份/批、并发 3 份，逐份显示结果，失败文件可单独重试。
+ * 最多 10 份/批、并发 3 份，逐份显示结果，失败文件可单独重试。
  */
+export const MAX_MATERIAL_FILES_PER_BATCH=10;
+
 export function openMaterialRegistration(root, projects, kinds, defaultPid="", onSaved=null) {
   if(!projects.length){
     toast("当前没有可登记材料的项目（已结算、已归档项目不允许新增材料）","warn");
@@ -90,7 +92,7 @@ export function openMaterialRegistration(root, projects, kinds, defaultPid="", o
     {k:"sponsor_right_id",l:"权益照片 · 二级类目（从赞助合同自动生成，可自定义）",
       t:"select",opts:[],tip:"先选择项目及赞助合同权益，再上传对应照片。"},
     {k:"file",l:"选择材料文件",t:"file",full:1,accept:UPLOAD_ACCEPT,
-      tip:"一次最多选择 20 份，每份不超过 50 MB；支持并发上传。材料名称自动采用对应文件名，无需手动输入。"}
+      tip:`一次最多选择 ${MAX_MATERIAL_FILES_PER_BATCH} 份，每份不超过 50 MB；支持并发上传。材料名称自动采用对应文件名，无需手动输入。`}
   ];
   const m=modal({
     title:"登记材料",width:"660px",
@@ -175,7 +177,7 @@ export function openMaterialRegistration(root, projects, kinds, defaultPid="", o
       ?"终版议程只允许上传一份文件，材料名称与文件名相同，保存即自动确认为终版。"
       :photo?"讲者照片每次上传一位讲者的一张 JPG/PNG/WebP 图片；文件名应包含讲者姓名。"
       :rightsPhoto?"可同时上传同一权益的多张 JPG/PNG/WebP 照片，每张独立归档。"
-      :"一次最多选择 20 份、单份不超过 50 MB；并发上传并逐份归档，材料名称自动使用文件名。";
+      :`一次最多选择 ${MAX_MATERIAL_FILES_PER_BATCH} 份、单份不超过 50 MB；并发上传并逐份归档，材料名称自动使用文件名。`;
   };
   pidSelect.addEventListener("change",()=>{resetFiles();loadRights();});
   kindSelect.addEventListener("change",()=>{resetFiles();syncKind();});
@@ -185,7 +187,7 @@ export function openMaterialRegistration(root, projects, kinds, defaultPid="", o
     if(busy)return;
     const files=Array.from(picker.files||[]);
     const fail=msg=>{toast(msg,"warn");resetFiles();};
-    if(files.length>20)return fail("单次最多选择 20 份材料附件");
+    if(files.length>MAX_MATERIAL_FILES_PER_BATCH)return fail(`单次最多选择 ${MAX_MATERIAL_FILES_PER_BATCH} 份材料附件`);
     if(!files.length){resetFiles();return;}
     const error=files.map(checkFile).find(Boolean);
     if(error)return fail(error);
@@ -208,6 +210,7 @@ export function openMaterialRegistration(root, projects, kinds, defaultPid="", o
     if(busy)return;
     if(!validate(m,fields))return;
     if(!picked.length){toast("请先选择至少一份材料文件","warn");return;}
+    if(picked.length>MAX_MATERIAL_FILES_PER_BATCH){toast(`单次最多登记 ${MAX_MATERIAL_FILES_PER_BATCH} 份材料附件`,"warn");return;}
     const final=kindSelect.value==="终版议程";
     if(final&&picked.length!==1){toast("终版议程只能上传一份文件","warn");return;}
     if(kindSelect.value==="讲者照片"&&picked.length!==1){
