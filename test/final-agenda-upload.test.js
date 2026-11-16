@@ -1,5 +1,5 @@
 "use strict";
-/** 终版议程：只需登记类别并上传一份原件，自动确认为终版，不生成讲者/课题待办。 */
+/** 终版议程：最多 10 份按选择顺序登记；最后一份是当前终版，其余作为历史原件。 */
 const {test,before,after}=require("node:test");
 const assert=require("node:assert/strict");
 const fs=require("node:fs"),path=require("node:path");
@@ -45,12 +45,12 @@ after(()=>{
   proc?.kill("SIGTERM");
   fs.rmSync(DIR,{force:true,recursive:true});
 });
-test("归档材料旧终版议程模块已移除，登记表单保留一键确认入口",()=>{
+test("归档材料旧终版议程模块已移除，统一材料表单允许批量选择但仅一份当前终版",()=>{
   const source=fs.readFileSync(path.join(__dirname,"..","web","assets","js","pages","materials.js"),"utf8");
   const app=fs.readFileSync(path.join(__dirname,"..","web","assets","js","app.js"),"utf8");
   assert.ok(source.includes('"终版议程"'),"终版议程应存在于登记材料类别列表");
-  assert.ok(source.includes('确定终版议程'),"选择类别后按钮应改为明确确认");
-  assert.ok(source.includes("picker.multiple=!final"),"终版议程每次仅允许一份附件");
+  assert.ok(source.includes("最后一份确认为当前终版"),"批量上传需明确最终版本规则");
+  assert.ok(source.includes("picker.multiple=true"),"全部材料类别均可多选，终版议程按顺序归档");
   assert.ok(!fs.existsSync(path.join(__dirname,"..","web","assets","js","lib","material-workbench.js")),
     "旧的终版议程材料模块及待办板块应从前端移除");
   assert.ok(!app.includes("归档必备 8 类材料"),"路由不能再出现旧强制文案");
