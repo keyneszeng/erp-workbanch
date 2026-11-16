@@ -169,9 +169,9 @@ export function openMaterialRegistration(root, projects, kinds, defaultPid="", o
     const photo=kindSelect.value==="讲者照片";
     const rightsPhoto=kindSelect.value==="权益照片";
     rightField.style.display=rightsPhoto?"":"none";
-    picker.multiple=!final;
+    picker.multiple=true;
     picker.accept=photo||rightsPhoto?".jpg,.jpeg,.png,.webp":UPLOAD_ACCEPT;
-    saveButton.textContent=final?"确定终版议程":"上传并登记";
+    saveButton.textContent="上传并登记";
     const tip=m.querySelector(".upload")?.closest(".fld")?.querySelector(".tip");
     if(tip)tip.textContent=final
       ?"终版议程只允许上传一份文件，材料名称与文件名相同，保存即自动确认为终版。"
@@ -193,14 +193,12 @@ export function openMaterialRegistration(root, projects, kinds, defaultPid="", o
     if(error)return fail(error);
     if(files.some(f=>!f.name.trim()||f.name.length>120))
       return fail("材料文件名必须有效且不能超过 120 字符");
-    if(kindSelect.value==="终版议程"&&files.length!==1)
-      return fail("终版议程只能上传一份文件");
     if(kindSelect.value==="讲者照片"&&files.some(f=>!/\.(jpe?g|png|webp)$/i.test(f.name||"")))
       return fail("讲者照片仅支持 JPG/PNG/WebP 图片，文件名应包含对应讲者姓名");
     if(kindSelect.value==="权益照片"&&files.some(f=>!/\.(jpe?g|png|webp)$/i.test(f.name||"")))
       return fail("权益照片仅支持 JPG/PNG/WebP 图片");
     picked=files.map(file=>({file,status:"pending",error:"",upload:null}));
-    batchStatus.textContent=files.length+" 份文件已选择；保存时将使用各自文件名作为材料名称。";
+    batchStatus.textContent=files.length+" 份文件已选择；"+(kindSelect.value==="终版议程"?"最后一份将确认为当前终版。":"保存时将使用各自文件名作为材料名称。");
     drawFiles();
   };
 
@@ -211,7 +209,6 @@ export function openMaterialRegistration(root, projects, kinds, defaultPid="", o
     if(!picked.length){toast("请先选择至少一份材料文件","warn");return;}
     if(picked.length>MAX_MATERIAL_FILES_PER_BATCH){toast(`单次最多登记 ${MAX_MATERIAL_FILES_PER_BATCH} 份材料附件`,"warn");return;}
     const final=kindSelect.value==="终版议程";
-    if(final&&picked.length!==1){toast("终版议程只能上传一份文件","warn");return;}
     if(kindSelect.value==="权益照片"&&!availableRights.some(x=>String(x.id)===rightSelect.value)){
       toast("请先选择与当前赞助合同对应的权益内容","warn");return;
     }
@@ -246,6 +243,7 @@ export function openMaterialRegistration(root, projects, kinds, defaultPid="", o
           item.status="done";item.error="";
         }catch(e){
           item.status="error";item.error=e.message||"上传或登记失败";
+          if(final)cursor=queue.length; // retry this and later pending agendas in selection order
         }
         const done=picked.filter(x=>x.status==="done").length;
         batchStatus.textContent="已登记 "+done+"/"+picked.length+" 份材料"+
@@ -253,7 +251,9 @@ export function openMaterialRegistration(root, projects, kinds, defaultPid="", o
         drawFiles();
       }
     };
-    await Promise.all(Array.from({length:Math.min(3,queue.length)},()=>worker()));
+    // Serial registration is required for agenda versions: the LAST selected
+    // agenda must remain current even after a failed file is retried.
+    await Promise.all(Array.from({length:final?1:Math.min(3,queue.length)},()=>worker()));
     busy=false;saveButton.disabled=false;cancelButton.disabled=false;
     picker.disabled=false;pidSelect.disabled=false;kindSelect.disabled=false;
     if(custom)custom.disabled=false;
@@ -269,7 +269,7 @@ export function openMaterialRegistration(root, projects, kinds, defaultPid="", o
       batchStatus.textContent="成功登记 "+done+" 份，失败 "+failed+" 份。请查看每个文件的状态后重试。";
       toast("已登记 "+done+" 份；另有 "+failed+" 份失败，可重试","warn");
     }else{
-      toast(final?"终版议程已上传并确认":"已登记 "+done+" 份材料，名称与原文件名一致","ok");
+      toast(final?`已登记 ${done} 份议程，最后一份确认为当前终版`:"已登记 "+done+" 份材料，名称与原文件名一致","ok");
       m.classList.remove("open");
     }
   };
