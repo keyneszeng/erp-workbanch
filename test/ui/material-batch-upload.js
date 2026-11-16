@@ -90,6 +90,33 @@ async function ready(){
   for(const name of names)
     assert.ok((await page.locator("#content").innerText()).includes(name),"meeting materials list displays "+name);
 
+
+  // Speaker photographs must allow batch selection and filename-driven matching.
+  await page.goto(origin+"/#/materials",{waitUntil:"domcontentloaded"});
+  await page.locator("#add").click();
+  const photoModal=page.locator("#modal.open");
+  await photoModal.locator('[name="pid"]').selectOption(pid);
+  await photoModal.locator('[name="kind"]').selectOption("讲者照片");
+  const photoPicker=photoModal.locator('input[name="file"]');
+  assert.notEqual(await photoPicker.getAttribute("multiple"),null,
+    "speaker photos must not be restricted to one file");
+  const png=Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGOs2HKCgYGBiYGBgYGBAQAXSgH4e4AHEAAAAABJRU5ErkJggg==","base64");
+  const photoFiles=["张三.png","李四照片.png","王五.png"].map(name=>({name,mimeType:"image/png",buffer:png}));
+  const tooMany=Array.from({length:11},(_,i)=>({name:"讲者"+(i+1)+".png",mimeType:"image/png",buffer:png}));
+  await photoPicker.setInputFiles(tooMany);
+  assert.equal(await photoModal.locator("[data-material-name]").count(),0,
+    "the 11th file must be rejected, rather than silently dropped");
+  await photoPicker.setInputFiles(photoFiles);
+  assert.deepEqual(await photoModal.locator("[data-material-name]").allTextContents(),
+    photoFiles.map(f=>f.name),"each speaker photo must retain its filename");
+  await photoModal.locator('[data-x="1"]').click();
+  await photoModal.waitFor({state:"hidden",timeout:25000});
+  list=await (await page.request.get(origin+"/api/materials")).json();
+  const photoRows=photoFiles.map(f=>list.rows.find(x=>x.pid===pid&&x.kind==="讲者照片"&&
+    x.name===f.name&&x.file_name===f.name));
+  assert.ok(photoRows.every(Boolean),"all speaker photos should be stored as separate named materials");
+  assert.equal(new Set(photoRows.map(x=>x.file_key)).size,photoFiles.length);
+
   // Same dialog from Material Center; fail one upload then retry only that item.
   await page.goto(origin+"/#/materials",{waitUntil:"domcontentloaded"});
   await page.locator("#add").click();
