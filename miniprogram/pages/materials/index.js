@@ -1,10 +1,13 @@
 const app=getApp();
 const MAX_MATERIAL_FILES_PER_BATCH=10;
 const MAX_FILE_BYTES=20*1024*1024;
+// 相册图片没有原始文件名（wxfile://tmp_xxx.jpg），无法按文件名关联讲者，
+// 因此讲者照片额外提供「相册选图 → 逐张填姓名」的通道，姓名拼成文件名后走同一套上传。
+let speakerSeq=0;
 Page({
  data:{projects:[],index:0,pid:"",kind:"课件",name:"",error:"",busy:false,uploaded:"",
   standardKinds:["课件","串场","劳务收集表","劳务协议","议程","终版议程","签到表","讲者照片","现场照片","权益照片"],
-  activeKinds:[],custom:false,customKind:"",locked:false,batchResults:[],
+  activeKinds:[],custom:false,customKind:"",locked:false,batchResults:[],speakerFiles:[],
   sponsorRights:[{id:"",label:"请选择赞助权益类目"}],rightIndex:0,rightId:""},
  onLoad(q){if(q.pid)this.setData({pid:q.pid});},
  onShow(){this.load();},
@@ -33,14 +36,14 @@ Page({
   }catch(e){this.setData({activeKinds:this.data.standardKinds,error:e.message});}
  },
  select(e){if(this.data.busy)return;this._batch=null;const index=Number(e.detail.value),p=this.data.projects[index];
-  this.setData({index,pid:p.id,locked:["已结算","已归档"].includes(p.status),uploaded:"",batchResults:[]});
+  this.setData({index,pid:p.id,locked:["已结算","已归档"].includes(p.status),uploaded:"",batchResults:[],speakerFiles:[]});
   this.loadKinds(p.id);
   if(this.data.kind==="权益照片")this.loadRights(p.id);else this.setData({sponsorRights:[{id:"",label:"请选择赞助权益类目"}],rightIndex:0,rightId:""});
  },
  chooseKind(e){
   if(this.data.busy)return;
   this._batch=null;const kind=e.currentTarget.dataset.kind;
-  this.setData({kind,custom:false,batchResults:[]});
+  this.setData({kind,custom:false,batchResults:[],speakerFiles:[]});
   if(kind==="权益照片")this.loadRights(this.data.pid);
  },
  async loadRights(pid){
@@ -63,13 +66,14 @@ Page({
   const i=Number(e.detail.value),row=this.data.sponsorRights[i];
   this.setData({rightIndex:i,rightId:row?.id||""});
  },
- chooseCustom(){if(this.data.busy)return;this._batch=null;this.setData({custom:true,rightId:"",batchResults:[]});},
+ chooseCustom(){if(this.data.busy)return;this._batch=null;this.setData({custom:true,rightId:"",batchResults:[],speakerFiles:[]});},
  input(e){this.setData({[e.currentTarget.dataset.key]:e.detail.value});},
  async addPhoto(){
   if(this.data.busy||this.data.locked)return;
   const kind=this.data.custom?this.data.customKind.trim():this.data.kind.trim();
-  if(kind==="讲者照片"){
-   this.setData({error:"讲者照片直接按文件名关联讲者，请从微信会话选择已用讲者姓名命名的图片（如张三.jpg）"});return;
+  const speaker=kind==="讲者照片";
+  if(speaker&&this.data.speakerFiles.length){
+   this.setData({error:"已有一批讲者照片待命名，请先上传或移除后再选"});return;
   }
   try{
    const media=await new Promise((resolve,reject)=>wx.chooseMedia({
@@ -80,10 +84,56 @@ Page({
    const files=chosen.map((file,i)=>{
     const path=String(file.tempFilePath||file.path||"");
     const ext=/\.png$/i.test(path)?"png":/\.webp$/i.test(path)?"webp":"jpg";
-    return {...file,path,name:"现场照片-"+stamp+"-"+(i+1)+"."+ext};
+    return {...file,path,ext,name:"现场照片-"+stamp+"-"+(i+1)+"."+ext};
    });
+   if(speaker){
+    // 相册图片没有原始文件名，先让用户逐张填写讲者姓名，姓名即材料名称
+    this.setData({speakerFiles:files.map(f=>({
+     uid:++speakerSeq,path:f.path,size:Number(f.size)||0,ext:f.ext,name:"",error:""
+    })),error:"",uploaded:""});
+    return;
+   }
    await this.uploadBatch(files);
-  }catch(e){this.setData({error:e.message||"图片选择失败"});}
+  }catch(e){
+   if(/cancel/i.test(String(e&&e.errMsg||"")))return;
+   this.setData({error:e.message||"图片选择失败"});
+  }
+ },
+ inputSpeakerName(e){
+  const i=Number(e.currentTarget.dataset.index);
+  const list=this.data.speakerFiles.slice();
+  if(!list[i])return;
+  list[i]={...list[i],name:e.detail.value,error:""};
+  this.setData({speakerFiles:list});
+ },
+ removeSpeaker(e){
+  if(this.data.busy)return;
+  const i=Number(e.currentTarget.dataset.index);
+  const list=this.data.speakerFiles.slice();
+  if(!list[i])return;
+  list.splice(i,1);
+  this.setData({speakerFiles:list,error:""});
+ },
+ async uploadSpeakers(){
+  if(this.data.busy||this.data.locked)return;
+  const list=this.data.speakerFiles;
+  if(!list.length){this.setData({error:"请先选择讲者照片"});return;}
+  // 姓名即材料名称，必须逐张填写；缺失项就地标红，不静默跳过
+  let invalid=false;
+  const clean=raw=>String(raw||"").trim().replace(/\.(jpe?g|png|webp)$/i,"").trim();
+  const checked=list.map(f=>{
+   const name=clean(f.name);
+   if(!name){invalid=true;return {...f,error:"请填写讲者姓名"};}
+   if(name.length>120){invalid=true;return {...f,error:"姓名不能超过 120 字"};}
+   return f;
+  });
+  if(invalid){this.setData({speakerFiles:checked,error:"请为每张照片填写讲者姓名"});return;}
+  const files=list.map(f=>({
+   tempFilePath:f.path,path:f.path,size:f.size,
+   name:clean(f.name)+"."+f.ext
+  }));
+  await this.uploadBatch(files);
+  this.setData({speakerFiles:[]});
  },
  async addFile(){
   if(this.data.busy||this.data.locked)return;

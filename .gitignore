@@ -26,3 +26,6 @@ coverage/
 # 现场巡检截图、角色按钮清单和业务数据快照（不得入库）
 artifacts/
 .mini-preview/
+
+# 微信公众平台后台登录态（含 Cookie，严禁入库）
+.wx-admin/
