@@ -67,8 +67,8 @@ test("漏人、增人、重复同名照片、照片文件名与显示名称冲�
 test("归档材料批量上传允许多位讲者照片，最多10份并保留原始文件名",()=>{
  const fs=require("node:fs"),path=require("node:path");
  const source=fs.readFileSync(path.join(__dirname,"../web/assets/js/pages/materials.js"),"utf8");
- assert.match(source,/picker\.multiple=!final;/);
- assert.match(source,/files\.length>10/);
+ assert.match(source,/picker\.multiple=true;/);
+ assert.match(source,/files\.length>MAX_MATERIAL_FILES_PER_BATCH/);
  assert.match(source,/kindSelect\.value==="讲者照片"&&files\.some/);
  assert.match(source,/name:item\.file\.name/);
  assert.doesNotMatch(source,/讲者照片每次只能上传|files\.length!==1\|\|/);
