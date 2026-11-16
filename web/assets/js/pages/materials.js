@@ -126,7 +126,8 @@ export function openMaterialRegistration(root, projects, kinds, defaultPid="", o
         'style="justify-content:space-between;gap:12px;padding:7px 0;border-bottom:1px solid var(--line)">'+
         '<span style="overflow-wrap:anywhere;min-width:0">'+
         '<b data-material-name>'+esc(item.file.name)+'</b>'+
-        '<span class="hint"> · '+formatBytes(item.file.size)+'</span></span>'+
+        '<span class="hint"> · '+formatBytes(item.file.size)+'</span>'+
+        (item.speaker?'<span class="hint"> · 文件名关联讲者：'+esc(item.speaker)+'</span>':'')+'</span>'+
         '<span class="hint" data-material-status style="flex-shrink:0">'+
         esc(item.status==='done'?'已登记':item.status==='uploading'?'上传中…':
           item.status==='saving'?'归档中…':item.status==='error'?'失败，可重试':'待上传')+
@@ -176,7 +177,7 @@ export function openMaterialRegistration(root, projects, kinds, defaultPid="", o
     if(tip)tip.textContent=final
       ?`终版议程一次可选择最多 ${MAX_MATERIAL_FILES_PER_BATCH} 份；按选择顺序登记，最后一份确认为当前终版，其余归为历史版。`
       :photo?`讲者照片一次可选择最多 ${MAX_MATERIAL_FILES_PER_BATCH} 张 JPG/PNG/WebP 图片，每张对应一位讲者；请在文件名中填写对应讲者姓名，便于终版议程核验。`
-      :rightsPhoto?"可同时上传同一权益的多张 JPG/PNG/WebP 照片，每张独立归档。"
+       :rightsPhoto?`可一次上传最多 ${MAX_MATERIAL_FILES_PER_BATCH} 张同一权益的 JPG/PNG/WebP 照片，每张独立归档。`
       :`一次最多选择 ${MAX_MATERIAL_FILES_PER_BATCH} 份、单份不超过 50 MB；并发上传并逐份归档，材料名称自动使用文件名。`;
   };
   pidSelect.addEventListener("change",()=>{resetFiles();loadRights();});
@@ -236,10 +237,11 @@ export function openMaterialRegistration(root, projects, kinds, defaultPid="", o
           const up=item.upload||await api.upload(item.file,{pid:data.pid});
           item.upload=up;
           item.status="saving";drawFiles();
-          await api.post("/api/projects/"+encodeURIComponent(data.pid)+"/materials",{
+          const saved=await api.post("/api/projects/"+encodeURIComponent(data.pid)+"/materials",{
             ...data,name:item.file.name,
             file_key:up.key,file_name:up.name,file_size:up.size,file_mime:up.mime
           });
+          item.speaker=saved.speakerFromFilename||"";
           item.status="done";item.error="";
         }catch(e){
           item.status="error";item.error=e.message||"上传或登记失败";
