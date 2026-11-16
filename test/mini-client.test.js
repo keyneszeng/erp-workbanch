@@ -155,3 +155,73 @@ test("WeChat silent login sends no old employee token and resumes the linked rol
  assert.equal(seen[0].header.Authorization,undefined);
  assert.match(seen[0].url,/\/mini\/auth\/login$/);
 });
+
+function mockMaterialsPage(files,api){
+ let page;
+ const seen={chooseCount:0,mediaCount:0,toast:0};
+ const wx={
+  chooseMessageFile:opts=>{seen.chooseCount=opts.count;opts.success({tempFiles:files});},
+  chooseMedia:opts=>{seen.mediaCount=opts.count;opts.success({tempFiles:files});},
+  getFileSystemManager:()=>({readFile:opts=>opts.success({data:new Uint8Array([1,2,3])})}),
+  showToast:()=>{seen.toast++;},
+ };
+ const app={api};
+ vm.runInNewContext(fs.readFileSync(path.join(__dirname,"../miniprogram/pages/materials/index.js"),"utf8"),
+  {getApp:()=>app,Page:obj=>page=obj,wx,Promise,Number,String,Map,Date,encodeURIComponent});
+ page.setData=function(changes){this.data={...this.data,...changes};};
+ page.data.pid="MP-2026-001";
+ page.data.locked=false;
+ return {page,seen};
+}
+test("微信小程序的讲者照片允许10文件多选并按原文件名逐份关联",async()=>{
+ const uploaded=[],registered=[];
+ let seq=0;
+ const files=["张三.jpg","李四照片.png"].map(name=>({name,path:"/tmp/"+name,size:128}));
+ const {page,seen}=mockMaterialsPage(files,async(path,method,body)=>{
+  if(path.startsWith("/uploads?")){
+   const file=files[seq++];
+   uploaded.push(file.name);
+   return {key:"a".repeat(31)+(seq%10)+".png",name:file.name,size:128,mime:"image/png"};
+  }
+  if(path.endsWith("/materials")){
+   registered.push(body);
+   return {speakerFromFilename:body.name.replace(/\.(jpg|png)$/,"").replace(/照片$/,"")};
+  }
+  throw Error("Unexpected API: "+path);
+ });
+ page.data.kind="讲者照片";
+ await page.addFile();
+ assert.equal(seen.chooseCount,10);
+ assert.equal(uploaded.length,2);
+ assert.equal(registered.length,2);
+ assert.deepEqual(registered.map(x=>x.name),["张三.jpg","李四照片.png"]);
+ assert.deepEqual(registered.map(x=>x.file_name),["张三.jpg","李四照片.png"]);
+ assert.equal(page.data.error,"");
+ assert.equal(page.data.uploaded,"已归档2份材料");
+ await page.addPhoto();
+ assert.match(page.data.error,/文件名关联讲者|讲者姓名/);
+});
+test("微信小程序全部类别10文件上限，终版议程按原选择顺序串行写入",async()=>{
+ const names=["第一次议程.pdf","第二次议程.pdf","最终版议程.pdf"];
+ const files=names.map(name=>({name,path:"/tmp/"+name,size:128}));
+ const attached=[];
+ let next=0;
+ const {page,seen}=mockMaterialsPage(files,async(path,method,body)=>{
+  if(path.startsWith("/uploads?")){
+   const name=files[next++].name;
+   return {key:"b".repeat(31)+next+".pdf",name,size:128,mime:"application/pdf"};
+  }
+  if(path.endsWith("/materials")){attached.push(body);return {};}
+  throw Error("Unexpected API: "+path);
+ });
+ page.data.kind="终版议程";
+ await page.addFile();
+ assert.equal(seen.chooseCount,10);
+ assert.deepEqual(attached.map(x=>x.name),names);
+ assert.ok(attached.every(x=>x.version==="终版"));
+ assert.match(page.data.uploaded,/最后一份为当前终版/);
+ const excessive=Array.from({length:11},(_,i)=>({name:"文件"+i+".pdf",path:"/tmp/"+i,size:100}));
+ const over=mockMaterialsPage(excessive,async()=>{throw Error("over-limit files must never upload")});
+ await over.page.addFile();
+ assert.match(over.page.data.error,/10/);
+});

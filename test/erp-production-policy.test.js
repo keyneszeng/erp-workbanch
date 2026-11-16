@@ -147,7 +147,7 @@ test("production: association member IDs, approved contract signing and pay-afte
   // 使用人工合成的一像素图片与虚拟讲者姓名验证讲者照片材料。
   const photoBytes=Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/cYUAAAAASUVORK5CYII=","base64");
   const photoRes=await fetch(root+"/api/uploads?pid="+pid,{
-    method:"POST",headers:{Cookie:cookie,"Content-Type":"image/png","X-File-Name":"speaker.png"},
+    method:"POST",headers:{Cookie:cookie,"Content-Type":"image/png","X-File-Name":encodeURIComponent("测试讲者.png")},
     body:photoBytes
   });
   const photo=await photoRes.json();
@@ -157,6 +157,7 @@ test("production: association member IDs, approved contract signing and pay-afte
     file_name:photo.name,file_size:photo.size,file_mime:photo.mime
   },cookie);
   assert.equal(reg.status,200,JSON.stringify(reg.body));
+  assert.equal(reg.body.speakerFromFilename,"测试讲者","讲者必须直接从原始照片文件名关联");
   const allMaterials=await request("GET","/api/materials",undefined,cookie);
   assert.equal(allMaterials.status,200);
   const projectMaterials=allMaterials.body.rows.filter(x=>x.pid===pid);
