@@ -79,8 +79,9 @@ const assert=require("node:assert/strict");
   assert.equal(await page.locator('#modal [name="version"]').isVisible(),false,
     "final agenda version must be set automatically");
   const finalUpload=page.locator('#modal input[type="file"]');
-  assert.equal(await finalUpload.getAttribute("multiple"),null,
-    "final agenda should accept exactly one original per confirmation");
+  assert.notEqual(await finalUpload.getAttribute("multiple"),null,
+    "final agenda may select multiple files, with the last as the only current version");
+  assert.match(await page.locator("#modal").innerText(),/最后一份确认为当前终版/);
   await page.locator('#modal [data-x="1"]').click();
   assert.equal(await page.locator("#modal.open").count(),1,
     "cannot confirm a final agenda without uploading a file");
