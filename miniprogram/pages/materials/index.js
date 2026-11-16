@@ -1,8 +1,10 @@
 const app=getApp();
+const MAX_MATERIAL_FILES_PER_BATCH=10;
+const MAX_FILE_BYTES=20*1024*1024;
 Page({
  data:{projects:[],index:0,pid:"",kind:"课件",name:"",error:"",busy:false,uploaded:"",
   standardKinds:["课件","串场","劳务收集表","劳务协议","议程","终版议程","签到表","讲者照片","现场照片","权益照片"],
-  activeKinds:[],custom:false,customKind:"",locked:false,
+  activeKinds:[],custom:false,customKind:"",locked:false,batchResults:[],
   sponsorRights:[{id:"",label:"请选择赞助权益类目"}],rightIndex:0,rightId:""},
  onLoad(q){if(q.pid)this.setData({pid:q.pid});},
  onShow(){this.load();},
@@ -30,14 +32,15 @@ Page({
    this.setData({activeKinds:kinds,kind:kinds.includes(this.data.kind)?this.data.kind:(kinds[0]||"会议照片"),error:""});
   }catch(e){this.setData({activeKinds:this.data.standardKinds,error:e.message});}
  },
- select(e){const index=Number(e.detail.value),p=this.data.projects[index];
-  this.setData({index,pid:p.id,locked:["已结算","已归档"].includes(p.status),uploaded:""});
+ select(e){if(this.data.busy)return;this._batch=null;const index=Number(e.detail.value),p=this.data.projects[index];
+  this.setData({index,pid:p.id,locked:["已结算","已归档"].includes(p.status),uploaded:"",batchResults:[]});
   this.loadKinds(p.id);
   if(this.data.kind==="权益照片")this.loadRights(p.id);else this.setData({sponsorRights:[{id:"",label:"请选择赞助权益类目"}],rightIndex:0,rightId:""});
  },
  chooseKind(e){
-  const kind=e.currentTarget.dataset.kind;
-  this.setData({kind,custom:false});
+  if(this.data.busy)return;
+  this._batch=null;const kind=e.currentTarget.dataset.kind;
+  this.setData({kind,custom:false,batchResults:[]});
   if(kind==="权益照片")this.loadRights(this.data.pid);
  },
  async loadRights(pid){
@@ -56,63 +59,127 @@ Page({
   }catch(e){if(this.data.pid===pid)this.setData({error:"权益类目读取失败："+e.message});}
  },
  pickRight(e){
+  if(this.data.busy)return;this._batch=null;
   const i=Number(e.detail.value),row=this.data.sponsorRights[i];
   this.setData({rightIndex:i,rightId:row?.id||""});
  },
- chooseCustom(){this.setData({custom:true,rightId:""});},
+ chooseCustom(){if(this.data.busy)return;this._batch=null;this.setData({custom:true,rightId:"",batchResults:[]});},
  input(e){this.setData({[e.currentTarget.dataset.key]:e.detail.value});},
  async addPhoto(){
   if(this.data.busy||this.data.locked)return;
+  const kind=this.data.custom?this.data.customKind.trim():this.data.kind.trim();
+  if(kind==="讲者照片"){
+   this.setData({error:"讲者照片直接按文件名关联讲者，请从微信会话选择已用讲者姓名命名的图片（如张三.jpg）"});return;
+  }
   try{
    const media=await new Promise((resolve,reject)=>wx.chooseMedia({
-    count:1,mediaType:["image"],sourceType:["album","camera"],success:resolve,fail:reject}));
-   const selected=media.tempFiles?.[0];
-   if(!selected)throw new Error("没有选中照片");
-   const ext=/\.png$/i.test(selected.tempFilePath)?"png":/\.webp$/i.test(selected.tempFilePath)?"webp":"jpg";
-   await this.uploadPicked(selected,"会议照片."+ext);
+    count:MAX_MATERIAL_FILES_PER_BATCH,mediaType:["image"],sourceType:["album","camera"],success:resolve,fail:reject}));
+   const chosen=media.tempFiles||[];
+   if(!chosen.length)throw new Error("没有选中照片");
+   const stamp=Date.now();
+   const files=chosen.map((file,i)=>{
+    const path=String(file.tempFilePath||file.path||"");
+    const ext=/\.png$/i.test(path)?"png":/\.webp$/i.test(path)?"webp":"jpg";
+    return {...file,path,name:"现场照片-"+stamp+"-"+(i+1)+"."+ext};
+   });
+   await this.uploadBatch(files);
   }catch(e){this.setData({error:e.message||"图片选择失败"});}
  },
  async addFile(){
   if(this.data.busy||this.data.locked)return;
   try{
    const result=await new Promise((resolve,reject)=>wx.chooseMessageFile({
-    count:1,type:"file",extension:["ppt","pptx","xls","xlsx","doc","docx","pdf","csv","txt","jpg","jpeg","png","webp","gif"],
+    count:MAX_MATERIAL_FILES_PER_BATCH,type:"file",
+    extension:["ppt","pptx","xls","xlsx","doc","docx","pdf","csv","txt","jpg","jpeg","png","webp","gif"],
     success:resolve,fail:reject
    }));
-   const selected=result.tempFiles?.[0];
-   if(!selected)throw new Error("未选择文件");
-   const name=String(selected.name||"");
-   if(!/\.(ppt|pptx|xls|xlsx|doc|docx|pdf|csv|txt|jpg|jpeg|png|webp|gif)$/i.test(name))throw new Error("仅支持图片、PDF、PPT/PPTX、DOC/DOCX、XLS/XLSX、CSV/TXT 文件");
-   await this.uploadPicked(selected,name);
+   const files=(result.tempFiles||[]).map(f=>({...f,name:String(f.name||"").trim()}));
+   if(!files.length)throw new Error("未选择文件");
+   await this.uploadBatch(files);
   }catch(e){this.setData({error:e.message||"文件选择失败"});}
  },
- async uploadPicked(selected,fileName){
+ async retryFailed(){if(this._batch&&!this.data.busy)await this.uploadBatch(null);},
+ async uploadBatch(files){
+  if(this.data.busy)return;
   const kind=this.data.custom?this.data.customKind.trim():this.data.kind.trim();
   const final=kind==="终版议程";
-  if(!this.data.pid||!kind||(!final&&!this.data.name.trim())||kind.length>20||this.data.name.length>120){
-   this.setData({error:final?"请先选择所属会议和终版议程类别":"请选择会议并填写有效材料类别（20 字内）和名称（120 字内）"});return;
+  const pid=this.data.pid;
+  if(!pid||!kind||kind.length>20){
+   this.setData({error:"请先选择会议及有效材料类别（20字以内）"});return;
   }
-  if(kind==="权益照片" && (!this.data.rightId ||
+  if(kind==="权益照片"&&(!this.data.rightId||
     !this.data.sponsorRights.some(x=>x.id===this.data.rightId))){
-   this.setData({error:"请先选择当前赞助合同对应的权益二级类目"});return;
+   this.setData({error:"请先选择对应的赞助权益二级类目"});return;
   }
-  if(["权益照片","讲者照片"].includes(kind) && !/\.(jpg|jpeg|png|webp)$/i.test(fileName)){
-   this.setData({error:kind+"仅支持 JPG/PNG/WebP 图片"});return;
+  if(files){
+   if(files.length>MAX_MATERIAL_FILES_PER_BATCH||!files.length){
+    this.setData({error:"单批只能上传1至"+MAX_MATERIAL_FILES_PER_BATCH+"份材料"});return;
+   }
+   for(const f of files){
+    if(!f.name||f.name.length>120||
+      !/\.(ppt|pptx|xls|xlsx|doc|docx|pdf|csv|txt|jpg|jpeg|png|webp|gif)$/i.test(f.name)){
+     this.setData({error:"文件名无效或格式不支持，请选择真实的图片、PDF或Office文件"});return;
+    }
+    if(["讲者照片","权益照片"].includes(kind)&&!/\.(jpg|jpeg|png|webp)$/i.test(f.name)){
+     this.setData({error:kind+"只支持 JPG/PNG/WebP 图片"});return;
+    }
+    if(Number(f.size)>MAX_FILE_BYTES){
+     this.setData({error:"每份材料不能超过20 MB："+f.name});return;
+    }
+   }
+   this._batch={
+    pid,kind,final,rightId:this.data.rightId,
+    files:files.map(file=>({file,name:file.name,status:"待上传",error:"",done:false,speaker:""}))
+   };
   }
-  if(Number(selected.size)>20*1024*1024){this.setData({error:"单个附件不能超过 20 MB"});return;}
+  const batch=this._batch;
+  if(!batch||batch.pid!==pid||batch.kind!==kind||batch.rightId!==this.data.rightId){
+   this.setData({error:"项目或材料类别已变化，请重新选择文件"});return;
+  }
   this.setData({busy:true,error:"",uploaded:""});
+  const sync=()=>this.setData({batchResults:batch.files.map(f=>({
+    name:f.name,status:f.status,error:f.error,speaker:f.speaker
+  }))});
+  sync();
+  let cursor=0,stop=false;
+  const queue=batch.files.filter(f=>!f.done);
+  const worker=async()=>{
+   while(cursor<queue.length&&!stop){
+    const item=queue[cursor++];
+    item.status="上传中";item.error="";sync();
+    try{
+     const raw=await new Promise((resolve,reject)=>wx.getFileSystemManager().readFile({
+      filePath:item.file.tempFilePath||item.file.path,success:r=>resolve(r.data),fail:reject
+     }));
+     const uploaded=await app.api("/uploads?pid="+encodeURIComponent(pid),"POST",raw,
+      {"Content-Type":"application/octet-stream","X-File-Name":encodeURIComponent(item.name)});
+     item.status="归档中";sync();
+     const saved=await app.api("/projects/"+encodeURIComponent(pid)+"/materials","POST",{
+      kind,name:item.name,version:final?"终版":"v1",file_key:uploaded.key,
+      file_name:uploaded.name,file_size:uploaded.size,file_mime:uploaded.mime,
+      ...(kind==="权益照片"?{sponsor_right_id:Number(batch.rightId)}:{})
+     });
+     item.speaker=saved.speakerFromFilename||"";
+     item.done=true;item.status="已归档";
+    }catch(e){
+     item.status="失败";item.error=e.message||"上传失败";
+     if(final)stop=true; // preserve original order on final-agenda retry
+    }
+    sync();
+   }
+  };
   try{
-   const buffer=await new Promise((resolve,reject)=>wx.getFileSystemManager().readFile({
-    filePath:selected.tempFilePath||selected.path,success:r=>resolve(r.data),fail:reject}));
-   const upload=await app.api("/uploads?pid="+encodeURIComponent(this.data.pid),"POST",buffer,
-    {"Content-Type":"application/octet-stream","X-File-Name":encodeURIComponent(fileName)});
-   await app.api("/projects/"+encodeURIComponent(this.data.pid)+"/materials","POST",{
-    kind,name:final?fileName:this.data.name.trim(),version:final?"终版":"v1",file_key:upload.key,
-    file_name:upload.name,file_size:upload.size,file_mime:upload.mime,
-    ...(kind==="权益照片"?{sponsor_right_id:Number(this.data.rightId)}:{})});
-   this.setData({uploaded:final?"终版议程已上传并确认："+upload.name:"已归档："+upload.name,name:""});
-   wx.showToast({title:final?"终版已确认":"归档成功",icon:"success"});
-  }catch(e){this.setData({error:e.message||"归档失败"});}
-  finally{this.setData({busy:false});}
+   await Promise.all(Array.from({length:final?1:Math.min(3,queue.length)},()=>worker()));
+   const done=batch.files.filter(x=>x.done).length;
+   const pending=batch.files.length-done;
+   if(!pending){
+    this._batch=null;
+    this.setData({uploaded:final?"已归档"+done+"份议程，最后一份为当前终版":"已归档"+done+"份材料",batchResults:[]});
+    wx.showToast({title:"归档成功",icon:"success"});
+   }else{
+    this.setData({error:"已完成"+done+"/"+batch.files.length+"份，剩余"+pending+"份，可点击重试未成功的文件"});
+   }
+  }finally{this.setData({busy:false});}
  }
+
 });
