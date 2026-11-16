@@ -14,6 +14,7 @@ const { validateSopEvidence } = require("../lib/meeting-sop");
 const {sponsorRights}=require("../lib/sponsor-rights");
 const {buildSettlementBreakdown}=require("../lib/settlement-breakdown");
 const verifyOcr=require("../lib/verify-ocr-compare");
+const {photoName}=require("../lib/verify-agenda-evidence");
 const {sponsorRights:currentSponsorRights,validateRightsEvidence}=require("../lib/sponsor-rights");
 let scanningVerification=false;
 
@@ -471,8 +472,13 @@ function register(router) {
       if(!right)throw conflict("所选权益二级类目不存在或不属于当前项目","RIGHT_CATEGORY_INVALID");
     }else if(sponsor_right_id!=null && sponsor_right_id!=="")throw bad("只有权益照片可关联赞助权益二级类目");
     if (kind === "讲者照片" && (!fk || !/\.(jpg|png|webp)$/i.test(fk))) {
-      throw bad("讲者照片必须上传 JPG、PNG 或 WebP 图片，名称请填写讲者姓名");
+      throw bad("讲者照片必须上传 JPG、PNG 或 WebP 图片，文件名直接使用讲者姓名");
     }
+    // The ORIGINAL uploaded filename (not a text field) is the speaker link.
+    const speakerFromFilename=kind==="讲者照片"
+      ?photoName({file_name:String(file_name||""),name:String(file_name||"")}) : null;
+    if(kind==="讲者照片"&&!speakerFromFilename)
+      throw bad("讲者照片文件名无法识别讲者姓名，请命名为“张三.jpg”或“张三照片.jpg”");
 
     // 上传新的终版议程时，旧的终版原件自动降为历史版（保留证据和原始文件）。
     // 数据更新同事务完成，确保一个项目不会因中途失败出现两个当前终版版本。
@@ -497,6 +503,7 @@ function register(router) {
     });
     return { materialsStatus: materialsStatus(p.id),
       finalAgendaConfirmed: finalAgenda,
+      ...(speakerFromFilename?{speakerFromFilename}:{}),
       message: finalAgenda ? "终版议程已上传并确认，无需额外操作" : `${kind} 已登记` };
   });
 

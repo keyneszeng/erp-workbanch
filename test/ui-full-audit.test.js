@@ -31,7 +31,8 @@ test("两个付款入口都支持分期期次，付款执行统一走原件核�
 test("小程序赞助权益照片上传必须选择合同权益二级类目",()=>{
   const p="miniprogram/pages/materials/index.js";
   has(p,"async loadRights(pid)");
-  has(p,"sponsor_right_id:Number(this.data.rightId)");
+  has(p,"sponsor_right_id:Number(batch.rightId)");
+  has(p,"this.data.sponsorRights.some(x=>x.id===this.data.rightId)");
   has(p,"指定会议不可访问");
   has("miniprogram/pages/materials/index.wxml",'bindchange="pickRight"');
 });
