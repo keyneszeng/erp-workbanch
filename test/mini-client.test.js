@@ -199,7 +199,38 @@ test("微信小程序的讲者照片允许10文件多选并按原文件名逐份
  assert.equal(page.data.error,"");
  assert.equal(page.data.uploaded,"已归档2份材料");
  await page.addPhoto();
- assert.match(page.data.error,/文件名关联讲者|讲者姓名/);
+ // 相册图片没有原始文件名，进入逐张命名阶段而不是直接拒绝
+ assert.equal(page.data.error,"");
+ assert.equal(seen.mediaCount,10);
+ assert.equal(page.data.speakerFiles.length,2);
+});
+test("微信小程序讲者照片可从相册选图，填姓名后按姓名归档",async()=>{
+ const files=[{path:"/tmp/tmp_a.jpg",size:256},{path:"/tmp/tmp_b.png",size:256}];
+ const registered=[];
+ const {page,seen}=mockMaterialsPage(files,async(path,method,body)=>{
+  if(path.startsWith("/uploads?")){
+   return {key:"c".repeat(31)+registered.length+".jpg",name:"x",size:256,mime:"image/jpeg"};
+  }
+  if(path.endsWith("/materials")){registered.push(body);return {};}
+  throw Error("Unexpected API: "+path);
+ });
+ page.data.kind="讲者照片";
+ await page.addPhoto();
+ assert.equal(seen.mediaCount,10);
+ assert.equal(page.data.speakerFiles.length,2);
+ assert.equal(page.data.error,"");
+ // 姓名未填时不允许上传
+ await page.uploadSpeakers();
+ assert.match(page.data.error,/讲者姓名/);
+ assert.equal(registered.length,0);
+ // 填好姓名后按「姓名.扩展名」归档，扩展名沿用原图
+ page.data.speakerFiles[0].name="张三";
+ page.data.speakerFiles[1].name="李四";
+ await page.uploadSpeakers();
+ assert.equal(registered.length,2);
+ assert.deepEqual(registered.map(x=>x.name),["张三.jpg","李四.png"]);
+ assert.deepEqual(registered.map(x=>x.kind),["讲者照片","讲者照片"]);
+ assert.equal(page.data.speakerFiles.length,0);
 });
 test("微信小程序全部类别10文件上限，终版议程按原选择顺序串行写入",async()=>{
  const names=["第一次议程.pdf","第二次议程.pdf","最终版议程.pdf"];

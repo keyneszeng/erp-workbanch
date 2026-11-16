@@ -33,17 +33,33 @@
   <view class="form-section">
     <view class="section-head"><view class="row"><view class="section-index">02</view><view class="section-caption">填写材料信息</view></view></view>
     <view class="notice"><text class="notice-icon">i</text><text>每份材料自动采用对应文件名，无须逐份手工填写名称。单批最多10份。</text></view>
-    <view wx:if="{{!custom&&kind==='讲者照片'}}" class="field-hint">讲者照片请从微信会话选择以讲者姓名命名的文件（如张三.jpg），系统直接按文件名关联讲者并在核销时与终版议程核对。</view>
+    <view wx:if="{{!custom&&kind==='讲者照片'}}" class="field-hint">讲者照片：可直接用下方「拍照或从相册选择」批量选图，选完逐张填写讲者姓名（姓名即材料名称）；也可从微信会话选择已用姓名命名的图片（如张三.jpg），系统按文件名关联。</view>
     <view wx:if="{{!custom&&kind==='终版议程'}}" class="field-hint">可同时选择最多10份议程，按选择顺序登记，最后一份作为唯一当前终版，其余为历史版。</view>
     <view wx:if="{{error}}" class="error"><text class="feedback-icon">!</text><text>{{error}}</text></view>
     <view wx:if="{{uploaded}}" class="success-note"><text class="feedback-icon">✓</text><text>{{uploaded}}</text></view>
 
     <button class="upload-panel" loading="{{busy}}" disabled="{{busy||locked||!pid||(!custom&&kind==='权益照片'&&!rightId)}}" bindtap="addPhoto">
-      <view class="upload-icon">照</view><view class="upload-title">拍照或从相册选择</view><view class="upload-sub">相册可批量选择普通照片；讲者照片请使用下方文件入口</view>
+      <view class="upload-icon">照</view><view class="upload-title">拍照或从相册选择</view><view class="upload-sub">{{!custom&&kind==='讲者照片'?'相册批量选图，选完逐张填写讲者姓名':'相册可批量选择照片，每批最多10份'}}</view>
     </button>
     <button class="upload-panel" loading="{{busy}}" disabled="{{busy||locked||!pid||(!custom&&kind==='权益照片'&&!rightId)}}" bindtap="addFile">
       <view class="upload-icon" style="background:#1f5f8b">档</view><view class="upload-title">从微信会话选择文件</view><view class="upload-sub">一次最多选择10份 Office、PDF、CSV、TXT 或图片</view>
     </button>
+    <view wx:if="{{!custom&&kind==='讲者照片'&&speakerFiles.length}}" class="speaker-block">
+      <view class="speaker-head">
+        <view class="speaker-title">待命名的讲者照片 · {{speakerFiles.length}} 张</view>
+        <view class="speaker-desc">为每张填写讲者姓名，姓名即材料名称，每名讲者一张。</view>
+      </view>
+      <view wx:for="{{speakerFiles}}" wx:key="uid" class="speaker-item">
+        <image class="speaker-thumb" src="{{item.path}}" mode="aspectFill"/>
+        <view class="speaker-main">
+          <input class="speaker-input" value="{{item.name}}" data-index="{{index}}" bindinput="inputSpeakerName" placeholder="讲者姓名（必填）" disabled="{{busy}}" maxlength="120"/>
+          <view wx:if="{{item.error}}" class="speaker-state err">{{item.error}}</view>
+          <view wx:else class="speaker-state">待上传</view>
+        </view>
+        <view wx:if="{{!busy}}" class="speaker-del" data-index="{{index}}" bindtap="removeSpeaker">移除</view>
+      </view>
+      <button class="btn primary speaker-submit" loading="{{busy}}" disabled="{{busy||locked||!pid}}" bindtap="uploadSpeakers">上传并归档（{{speakerFiles.length}} 张）</button>
+    </view>
     <view wx:if="{{batchResults.length}}" class="card">
       <view class="section-caption">本批文件进度 · {{batchResults.length}}份</view>
       <view wx:for="{{batchResults}}" wx:key="name" class="item">
