@@ -60,12 +60,18 @@ async function ready(){
   const picker=modal.locator('input[name="file"]');
   assert.notEqual(await picker.getAttribute("multiple"),null,
     "default material kind allows multi-file selection");
-  const names=["第一场讲座.pdf","第二场讲座.pdf","第三场讲座.pdf"];
+  assert.match(await modal.innerText(),/一次最多选择 10 份/);
+  await picker.setInputFiles(Array.from({length:11},(_,i)=>makePdf("超限材料"+(i+1)+".pdf")));
+  assert.equal(await modal.locator("[data-material-name]").count(),0,
+    "11 files must be rejected rather than silently truncated");
+  assert.equal(await picker.evaluate(input=>input.files.length),0,
+    "over-limit selection should reset the file input");
+  const names=Array.from({length:10},(_,i)=>"第"+(i+1)+"场讲座.pdf");
   const fixtures=names.map(makePdf);
   await picker.setInputFiles(fixtures);
   assert.deepEqual(await modal.locator("[data-material-name]").allTextContents(),names,
     "selected file list shows exact material names, in original order");
-  assert.match(await modal.locator("[data-material-batch-status]").innerText(),/3 份文件已选择/);
+  assert.match(await modal.locator("[data-material-batch-status]").innerText(),/10 份文件已选择/);
   let inflight=0,peak=0,uploads=0;
   const parallel=async route=>{
     inflight++;peak=Math.max(inflight,peak);uploads++;
@@ -76,12 +82,12 @@ async function ready(){
   await modal.locator('[data-x="1"]').click();
   await modal.waitFor({state:"hidden",timeout:25000});
   await page.unroute("**/api/uploads?pid=*",parallel);
-  assert.equal(uploads,3,"each selected file is uploaded once");
+  assert.equal(uploads,10,"each selected file is uploaded once");
   assert.ok(peak>=2,"multiple files must upload simultaneously, peak="+peak);
   let list=await (await page.request.get(origin+"/api/materials")).json();
   const all=names.map(name=>list.rows.find(x=>x.pid===pid&&x.name===name&&x.file_name===name));
   assert.ok(all.every(Boolean),"each file should create its own material row with original filename");
-  assert.equal(new Set(all.map(x=>x.file_key)).size,3);
+  assert.equal(new Set(all.map(x=>x.file_key)).size,10);
   for(let i=0;i<fixtures.length;i++){
     const got=await page.request.get(origin+"/api/uploads/"+all[i].file_key);
     assert.equal(got.status(),200,"downloadable "+names[i]);
@@ -89,6 +95,41 @@ async function ready(){
   }
   for(const name of names)
     assert.ok((await page.locator("#content").innerText()).includes(name),"meeting materials list displays "+name);
+
+  // Speaker photo filenames are the ONLY association key for verification.
+  await page.locator("#addMat").click();
+  const speakerModal=page.locator("#modal.open");
+  await speakerModal.locator('[name="kind"]').selectOption("讲者照片");
+  const speakerPicker=speakerModal.locator('input[name="file"]');
+  assert.notEqual(await speakerPicker.getAttribute("multiple"),null,
+    "speaker photos must allow multi-file selection");
+  const png=Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4/5+hHgAHggJ/P0MMywAAAABJRU5ErkJggg==","base64");
+  const speakers=["张三照片.png","李四主任.png"];
+  await speakerPicker.setInputFiles(speakers.map(name=>({name,mimeType:"image/png",buffer:png})));
+  await speakerModal.locator('[data-x="1"]').click();
+  await speakerModal.waitFor({state:"hidden",timeout:25000});
+  let speakerRows=(await (await page.request.get(origin+"/api/materials")).json()).rows;
+  for(const name of speakers){
+    assert.ok(speakerRows.some(x=>x.pid===pid&&x.kind==="讲者照片"&&x.file_name===name&&x.name===name),
+      "speaker must be linked by its original filename: "+name);
+  }
+  // Final agendas are also multi-selectable, but only the LAST one remains current.
+  await page.locator("#addMat").click();
+  const agendaModal=page.locator("#modal.open");
+  await agendaModal.locator('[name="kind"]').selectOption("终版议程");
+  const agendaPicker=agendaModal.locator('input[name="file"]');
+  assert.notEqual(await agendaPicker.getAttribute("multiple"),null,
+    "every registration category, including final agenda, supports multi-select");
+  const agendas=["会议议程-第一版.pdf","会议议程-最终版.pdf"];
+  await agendaPicker.setInputFiles(agendas.map(makePdf));
+  assert.match(await agendaModal.locator("[data-material-batch-status]").innerText(),/最后一份将确认为当前终版/);
+  await agendaModal.locator('[data-x="1"]').click();
+  await agendaModal.waitFor({state:"hidden",timeout:25000});
+  const agendaRows=(await (await page.request.get(origin+"/api/materials")).json()).rows
+    .filter(x=>x.pid===pid&&x.kind==="终版议程"&&agendas.includes(x.file_name));
+  assert.equal(agendaRows.length,2);
+  assert.equal(agendaRows.find(x=>x.file_name===agendas[0]).version,"历史版");
+  assert.equal(agendaRows.find(x=>x.file_name===agendas[1]).version,"终版");
 
   // Same dialog from Material Center; fail one upload then retry only that item.
   await page.goto(origin+"/#/materials",{waitUntil:"domcontentloaded"});
