@@ -72,7 +72,7 @@ export async function render(root) {
 /**
  * 两处入口（会议项目→归档材料、材料中心）共享同一登记表单。
  * 材料名称严格使用用户所选择文件的原始名称；附件不做有损压缩。
- * 最多 20 份/批、并发 3 份，逐份显示结果，失败文件可单独重试。
+ * 最多 10 份/批、并发 3 份，逐份显示结果，失败文件可单独重试。
  */
 export function openMaterialRegistration(root, projects, kinds, defaultPid="", onSaved=null) {
   if(!projects.length){
@@ -90,7 +90,7 @@ export function openMaterialRegistration(root, projects, kinds, defaultPid="", o
     {k:"sponsor_right_id",l:"权益照片 · 二级类目（从赞助合同自动生成，可自定义）",
       t:"select",opts:[],tip:"先选择项目及赞助合同权益，再上传对应照片。"},
     {k:"file",l:"选择材料文件",t:"file",full:1,accept:UPLOAD_ACCEPT,
-      tip:"一次最多选择 20 份，每份不超过 50 MB；支持并发上传。材料名称自动采用对应文件名，无需手动输入。"}
+      tip:"一次最多选择 10 份，每份不超过 50 MB；支持并发上传。材料名称自动采用对应文件名；讲者照片自动按文件名关联姓名。"}
   ];
   const m=modal({
     title:"登记材料",width:"660px",
@@ -167,15 +167,15 @@ export function openMaterialRegistration(root, projects, kinds, defaultPid="", o
     const photo=kindSelect.value==="讲者照片";
     const rightsPhoto=kindSelect.value==="权益照片";
     rightField.style.display=rightsPhoto?"":"none";
-    picker.multiple=!final&&!photo;
+    picker.multiple=!final;
     picker.accept=photo||rightsPhoto?".jpg,.jpeg,.png,.webp":UPLOAD_ACCEPT;
     saveButton.textContent=final?"确定终版议程":"上传并登记";
     const tip=m.querySelector(".upload")?.closest(".fld")?.querySelector(".tip");
     if(tip)tip.textContent=final
       ?"终版议程只允许上传一份文件，材料名称与文件名相同，保存即自动确认为终版。"
-      :photo?"讲者照片每次上传一位讲者的一张 JPG/PNG/WebP 图片；文件名应包含讲者姓名。"
+      :photo?"讲者照片支持一次选择最多 10 张 JPG/PNG/WebP 图片；以原始文件名识别对应讲者（如“张三.jpg”或“张三照片.png”），每名讲者一张。"
       :rightsPhoto?"可同时上传同一权益的多张 JPG/PNG/WebP 照片，每张独立归档。"
-      :"一次最多选择 20 份、单份不超过 50 MB；并发上传并逐份归档，材料名称自动使用文件名。";
+      :"一次最多选择 10 份、单份不超过 50 MB；并发上传并逐份归档，材料名称自动使用文件名。";
   };
   pidSelect.addEventListener("change",()=>{resetFiles();loadRights();});
   kindSelect.addEventListener("change",()=>{resetFiles();syncKind();});
@@ -185,7 +185,7 @@ export function openMaterialRegistration(root, projects, kinds, defaultPid="", o
     if(busy)return;
     const files=Array.from(picker.files||[]);
     const fail=msg=>{toast(msg,"warn");resetFiles();};
-    if(files.length>20)return fail("单次最多选择 20 份材料附件");
+    if(files.length>10)return fail("单次最多选择 10 份材料附件");
     if(!files.length){resetFiles();return;}
     const error=files.map(checkFile).find(Boolean);
     if(error)return fail(error);
@@ -193,9 +193,8 @@ export function openMaterialRegistration(root, projects, kinds, defaultPid="", o
       return fail("材料文件名必须有效且不能超过 120 字符");
     if(kindSelect.value==="终版议程"&&files.length!==1)
       return fail("终版议程只能上传一份文件");
-    if(kindSelect.value==="讲者照片"&&(files.length!==1||
-      !/\.(jpe?g|png|webp)$/i.test(files[0].name||"")))
-      return fail("讲者照片请一次选择一位讲者的一张 JPG/PNG/WebP 图片");
+    if(kindSelect.value==="讲者照片"&&files.some(f=>!/\.(jpe?g|png|webp)$/i.test(f.name||"")))
+      return fail("讲者照片仅支持 JPG/PNG/WebP 图片");
     if(kindSelect.value==="权益照片"&&files.some(f=>!/\.(jpe?g|png|webp)$/i.test(f.name||"")))
       return fail("权益照片仅支持 JPG/PNG/WebP 图片");
     picked=files.map(file=>({file,status:"pending",error:"",upload:null}));
@@ -210,9 +209,6 @@ export function openMaterialRegistration(root, projects, kinds, defaultPid="", o
     if(!picked.length){toast("请先选择至少一份材料文件","warn");return;}
     const final=kindSelect.value==="终版议程";
     if(final&&picked.length!==1){toast("终版议程只能上传一份文件","warn");return;}
-    if(kindSelect.value==="讲者照片"&&picked.length!==1){
-      toast("讲者照片每次只能上传一位讲者的一张图片","warn");return;
-    }
     if(kindSelect.value==="权益照片"&&!availableRights.some(x=>String(x.id)===rightSelect.value)){
       toast("请先选择与当前赞助合同对应的权益内容","warn");return;
     }
