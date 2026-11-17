@@ -85,6 +85,40 @@ test("自动扫描读取已有的真实OCR缓存，课件课题与终版议程�
  db.prepare("UPDATE material_ocr_results SET recognized_text=? WHERE material_id=?")
    .run("课件主题：精准诊疗技术新进展",course.id);
 });
+test("第4项：串场课件已识别完整主题且议程原文包含主题时不得再显示无法确认",async()=>{
+ const newest=addDoc("终版议程","最新终版议程",
+  "2026年专家研讨会终版议程\n报告环节\n精准诊疗技术新进展\n张三教授",
+  "abe12345123456781234567812345678.pdf","终版");
+ const host=addDoc("串场课件","主持串场课件","封面\n精准诊疗技术新进展\n主讲：张三",
+  "acd12345123456781234567812345678.pdf");
+ try{
+  db.prepare("UPDATE material_ocr_results SET pages=3,total_pages=30,truncated=1 WHERE material_id=?").run(newest);
+  db.prepare("UPDATE material_ocr_results SET pages=1,total_pages=20,truncated=1 WHERE material_id=?").run(host);
+  const result=await call("admin","POST",pathStep(4)+"/scan",{});
+  assert.equal(result.status,200,JSON.stringify(result.data));
+  const report=result.data.report,checks=report.checks;
+  assert.equal(report.files.filter(x=>x.kind==="终版议程").length,1,
+   "重复终版议程应使用最新上传的那一份");
+  assert.equal(report.files.find(x=>Number(x.materialId)===newest)?.state,"recognized",
+   "以前只扫3页的OCR缓存足以找到主题时应复用，而不是强制重扫20页");
+  assert.equal(checks.find(x=>x.name==="终版议程课题")?.status,"一致",JSON.stringify(checks));
+  assert.equal(checks.find(x=>x.name==="课件：主持串场课件")?.status,"一致",JSON.stringify(checks));
+  assert.equal(report.summary.mismatch,0,JSON.stringify(checks));
+  assert.equal(report.summary.uncertain,0,
+   "议程还剩未扫描页时，已精确找到的主题不应额外标记无法确认");
+  assert.ok(!checks.some(x=>x.name.startsWith("超出扫描页数：终版议程")),
+   "保留 truncated 元数据供人工查看，但不得覆盖已匹配的标题");
+  assert.equal(report.files.find(x=>Number(x.materialId)===newest).truncated,true);
+
+  db.prepare("UPDATE material_ocr_results SET recognized_text='课件主题：精准诊疗技术新进展补充专题' WHERE material_id=?").run(host);
+  const mismatch=await call("admin","POST",pathStep(4)+"/scan",{});
+  assert.equal(mismatch.status,200);
+  assert.equal(mismatch.data.report.checks.find(x=>x.name==="课件：主持串场课件")?.status,"不一致",
+   "扩展版标题不是完整匹配");
+ }finally{
+  db.prepare("UPDATE materials SET deleted_at='2026-11-17' WHERE id IN (?,?)").run(newest,host);
+ }
+});
 test("第4项真实上传8张PPTX，只扫描封面第一页且不沿用旧5页缓存",async()=>{
  const zip=new PizZip();
  zip.file("[Content_Types].xml","<Types/>");
