@@ -35,8 +35,8 @@ export function sopEvidenceForm(no,p,rightsData=null){
        +input("hostOrganizer","串场 · 主办方")
        +ck("stamped","确认函件已盖章")+ck("final","确认函件为终版"),
     2:area("agendaSpeakers","终版议程 · 讲者姓名（逗号或换行分隔）","张三、李四")
-       +`<div class="hint">只关联终版议程和讲者照片。自动提取终版议程讲者姓名，对照照片原始文件名；签到表只在第3项核销。</div>`
-       +ck("noOmissions","已人工核对议程讲者及对应照片，无冒领、漏项或重复"),
+       +`<div class="hint">只关联终版议程和讲者照片。只要求上传的照片姓名均包含在终版议程中；不要求为议程全部讲者上传照片。</div>`
+       +ck("noOmissions","已确认全部讲者照片姓名均能在终版议程找到"),
     3:input("onlineMinutes","有效讲者在线时长（分钟，线上/混合须 >30）")
        +ck("signedAttendance","已核验线下签到表（线下/混合必选）"),
     4:area("agendaTopics","终版议程包含的主题（逗号或换行）","主题甲、主题乙")
