@@ -13,10 +13,19 @@ const {extractInvoiceAmount}=require("./invoice-extract");
 const OCR_TYPES=new Set(["jpg","png","pdf"]),MAX_FILES=32;
 // 终版议程独立提高扫描页数，普通核销附件仍沿用OCR默认页数。
 const AGENDA_OCR_PAGES=Math.min(80,Math.max(3,Number(process.env.ERP_AGENDA_OCR_MAX_PAGES||20)));
+const COURSE_SCAN_PAGES=5;
+/** 课件与演示型串场归为第四项；普通串场稿只用于第一项。 */
+function isCourseMaterial(m){
+ if(["课件","串场课件"].includes(m.kind))return true;
+ if(m.kind!=="串场")return false;
+ const title=String(m.name||"")+" "+String(m.file_name||"");
+ const filename=String(m.file_name||m.file_key||"");
+ return /\.pptx?$/i.test(filename)||(/课件|演示|slides?/i.test(title)&&/\.pdf$/i.test(filename));
+}
 const KINDS={
  1:["会议通知","招商函","终版议程","串场"],2:["终版议程","讲者照片"],
  3:["签到表","在线记录","直播数据","在线时长","会议截图","参会数据","参会时长","参会记录","观看记录","观看时长","直播截图","在线截图","出席记录"],
- 4:["终版议程","课件"],5:["劳务表","劳务登记表","劳务收集表"],
+ 4:["终版议程","课件","串场课件"],5:["劳务表","劳务登记表","劳务收集表"],
  6:[],
  7:[]
 };
@@ -44,10 +53,10 @@ function materials(pid,no){
   return docs.filter(m=>photos.has(Number(m.id)) ||
     (["合同","赞助合同"].includes(m.kind)&&keys.has(m.file_key))).slice(0,MAX_FILES);
  }
- return docs.filter(m=>((KINDS[no]||[]).includes(m.kind)||(no===3&&/参会|在线|直播|观看|时长|考勤|签到|出席/.test(m.kind))||(expertIds?.has(Number(m.id))))
+ return docs.filter(m=>((KINDS[no]||[]).includes(m.kind)||(no===3&&/参会|在线|直播|观看|时长|考勤|签到|出席/.test(m.kind))||(no===4&&isCourseMaterial(m))||(expertIds?.has(Number(m.id))))
   &&!(m.kind==="终版议程"&&([1,2,4].includes(no)?m.version!=="终版":m.version==="历史版"))).slice(0,MAX_FILES);
 }
-function cache(m,pid,requiredPages=0){
+function cache(m,pid,requiredPages=0,coursePreview=false){
  const row=db.prepare("SELECT recognized_text,engine,mode,pages,total_pages,truncated FROM material_ocr_results WHERE material_id=? AND pid=? AND file_key=?").get(m.id,pid,m.file_key);
  if(!row)return null;
  const ext=m.file_key.split(".").pop().toLowerCase();
@@ -55,6 +64,11 @@ function cache(m,pid,requiredPages=0){
  // Previous XLSX reader appended the entire shared-string pool, including unused names,
  // so its cached "recognized" result cannot be trusted for speaker verification.
  if(ext==="xlsx"&&row.engine!==office.XLSX_ENGINE)return null;
+ // A 5-slide preview is a distinct evidence scope. Rebuild old whole-deck caches;
+ // and never reuse a truncated preview as a full host-script OCR in step 1.
+ if(ext==="pptx"&&coursePreview&&row.engine!==office.COURSE_PREVIEW_ENGINE)return null;
+ if(ext==="pptx"&&!coursePreview&&row.engine===office.COURSE_PREVIEW_ENGINE)return null;
+ if(ext==="pptx"&&coursePreview&&Number(row.pages||0)<Math.min(COURSE_SCAN_PAGES,Number(row.total_pages||COURSE_SCAN_PAGES)))return null;
  if(requiredPages&&ext==="pdf"&&Number(row.pages||0)<Math.min(Number(row.total_pages||requiredPages),requiredPages))return null;
  if(!OCR_TYPES.has(ext))return office.SUPPORTED.has(ext)?row:null;
  return ocr.providerMatches(row.engine)?row:null;
@@ -87,15 +101,18 @@ async function scan(pid,no,operator){
  // and photos; image OCR cannot prove that contractual rights were delivered.
  let processed=0;
  for(const m of docs){
-  const requiredPages=no===2&&m.kind==="终版议程"?AGENDA_OCR_PAGES:0;
-  if(cache(m,pid,requiredPages))continue;
+  const coursePreview=no===4&&isCourseMaterial(m);
+  const requiredPages=m.kind==="终版议程"&&[2,4].includes(no)?AGENDA_OCR_PAGES:
+   coursePreview?COURSE_SCAN_PAGES:0;
+  if(cache(m,pid,requiredPages,coursePreview))continue;
   const ext=m.file_key.split(".").pop().toLowerCase();
   const nativeOffice=office.SUPPORTED.has(ext);
   if(!nativeOffice&&(!OCR_TYPES.has(ext)||isDemoMode()||!available))continue;
   const file=await storage().get(m.file_key);
   if(!file?.buffer)continue;
   try{
-   const result=nativeOffice?office.extract(file.buffer,ext):await ocr.recognize(file.buffer,ext,{maxPages:requiredPages||undefined});
+   const result=nativeOffice?office.extract(file.buffer,ext,coursePreview?{maxSlides:COURSE_SCAN_PAGES}:{})
+    :await ocr.recognize(file.buffer,ext,{maxPages:requiredPages||undefined});
    if(result?.text?.trim()){persist(m,pid,result,operator);processed++;}
   }catch(e){
    if(["OCR_DISABLED","OCR_ENGINE_MISSING","OCR_PROVIDER_MISCONFIGURED","OCR_UNAVAILABLE","OCR_TIMEOUT"].includes(e.code))throw e;
@@ -113,7 +130,10 @@ function amounts(text){
 function report(pid,no){
  const p=db.prepare("SELECT id,name,assoc,date,form FROM projects WHERE id=?").get(pid);
  const docs=materials(pid,no).map(m=>{
-  const r=cache(m,pid,no===2&&m.kind==="终版议程"?AGENDA_OCR_PAGES:0),ext=m.file_key.split(".").pop().toLowerCase();
+  const coursePreview=no===4&&isCourseMaterial(m);
+  const requiredPages=m.kind==="终版议程"&&[2,4].includes(no)?AGENDA_OCR_PAGES:
+   coursePreview?COURSE_SCAN_PAGES:0;
+  const r=cache(m,pid,requiredPages,coursePreview),ext=m.file_key.split(".").pop().toLowerCase();
   return {materialId:m.id,kind:m.kind,name:m.name,fileName:m.file_name,fileKey:m.file_key,
    version:m.version,mode:r?.mode||null,pages:r?.pages||0,totalPages:r?.total_pages||0,
    truncated:!!r?.truncated,state:r?"recognized":OCR_TYPES.has(ext)||office.SUPPORTED.has(ext)?"not-recognized":"unsupported",
@@ -176,22 +196,26 @@ function report(pid,no){
   if(["线下","混合"].includes(p.form))
     add("线下签到表",txt("签到表")?true:null,"签到表文字识别不代表签字真实",ids(by("签到表")));
 }else if(no===4){
-  const topics=agendaEvidence.agendaTopics(agenda),courses=by("课件");
+  const topics=agendaEvidence.agendaTopics(agenda),courses=docs.filter(isCourseMaterial);
   const allowed=new Set(topics.map(agendaEvidence.topicKey));
   add("终版议程课题",agendaDocs.length===1&&topics.length?true:null,
-    agendaDocs.length===1&&topics.length?"从当前终版议程提取"+topics.length+"个主题":"无法从唯一当前终版议程提取课题",ids(agendaDocs));
+   agendaDocs.length===1&&topics.length?"从当前终版议程提取"+topics.length+"个主题":"无法从唯一当前终版议程提取课题",ids(agendaDocs));
   for(const file of courses){
-   const courseTopics=agendaEvidence.courseTopics(file.text,topics);
-   const notFound=courseTopics.filter(topic=>!allowed.has(agendaEvidence.topicKey(topic)));
-   const canCompare=agendaDocs.length===1&&topics.length&&courseTopics.length&&!file.truncated;
+   const extracted=agendaEvidence.courseTopics(file.text,topics);
+   const notFound=extracted.filter(topic=>!allowed.has(agendaEvidence.topicKey(topic)));
+   // Five-page/slide preview is intentional, not an OCR failure. Match on
+   // whole topics, not substring words; do NOT require scanning all slides.
+   const canCompare=agendaDocs.length===1&&topics.length&&extracted.length;
+   const limited=file.totalPages>file.pages&&file.pages>0;
+   const scope=limited?"仅扫描前"+file.pages+"页/张（共"+file.totalPages+"页/张）；":"";
    add("课件："+String(file.name).slice(0,50),canCompare?notFound.length===0:null,
-    canCompare?notFound.length?"课件课题不在终版议程："+notFound.join("、").slice(0,90):
-      "已提取"+courseTopics.length+"个课件主题，均在当前终版议程中":
-      "课件主题未可靠提取，或原件未完整识别；需打开终版议程与课件核对",
+    canCompare?scope+(notFound.length?"扫描所得主题不在终版议程："+notFound.join("、").slice(0,85):
+      "提取"+extracted.length+"个完整课件主题，均在当前终版议程中"):
+      scope+"未可靠提取课件主题，请检查前5页是否含主题文字或打开原件人工核对",
     ids([...agendaDocs,file]));
   }
-  if(!courses.length)add("课件原件",null,"缺少已上传课件");
- }else if(no===5){
+  if(!courses.length)add("课件原件",null,"缺少已上传课件或串场演示课件");
+}else if(no===5){
   const labor=[...by("劳务表"),...by("劳务登记表"),...by("劳务收集表")];
   // 从劳务表原文提取「姓名+银行账号+金额」齐全的行；缺项的行只计数，交人工补录。
   // 完整账号只在服务端内存中使用，对外一律只给尾号。
@@ -267,7 +291,7 @@ function report(pid,no){
  for(const file of docs.filter(x=>x.state!=="recognized"&&no!==6&&!(no===2&&x.kind==="讲者照片")))
   add("文件识别："+file.name,null,file.state==="unsupported"?
     "该格式无法直接OCR，请补充 PDF/JPG/PNG 原件":"文件缺失、无文字或未识别成功",[file.materialId]);
- for(const file of docs.filter(x=>x.truncated&&no!==6))
+ for(const file of docs.filter(x=>x.truncated&&no!==6&&!(no===4&&isCourseMaterial(x))))
   add("超出扫描页数："+file.name,null,"共"+file.totalPages+"页，仅识别前"+file.pages+"页，需人工核对剩余页面",[file.materialId]);
  if(!docs.length)add("原件",null,"没有本步骤可以扫描的有效文件");
  const fingerprint={
@@ -307,4 +331,4 @@ function verifiedReport(pid,no,token){
  if(!token||token!==result.token)throw conflict("OCR原件或识别结果发生变化，请重新扫描","OCR_REPORT_STALE");
  return result;
 }
-module.exports={scan,report,verifiedReport,listMaterials:materials,amounts,MAX_FILES};
+module.exports={scan,report,verifiedReport,listMaterials:materials,amounts,MAX_FILES,isCourseMaterial};
