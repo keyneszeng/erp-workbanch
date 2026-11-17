@@ -82,7 +82,7 @@ function compareNames(agendaNames,photoNames){
  return {matched,missing,extra,duplicate,agendaCount:setA.size,photoCount:b.length};
 }
 function topicKey(raw){
- return normalize(raw).toLowerCase().replace(/^(?:课件主题|授课主题|课题|讲题|主题|题目)\s*[:：]/u,"")
+ return normalize(raw).toLowerCase().replace(/^(?:课件主题|授课主题|课题|讲题|主题|题目|课程名称|课件名称|报告题目|授课题目|演讲题目)\s*[:：]/u,"")
   .replace(/[\s\u3000\u200b，,。.;；：:、"'“”‘’（）()《》【】\-—_·]/gu,"");
 }
 function agendaTopics(text){
@@ -90,17 +90,30 @@ function agendaTopics(text){
  return [...new Map(all.map(x=>[topicKey(x),normalize(x)]).filter(([key])=>key.length>=3)).values()];
 }
 function courseTopics(text,agenda=[]){
- // Step 4 only reads the first five pages/slides. Each slide may have many
- // OCR lines, so the old 20-line ceiling could miss a title on slide 4 or 5.
- const first=String(text||"").split(/\r?\n/u).slice(0,150);
- const proposals=ocr.extractTopics(first.join("\n"));
+ // Only the cover page/first slide is supplied here. Titles are often
+ // unlabelled, or broken across two OCR lines.
+ const lines=String(text||"").split(/\r?\n/u).slice(0,150)
+  .map(s=>s.trim()).filter(Boolean);
  const known=new Set(agenda.map(topicKey));
- const exactLines=first.map(s=>s.trim().replace(/^(?:课件主题|授课主题|课题|讲题|主题|题目)\s*[:：]/u,"").trim())
-  .filter(s=>s.length>=4&&s.length<=120)
-  .filter(x=>known.has(topicKey(x)));
- // An exact full-line slide title is valid even when earlier slides also have
- // labelled topics. Do not accept a substring of a paragraph or slide body.
- const chosen=[...proposals,...exactLines];
+ const LABEL=/^(?:课件主题|授课主题|课题|讲题|主题|题目|课程名称|课件名称|报告题目|授课题目|演讲题目)\s*[:：]/u;
+ const clean=s=>String(s||"").replace(LABEL,"").trim();
+ // Labels are reliable even when the topic was not in the agenda.
+ const proposals=[...ocr.extractTopics(lines.join("\n"))];
+ for(const line of lines){
+  if(LABEL.test(line))proposals.push(clean(line));
+ }
+ // Exact whole-line (or two adjoining lines) agenda matching catches large
+ // cover typography. No substring matching of paragraphs, authors or logos.
+ const exact=[];
+ for(let i=0;i<lines.length;i++){
+  const one=clean(lines[i]);
+  if(one.length>=4&&one.length<=120&&known.has(topicKey(one)))exact.push(one);
+  if(i+1<lines.length){
+   const two=clean(lines[i])+clean(lines[i+1]);
+   if(two.length>=4&&two.length<=120&&known.has(topicKey(two)))exact.push(two);
+  }
+ }
+ const chosen=[...proposals,...exact];
  return [...new Map(chosen.map(x=>[topicKey(x),normalize(x)]).filter(([key])=>key.length>=3)).values()];
 }
 module.exports={speakerName,photoName,agendaSpeakers,compareNames,topicKey,agendaTopics,courseTopics};
