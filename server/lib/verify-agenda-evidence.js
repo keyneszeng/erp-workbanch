@@ -34,31 +34,46 @@ function photoName(material){
  if(generic)return speakerName(material.name,{filename:true});
  return speakerName(file||material.name,{filename:true});
 }
-function agendaSpeakers(text){
- const names=[];
- const add=value=>{
-  const name=speakerName(value);
-  if(name)names.push(name);
- };
- for(const item of ocr.parseAgenda(text))add(item.speaker);
- // Agenda speaker-only rows have no topic: the existing timetable parser
- // intentionally skips these, but the speaker roster must still find them.
- for(const m of String(text||"").matchAll(/(?:^|\n)[ \t]*(?:讲者|讲师|主讲人|授课人|演讲人|专家)(?:姓名)?[ \t]*[:：][ \t]*([^\n]{2,90})/gu)){
-  const raw=m[1].split(/(?:课题|讲题|主题|报告题目)\s*[:：]/u)[0].trim();
-  for(const part of raw.split(/[、，,;；]/u))add(part);
+/**
+ * Extract every recognizable person name in the final agenda, including OCR
+ * tables, speaker-only rows, numbered lists and text with no lecture topic.
+ * When photo names are known, verify their literal presence in the OCR text as
+ * a final recall path: "李四" in "李四主任" is sufficient even if the OCR
+ * timetable lost its column separators. This is exact-name matching, not fuzzy.
+ */
+function agendaSpeakers(text,photoNames=[]){
+ const source=ocr.cleanText(String(text||""));
+ const names=new Set();
+ const add=value=>{const name=speakerName(value);if(name)names.add(name);};
+ for(const item of ocr.parseAgenda(source))add(item.speaker);
+ for(const row of ocr.parseAgendaRows(source))add(row.speaker);
+ for(const candidate of ocr.extractNames(source))add(candidate);
+ // Labelled speaker/host and bare "姓名" columns commonly survive OCR without a topic.
+ const LABEL=/(?:^|[\n\t|｜])\s*(?:讲者|讲师|主讲人|授课人|演讲人|专家|报告人|主持人|姓名)(?:姓名)?\s*[:：\s]+([^\n]{2,100})/gu;
+ for(const m of source.matchAll(LABEL)){
+   const value=m[1].split(/(?:课题|讲题|主题|报告题目|医院|单位|职务|时间|会议|\bTopic\b)\s*[:：]/iu)[0];
+   for(const part of value.split(/[、，,;；|｜\t\s]{1,}/u))add(part);
  }
- return [...new Set(names)];
+ // Some OCR engines emit a two-column "姓名    机构" row without a label.
+ for(const m of source.matchAll(/(?:^|\n)\s*(?:\d{1,3}[.、．]?\s*)?([\u3400-\u9fff]{2,4}(?:教授|主任|医师|医生|博士|老师)?)\s{2,}[^\n]{2,60}(?:医院|大学|学院|研究所|中心)/gu))
+   add(m[1]);
+ const compact=normalize(source).replace(/[\s\u3000\u200b，,;；:：、。|｜()（）\[\]【】]/gu,"").toLowerCase();
+ for(const photo of photoNames){
+   const name=speakerName(photo);
+   if(name&&compact.includes(name))add(name);
+ }
+ return [...names];
 }
+/** Every uploaded photo must be present in the agenda; agenda-only people do not block approval. */
 function compareNames(agendaNames,photoNames){
  const a=agendaNames.map(x=>speakerName(x)).filter(Boolean);
  const b=photoNames.map(x=>speakerName(x)).filter(Boolean);
  const setA=new Set(a),setB=new Set(b);
- const unique=a.length===setA.size&&b.length===setB.size;
- const missing=[...setA].filter(x=>!setB.has(x));
- const extra=[...setB].filter(x=>!setA.has(x));
+ const missing=[...setA].filter(x=>!setB.has(x)); // Agenda names without photos: informational.
+ const extra=[...setB].filter(x=>!setA.has(x));   // Uploaded photo not in agenda: fail.
  const duplicate=[...new Set(b.filter((x,i)=>b.indexOf(x)!==i))];
- const matched=!!a.length&&!!b.length&&unique&&!missing.length&&!extra.length;
- return {matched,missing,extra,duplicate,agendaCount:a.length,photoCount:b.length};
+ const matched=!!a.length&&!!b.length&&!extra.length;
+ return {matched,missing,extra,duplicate,agendaCount:setA.size,photoCount:b.length};
 }
 function topicKey(raw){
  return normalize(raw).toLowerCase().replace(/^(?:课件主题|授课主题|课题|讲题|主题|题目)\s*[:：]/u,"")
