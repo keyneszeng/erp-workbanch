@@ -15,7 +15,7 @@ const OCR_TYPES=new Set(["jpg","png","pdf"]),MAX_FILES=32;
 const AGENDA_OCR_PAGES=Math.min(80,Math.max(3,Number(process.env.ERP_AGENDA_OCR_MAX_PAGES||20)));
 const KINDS={
  1:["会议通知","招商函","终版议程","串场"],2:["终版议程","讲者照片"],
- 3:["签到表","在线记录","直播数据","在线时长","会议截图"],
+ 3:["签到表","在线记录","直播数据","在线时长","会议截图","参会数据","参会时长","参会记录","观看记录","观看时长","直播截图","在线截图","出席记录"],
  4:["终版议程","课件"],5:["劳务表","劳务登记表","劳务收集表"],
  6:[],
  7:[]
@@ -44,7 +44,7 @@ function materials(pid,no){
   return docs.filter(m=>photos.has(Number(m.id)) ||
     (["合同","赞助合同"].includes(m.kind)&&keys.has(m.file_key))).slice(0,MAX_FILES);
  }
- return docs.filter(m=>((KINDS[no]||[]).includes(m.kind)||(expertIds?.has(Number(m.id))))
+ return docs.filter(m=>((KINDS[no]||[]).includes(m.kind)||(no===3&&/参会|在线|直播|观看|时长|考勤|签到|出席/.test(m.kind))||(expertIds?.has(Number(m.id))))
   &&!(m.kind==="终版议程"&&([1,2,4].includes(no)?m.version!=="终版":m.version==="历史版"))).slice(0,MAX_FILES);
 }
 function cache(m,pid,requiredPages=0){
