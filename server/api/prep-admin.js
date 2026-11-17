@@ -1,14 +1,14 @@
 "use strict";
-const { assertCan }=require("../lib/rbac");
+const { isSuper }=require("../lib/rbac");
 const { logAudit }=require("../lib/audit");
-const { bad }=require("../lib/util");
+const { bad,forbidden }=require("../lib/util");
 const { read,editDraft,publish,rollback,validateConfig }=require("../lib/prep-config");
 const { getProject }=require("../lib/workflow");
 const { renderInvitation,invitationPdf }=require("../lib/prep-invitation");
 const { getDeliveryEnv,mailDelivery }=require("./prep-invitations");
 const {saveKey,removeKey,stored}=require("../lib/prep-mail-credentials");
 
-function admin(ctx){assertCan(ctx.user,"setting:write","只有总管理员可以配置邀请函模板与上线渠道");}
+function admin(ctx){if(!isSuper(ctx.user))throw forbidden("只有总管理员可以配置邀请函模板与上线渠道");}
 function readiness(cfg){
   const env=getDeliveryEnv();
   let providerKeyReady=false;
