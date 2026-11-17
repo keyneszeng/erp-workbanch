@@ -13,7 +13,7 @@ const {extractInvoiceAmount}=require("./invoice-extract");
 const OCR_TYPES=new Set(["jpg","png","pdf"]),MAX_FILES=32;
 // 终版议程独立提高扫描页数，普通核销附件仍沿用OCR默认页数。
 const AGENDA_OCR_PAGES=Math.min(80,Math.max(3,Number(process.env.ERP_AGENDA_OCR_MAX_PAGES||20)));
-const COURSE_SCAN_PAGES=5;
+const COURSE_SCAN_PAGES=1;
 /** 课件与演示型串场归为第四项；普通串场稿只用于第一项。 */
 function isCourseMaterial(m){
  if(["课件","串场课件"].includes(m.kind))return true;
@@ -64,11 +64,13 @@ function cache(m,pid,requiredPages=0,coursePreview=false){
  // Previous XLSX reader appended the entire shared-string pool, including unused names,
  // so its cached "recognized" result cannot be trusted for speaker verification.
  if(ext==="xlsx"&&row.engine!==office.XLSX_ENGINE)return null;
- // A 5-slide preview is a distinct evidence scope. Rebuild old whole-deck caches;
- // and never reuse a truncated preview as a full host-script OCR in step 1.
+ // First-slide preview has a different scope and engine from old 5-slide scans.
+ // Never reuse a course-only preview as the full host-script evidence for step 1.
  if(ext==="pptx"&&coursePreview&&row.engine!==office.COURSE_PREVIEW_ENGINE)return null;
  if(ext==="pptx"&&!coursePreview&&row.engine===office.COURSE_PREVIEW_ENGINE)return null;
- if(ext==="pptx"&&coursePreview&&Number(row.pages||0)<Math.min(COURSE_SCAN_PAGES,Number(row.total_pages||COURSE_SCAN_PAGES)))return null;
+ if(ext==="pptx"&&coursePreview&&Number(row.pages||0)!==COURSE_SCAN_PAGES)return null;
+ // Reject old three/five-page course PDF OCR: only the first page may count.
+ if(ext==="pdf"&&coursePreview&&Number(row.pages||0)!==COURSE_SCAN_PAGES)return null;
  if(requiredPages&&ext==="pdf"&&Number(row.pages||0)<Math.min(Number(row.total_pages||requiredPages),requiredPages))return null;
  if(!OCR_TYPES.has(ext))return office.SUPPORTED.has(ext)?row:null;
  return ocr.providerMatches(row.engine)?row:null;
@@ -111,8 +113,29 @@ async function scan(pid,no,operator){
   const file=await storage().get(m.file_key);
   if(!file?.buffer)continue;
   try{
-   const result=nativeOffice?office.extract(file.buffer,ext,coursePreview?{maxSlides:COURSE_SCAN_PAGES}:{})
-    :await ocr.recognize(file.buffer,ext,{maxPages:requiredPages||undefined});
+   let result=nativeOffice?office.extract(file.buffer,ext,coursePreview?{maxSlides:COURSE_SCAN_PAGES}:{})
+    :await ocr.recognize(file.buffer,ext,{
+      maxPages:requiredPages||undefined,
+      // Cover titles flattened into PDF artwork need visual OCR even when a
+      // searchable text layer exists elsewhere on the first page.
+      forceVisual:coursePreview&&ext==="pdf"
+     });
+   if(coursePreview&&ext==="pptx"&&available&&!isDemoMode()){
+    // OCR only the images actually embedded in the cover slide. Native text
+    // and image OCR are combined; the remaining slides are never read.
+    const imageText=[];
+    for(const image of office.coverImages(file.buffer)){
+     try{
+      const recognized=await ocr.recognize(image.buffer,image.ext);
+      if(recognized.text?.trim())imageText.push(recognized.text.trim());
+     }catch(e){
+      // A corrupt/non-text image must not invalidate usable native slide text.
+      if(!result?.text?.trim()&&e.code==="OCR_PROVIDER_MISCONFIGURED")throw e;
+     }
+    }
+    if(imageText.length)result={...result,text:[result.text,...imageText].filter(Boolean).join("\n"),
+      mode:"office-cover-ocr"};
+   }
    if(result?.text?.trim()){persist(m,pid,result,operator);processed++;}
   }catch(e){
    if(["OCR_DISABLED","OCR_ENGINE_MISSING","OCR_PROVIDER_MISCONFIGURED","OCR_UNAVAILABLE","OCR_TIMEOUT"].includes(e.code))throw e;
@@ -203,15 +226,15 @@ function report(pid,no){
   for(const file of courses){
    const extracted=agendaEvidence.courseTopics(file.text,topics);
    const notFound=extracted.filter(topic=>!allowed.has(agendaEvidence.topicKey(topic)));
-   // Five-page/slide preview is intentional, not an OCR failure. Match on
-   // whole topics, not substring words; do NOT require scanning all slides.
+   // First-page/slide preview is intentional, not an OCR failure. Match
+   // complete cover topics; never require scanning the rest of the deck.
    const canCompare=agendaDocs.length===1&&topics.length&&extracted.length;
    const limited=file.totalPages>file.pages&&file.pages>0;
    const scope=limited?"仅扫描前"+file.pages+"页/张（共"+file.totalPages+"页/张）；":"";
    add("课件："+String(file.name).slice(0,50),canCompare?notFound.length===0:null,
     canCompare?scope+(notFound.length?"扫描所得主题不在终版议程："+notFound.join("、").slice(0,85):
       "提取"+extracted.length+"个完整课件主题，均在当前终版议程中"):
-      scope+"未可靠提取课件主题，请检查前5页是否含主题文字或打开原件人工核对",
+      scope+"未可靠提取首页课件主题，请检查第一页封面（图片式封面需启用OCR）或人工核对",
     ids([...agendaDocs,file]));
   }
   if(!courses.length)add("课件原件",null,"缺少已上传课件或串场演示课件");
