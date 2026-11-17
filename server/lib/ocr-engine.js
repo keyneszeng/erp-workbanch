@@ -166,20 +166,33 @@ async function recognize(buffer,ext,opts={}){
       throw fail("OCR_MIME_MISMATCH","原件内容与扩展名不符",400);
     await fs.writeFile(file,buffer,{mode:0o600});
 
-    let pages=1,totalPages=1,truncated=false;
+    let pages=1,totalPages=1,truncated=false,layer="";
     if(ext==="pdf"){
       const maxPages=Number.isInteger(opts.maxPages)&&opts.maxPages>0?Math.min(80,opts.maxPages):MAX_PAGES;
     const info=await exec("pdfinfo",[file],{timeout:10000});
       const match=/^Pages:\s+(\d+)/im.exec(info);
       if(!match||!(+match[1]>0))throw fail("OCR_INVALID_PDF","PDF 页数无效或文件已加密",422);
       totalPages=+match[1];pages=Math.min(totalPages,maxPages);truncated=totalPages>maxPages;
-      const layer=cleanText(await exec("pdftotext",["-f","1","-l",String(pages),"-layout",file,"-"],{timeout:10000}));
-      // 有文本层就用文本层：比任何视觉模型都准，而且不花钱
-      if(layer.length>=40)
+      layer=cleanText(await exec("pdftotext",["-f","1","-l",String(pages),"-layout",file,"-"],{timeout:10000}));
+      // Ordinary documents prefer their reliable text layer. Course covers
+      // additionally OCR the first page: a title can be flattened to artwork
+      // while other cover text is selectable.
+      if(layer.length>=40&&!opts.forceVisual)
         return {text:layer,mode:"pdf-text",engine:"Poppler pdftotext",pages,totalPages,truncated};
     }
 
-    const out=await recognizeRapid(file,dir,ext,pages,exec);
+    let out;
+    try{out=await recognizeRapid(file,dir,ext,pages,exec);}
+    catch(e){
+      if(ext==="pdf"&&layer.trim()&&opts.forceVisual)
+       return {text:layer,mode:"pdf-text",engine:"Poppler pdftotext",pages,totalPages,truncated};
+      throw e;
+    }
+    if(ext==="pdf"&&opts.forceVisual&&layer.trim()){
+      const merged=[layer,out.text].filter(Boolean).join("\n");
+      return {...out,text:cleanText(merged),mode:"pdf-cover-ocr",
+       pages:out.pages??pages,totalPages,truncated};
+    }
     return {...out,pages:out.pages??pages,totalPages,truncated};
   }finally{await fs.rm(dir,{recursive:true,force:true}).catch(()=>{});}
 }
