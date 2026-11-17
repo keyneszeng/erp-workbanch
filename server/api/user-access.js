@@ -5,9 +5,15 @@ const {PERMS,MODULES,isSuper}=require("../lib/rbac");
 const {bad,notFound,forbidden,conflict}=require("../lib/util");
 const {logAudit}=require("../lib/audit");
 const ALL_MODULES=MODULES.map(m=>m.k),ALL_PERMS=Object.keys(PERMS);
+// 总管理员保有全部权限，但“系统配置”及其管理动作不可分配给任何业务账号。
+const GRANTABLE_MODULES=MODULES.filter(m=>m.k!=="system");
+const GRANTABLE_MODULE_KEYS=GRANTABLE_MODULES.map(m=>m.k);
+const GRANTABLE_PERMS=ALL_PERMS.filter(k=>!["user:manage","setting:write"].includes(k));
 function granted(id){
- return {modules:db.prepare("SELECT module FROM user_module_grants WHERE user_id=? ORDER BY module").all(id).map(x=>x.module),
- permissions:db.prepare("SELECT permission FROM user_permission_grants WHERE user_id=? ORDER BY permission").all(id).map(x=>x.permission)};
+ return {modules:db.prepare("SELECT module FROM user_module_grants WHERE user_id=? ORDER BY module").all(id)
+   .map(x=>x.module).filter(x=>GRANTABLE_MODULE_KEYS.includes(x)),
+ permissions:db.prepare("SELECT permission FROM user_permission_grants WHERE user_id=? ORDER BY permission").all(id)
+   .map(x=>x.permission).filter(x=>GRANTABLE_PERMS.includes(x))};
 }
 function requireAdmin(user){if(!isSuper(user))throw forbidden("仅总管理员可授予或撤销功能权限");}
 function validate(xs,allow,label){
@@ -26,14 +32,14 @@ function register(router){
   const u=account(ctx.params.id);
   return {user:u,immutable:isSuper(u),
     access:isSuper(u)?{modules:ALL_MODULES,permissions:ALL_PERMS}:granted(u.id),
-    available_modules:MODULES,available_permissions:ALL_PERMS};
+    available_modules:GRANTABLE_MODULES,available_permissions:GRANTABLE_PERMS};
  });
  router.patch("/api/users/:id/access",async ctx=>{
   requireAdmin(ctx.user);
   const u=account(ctx.params.id);
   if(isSuper(u))throw conflict("总管理员恒有全部权限，不可修改","SUPER_IMMUTABLE");
-  const modules=validate(ctx.body?.modules,ALL_MODULES,"模块权限");
-  const permissions=validate(ctx.body?.permissions,ALL_PERMS,"功能权限");
+  const modules=validate(ctx.body?.modules,GRANTABLE_MODULE_KEYS,"模块权限");
+  const permissions=validate(ctx.body?.permissions,GRANTABLE_PERMS,"功能权限");
   const old=granted(u.id);
   transaction(()=>{
    db.prepare("DELETE FROM user_module_grants WHERE user_id=?").run(u.id);
