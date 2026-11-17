@@ -256,7 +256,7 @@ test("第2项OCR终版议程可有额外姓名，上传照片均在议程即可�
  }
 });
 test("第3项OCR含不同时间单位时只要任一参会时长严格大于30分钟就一致",async()=>{
- const materialId=addDoc("在线时长","线上参会时长",
+ const materialId=addDoc("参会数据","线上参会时长",
    "短时参与：20分钟\n实际观看时长：40 min", "ffffffffffffffffffffffffffffffff.pdf");
  try{
    const scan=async()=>{
