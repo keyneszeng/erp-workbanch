@@ -177,3 +177,60 @@ test("PDF课件封面仅渲染OCR第一页，并合并文字层与图片里的�
   else process.env.ERP_OCR_ENABLED=old;
  }
 });
+
+test("第6项可扩展PDF合同文字层提取到12页而非默认3页",async()=>{
+ const {extractPdfText}=require("../server/lib/ocr-engine");
+ const commands=[];
+ const result=await extractPdfText(Buffer.from("%PDF-1.7\nfixture"),{
+  maxPages:12,
+  exec:async(program,args)=>{
+   commands.push({program,args});
+   if(program==="pdfinfo")return "Pages: 18\n";
+   if(program==="pdftotext")return "Meeting Service Agreement: signed, budget 3175 yuan, meeting logistics";
+   throw Error(program);
+  }
+ });
+ assert.equal(result.pages,12);
+ assert.equal(result.totalPages,18);
+ assert.equal(result.truncated,true);
+ assert.match(result.text,/Service Agreement/);
+ const textCall=commands.find(x=>x.program==="pdftotext");
+ assert.equal(textCall.args[textCall.args.indexOf("-l")+1],"12");
+});
+test("扫描版PDF合同无文字层时使用RapidOCR逐页渲染识别",async()=>{
+ const fs=require("node:fs"),old=process.env.ERP_OCR_ENABLED;
+ process.env.ERP_OCR_ENABLED="1";
+ const calls=[];
+ try{
+  const result=await recognize(Buffer.from("%PDF-1.7\nfixture"),"pdf",{
+   maxPages:2,exec:async(program,args)=>{
+    calls.push({program,args});
+    if(program==="pdfinfo")return "Pages: 7\n";
+    if(program==="pdftotext")return "";
+    if(program==="pdftoppm"){
+     fs.writeFileSync(args[args.length-1]+"-1.png",Buffer.from("page1"));
+     fs.writeFileSync(args[args.length-1]+"-2.png",Buffer.from("page2"));
+     return "";
+    }
+    if(program.includes("python"))return JSON.stringify({items:[
+     {text:"会务服务协议",score:0.98,x:10,y:10,h:20,w:140},
+     {text:"合同金额 3175",score:0.97,x:10,y:48,h:20,w:140}
+    ]});
+    throw Error("Unexpected program "+program);
+   }
+  });
+  assert.equal(result.pages,2);
+  assert.equal(result.totalPages,7);
+  assert.equal(result.truncated,true);
+  assert.equal(result.mode,"pdf-ocr");
+  assert.match(result.text,/会务服务协议/);
+  assert.equal(calls.filter(x=>x.program.includes("python")).length,2);
+  for(const program of ["pdftotext","pdftoppm"]){
+   const command=calls.find(x=>x.program===program);
+   assert.equal(command.args[command.args.indexOf("-l")+1],"2");
+  }
+ }finally{
+  if(old===undefined)delete process.env.ERP_OCR_ENABLED;
+  else process.env.ERP_OCR_ENABLED=old;
+ }
+});

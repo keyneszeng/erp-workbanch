@@ -89,7 +89,7 @@ export function stepBody(d,no){
     3:"OCR识别参会记录或截图中的分钟、小时、时分及在线时长，任一明确时长大于30分钟即为时长一致；线下/混合还需核验签到原件。",
     4:"课件及串场演示课件只识别封面第一页（PPTX第一张幻灯片），提取出的完整主题在当前终版议程中即一致。图片式封面需启用OCR；后续页面不参与自动比对，普通串场稿不参与。",
     5:"仅核对劳务登记表与劳务专家合同：逐人核对姓名、时间、角色、金额、银行账号五字段；会务合同和赞助合同不参与本项。",
-    6:"有已建立会务需求表即必核：核对会务需求表预算与已签会务合同金额一致，并确认已关联会务发票原件；不比对发票金额。",
+    6:"会务协议等同会务合同。关联已签会务协议/合同原件及会务发票 PDF，识别合同和发票正文供人工核查；核对会务需求预算与已签合同总额一致，不以PDF识别成功或发票金额作为通过门槛。",
     7:"有赞助权益内容或权益照片即必核：只关联赞助合同和权益照片，逐项核实交付内容及照片真实性。"
   };
   const isLaborContract=m=>{
@@ -102,13 +102,27 @@ export function stepBody(d,no){
     return /劳务专家|专家劳务|劳务合同|专家合同|讲课合同|讲师合同|讲者合同|授课合同|劳务服务合同/.test(title)&&
       !/赞助合同|企业赞助|招商合同|会务合同|会务协议|会议服务合同|场地合同|酒店合同|采购合同|设备合同/.test(title);
   };
-  const ledgerByKey=new Map((d.contracts||[]).filter(x=>x.file_key).map(x=>[x.file_key,x]));
+  // 会务协议和会务合同是同一种会务合同原件；只有已签署且有明确
+  // 会务标识的历史“其他”分类记录可按协议回填，绝不把赞助/劳务算进来。
+  const meetingKinds=new Set(["会务协议","会务合同","会务服务协议","会议服务协议","会议服务合同"]);
+  const meetingWords=/会务协议|会务合同|会务服务协议|会议服务协议|会议服务合同|会议执行合同|会务执行合同/;
+  const ledgerByKey=new Map();
+  for(const c of (d.contracts||[]).filter(x=>x.file_key)){
+    if(!ledgerByKey.has(c.file_key))ledgerByKey.set(c.file_key,[]);
+    ledgerByKey.get(c.file_key).push(c);
+  }
+  const explicitAgreement=m=>meetingKinds.has(m.kind)||
+    (m.kind==="合同"&&meetingWords.test((m.name||"")+" "+(m.file_name||"")));
+  const legacySigned=c=>c.status==="已签署"&&
+    ["其他","会务协议","会务合同","未分类",""].includes(String(c.category||""))&&
+    meetingWords.test(c.name||"");
   const meetingAgreement=m=>{
     if(!m?.file_key||m.version==="历史版")return false;
-    const linked=ledgerByKey.get(m.file_key);
-    if(linked)return linked.category==="会务需求";
-    return m.kind==="会务协议"||(m.kind==="合同"&&
-      /会务协议|会务合同|会议服务合同|会议执行合同|会务执行合同/.test((m.name||"")+" "+(m.file_name||"")));
+    const linked=ledgerByKey.get(m.file_key)||[];
+    if(linked.length)return linked.length===1&&(
+      linked[0].category==="会务需求"||
+      (explicitAgreement(m)&&legacySigned(linked[0])));
+    return explicitAgreement(m);
   };
   const meetingInvoice=m=>m.file_key&&(m.kind==="会务发票"||
     (m.kind==="发票"&&/会务|会议服务|会议执行/.test((m.name||"")+" "+(m.file_name||""))));
@@ -122,7 +136,9 @@ export function stepBody(d,no){
     (no===6&&(meetingAgreement(m)||meetingInvoice(m)))||
     (no===7&&["赞助合同","合同"].includes(m.kind)&&sponsorKeys.has(m.file_key)));
   const step=d.verification.steps.find(x=>x.no===no);
-  const contractTotal=(d.contracts||[]).filter(x=>x.status==="已签署" && x.category==="会务需求")
+  const contractTotal=(d.contracts||[]).filter(x=>x.status==="已签署" &&
+    (x.category==="会务需求"||(legacySigned(x)&&
+      (d.materials||[]).some(m=>m.file_key===x.file_key&&meetingAgreement(m)))))
     .reduce((sum,x)=>sum+Number(x.amount||0),0);
   const meetingDemandTotal=Number(d.demand?.budgetTotal||0);
   const matchedContractIds=new Set(step?.evidence?.matchedContractMaterialIds||[]);
@@ -145,7 +161,7 @@ export function stepBody(d,no){
         const photos=(d.sponsorRights?.photos||[]).filter(x=>Number(x.sponsor_right_id)===Number(r.id)&&x.file_key);
         return '<div class="dchk"><b>'+esc(sponsor?.enterprise||r.sponsor_id)+' · '+esc(r.category)+'</b> · '+(r.confirmed?'权益已确认':'待校正')+' · '+photos.length+' 张照片'+matList(photos,'请按权益二级类目上传照片')+'</div>';
       }).join("")+'</div>':""}
-    ${no===6?`<div class="dgrid">${cell("会务需求总预算",fmt(meetingDemandTotal))}${cell("已签会务合同总额",fmt(contractTotal))}</div>${!d.demand?.archived?"<div class=\"dhint\">需求表尚未确认归档，不能完成第6项核验。</div>":""}`:""}
+    ${no===6?`<div class="dgrid">${cell("会务需求总预算",fmt(meetingDemandTotal))}${cell("已签会务合同／协议总额",fmt(contractTotal))}</div>${!d.demand?.archived?"<div class=\"dhint\">需求表尚未确认归档，不能完成第6项核验。</div>":""}`:""}
     ${no===5?`<div class="dsec"><h4>已关联劳务专家合同（材料库）</h4>
       ${matList(linkedContracts,"尚未匹配劳务专家合同，请上传对应专家的合同原件。")}
       <div class="hint">仅关联劳务专家合同；会务合同、赞助合同不进入核销第5项。合同正文与人员信息仍需人工核对。</div></div>`:""}

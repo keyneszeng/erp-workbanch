@@ -102,6 +102,80 @@ test("会务需求预算与已签会务合同总额不一致仍然拦截", async
   db.prepare("UPDATE demand_items SET budget=? WHERE pid=?").run(3175, pid);
 });
 
+test("“会务协议”就是会务合同：已签历史其他类别、PDF原件关联均有效",async()=>{
+ try{
+  db.prepare("UPDATE materials SET kind='会务协议',name='已签会务服务协议' WHERE pid=? AND file_key='meet.pdf'").run(pid);
+  db.prepare("UPDATE contracts SET category='其他' WHERE id='HT-TEST-1'").run();
+  const s=await request("POST","/api/projects/"+pid+"/verify/steps/6/scan",{},cookie);
+  assert.equal(s.status,200,JSON.stringify(s.body));
+  const report=s.body.report;
+  assert.equal(report.demandSheet.contractTotal,3175);
+  assert.ok(report.files.some(x=>x.kind==="会务协议"),"linked meeting agreement must be included");
+  assert.equal(report.checks.find(x=>x.name==="已签会务合同/会务协议原件")?.status,"一致");
+  assert.equal(report.summary.mismatch,0,JSON.stringify(report.checks));
+  const passed=await judge();
+  assert.equal(passed.status,200,JSON.stringify(passed.body));
+
+  // A sponsor or labor contract must NEVER be reinterpreted as a meeting agreement.
+  db.prepare("UPDATE contracts SET category='企业赞助' WHERE id='HT-TEST-1'").run();
+  const excluded=await request("POST","/api/projects/"+pid+"/verify/steps/6/scan",{},cookie);
+  assert.equal(excluded.status,200);
+  assert.ok(!excluded.body.report.files.some(x=>x.kind==="会务协议"));
+  const denied=await judge();
+  assert.equal(denied.status,409,JSON.stringify(denied.body));
+ }finally{
+  db.prepare("UPDATE contracts SET category='会务需求' WHERE id='HT-TEST-1'").run();
+  db.prepare("UPDATE materials SET kind='合同',name='会务服务协议' WHERE pid=? AND file_key='meet.pdf'").run(pid);
+ }
+});
+test("第6项真实可检索PDF协议和发票能自动提取文字，仍保持合同与发票的关联门禁",async()=>{
+ const {PDFDocument,StandardFonts}=require("pdf-lib");
+ const makePdf=async text=>{
+  const pdf=await PDFDocument.create(),page=pdf.addPage([595,842]);
+  const font=await pdf.embedFont(StandardFonts.Helvetica);
+  page.drawText(text,{x:42,y:720,size:12,font});
+  return Buffer.from(await pdf.save());
+ };
+ const upload=async(text,name)=>{
+  const buffer=await makePdf(text);
+  const response=await fetch(root+"/api/uploads?pid="+encodeURIComponent(pid),{
+   method:"POST",headers:{Cookie:cookie,"content-type":"application/pdf",
+    "x-file-name":encodeURIComponent(name)},body:buffer
+  });
+  const obj=await response.json();
+  assert.equal(response.status,200,JSON.stringify(obj));
+  return obj.key;
+ };
+ const agreementKey=await upload("Meeting service agreement. The contract is signed and covers meeting operations. Budget 3175 CNY.","meeting-agreement.pdf");
+ const invoiceKey=await upload("Meeting service invoice. Invoice issued for meeting operations and services. Reference number INV20261117.","meeting-invoice.pdf");
+ try{
+  db.prepare("UPDATE contracts SET file_key=? WHERE id='HT-TEST-1'").run(agreementKey);
+  db.prepare("UPDATE materials SET file_key=?,file_name='meeting-agreement.pdf',kind='会务协议' WHERE pid=? AND file_key='meet.pdf'").run(agreementKey,pid);
+  db.prepare("UPDATE materials SET file_key=?,file_name='meeting-invoice.pdf' WHERE pid=? AND file_key='inv.pdf'").run(invoiceKey,pid);
+  const s=await request("POST","/api/projects/"+pid+"/verify/steps/6/scan",{},cookie);
+  assert.equal(s.status,200,JSON.stringify(s.body));
+  const report=s.body.report;
+  assert.ok(report.scanned>=2,JSON.stringify(report.files));
+  const agreement=report.files.find(x=>x.kind==="会务协议");
+  const invoice=report.files.find(x=>x.kind==="会务发票");
+  assert.equal(agreement.state,"recognized");
+  assert.equal(invoice.state,"recognized");
+  assert.match(agreement.preview,/Meeting service agreement/i);
+  assert.match(invoice.preview,/Meeting service invoice/i);
+  assert.equal(agreement.mode,"pdf-text");
+  assert.equal(invoice.mode,"pdf-text");
+  assert.equal(report.checks.find(x=>x.name==="已签会务合同/会务协议原件")?.status,"一致");
+  assert.equal(report.checks.find(x=>x.name==="已关联会务发票原件")?.status,"一致");
+  const accepted=await request("POST","/api/projects/"+pid+"/verify/steps/6",{
+   result:"通过",auto:true,scanToken:report.token
+  },cookie);
+  assert.equal(accepted.status,200,JSON.stringify(accepted.body));
+ }finally{
+  db.prepare("UPDATE contracts SET file_key='meet.pdf' WHERE id='HT-TEST-1'").run();
+  db.prepare("UPDATE materials SET file_key='meet.pdf',file_name='meet.pdf',kind='合同' WHERE pid=? AND file_key=?").run(pid,agreementKey);
+  db.prepare("UPDATE materials SET file_key='inv.pdf',file_name='inv.pdf' WHERE pid=? AND file_key=?").run(pid,invoiceKey);
+ }
+});
 /**
  * UI 判定链路回归：页面点「判定」会先 scan 再带 scanToken 提交 auto=true。
  * 第 6 步 scan 不做 OCR，scanned 恒为 0；若把「scanned>0」当作通过前置条件，
