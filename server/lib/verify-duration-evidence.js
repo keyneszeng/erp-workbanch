@@ -41,7 +41,14 @@ function extractDurations(raw){
   push(m,h*60+min+sec/60);
  }
  const minutes=new RegExp("("+NUMBER+")\\s*(?:分钟|分(?!钟)|minutes?|mins?|min|m)(?:\\s*("+NUMBER+")\\s*(?:秒钟?|seconds?|secs?|s))?","giu");
- for(const m of text.matchAll(minutes))push(m,numeric(m[1])+(m[2]?numeric(m[2]):0)/60);
+ for(const m of text.matchAll(minutes)){
+  // Suppress a minute fragment in a clock-style "9时40分"; the contextual
+  // parser below handles it if an explicit attendance-duration label exists.
+  const prefix=text.slice(Math.max(0,m.index-14),m.index);
+  if(/分(?!钟)/u.test(m[0])&&/(?:\d{1,2}|[零〇一二两三四五六七八九十百]+)\s*时\s*$/u.test(prefix))
+    continue;
+  push(m,numeric(m[1])+(m[2]?numeric(m[2]):0)/60);
+ }
  // "1时20分" can also mean a wall-clock time; accept it only next to
  // an explicit duration label rather than treating every meeting time as long attendance.
  const contextualHours=new RegExp("(?:时长|用时|耗时|累计|持续|在线|观看|参会)\\s*[:：=]?\\s*("+NUMBER+")\\s*时\\s*("+NUMBER+")\\s*分","giu");
