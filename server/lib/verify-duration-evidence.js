@@ -42,13 +42,17 @@ function extractDurations(raw){
  }
  const minutes=new RegExp("("+NUMBER+")\\s*(?:分钟|分(?!钟)|minutes?|mins?|min|m)(?:\\s*("+NUMBER+")\\s*(?:秒钟?|seconds?|secs?|s))?","giu");
  for(const m of text.matchAll(minutes))push(m,numeric(m[1])+(m[2]?numeric(m[2]):0)/60);
+ // "1时20分" can also mean a wall-clock time; accept it only next to
+ // an explicit duration label rather than treating every meeting time as long attendance.
+ const contextualHours=new RegExp("(?:时长|用时|耗时|累计|持续|在线|观看|参会)\\s*[:：=]?\\s*("+NUMBER+")\\s*时\\s*("+NUMBER+")\\s*分","giu");
+ for(const m of text.matchAll(contextualHours))push(m,numeric(m[1])*60+numeric(m[2]));
  // Common screenshots show watch duration as HH:MM[:SS]. Never parse an
  // unlabelled 10:45 wall-clock time as 10 hours 45 minutes.
  const clock=/(?:有效|累计|实际|在线|观看|参会|听课|直播|讲者)?(?:时长|观看时间|持续时间|停留时间|在线时间)\s*[:：=]?\s*(\d{1,3})[:：]([0-5]\d)(?:[:：]([0-5]\d))?/giu;
  for(const m of text.matchAll(clock))push(m,Number(m[1])*60+Number(m[2])+Number(m[3]||0)/60);
  // ">30分钟" and "超过30分钟" assert a strict duration threshold, even
  // without an exact recorded number; do not treat "30分钟以上" as strictly >30.
- const gt=/(?:超过|大于|高于|多于|>|＞)\s*30\s*(?:分钟|分|minutes?|mins?|min)/giu;
+ const gt=/(?:超过|大于|高于|多于|>|＞)\s*(?:30|三十)\s*(?:分钟|分|minutes?|mins?|min)/giu;
  for(const m of text.matchAll(gt))push(m,30,true);
  return out;
 }
