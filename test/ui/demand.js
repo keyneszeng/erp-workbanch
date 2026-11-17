@@ -228,7 +228,7 @@ async function seedArchivedDemand() {
     await page.waitForTimeout(700);
     const body = await page.textContent("#modal .mb");
     check("第3步依据新版SOP核验参会数据与时长",
-      /线上有效讲者在线时长/.test(body) && /线下有签到原件/.test(body),body.slice(0,120));
+      /OCR识别参会记录或截图/.test(body) && /大于30分钟/.test(body) && /线下\/混合还需核验签到原件/.test(body),body.slice(0,120));
     check("第3步提供关联签到材料入口",/已登记的关联材料/.test(body),"");
     // 费用核对通过独立 demand 字段提供，不属于第3步「参会数据与时长」。
     const verify=await api("GET","/api/projects/"+PID2+"/verify");
@@ -273,7 +273,7 @@ async function seedArchivedDemand() {
         await page.waitForTimeout(700);
         const body2 = await page.textContent("#modal .mb");
         check("项目详情第3步同样遵循参会数据与时长SOP",
-          /线上有效讲者在线时长/.test(body2) && /线下有签到原件/.test(body2),"");
+          /OCR识别参会记录或截图/.test(body2) && /大于30分钟/.test(body2) && /线下\/混合还需核验签到原件/.test(body2),"");
         check("项目详情第3步展示关联材料入口",/已登记的关联材料/.test(body2),"");
         check("不再出现误导性的「已发生费用」", !/已发生费用/.test(body2), "");
         await page.click('#modal [data-x="0"]');
