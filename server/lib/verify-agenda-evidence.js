@@ -57,10 +57,16 @@ function agendaSpeakers(text,photoNames=[]){
  // Some OCR engines emit a two-column "姓名    机构" row without a label.
  for(const m of source.matchAll(/(?:^|\n)\s*(?:\d{1,3}[.、．]?\s*)?([\u3400-\u9fff]{2,4}(?:教授|主任|医师|医生|博士|老师)?)\s{2,}[^\n]{2,60}(?:医院|大学|学院|研究所|中心)/gu))
    add(m[1]);
- const compact=normalize(source).replace(/[\s\u3000\u200b，,;；:：、。|｜()（）\[\]【】]/gu,"").toLowerCase();
+ // Accept only whole-name OCR occurrences (spaces between glyphs are allowed).
+ // "张三" must not be accepted from a different person "张三丰教授".
+ const normalizedSource=normalize(source).toLowerCase();
  for(const photo of photoNames){
    const name=speakerName(photo);
-   if(name&&compact.includes(name))add(name);
+   if(!name)continue;
+   const separated=[...name].map(ch=>/^[a-z\u3400-\u9fff]$/iu.test(ch)?ch:"\\"+ch).join("\\s*");
+   const whole=new RegExp("(?:^|[^\\p{Script=Han}A-Za-z])"+separated+
+     "(?=$|[^\\p{Script=Han}A-Za-z]|教授|副教授|主任|医师|医生|老师|博士|院长)","iu");
+   if(whole.test(normalizedSource))add(name);
  }
  return [...names];
 }
