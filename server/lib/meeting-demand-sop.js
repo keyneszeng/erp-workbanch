@@ -2,16 +2,31 @@
 const crypto=require("node:crypto");
 const {cents}=require("./util");
 const MEETING="会务需求";
-const LEGACY_MEETING=/(?:会务协议|会务合同|会议服务合同|会议执行合同|会务执行合同)/;
+const LEGACY_MEETING=/(?:会务协议|会务合同|会务服务协议|会议服务协议|会议服务合同|会议执行合同|会务执行合同)/;
+const MEETING_KINDS=new Set(["会务协议","会务合同","会务服务协议","会议服务协议","会议服务合同"]);
+const LEGACY_CATEGORIES=new Set(["其他","会务协议","会务合同","未分类",""]);
+// Never infer a meeting agreement from a sponsor/labor ledger category.
+function matchingLegacyContract(row){
+ return LEGACY_CATEGORIES.has(String(row?.category||""))&&
+   LEGACY_MEETING.test(String(row?.name||""))&&row?.status==="已签署";
+}
+function explicitMeetingMaterial(m){
+ return MEETING_KINDS.has(m.kind)||
+   (m.kind==="合同"&&LEGACY_MEETING.test(String(m.name||"")+" "+String(m.file_name||"")));
+}
 
 function validFile(m){return !!m.file_key && String(m.file_key).trim() && !m.deleted_at;}
 /** Contract ledger category wins; a sponsor/labor file must never be matched by its title. */
 function isMeetingAgreement(m,byKey){
  if(!validFile(m)||m.version==="历史版")return false;
  const contracts=byKey.get(m.file_key)||[];
- if(contracts.length)return contracts.length===1 && contracts[0].category===MEETING;
- return m.kind==="会务协议" ||
-   (m.kind==="合同"&&LEGACY_MEETING.test(String(m.name||"")+" "+String(m.file_name||"")));
+ if(contracts.length){
+  if(contracts.length!==1)return false;
+  const row=contracts[0];
+  return row.category===MEETING ||
+    (explicitMeetingMaterial(m)&&matchingLegacyContract(row));
+ }
+ return explicitMeetingMaterial(m);
 }
 function isMeetingInvoice(m){
  if(!validFile(m))return false;
@@ -28,10 +43,9 @@ function demandSopState(db,pid){
  const items=db.prepare(
   "SELECT id,grp,item,need,budget,quantity,unit_price FROM demand_items WHERE pid=? AND need='需要' ORDER BY id"
  ).all(pid);
- const contracts=db.prepare(
-  "SELECT id,name,category,amount,status,file_key FROM contracts WHERE pid=? AND category=? AND status='已签署' ORDER BY id"
- ).all(pid,MEETING);
- const allLedger=db.prepare("SELECT id,category,file_key FROM contracts WHERE pid=? AND file_key IS NOT NULL AND file_key<>'' ORDER BY id").all(pid);
+ const allLedger=db.prepare(
+  "SELECT id,name,category,status,amount,file_key FROM contracts WHERE pid=? AND file_key IS NOT NULL AND file_key<>'' ORDER BY id"
+ ).all(pid);
  const byKey=new Map();
  for(const item of allLedger){
   if(!byKey.has(item.file_key))byKey.set(item.file_key,[]);
@@ -42,6 +56,11 @@ function demandSopState(db,pid){
   "AND (deleted_at IS NULL OR deleted_at='') AND file_key IS NOT NULL AND file_key<>'' ORDER BY id"
  ).all(pid);
  const agreements=materials.filter(m=>isMeetingAgreement(m,byKey));
+ const agreementKeys=new Set(agreements.map(x=>x.file_key));
+ const contracts=db.prepare(
+  "SELECT id,name,category,amount,status,file_key FROM contracts WHERE pid=? AND status='已签署' ORDER BY id"
+ ).all(pid).filter(c=>c.category===MEETING ||
+  (matchingLegacyContract(c)&&c.file_key&&agreementKeys.has(c.file_key)));
  const invoices=materials.filter(isMeetingInvoice);
  const budgetCents=items.reduce((n,x)=>n+cents(Number(x.budget||0)),0);
  const contractCents=contracts.reduce((n,x)=>n+cents(x.amount),0);
@@ -58,4 +77,4 @@ function demandSopState(db,pid){
   agreements,invoices,signature
  };
 }
-module.exports={demandSopState,isMeetingAgreement,isMeetingInvoice};
+module.exports={demandSopState,isMeetingAgreement,isMeetingInvoice,matchingLegacyContract};
