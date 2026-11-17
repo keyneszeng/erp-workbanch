@@ -9,6 +9,7 @@ const {detectOoxml,MIME}=require("./ooxml");
 const {MAX_BYTES}=require("./storage");
 const SUPPORTED=new Set(["docx","pptx","xlsx","txt","csv"]);
 const XLSX_ENGINE="Excel表格结构化文本提取 v2";
+const COURSE_PREVIEW_ENGINE="Office原生文本提取·课件前5张 v1";
 const MAX_TEXT=30000,MAX_PART=10*1024*1024;
 function entities(text){
  return String(text||"").replace(/&#x([0-9a-f]+);/gi,(_,n)=>String.fromCodePoint(parseInt(n,16)))
@@ -107,7 +108,7 @@ function parseXlsx(zip,names){
  return {text:result,mode:"office-text",engine:XLSX_ENGINE,pages:0,totalPages:0,
   truncated,note:"Excel按工作表实际单元格逐行提取（含共享字符串、内联文字及数值）；不含图片或手写签名，仍需人工核对签到真实性"};
 }
-function extract(buffer,ext){
+function extract(buffer,ext,options={}){
  if(!SUPPORTED.has(ext))return null;
  if(!Buffer.isBuffer(buffer)||buffer.length>MAX_BYTES||!buffer.length)
   throw error("Office文档超过50MB或不是有效文件");
@@ -133,15 +134,24 @@ function extract(buffer,ext){
   contents.push(str);
  };
  if(ext==="docx")add("word/document.xml");
+ let totalSlides=0,scannedSlides=0;
+ const preview=ext==="pptx"&&options.maxSlides===5;
  if(ext==="pptx"){
   const slides=names.filter(x=>/^ppt\/slides\/slide\d+\.xml$/.test(x)).sort((a,b)=>
     Number(a.match(/\d+(?=\.xml)/)[0])-Number(b.match(/\d+(?=\.xml)/)[0]));
-  for(const name of slides.slice(0,80))add(name);
+  totalSlides=slides.length;
+  // Only decompress the first five slide XML parts. Later embedded images and
+  // enormous slide XML files must not block a valid early course heading.
+  const selected=slides.slice(0,preview?5:80);
+  for(const name of selected)add(name);
+  scannedSlides=selected.length;
  }
  const text=contents.map(flat).join("\n").slice(0,MAX_TEXT);
  if(!text.trim())throw error("Office文件没有可提取的文本","OFFICE_EMPTY");
- return {text,mode:"office-text",engine:"Office原生文本提取",pages:0,totalPages:0,
-  truncated:contents.reduce((n,x)=>n+x.length,0)>MAX_TEXT,
-  note:"Office内嵌文本提取并非图片OCR；嵌入截图、扫描页和复杂表格仍需人工核对"};
+ return {text,mode:"office-text",engine:preview?COURSE_PREVIEW_ENGINE:"Office原生文本提取",
+  pages:ext==="pptx"?scannedSlides:0,totalPages:ext==="pptx"?totalSlides:0,
+  truncated:(ext==="pptx"&&totalSlides>scannedSlides)||contents.reduce((n,x)=>n+x.length,0)>MAX_TEXT,
+  note:preview?"仅提取前"+scannedSlides+"张幻灯片的原生文字；后续页及幻灯片内截图未OCR，核销需人工核查":
+    "Office内嵌文本提取并非图片OCR；嵌入截图、扫描页和复杂表格仍需人工核对"};
 }
-module.exports={extract,SUPPORTED,XLSX_ENGINE,parseXlsx};
+module.exports={extract,SUPPORTED,XLSX_ENGINE,COURSE_PREVIEW_ENGINE,parseXlsx};
