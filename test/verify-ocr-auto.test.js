@@ -130,7 +130,7 @@ test("第4项真实上传8张幻灯片串场PPTX，仅提取前5张即可标记�
    assert.equal(cache.pages,5);
    const second=await call("admin","POST",pathStep(4)+"/scan",{});
    assert.equal(second.status,200);
-   assert.equal(second.data.processed,0,"unchanged five-slide OCR result must be reused");
+   assert.equal(second.data.report.processed,0,"unchanged five-slide OCR result must be reused");
    assert.equal(second.data.report.token,first.data.report.token);
  }finally{
    db.prepare("UPDATE materials SET deleted_at='2026-11-17' WHERE id=?").run(material.id);
