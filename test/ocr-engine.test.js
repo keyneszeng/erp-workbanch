@@ -106,3 +106,32 @@ test("PDF 有文字层时不用启用图片 OCR 也能提取合同内容",async(
   else process.env.ERP_OCR_ENABLED=old;
  }
 });
+
+test("最终议程PDF可以扩展扫描页数，普通文档仍使用默认3页",async()=>{
+ const old=process.env.ERP_OCR_ENABLED;
+ process.env.ERP_OCR_ENABLED="1";
+ const opened=[];
+ const exec=async(program,args)=>{
+   opened.push({program,args});
+   if(program==="pdfinfo")return "Pages: 12\n";
+   if(program==="pdftotext")return "最终议程已提取：张三、李四、王五、赵六、孙七、周八、吴九，报告人姓名出现在末页内容。";
+   throw Error("Unexpected: "+program);
+ };
+ try{
+   const source=Buffer.from("%PDF-1.7\nfixture");
+   const normal=await recognize(source,"pdf",{exec});
+   assert.equal(normal.pages,3);
+   assert.equal(normal.truncated,true);
+   const full=await recognize(source,"pdf",{exec,maxPages:20});
+   assert.equal(full.pages,12);
+   assert.equal(full.totalPages,12);
+   assert.equal(full.truncated,false);
+   const pdftotext=opened.filter(x=>x.program==="pdftotext");
+   assert.equal(pdftotext.length,2);
+   assert.ok(pdftotext[0].args.includes("3"));
+   assert.ok(pdftotext[1].args.includes("12"));
+ }finally{
+   if(old===undefined)delete process.env.ERP_OCR_ENABLED;
+   else process.env.ERP_OCR_ENABLED=old;
+ }
+});
