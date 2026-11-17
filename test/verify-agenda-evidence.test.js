@@ -63,6 +63,31 @@ test("课件主题须完整匹配终版议程课题；包含关键词或较长�
  assert.deepEqual(unknown,[],"没有可靠主题时应标记无法确认，不能模糊猜测");
 });
 
+test("第4项：议程OCR已有完整课件标题，但没有被旧解析器归类为课题，也必须判定一致",()=>{
+ const {compareCourseAgenda}=require("../server/lib/verify-agenda-evidence");
+ const agenda="终版议程\n会议时间：2026-11-17\n报告环节\n精准诊疗技术新进展\n专家：张三教授";
+ assert.deepEqual(agendaTopics(agenda),[],"旧式解析器在独立无标识标题上无法提取主题");
+ const result=compareCourseAgenda(agenda,"封面\n精准诊疗技术新进展\n讲者：张三");
+ assert.equal(result.matched,true,JSON.stringify(result));
+ assert.deepEqual(result.extracted,["精准诊疗技术新进展"]);
+ assert.deepEqual(result.missing,[]);
+ assert.ok(result.inferred.includes("精准诊疗技术新进展"));
+});
+test("议程表格的普通OCR列也能和串场课件封面完整标题匹配",()=>{
+ const {compareCourseAgenda}=require("../server/lib/verify-agenda-evidence");
+ const agenda="终版议程\n09:00-09:30    精准诊疗技术新进展    张三教授    广东省人民医院";
+ const result=compareCourseAgenda(agenda,"课程名称：精准诊疗技术新进展");
+ assert.equal(result.matched,true,JSON.stringify(result));
+});
+test("不可把课件标题当作议程长标题的一部分匹配，不能只凭相同关键词通过",()=>{
+ const {compareCourseAgenda}=require("../server/lib/verify-agenda-evidence");
+ const longer="终版议程\n精准诊疗技术新进展补充专题";
+ const r=compareCourseAgenda(longer,"课件主题：精准诊疗技术新进展");
+ assert.equal(r.matched,false,JSON.stringify(r));
+ assert.deepEqual(r.missing,["精准诊疗技术新进展"]);
+ const prose=compareCourseAgenda("今天我们将介绍精准诊疗技术新进展的相关内容","课件主题：精准诊疗技术新进展");
+ assert.equal(prose.matched,false,"不能使用全文 substring 命中");
+});
 test("参会时长OCR单位及严格大于30分钟判定",()=>{
  const {extractDurations}=require("../server/lib/verify-duration-evidence");
  for(const phrase of ["观看时长：35分钟","累计在线 1小时20分","有效时长：45 min",

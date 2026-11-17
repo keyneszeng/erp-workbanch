@@ -116,4 +116,53 @@ function courseTopics(text,agenda=[]){
  const chosen=[...proposals,...exact];
  return [...new Map(chosen.map(x=>[topicKey(x),normalize(x)]).filter(([key])=>key.length>=3)).values()];
 }
-module.exports={speakerName,photoName,agendaSpeakers,compareNames,topicKey,agendaTopics,courseTopics};
+
+/**
+ * The agenda OCR may have the correct lecture title on a plain line or in an
+ * OCR table cell while parseAgenda()/extractTopics() fails to classify it.
+ * Recover COMPLETE fields only: never search a topic as a substring in prose,
+ * a longer lecture title, the speaker's name, or the conference header.
+ */
+function agendaTitleFields(text){
+ const lines=ocr.cleanText(text).split(/\r?\n/u).slice(0,1800).map(s=>s.trim()).filter(Boolean);
+ const fields=new Map();
+ const label=/^(?:课件主题|授课主题|课题|讲题|主题|题目|课程名称|课件名称|报告题目|授课题目|演讲题目|报告主题)\s*[:：]\s*/iu;
+ const time=/^\s*\d{1,2}[:：]\d{2}\s*(?:[-~—–至]\s*\d{1,2}[:：]\d{2})?\s*/u;
+ const generic=/^(?:终版议程|会议议程|会议日程|活动安排|会议通知|会议时间|会议地点|主办单位|承办单位|专家介绍|嘉宾介绍|开幕致辞|会议主持|签到|讨论|讨论环节|茶歇|休息|总结|目录|时间|姓名|讲题|课题|主题|报告人)$/u;
+ const add=(raw)=>{
+  const value=normalize(raw).replace(time,"").replace(label,"").trim();
+  const key=topicKey(value);
+  if(!key||key.length<4||key.length>120||generic.test(value)||
+    /^(?:\d{1,4}|[0-9:：./-]+)$/u.test(value)||
+    /^(?:会议名称|主办方|承办方|联系电话|地址|日期|地点)\s*[:：]/u.test(value))return;
+  if(!fields.has(key))fields.set(key,value);
+ };
+ for(const line of lines){
+  add(line);
+  const cells=line.split(/\t+|\s{2,}|[|｜]/u).map(s=>s.trim()).filter(Boolean);
+  if(cells.length>1)for(const cell of cells)add(cell);
+  const labelled=line.match(/(?:^|[\t|｜]|\s{2,})(?:课题|讲题|授课主题|报告题目|主题)\s*[:：]\s*([^\t|｜\n]{4,120})/u);
+  if(labelled)add(labelled[1]);
+ }
+ // Two OCR rows may split one heading without any separator. Only accept
+ // adjacency as an entire title; do not generate arbitrary longer paragraphs.
+ for(let i=0;i+1<lines.length;i++){
+  if(lines[i].length<=60&&lines[i+1].length<=60)
+   add(lines[i]+lines[i+1]);
+ }
+ return [...fields.values()];
+}
+function compareCourseAgenda(agendaText,courseText){
+ const structured=agendaTopics(agendaText);
+ const literal=agendaTitleFields(agendaText);
+ const agendaKeys=new Set([...structured,...literal].map(topicKey));
+ // Passing independently extracted agenda fields to courseTopics permits a
+ // title printed plainly on the cover even when agenda structured OCR is empty.
+ const extracted=courseTopics(courseText,[...structured,...literal]);
+ const missing=extracted.filter(title=>!agendaKeys.has(topicKey(title)));
+ const matched=extracted.length>0&&missing.length===0;
+ const inferred=extracted.filter(title=>!new Set(structured.map(topicKey)).has(topicKey(title)));
+ return {matched,extracted,missing,structured,inferred,agendaFieldCount:agendaKeys.size};
+}
+
+module.exports={speakerName,photoName,agendaSpeakers,compareNames,topicKey,agendaTopics,courseTopics,agendaTitleFields,compareCourseAgenda};

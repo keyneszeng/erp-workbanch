@@ -55,8 +55,15 @@ function materials(pid,no){
   return docs.filter(m=>photos.has(Number(m.id)) ||
     (["合同","赞助合同"].includes(m.kind)&&keys.has(m.file_key))).slice(0,MAX_FILES);
  }
- return docs.filter(m=>((KINDS[no]||[]).includes(m.kind)||(no===3&&/参会|在线|直播|观看|时长|考勤|签到|出席/.test(m.kind))||(no===4&&isCourseMaterial(m))||(expertIds?.has(Number(m.id))))
-  &&!(m.kind==="终版议程"&&([1,2,4].includes(no)?m.version!=="终版":m.version==="历史版"))).slice(0,MAX_FILES);
+ const selected=docs.filter(m=>((KINDS[no]||[]).includes(m.kind)||(no===3&&/参会|在线|直播|观看|时长|考勤|签到|出席/.test(m.kind))||(no===4&&isCourseMaterial(m))||(expertIds?.has(Number(m.id))))
+  &&!(m.kind==="终版议程"&&([1,2,4].includes(no)?m.version!=="终版":m.version==="历史版")));
+ if(no===4){
+  // Legacy uploads can leave multiple documents flagged "终版": compare
+  // against the latest uploaded final agenda, not an obsolete duplicate.
+  const latest=selected.filter(m=>m.kind==="终版议程").at(-1)?.id;
+  return selected.filter(m=>m.kind!=="终版议程"||m.id===latest).slice(0,MAX_FILES);
+ }
+ return selected.slice(0,MAX_FILES);
 }
 function cache(m,pid,requiredPages=0,coursePreview=false){
  const row=db.prepare("SELECT recognized_text,engine,mode,pages,total_pages,truncated FROM material_ocr_results WHERE material_id=? AND pid=? AND file_key=?").get(m.id,pid,m.file_key);
@@ -113,7 +120,10 @@ async function scan(pid,no,operator){
   const requiredPages=no===6&&m.file_key.toLowerCase().endsWith(".pdf")?MEETING_PDF_PAGES:
    m.kind==="终版议程"&&[2,4].includes(no)?AGENDA_OCR_PAGES:
    coursePreview?COURSE_SCAN_PAGES:0;
-  if(cache(m,pid,requiredPages,coursePreview))continue;
+  // Reuse already-recognized agenda OCR text for step 4 even if it was
+  // scanned under another step with fewer than 20 pages.
+  const cachePages=no===4&&m.kind==="终版议程"?0:requiredPages;
+  if(cache(m,pid,cachePages,coursePreview))continue;
   const ext=m.file_key.split(".").pop().toLowerCase();
   const nativeOffice=office.SUPPORTED.has(ext);
   const textPdfOnly=no===6&&ext==="pdf"&&!available&&storage().name==="fs";
@@ -166,7 +176,10 @@ function report(pid,no){
   const requiredPages=no===6&&m.file_key.toLowerCase().endsWith(".pdf")?MEETING_PDF_PAGES:
    m.kind==="终版议程"&&[2,4].includes(no)?AGENDA_OCR_PAGES:
    coursePreview?COURSE_SCAN_PAGES:0;
-  const r=cache(m,pid,requiredPages,coursePreview),ext=m.file_key.split(".").pop().toLowerCase();
+  // Reuse already-recognized agenda OCR text for step 4 even if it was
+  // scanned under another step with fewer than 20 pages.
+  const cachePages=no===4&&m.kind==="终版议程"?0:requiredPages;
+  const r=cache(m,pid,cachePages,coursePreview),ext=m.file_key.split(".").pop().toLowerCase();
   return {materialId:m.id,kind:m.kind,name:m.name,fileName:m.file_name,fileKey:m.file_key,
    version:m.version,mode:r?.mode||null,pages:r?.pages||0,totalPages:r?.total_pages||0,
    truncated:!!r?.truncated,state:r?"recognized":OCR_TYPES.has(ext)||office.SUPPORTED.has(ext)?"not-recognized":"unsupported",
@@ -229,23 +242,37 @@ function report(pid,no){
   if(["线下","混合"].includes(p.form))
     add("线下签到表",txt("签到表")?true:null,"签到表文字识别不代表签字真实",ids(by("签到表")));
 }else if(no===4){
-  const topics=agendaEvidence.agendaTopics(agenda),courses=docs.filter(isCourseMaterial);
-  const allowed=new Set(topics.map(agendaEvidence.topicKey));
-  add("终版议程课题",agendaDocs.length===1&&topics.length?true:null,
-   agendaDocs.length===1&&topics.length?"从当前终版议程提取"+topics.length+"个主题":"无法从唯一当前终版议程提取课题",ids(agendaDocs));
-  for(const file of courses){
-   const extracted=agendaEvidence.courseTopics(file.text,topics);
-   const notFound=extracted.filter(topic=>!allowed.has(agendaEvidence.topicKey(topic)));
-   // First-page/slide preview is intentional, not an OCR failure. Match
-   // complete cover topics; never require scanning the rest of the deck.
-   const canCompare=agendaDocs.length===1&&topics.length&&extracted.length;
+  const agendas=docs.filter(x=>x.kind==="终版议程");
+  const agendaDoc=agendas.at(-1),courses=docs.filter(isCourseMaterial);
+  const comparisons=courses.map(file=>({
+    file,...agendaEvidence.compareCourseAgenda(agendaDoc?.text||"",file.text)
+  }));
+  // An OCR table cell or plain agenda heading is a valid exact match even
+  // when the older structured agendaTopics() parser returned no topics.
+  const confirmed=comparisons.filter(x=>x.matched);
+  const structured=agendaEvidence.agendaTopics(agendaDoc?.text||"");
+  const agendaReady=!!agendaDoc?.text&&agendas.length===1;
+  add("终版议程课题",agendaReady&&(structured.length||confirmed.length)?true:null,
+    agendaReady?(confirmed.length&&structured.length===0?
+      "议程OCR未标注结构化课题，但已从原文/表格精确匹配"+confirmed.length+"份课件主题":
+      "议程已解析"+structured.length+"个结构化主题；原文精确匹配"+confirmed.length+"份课件"):
+      "没有可识别的当前终版议程；请检查议程OCR文本与归档状态",
+    ids(agendas));
+  for(const match of comparisons){
+   const file=match.file;
+   const ready=agendaReady&&match.extracted.length>0;
    const limited=file.totalPages>file.pages&&file.pages>0;
-   const scope=limited?"仅扫描前"+file.pages+"页/张（共"+file.totalPages+"页/张）；":"";
-   add("课件："+String(file.name).slice(0,50),canCompare?notFound.length===0:null,
-    canCompare?scope+(notFound.length?"扫描所得主题不在终版议程："+notFound.join("、").slice(0,85):
-      "提取"+extracted.length+"个完整课件主题，均在当前终版议程中"):
-      scope+"未可靠提取首页课件主题，请检查第一页封面（图片式封面需启用OCR）或人工核对",
-    ids([...agendaDocs,file]));
+   const scope=limited?"仅识别第1页/张（共"+file.totalPages+"页/张）；":"";
+   const status=ready?match.missing.length===0:null;
+   const message=ready?
+     match.missing.length?
+      "课件主题已识别，但完整标题未在议程原文/课题栏找到："+match.missing.join("、").slice(0,85):
+      "课件首页主题与终版议程完整匹配："+match.extracted.join("、").slice(0,85)+
+      (match.inferred.length?"（通过议程原文/表格列精确匹配）":""):
+     !file.text?"课件首页无可用OCR文本，请检查PDF文字层或PPT封面图片OCR":
+      !agendaReady?"课件主题已识别，但终版议程没有可用OCR文本，不能交叉比对":
+      "课件首页文字已识别，尚未提取到可核验的完整标题，请检查首页标题与议程课题";
+   add("课件："+String(file.name).slice(0,50),status,scope+message,ids([...agendas,file]));
   }
   if(!courses.length)add("课件原件",null,"缺少已上传课件或串场演示课件");
 }else if(no===5){
@@ -327,7 +354,12 @@ function report(pid,no){
  for(const file of docs.filter(x=>x.state!=="recognized"&&no!==6&&!(no===2&&x.kind==="讲者照片")))
   add("文件识别："+file.name,null,file.state==="unsupported"?
     "该格式无法直接OCR，请补充 PDF/JPG/PNG 原件":"文件缺失、无文字或未识别成功",[file.materialId]);
- for(const file of docs.filter(x=>x.truncated&&no!==6&&!(no===4&&isCourseMaterial(x))))
+ // A partially scanned agenda does not invalidate an exact title already
+ // located in that scanned portion; retain truncated metadata for manual review.
+ const step4AllTitlesMatched=no===4&&checks.some(x=>x.name.startsWith("课件："))&&
+  checks.filter(x=>x.name.startsWith("课件：")).every(x=>x.status==="一致");
+ for(const file of docs.filter(x=>x.truncated&&no!==6&&!(no===4&&isCourseMaterial(x))&&
+   !(step4AllTitlesMatched&&no===4&&x.kind==="终版议程")))
   add("超出扫描页数："+file.name,null,"共"+file.totalPages+"页，仅识别前"+file.pages+"页，需人工核对剩余页面",[file.materialId]);
  if(!docs.length)add("原件",null,"没有本步骤可以扫描的有效文件");
  const fingerprint={
