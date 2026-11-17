@@ -142,7 +142,8 @@ async function extractPdfText(buffer,opts={}){
     const found=/^Pages:\s+(\d+)/im.exec(info);
     if(!found||!(Number(found[1])>0))
       throw fail("OCR_INVALID_PDF","无法读取 PDF 页数，请检查加密或损坏情况",422);
-    const totalPages=Number(found[1]),pages=Math.min(totalPages,MAX_PAGES);
+    const maxPages=Number.isInteger(opts.maxPages)&&opts.maxPages>0?Math.min(80,opts.maxPages):MAX_PAGES;
+    const totalPages=Number(found[1]),pages=Math.min(totalPages,maxPages);
     const text=cleanText(await run("pdftotext",["-f","1","-l",String(pages),"-layout",file,"-"],{timeout:20000}));
     return {text,mode:"pdf-text",engine:"Poppler pdftotext",pages,totalPages,
       truncated:totalPages>pages};
