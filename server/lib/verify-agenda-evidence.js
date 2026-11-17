@@ -95,7 +95,8 @@ function courseTopics(text,agenda=[]){
  const first=String(text||"").split(/\r?\n/u).slice(0,150);
  const proposals=ocr.extractTopics(first.join("\n"));
  const known=new Set(agenda.map(topicKey));
- const exactLines=first.map(s=>s.trim()).filter(s=>s.length>=4&&s.length<=120)
+ const exactLines=first.map(s=>s.trim().replace(/^(?:课件主题|授课主题|课题|讲题|主题|题目)\s*[:：]/u,"").trim())
+  .filter(s=>s.length>=4&&s.length<=120)
   .filter(x=>known.has(topicKey(x)));
  // An exact full-line slide title is valid even when earlier slides also have
  // labelled topics. Do not accept a substring of a paragraph or slide body.
