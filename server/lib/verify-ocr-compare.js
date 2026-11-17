@@ -262,7 +262,7 @@ function report(pid,no){
    const file=match.file;
    const ready=agendaReady&&match.extracted.length>0;
    const limited=file.totalPages>file.pages&&file.pages>0;
-   const scope=limited?"仅识别第1页/张（共"+file.totalPages+"页/张）；":"";
+   const scope=limited?"仅扫描前1页/张（共"+file.totalPages+"页/张）；":"";
    const status=ready?match.missing.length===0:null;
    const message=ready?
      match.missing.length?
