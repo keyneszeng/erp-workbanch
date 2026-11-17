@@ -92,8 +92,16 @@ function validateSopEvidence(no, evidence, project, db, invoiceAmount) {
     case 4: {
       // 仅核验课件已上传、课件主题属于当前终版议程；不要求整份议程的
       // 每个主题都上传课件，也不再校验串场、Logo 或药企展示位置。
-      if(!materialExists(db,pid,["课件"],true))
-        fail("请先在材料库上传课件原件","SOP_MATERIAL_MISSING");
+      // Normal course files remain the primary source; presentation-style host
+      // decks can also satisfy the material gate, but ordinary host scripts cannot.
+      const explicitCourse=materialExists(db,pid,["课件","串场课件"],true);
+      const hostPresent=explicitCourse?false:db.prepare(
+        "SELECT name,file_name,file_key FROM materials WHERE pid=? AND kind='串场' "+
+        "AND (deleted_at IS NULL OR deleted_at='') AND file_key IS NOT NULL AND file_key<>''"
+      ).all(pid).some(m=>/\.pptx?$/i.test(m.file_name||m.file_key||"")||
+        (/课件|演示|slides?/i.test((m.name||"")+" "+(m.file_name||""))&&/\.pdf$/i.test(m.file_name||m.file_key||"")));
+      if(!explicitCourse&&!hostPresent)
+        fail("请先上传课件或串场演示课件原件","SOP_MATERIAL_MISSING");
       const finalAgenda=db.prepare(
         "SELECT COUNT(*) AS n FROM materials WHERE pid=? AND kind='终版议程' AND version='终版' "+
         "AND (deleted_at IS NULL OR deleted_at='') AND file_key IS NOT NULL AND file_key<>''"

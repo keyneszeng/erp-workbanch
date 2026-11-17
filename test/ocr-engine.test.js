@@ -122,14 +122,19 @@ test("最终议程PDF可以扩展扫描页数，普通文档仍使用默认3页"
    const normal=await recognize(source,"pdf",{exec});
    assert.equal(normal.pages,3);
    assert.equal(normal.truncated,true);
+   const preview=await recognize(source,"pdf",{exec,maxPages:5});
+   assert.equal(preview.pages,5);
+   assert.equal(preview.totalPages,12);
+   assert.equal(preview.truncated,true);
    const full=await recognize(source,"pdf",{exec,maxPages:20});
    assert.equal(full.pages,12);
    assert.equal(full.totalPages,12);
    assert.equal(full.truncated,false);
    const pdftotext=opened.filter(x=>x.program==="pdftotext");
-   assert.equal(pdftotext.length,2);
+   assert.equal(pdftotext.length,3);
    assert.ok(pdftotext[0].args.includes("3"));
-   assert.ok(pdftotext[1].args.includes("12"));
+   assert.ok(pdftotext[1].args.includes("5"));
+   assert.ok(pdftotext[2].args.includes("12"));
  }finally{
    if(old===undefined)delete process.env.ERP_OCR_ENABLED;
    else process.env.ERP_OCR_ENABLED=old;

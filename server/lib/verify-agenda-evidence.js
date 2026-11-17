@@ -90,14 +90,16 @@ function agendaTopics(text){
  return [...new Map(all.map(x=>[topicKey(x),normalize(x)]).filter(([key])=>key.length>=3)).values()];
 }
 function courseTopics(text,agenda=[]){
- const first=String(text||"").split(/\r?\n/u).slice(0,20);
+ // Step 4 only reads the first five pages/slides. Each slide may have many
+ // OCR lines, so the old 20-line ceiling could miss a title on slide 4 or 5.
+ const first=String(text||"").split(/\r?\n/u).slice(0,150);
  const proposals=ocr.extractTopics(first.join("\n"));
- const candidates=proposals.length?proposals:
-  first.slice(0,10).map(s=>s.trim()).filter(s=>s.length>=4&&s.length<=100);
  const known=new Set(agenda.map(topicKey));
- // When an unlabeled slide has a clear full-line title, exact equality is safe;
- // do not accept a substring buried in a slide body.
- const chosen=proposals.length?proposals:candidates.filter(x=>known.has(topicKey(x)));
+ const exactLines=first.map(s=>s.trim()).filter(s=>s.length>=4&&s.length<=120)
+  .filter(x=>known.has(topicKey(x)));
+ // An exact full-line slide title is valid even when earlier slides also have
+ // labelled topics. Do not accept a substring of a paragraph or slide body.
+ const chosen=[...proposals,...exactLines];
  return [...new Map(chosen.map(x=>[topicKey(x),normalize(x)]).filter(([key])=>key.length>=3)).values()];
 }
 module.exports={speakerName,photoName,agendaSpeakers,compareNames,topicKey,agendaTopics,courseTopics};
