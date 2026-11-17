@@ -56,7 +56,7 @@ test("三单一致：仅会务需求表、会务需求类别合同原件和会�
  // 新口径只比对「需求预算 vs 已签会务合同总额」两项，发票金额不再参与
  assert.equal(result.matchedFields,2);
  assert.equal(result.meetingMatched,true);
- assert.equal(result.comparedWith,"会务需求表+会务合同+会务发票");
+ assert.equal(result.comparedWith,"会务需求表+会务合同（含会务协议）+会务发票");
  assert.equal(result.demandBudget,8000);
  db.close();
 });
