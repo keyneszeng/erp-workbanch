@@ -66,12 +66,12 @@ test("课件主题须完整匹配终版议程课题；包含关键词或较长�
 test("参会时长OCR单位及严格大于30分钟判定",()=>{
  const {extractDurations}=require("../server/lib/verify-duration-evidence");
  for(const phrase of ["观看时长：35分钟","累计在线 1小时20分","有效时长：45 min",
-   "在线时长 00:35:00","有效观看时长 三十五分钟","1.5小时","30分钟1秒",">30分钟","超过30分钟"]){
+   "在线时长 00:35:00","有效观看时长 三十五分钟","1.5小时","30分钟1秒",">30分钟","超过30分钟","观看时长：1时20分","超过三十分钟"]){
    const hits=extractDurations(phrase);
    assert.ok(hits.some(x=>x.qualifies),phrase+" 应满足30分钟以上严格阈值");
  }
  for(const phrase of ["30分钟","0.5小时","30分00秒","在线时长 00:30:00",
-   "观看时长 29min","10:45","30分钟以上"]){
+   "观看时长 29min","10:45","30分钟以上","9时40分","9时40分-10时30分"]){
    const hits=extractDurations(phrase);
    assert.ok(!hits.some(x=>x.qualifies),phrase+" 不得作为严格大于30分钟");
  }
