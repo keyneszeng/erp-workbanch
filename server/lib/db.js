@@ -742,6 +742,13 @@ function migrate() {
     db.exec("INSERT OR IGNORE INTO user_permission_grants (user_id,permission) SELECT id,'material:file:replace' FROM users WHERE material_file_replace=1 AND role<>'admin'");
     db.prepare("INSERT OR REPLACE INTO settings(k,v) VALUES (?,?)").run("explicit_grants_migration_v1","done");
   }
+  // 系统配置改为总管理员专属。升级时撤销旧账号曾获授权的系统模块与管理动作。
+  // 服务端 RBAC 同时独立拒绝这些旧授权，避免迁移前的会话、缓存或异常数据造成越权。
+  if(!db.prepare("SELECT 1 FROM settings WHERE k=?").get("system_admin_only_v1")){
+    db.exec("DELETE FROM user_module_grants WHERE module='system' AND user_id IN (SELECT id FROM users WHERE role<>'admin')");
+    db.exec("DELETE FROM user_permission_grants WHERE permission IN ('user:manage','setting:write') AND user_id IN (SELECT id FROM users WHERE role<>'admin')");
+    db.prepare("INSERT OR REPLACE INTO settings(k,v) VALUES (?,?)").run("system_admin_only_v1","done");
+  }
   // 立项税费管理费按百分比保存。历史项目默认0%，不改变既有可用额度。
   addColumn("projects", "tax_fee_rate", "tax_fee_rate REAL NOT NULL DEFAULT 0");
   // 付款申请去重：旧付款行保持不变，新付款受唯一索引保护。
