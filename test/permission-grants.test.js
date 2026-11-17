@@ -126,45 +126,88 @@ test("总管理员可独立分配模块和操作；同role的用户权限不相�
  assert.ok(!me.body.perms.includes("verify:check"),
   "同一岗位的权限必须逐账号独立，不能从role继承");
 });
-test("总管理员可授权用户管理，但该用户绝对无权再授权他人",async()=>{
- const set=await call("admin","PATCH","/api/users/"+userId+"/access",{
-  modules:["dashboard","projects","system"],permissions:["user:manage"]
- });
- assert.equal(set.status,200);
- await login("newstaff","SecureDemo2026!");
- const list=await call("newstaff","GET","/api/users");
- assert.equal(list.status,200,"已被授权管理账号可见账号列表");
- const grant=await call("newstaff","PATCH","/api/users/2/access",{
-  modules:["system"],permissions:["user:manage"]
- });
- assert.equal(grant.status,403,"非总管理员不能再分配权限");
-});
-test("账号管理代理不能篡改总管理员、自己的数据范围或他人的登录凭据",async()=>{
- const before=await call("admin","GET","/api/users");
- assert.equal(before.status,200);
- const root=before.body.rows.find(u=>u.role==="admin");
- const finance=before.body.rows.find(u=>u.role==="finance");
- assert.ok(root&&finance);
- for(const payload of [{active:0},{name:"恶意管理员改名"},{password:"Compromised2026!"}]){
-  const denied=await call("newstaff","PATCH","/api/users/"+root.id,payload);
-  assert.equal(denied.status,403,JSON.stringify({payload,denied}));
- }
- for(const payload of [
-  {role:"finance"}, {assocs:["护理协会"]},{assoc:"护理协会"},
-  {phone:"13900008888"},{password:"AccountTakeover2026!"}
+test("仅总管理员拥有系统配置；授权面板拒绝把系统权限分配给业务账号",async()=>{
+ const access=await call("admin","GET","/api/users/"+userId+"/access");
+ assert.equal(access.status,200);
+ assert.ok(!access.body.available_modules.some(x=>x.k==="system"));
+ for(const p of ["user:manage","setting:write"])
+   assert.ok(!access.body.available_permissions.includes(p));
+ for(const requested of [
+   {modules:["dashboard","projects","system"],permissions:["project:create"]},
+   {modules:["dashboard","projects"],permissions:["user:manage"]},
+   {modules:["dashboard","projects"],permissions:["setting:write"]}
  ]){
-  const denied=await call("newstaff","PATCH","/api/users/"+userId,payload);
-  assert.equal(denied.status,403,JSON.stringify({payload,denied}));
+   const res=await call("admin","PATCH","/api/users/"+userId+"/access",requested);
+   assert.equal(res.status,400,JSON.stringify(res.body));
  }
- const takeover=await call("newstaff","PATCH","/api/users/"+finance.id,{password:"Compromised2026!"});
- assert.equal(takeover.status,403,JSON.stringify(takeover));
- // 真正被授权的普通账号仍然能修改非敏感的基础资料。
- const safe=await call("newstaff","PATCH","/api/users/"+userId,{name:"零权限测试账号"});
- assert.equal(safe.status,200,JSON.stringify(safe));
+ const business=await call("admin","PATCH","/api/users/"+userId+"/access",{
+   modules:["dashboard","projects","finance"],permissions:["project:create","payment:create"]
+ });
+ assert.equal(business.status,200,JSON.stringify(business.body));
+ await login("newstaff","SecureDemo2026!");
+ assert.equal((await call("newstaff","GET","/api/dashboard")).status,200);
+ assert.equal((await call("newstaff","GET","/api/projects")).status,200);
+});
+test("普通用户即使数据库残留管理授权也不能进入配置接口",async()=>{
+ const {DatabaseSync}=require("node:sqlite");
+ const d=new DatabaseSync(path.join(dir,"erp.db"));
+ const guest=d.prepare("SELECT id FROM users WHERE username='guest'").get();
+ assert.ok(guest);
+ try{
+   for(const id of [userId,guest.id]){
+     d.prepare("INSERT OR IGNORE INTO user_module_grants(user_id,module) VALUES (?,?)").run(id,"system");
+     for(const perm of ["user:manage","setting:write"])
+       d.prepare("INSERT OR IGNORE INTO user_permission_grants(user_id,permission) VALUES (?,?)").run(id,perm);
+   }
+ }finally{d.close();}
+ await login("guest");
+ for(const who of ["newstaff","guest"]){
+   const me=await call(who,"GET","/api/auth/me");
+   assert.equal(me.body.super,false);
+   assert.ok(!me.body.role.modules.includes("system"));
+   assert.ok(!me.body.perms.includes("user:manage"));
+   assert.ok(!me.body.perms.includes("setting:write"));
+   assert.equal((await call(who,"GET","/api/dashboard")).status,200);
+   assert.equal((await call(who,"GET","/api/projects")).status,200);
+   for(const [method,url,body] of [
+     ["GET","/api/users"],
+     ["POST","/api/users",{username:"evil",role:"user"}],
+     ["PATCH","/api/users/"+userId,{name:"越权修改"}],
+     ["GET","/api/users/"+userId+"/access"],
+     ["PATCH","/api/users/"+userId+"/access",{modules:["system"],permissions:["user:manage"]}],
+     ["POST","/api/associations",{name:"越权协会"}],
+     ["DELETE","/api/associations/"+encodeURIComponent("华东医学会")],
+     ["GET","/api/admin/invitation-config"],
+     ["PATCH","/api/admin/invitation-config",{expected_version:1,config:{}}],
+     ["GET","/api/admin/public-event-proposals"],
+     ["GET","/api/admin/reset-preview"]
+   ]){
+     const denied=await call(who,method,url,body);
+     assert.equal(denied.status,403,JSON.stringify({who,method,url,denied}));
+   }
+ }
+ const admin=await call("admin","GET","/api/users");
+ assert.equal(admin.status,200);
+ const a=await call("admin","GET","/api/users/"+userId+"/access");
+ assert.equal(a.status,200);
+ assert.ok(!a.body.access.modules.includes("system"));
+ assert.ok(!a.body.access.permissions.includes("user:manage"));
+ assert.ok(!a.body.access.permissions.includes("setting:write"));
+});
+test("非总管理员不能修改任何账号（包括本人及总管理员）",async()=>{
+ const users=await call("admin","GET","/api/users");
+ assert.equal(users.status,200);
+ const superUser=users.body.rows.find(x=>x.role==="admin");
+ const finance=users.body.rows.find(x=>x.role==="finance");
+ for(const who of ["newstaff","guest"]){
+   for(const [id,body] of [[superUser.id,{name:"越权修改"}],
+     [finance.id,{password:"Compromised2026!"}],[userId,{name:"擅自改名"}]]){
+     const res=await call(who,"PATCH","/api/users/"+id,body);
+     assert.equal(res.status,403,JSON.stringify({who,id,res}));
+   }
+ }
  const after=await call("admin","GET","/api/users");
- assert.equal(after.body.rows.find(x=>x.id===root.id).active,1);
- assert.equal(after.body.rows.find(x=>x.id===root.id).name,root.name);
- assert.equal(after.body.rows.find(x=>x.id===userId).role,"exec");
+ assert.equal(after.body.rows.find(x=>x.id===superUser.id).name,superUser.name);
 });
 test("只授权项目浏览模块的账号不能读取预算、合同、付款、审计等内部明细",async()=>{
  const created=await call("admin","POST","/api/users",{
