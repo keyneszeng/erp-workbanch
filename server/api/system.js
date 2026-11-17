@@ -394,7 +394,7 @@ function register(router) {
      * 「项目增加成员」改用下面的 /api/users/pickable（只要 project:member），
      * 它只回 id / 姓名 / 角色，不含账号、手机、协会、部门。
      */
-    assertCan(ctx.user, "user:manage", "只有总管理员可以查看账号目录");
+    if (!isSuper(ctx.user)) throw forbidden("只有总管理员可以查看账号目录");
     const rows = db.prepare("SELECT * FROM users ORDER BY id").all();
     return {
       rows: rows.map((u) => ({
@@ -419,13 +419,13 @@ function register(router) {
 
   router.get("/api/associations", async ctx => ({rows:require("../lib/associations").list()}));
   router.post("/api/associations", async ctx => {
-    assertCan(ctx.user,"user:manage","只有总管理员可以修改协会目录");
+    if (!isSuper(ctx.user)) throw forbidden("只有总管理员可以修改协会目录");
     const name=require("../lib/associations").add(ctx.body?.name);
     logAudit({user:ctx.user,module:"系统配置",action:"新增协会",target:name,detail:"协会加入目录",ip:ctx.ip});
     return {name,rows:require("../lib/associations").list()};
   });
   router.delete("/api/associations/:name", async ctx => {
-    assertCan(ctx.user,"user:manage","只有总管理员可以修改协会目录");
+    if (!isSuper(ctx.user)) throw forbidden("只有总管理员可以修改协会目录");
     const name=decodeURIComponent(ctx.params.name);
     require("../lib/associations").remove(name);
     logAudit({user:ctx.user,module:"系统配置",action:"停用协会",target:name,detail:"无用户、无项目后停用",ip:ctx.ip});
@@ -447,7 +447,7 @@ function register(router) {
   });
 
   router.post("/api/users", async (ctx) => {
-    assertCan(ctx.user, "user:manage", "只有总管理员可以创建账号");
+    if (!isSuper(ctx.user)) throw forbidden("只有总管理员可以创建账号");
     const b = {...(ctx.body||{})};
     checkUserLen(b);
     assertDepartmentChoice(b.dept);
@@ -492,7 +492,7 @@ function register(router) {
   });
 
   router.patch("/api/users/:id", async (ctx) => {
-    assertCan(ctx.user, "user:manage", "只有总管理员可以修改账号");
+    if (!isSuper(ctx.user)) throw forbidden("只有总管理员可以修改账号");
     const u = db.prepare("SELECT * FROM users WHERE id = ?").get(Number(ctx.params.id));
     if (!u) throw notFound("用户不存在");
     const b = {...(ctx.body||{})};
