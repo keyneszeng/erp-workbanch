@@ -56,7 +56,7 @@ function parseHash() {
 
 function navHtml(active) {
   const mods = state.role?.modules || [];
-  return NAV.filter((g) => mods.includes(g.k)||g.k==="dashboard").map((g) => {
+  return NAV.filter((g) => (mods.includes(g.k)||g.k==="dashboard") && (g.k!=="system"||state.super)).map((g) => {
     const items = g.items.filter((it) => !it.need || it.need());
     if (!items.length) return "";
     if (items.length === 1) {
