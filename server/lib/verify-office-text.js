@@ -9,7 +9,7 @@ const {detectOoxml,MIME}=require("./ooxml");
 const {MAX_BYTES}=require("./storage");
 const SUPPORTED=new Set(["docx","pptx","xlsx","txt","csv"]);
 const XLSX_ENGINE="Excel表格结构化文本提取 v2";
-const COURSE_PREVIEW_ENGINE="Office原生文本提取·课件前5张 v1";
+const COURSE_PREVIEW_ENGINE="Office原生文本提取·课件封面第1张 v2";
 const MAX_TEXT=30000,MAX_PART=10*1024*1024;
 function entities(text){
  return String(text||"").replace(/&#x([0-9a-f]+);/gi,(_,n)=>String.fromCodePoint(parseInt(n,16)))
@@ -135,23 +135,57 @@ function extract(buffer,ext,options={}){
  };
  if(ext==="docx")add("word/document.xml");
  let totalSlides=0,scannedSlides=0;
- const preview=ext==="pptx"&&options.maxSlides===5;
+ const preview=ext==="pptx"&&options.maxSlides===1;
  if(ext==="pptx"){
   const slides=names.filter(x=>/^ppt\/slides\/slide\d+\.xml$/.test(x)).sort((a,b)=>
     Number(a.match(/\d+(?=\.xml)/)[0])-Number(b.match(/\d+(?=\.xml)/)[0]));
   totalSlides=slides.length;
-  // Only decompress the first five slide XML parts. Later embedded images and
-  // enormous slide XML files must not block a valid early course heading.
-  const selected=slides.slice(0,preview?5:80);
+  // Only decompress slide one; other slides are not in scope and may contain
+  // huge media/XML. The cover can be OCRed separately if it embeds an image.
+  const selected=slides.slice(0,preview?1:80);
   for(const name of selected)add(name);
   scannedSlides=selected.length;
  }
  const text=contents.map(flat).join("\n").slice(0,MAX_TEXT);
- if(!text.trim())throw error("Office文件没有可提取的文本","OFFICE_EMPTY");
+ if(!text.trim()&&!preview)throw error("Office文件没有可提取的文本","OFFICE_EMPTY");
  return {text,mode:"office-text",engine:preview?COURSE_PREVIEW_ENGINE:"Office原生文本提取",
   pages:ext==="pptx"?scannedSlides:0,totalPages:ext==="pptx"?totalSlides:0,
   truncated:(ext==="pptx"&&totalSlides>scannedSlides)||contents.reduce((n,x)=>n+x.length,0)>MAX_TEXT,
-  note:preview?"仅提取前"+scannedSlides+"张幻灯片的原生文字；后续页及幻灯片内截图未OCR，核销需人工核查":
+  note:preview?"仅提取第一张幻灯片原生文字；如开启OCR还可识别首页嵌入的JPG/PNG图片":
     "Office内嵌文本提取并非图片OCR；嵌入截图、扫描页和复杂表格仍需人工核对"};
 }
-module.exports={extract,SUPPORTED,XLSX_ENGINE,COURSE_PREVIEW_ENGINE,parseXlsx};
+
+/**
+ * Extract only JPG/PNG images explicitly embedded in slide 1, for optional
+ * RapidOCR recognition when the cover title was flattened into an image.
+ * Do not load images from subsequent slides or remote links, and cap bytes.
+ */
+function coverImages(buffer){
+ if(!Buffer.isBuffer(buffer)||!buffer.length||buffer.length>MAX_BYTES||detectOoxml(buffer)!==MIME.pptx)return [];
+ const path=require("node:path").posix;
+ const zip=new PizZip(buffer);
+ const slide=zip.file("ppt/slides/slide1.xml");
+ const rels=zip.file("ppt/slides/_rels/slide1.xml.rels");
+ if(!slide||!rels)return [];
+ const slideXml=slide.asText(),relsXml=rels.asText();
+ if(slideXml.length>MAX_PART||relsXml.length>512*1024)return [];
+ const used=new Set([...slideXml.matchAll(/<(?:\w+:)?blip\b[^>]*\br:embed=["']([^"']+)["']/gu)].map(m=>m[1]));
+ const out=[],seen=new Set();let total=0;
+ for(const m of relsXml.matchAll(/<(?:\w+:)?Relationship\b([^>]*?)(?:\/>|><\/(?:\w+:)?Relationship>)/gu)){
+  const attrs=m[1],id=attribute(attrs,"Id"),target=attribute(attrs,"Target");
+  if(!used.has(id)||!target||/^[a-z]+:|^\/|\?|#|\\/.test(target)||
+     attribute(attrs,"TargetMode")==="External")continue;
+  const name=path.normalize(path.join("ppt/slides",target));
+  if(!/^ppt\/media\/[^/]+\.(?:jpe?g|png)$/iu.test(name)||seen.has(name))continue;
+  const node=zip.file(name);
+  if(!node)continue;
+  const bytes=node.asUint8Array();
+  if(bytes.length>6*1024*1024||total+bytes.length>12*1024*1024)continue;
+  const ext=/\.png$/iu.test(name)?"png":"jpg";
+  out.push({buffer:Buffer.from(bytes),ext});
+  seen.add(name);total+=bytes.length;
+  if(out.length>=3)break;
+ }
+ return out;
+}
+module.exports={extract,coverImages,SUPPORTED,XLSX_ENGINE,COURSE_PREVIEW_ENGINE,parseXlsx};
