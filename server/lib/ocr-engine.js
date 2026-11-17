@@ -185,7 +185,7 @@ async function recognize(buffer,ext,opts={}){
     try{out=await recognizeRapid(file,dir,ext,pages,exec);}
     catch(e){
       if(ext==="pdf"&&layer.trim()&&opts.forceVisual)
-       return {text:layer,mode:"pdf-text",engine:"Poppler pdftotext",pages,totalPages,truncated};
+       return {text:layer,mode:"pdf-cover-text-fallback",engine:"Poppler pdftotext",pages,totalPages,truncated};
       throw e;
     }
     if(ext==="pdf"&&opts.forceVisual&&layer.trim()){
