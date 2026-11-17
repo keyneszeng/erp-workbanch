@@ -67,6 +67,10 @@ const PERMS = {
   "archive:download": [],
 };
 
+/** System configuration is reserved to the superadmin, including legacy explicit grants. */
+const SUPER_ONLY_MODULES = new Set(["system"]);
+const SUPER_ONLY_PERMS = new Set(["user:manage","setting:write"]);
+
 const MODULES = [
   { k: "dashboard", n: "工作台", d: "待办 / 本周会议 / 异常预警" },
   { k: "projects", n: "项目管理", d: "会议列表、立项与阶段推进" },
@@ -120,15 +124,11 @@ function canVisitNav(user, nav) {
   if (!need) return false;
   if (nav === "dashboard" && !hasModule(user,"dashboard")) return true; // 安全待授权页
   if (nav === "projects" && canReadProjects(user)) return true;
+  if (need === "system" && !isSuper(user)) return false;
   if (!hasModule(user,need)) return false;
   if (nav === "project-ledger") return can(user,"ledger:read");
   if (nav === "prep-invitations") return can(user, "invite:manage");
-  if (nav === "users") return isSuper(user) || can(user,"user:manage");
-  if (nav === "public-proposals") return isSuper(user);
-  // 前端 NAV 对「邀请函上线配置」要求 setting:write，接口层 prep-admin.js 的
-  // admin() 也用 assertCan("setting:write")。这里原来只查 system 模块就放行，
-  // 是同一张表里唯一漏掉的动作条件：补上后三处口径才真正一致。
-  if (nav === "invitation-config") return can(user, "setting:write");
+  if (["users","public-proposals","invitation-config"].includes(nav)) return isSuper(user);
   if (nav === "approvals") {
     return can(user, "project:approve") || can(user, "verify:exception_approve") || can(user, "payment:approve") || can(user, "contract:approve");
   }
@@ -139,6 +139,7 @@ function canVisitNav(user, nav) {
 function hasModule(user, key) {
   if (!user || !ROLES[user.role]) return false;
   if (isSuper(user)) return true;
+  if (SUPER_ONLY_MODULES.has(key)) return false;
   if (!MODULES.some(m=>m.k===key)) return false;
   return !!require("./db").db.prepare("SELECT 1 FROM user_module_grants WHERE user_id=? AND module=?").get(user.id,key);
 }
@@ -166,6 +167,7 @@ const isSuper = (user) => !!(user && ROLES[user.role] && ROLES[user.role].super)
 function can(user, perm) {
   if (!user || !ROLES[user.role] || !Object.prototype.hasOwnProperty.call(PERMS,perm))return false;
   if (isSuper(user))return true;
+  if (SUPER_ONLY_PERMS.has(perm))return false;
   // 后端实时查询，不能通过旧登录状态或直接访问API绕过新授权。
   return !!require("./db").db.prepare(
     "SELECT 1 FROM user_permission_grants WHERE user_id=? AND permission=?"
