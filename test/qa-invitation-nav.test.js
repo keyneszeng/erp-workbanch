@@ -27,11 +27,15 @@ test("前端 NAV 里每个 can(...) 条件，服务端 canVisitNav 都要有对�
  const nav=readFileSync(join(__dirname,"../web/assets/js/lib/nav.js"),"utf8");
  const rbac=readFileSync(join(__dirname,"../server/lib/rbac.js"),"utf8");
  const perms=[...new Set([...nav.matchAll(/need:\s*\(\)\s*=>\s*can\("([^"]+)"\)/g)].map(m=>m[1]))];
- assert.ok(perms.length>=4,"至少应解析出 invite/manage 等动作条件");
+ assert.ok(perms.length>=2,"应解析到邀请与项目等独立业务动作条件；系统配置已改为总管理员身份校验");
  for(const p of perms){
   const quoted=new RegExp(`can\\(user,\\s*"${p.replace(/[.*+?^${}()|[\]\\]/g,"\\$&")}"\\)`);
   assert.match(rbac,quoted,`服务端 canVisitNav 缺少前端动作条件：${p}`);
  }
+ // 系统配置不再依赖可单独授权的 user:manage / setting:write，
+ // 而是使用无法被业务账号继承的总管理员身份门禁。
+ assert.match(nav,/k: "system"[^\n]*state\.super/);
+ assert.match(rbac,/need === "system" && !isSuper\(user\)/);
  assert.equal(canVisitNav({role:"admin"},"invitation-config"),true,"超管仍应可达");
  assert.equal(canVisitNav({role:"nobody"},"invitation-config"),false,"未知角色不可达");
 });
