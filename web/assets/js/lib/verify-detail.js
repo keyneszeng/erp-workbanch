@@ -89,7 +89,7 @@ export function stepBody(d,no){
     3:"OCR识别参会记录或截图中的分钟、小时、时分及在线时长，任一明确时长大于30分钟即为时长一致；线下/混合还需核验签到原件。",
     4:"课件及串场演示课件只识别封面第一页（PPTX第一张幻灯片），提取出的完整主题在当前终版议程中即一致。图片式封面需启用OCR；后续页面不参与自动比对，普通串场稿不参与。",
     5:"仅核对劳务登记表与劳务专家合同：逐人核对姓名、时间、角色、金额、银行账号五字段；会务合同和赞助合同不参与本项。",
-    6:"有已建立会务需求表即必核：核对会务需求表预算与已签会务合同金额一致，并确认已关联会务发票原件；不比对发票金额。",
+    6:"会务协议等同会务合同。关联已签会务协议/合同原件及会务发票 PDF，识别合同和发票正文供人工核查；核对会务需求预算与已签合同总额一致，不以PDF识别成功或发票金额作为通过门槛。",
     7:"有赞助权益内容或权益照片即必核：只关联赞助合同和权益照片，逐项核实交付内容及照片真实性。"
   };
   const isLaborContract=m=>{
@@ -161,7 +161,7 @@ export function stepBody(d,no){
         const photos=(d.sponsorRights?.photos||[]).filter(x=>Number(x.sponsor_right_id)===Number(r.id)&&x.file_key);
         return '<div class="dchk"><b>'+esc(sponsor?.enterprise||r.sponsor_id)+' · '+esc(r.category)+'</b> · '+(r.confirmed?'权益已确认':'待校正')+' · '+photos.length+' 张照片'+matList(photos,'请按权益二级类目上传照片')+'</div>';
       }).join("")+'</div>':""}
-    ${no===6?`<div class="dgrid">${cell("会务需求总预算",fmt(meetingDemandTotal))}${cell("已签会务合同总额",fmt(contractTotal))}</div>${!d.demand?.archived?"<div class=\"dhint\">需求表尚未确认归档，不能完成第6项核验。</div>":""}`:""}
+    ${no===6?`<div class="dgrid">${cell("会务需求总预算",fmt(meetingDemandTotal))}${cell("已签会务合同／协议总额",fmt(contractTotal))}</div>${!d.demand?.archived?"<div class=\"dhint\">需求表尚未确认归档，不能完成第6项核验。</div>":""}`:""}
     ${no===5?`<div class="dsec"><h4>已关联劳务专家合同（材料库）</h4>
       ${matList(linkedContracts,"尚未匹配劳务专家合同，请上传对应专家的合同原件。")}
       <div class="hint">仅关联劳务专家合同；会务合同、赞助合同不进入核销第5项。合同正文与人员信息仍需人工核对。</div></div>`:""}
