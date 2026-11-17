@@ -45,6 +45,7 @@ test("OCR议程多场次、无课题表格和独立姓名行尽可能提取全�
  const onlyOCR="专题报告\n专家 李四主任\n会议简介";
  assert.ok(agendaSpeakers(onlyOCR,["李四"]).includes("李四"),
   "表格断裂时以照片姓名在原始OCR文本精确出现为兜底");
+ assert.ok(!agendaSpeakers("讲者：张三丰教授",["张三"]).includes("张三"),"姓名不能误匹配另一人的前缀");
 });
 test("课件主题须完整匹配终版议程课题；包含关键词或较长扩展题目不算一致",()=>{
  const agenda="讲者：张三教授 课题：精准诊疗技术新进展\n讲者：李四主任 课题：人工智能与影像诊断";
