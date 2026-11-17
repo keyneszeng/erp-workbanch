@@ -97,9 +97,9 @@ function register(router) {
     // 防止绕过UI直接构造“已OCR一致”的请求；每次判定验证材料版本与缓存哈希。
     const ocrReport=isAuto?verifyOcr.verifiedReport(p.id,no,ctx.body?.scanToken):null;
     /**
-     * 第 6 步按设计不做 OCR：scan() 只做「会务需求表 + 会务合同原件 + 会务发票原件」
-     * 的结构化关联与金额一致性核对，invoiceAmount 也不再作为门禁。
-     * 因此不能要求 scanned>0，否则文件齐备、四项检查全「一致」时仍会被判
+     * 第 6 步 OCR 是辅助：scan() 会尝试识别已关联的会务协议/合同 PDF、会务发票 PDF，
+     * 但结构化关联、签署状态、预算金额一致性仍是门禁，OCR和发票金额不是。
+     * 因此不能要求 scanned>0，图片PDF尚未识别时仍允许人工核实原件，否则
      * OCR_EVIDENCE_REQUIRED，人工判定通过永远提交不了。
      */
     if(isAuto && result==="通过" && (!ocrReport.total || (!ocrReport.scanned && ![3,6,7].includes(no))))
@@ -125,9 +125,9 @@ function register(router) {
     if (!isDemoMode() && no===6 && result==="通过") {
       const demand=require("../lib/meeting-demand-sop").demandSopState(db,p.id);
       if(!demand.confirmed)throw conflict("请先确认并归档会务需求","DEMAND_NOT_CONFIRMED");
-      if(!demand.contractCount)throw conflict("没有已签署的会务合同","CONTRACT_NOT_SIGNED");
+      if(!demand.contractCount)throw conflict("没有已签署的会务合同或会务协议","CONTRACT_NOT_SIGNED");
       if(!demand.agreements.length || !demand.invoices.length)
-        throw conflict("需上传会务需求类别合同对应原件及会务发票，不关联终版议程","SOP_MATERIAL_MISSING");
+        throw conflict("需上传已签会务合同/会务协议原件及会务发票，不关联终版议程","SOP_MATERIAL_MISSING");
       /**
        * 第 6 步口径已改为「会务合同与发票关联核对」：只要求
        * 会务需求预算 == 已签会务合同总额，并已关联发票原件，**不校验发票金额**。
