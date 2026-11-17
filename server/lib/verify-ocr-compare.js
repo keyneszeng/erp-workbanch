@@ -18,8 +18,8 @@ const COURSE_SCAN_PAGES=5;
 function isCourseMaterial(m){
  if(["课件","串场课件"].includes(m.kind))return true;
  if(m.kind!=="串场")return false;
- const title=String(m.name||"")+" "+String(m.file_name||"");
- const filename=String(m.file_name||m.file_key||"");
+ const title=String(m.name||"")+" "+String(m.file_name||m.fileName||"");
+ const filename=String(m.file_name||m.fileName||m.file_key||m.fileKey||"");
  return /\.pptx?$/i.test(filename)||(/课件|演示|slides?/i.test(title)&&/\.pdf$/i.test(filename));
 }
 const KINDS={
