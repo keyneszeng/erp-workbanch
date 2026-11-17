@@ -8,10 +8,10 @@ const project={id:"MEETING-STEP4",name:"虚拟研讨会"};
 const evidence={agendaTopics:["人工智能医疗","影像诊断","临床实践"],courseTopics:["影像诊断"]};
 function fixture(){
   const db=new DatabaseSync(":memory:");
-  db.exec("CREATE TABLE materials(pid TEXT,kind TEXT,version TEXT,file_key TEXT,deleted_at TEXT)");
+  db.exec("CREATE TABLE materials(pid TEXT,kind TEXT,name TEXT,file_name TEXT,version TEXT,file_key TEXT,deleted_at TEXT)");
   const add=(kind,version="普通版",file_key="file.pdf")=>
-    db.prepare("INSERT INTO materials(pid,kind,version,file_key,deleted_at) VALUES(?,?,?,?,NULL)")
-      .run(project.id,kind,version,file_key);
+    db.prepare("INSERT INTO materials(pid,kind,name,file_name,version,file_key,deleted_at) VALUES(?,?,?,?,?,?,NULL)")
+      .run(project.id,kind,kind,file_key,version,file_key);
   add("课件");add("终版议程","终版");
   return {db,add};
 }
@@ -50,4 +50,21 @@ test("课件主题必须在终版议程内；议程其他主题不需都有课�
     {agendaTopics:["影像诊断"],courseTopics:[]}
   ])assert.throws(()=>validateSopEvidence(4,other,project,db));
   db.close();
+});
+
+test("串场PPTX/串场课件可以替代课件，普通串场文稿不能",()=>{
+ for(const [kind,key,ok] of [
+   ["串场","主持串场.pptx",true],
+   ["串场","串场课件.pdf",true],
+   ["串场课件","幻灯片.pdf",true],
+   ["串场","主持串场.pdf",false]
+ ]){
+   const {db,add}=fixture();
+   db.prepare("DELETE FROM materials WHERE kind='课件'").run();
+   add(kind,"普通版",key);
+   if(ok)assert.equal(validateSopEvidence(4,evidence,project,db).matchedTopics,1,kind+" "+key);
+   else assert.throws(()=>validateSopEvidence(4,evidence,project,db),
+     e=>e.code==="SOP_MATERIAL_MISSING",kind+" "+key);
+   db.close();
+ }
 });
