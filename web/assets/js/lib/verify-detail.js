@@ -102,13 +102,27 @@ export function stepBody(d,no){
     return /劳务专家|专家劳务|劳务合同|专家合同|讲课合同|讲师合同|讲者合同|授课合同|劳务服务合同/.test(title)&&
       !/赞助合同|企业赞助|招商合同|会务合同|会务协议|会议服务合同|场地合同|酒店合同|采购合同|设备合同/.test(title);
   };
-  const ledgerByKey=new Map((d.contracts||[]).filter(x=>x.file_key).map(x=>[x.file_key,x]));
+  // 会务协议和会务合同是同一种会务合同原件；只有已签署且有明确
+  // 会务标识的历史“其他”分类记录可按协议回填，绝不把赞助/劳务算进来。
+  const meetingKinds=new Set(["会务协议","会务合同","会务服务协议","会议服务协议","会议服务合同"]);
+  const meetingWords=/会务协议|会务合同|会务服务协议|会议服务协议|会议服务合同|会议执行合同|会务执行合同/;
+  const ledgerByKey=new Map();
+  for(const c of (d.contracts||[]).filter(x=>x.file_key)){
+    if(!ledgerByKey.has(c.file_key))ledgerByKey.set(c.file_key,[]);
+    ledgerByKey.get(c.file_key).push(c);
+  }
+  const explicitAgreement=m=>meetingKinds.has(m.kind)||
+    (m.kind==="合同"&&meetingWords.test((m.name||"")+" "+(m.file_name||"")));
+  const legacySigned=c=>c.status==="已签署"&&
+    ["其他","会务协议","会务合同","未分类",""].includes(String(c.category||""))&&
+    meetingWords.test(c.name||"");
   const meetingAgreement=m=>{
     if(!m?.file_key||m.version==="历史版")return false;
-    const linked=ledgerByKey.get(m.file_key);
-    if(linked)return linked.category==="会务需求";
-    return m.kind==="会务协议"||(m.kind==="合同"&&
-      /会务协议|会务合同|会议服务合同|会议执行合同|会务执行合同/.test((m.name||"")+" "+(m.file_name||"")));
+    const linked=ledgerByKey.get(m.file_key)||[];
+    if(linked.length)return linked.length===1&&(
+      linked[0].category==="会务需求"||
+      (explicitAgreement(m)&&legacySigned(linked[0])));
+    return explicitAgreement(m);
   };
   const meetingInvoice=m=>m.file_key&&(m.kind==="会务发票"||
     (m.kind==="发票"&&/会务|会议服务|会议执行/.test((m.name||"")+" "+(m.file_name||""))));
@@ -122,7 +136,9 @@ export function stepBody(d,no){
     (no===6&&(meetingAgreement(m)||meetingInvoice(m)))||
     (no===7&&["赞助合同","合同"].includes(m.kind)&&sponsorKeys.has(m.file_key)));
   const step=d.verification.steps.find(x=>x.no===no);
-  const contractTotal=(d.contracts||[]).filter(x=>x.status==="已签署" && x.category==="会务需求")
+  const contractTotal=(d.contracts||[]).filter(x=>x.status==="已签署" &&
+    (x.category==="会务需求"||(legacySigned(x)&&
+      (d.materials||[]).some(m=>m.file_key===x.file_key&&meetingAgreement(m)))))
     .reduce((sum,x)=>sum+Number(x.amount||0),0);
   const meetingDemandTotal=Number(d.demand?.budgetTotal||0);
   const matchedContractIds=new Set(step?.evidence?.matchedContractMaterialIds||[]);
