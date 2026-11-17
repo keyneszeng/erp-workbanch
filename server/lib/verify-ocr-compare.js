@@ -71,6 +71,10 @@ function cache(m,pid,requiredPages=0,coursePreview=false){
  if(ext==="pptx"&&coursePreview&&Number(row.pages||0)!==COURSE_SCAN_PAGES)return null;
  // Reject old three/five-page course PDF OCR: only the first page may count.
  if(ext==="pdf"&&coursePreview&&Number(row.pages||0)!==COURSE_SCAN_PAGES)return null;
+ // Older cover caches only used the selectable text layer, omitting image titles.
+ // In production rebuild them once with cover visual OCR; demo fixtures are trusted.
+ if(ext==="pdf"&&coursePreview&&!isDemoMode()&&
+    !["pdf-cover-ocr","pdf-cover-text-fallback","pdf-ocr"].includes(row.mode))return null;
  if(requiredPages&&ext==="pdf"&&Number(row.pages||0)<Math.min(Number(row.total_pages||requiredPages),requiredPages))return null;
  if(!OCR_TYPES.has(ext))return office.SUPPORTED.has(ext)?row:null;
  return ocr.providerMatches(row.engine)?row:null;
