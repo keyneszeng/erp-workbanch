@@ -26,7 +26,7 @@ export const NAV = [
   { k: "materials", n: "材料中心", items: [{ k: "materials", n: "归档材料" }] },
   { k: "archive", n: "档案中心", items: [{ k: "archive", n: "数字卷宗" }] },
   { k: "audit", n: "审计日志", items: [{ k: "audit", n: "操作留痕" }] },
-  { k: "system", n: "系统配置", items: [{ k: "users", n: "用户与权限", need: () => can("user:manage") }, { k: "public-proposals", n: "公众活动申请收件箱", need: () => !!state.super }, { k: "invitation-config", n: "邀请函上线配置", need: () => can("setting:write") }] }
+  { k: "system", n: "系统配置", items: [{ k: "users", n: "用户与权限", need: () => !!state.super }, { k: "public-proposals", n: "公众活动申请收件箱", need: () => !!state.super }, { k: "invitation-config", n: "邀请函上线配置", need: () => !!state.super }] }
 ];
 
 /**
@@ -34,6 +34,8 @@ export const NAV = [
  * 组（g.k）必须在角色的模块白名单里，且条目自己的 need() 要通过。
  */
 export function canVisit(nav) {
+  // 纵使旧客户端还缓存了 system 模块，也不允许非总管理员进入。
+  if (["users","public-proposals","invitation-config"].includes(nav) && !state.super) return false;
   const mods = state.role?.modules || [];
   // 操作模块对会议有只读依赖；API仍按账号数据范围与每项业务授权裁剪。
   if(nav==="projects" && (
