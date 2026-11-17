@@ -140,3 +140,40 @@ test("最终议程PDF可以扩展扫描页数，普通文档仍使用默认3页"
    else process.env.ERP_OCR_ENABLED=old;
  }
 });
+
+test("PDF课件封面仅渲染OCR第一页，并合并文字层与图片里的标题",async()=>{
+ const fs=require("node:fs");
+ const old=process.env.ERP_OCR_ENABLED;
+ process.env.ERP_OCR_ENABLED="1";
+ const commands=[];
+ const exec=async(program,args)=>{
+  commands.push({program,args});
+  if(program==="pdfinfo")return "Pages: 50\n";
+  if(program==="pdftotext")return "主办单位：广东省医学会\n会议日期：2026年11月17日\n本页包含可选择的普通文字。";
+  if(program==="pdftoppm"){
+   fs.writeFileSync(args[args.length-1]+"-1.png",Buffer.from("fixture"));
+   return "";
+  }
+  if(program.includes("python"))return JSON.stringify({items:[
+   {text:"精准诊疗技术新进展",score:0.99,x:10,y:10,h:25,w:220}
+  ]});
+  throw Error("Unexpected OCR command "+program);
+ };
+ try{
+  const doc=await recognize(Buffer.from("%PDF-1.7\nfixture"),"pdf",{maxPages:1,forceVisual:true,exec});
+  assert.equal(doc.pages,1);
+  assert.equal(doc.totalPages,50);
+  assert.equal(doc.truncated,true);
+  assert.equal(doc.mode,"pdf-cover-ocr");
+  assert.match(doc.text,/精准诊疗技术新进展/);
+  assert.match(doc.text,/主办单位/);
+  for(const p of ["pdftotext","pdftoppm"]){
+   const call=commands.find(x=>x.program===p);
+   assert.ok(call,p+" should run");
+   assert.equal(call.args[call.args.indexOf("-l")+1],"1","Only first page may be scanned");
+  }
+ }finally{
+  if(old===undefined)delete process.env.ERP_OCR_ENABLED;
+  else process.env.ERP_OCR_ENABLED=old;
+ }
+});
