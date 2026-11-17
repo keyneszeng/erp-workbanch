@@ -11,6 +11,8 @@ const {extractDurations}=require("./verify-duration-evidence");
 const laborSheet=require("./labor-sheet-extract");
 const {extractInvoiceAmount}=require("./invoice-extract");
 const OCR_TYPES=new Set(["jpg","png","pdf"]),MAX_FILES=32;
+// 终版议程独立提高扫描页数，普通核销附件仍沿用OCR默认页数。
+const AGENDA_OCR_PAGES=Math.min(80,Math.max(3,Number(process.env.ERP_AGENDA_OCR_MAX_PAGES||20)));
 const KINDS={
  1:["会议通知","招商函","终版议程","串场"],2:["终版议程","讲者照片"],
  3:["签到表","在线记录","直播数据","在线时长","会议截图"],
@@ -45,7 +47,7 @@ function materials(pid,no){
  return docs.filter(m=>((KINDS[no]||[]).includes(m.kind)||(expertIds?.has(Number(m.id))))
   &&!(m.kind==="终版议程"&&([1,2,4].includes(no)?m.version!=="终版":m.version==="历史版"))).slice(0,MAX_FILES);
 }
-function cache(m,pid){
+function cache(m,pid,requiredPages=0){
  const row=db.prepare("SELECT recognized_text,engine,mode,pages,total_pages,truncated FROM material_ocr_results WHERE material_id=? AND pid=? AND file_key=?").get(m.id,pid,m.file_key);
  if(!row)return null;
  const ext=m.file_key.split(".").pop().toLowerCase();
@@ -53,6 +55,7 @@ function cache(m,pid){
  // Previous XLSX reader appended the entire shared-string pool, including unused names,
  // so its cached "recognized" result cannot be trusted for speaker verification.
  if(ext==="xlsx"&&row.engine!==office.XLSX_ENGINE)return null;
+ if(requiredPages&&ext==="pdf"&&Number(row.pages||0)<Math.min(Number(row.total_pages||requiredPages),requiredPages))return null;
  if(!OCR_TYPES.has(ext))return office.SUPPORTED.has(ext)?row:null;
  return ocr.providerMatches(row.engine)?row:null;
 }
@@ -84,14 +87,15 @@ async function scan(pid,no,operator){
  // and photos; image OCR cannot prove that contractual rights were delivered.
  let processed=0;
  for(const m of docs){
-  if(cache(m,pid))continue;
+  const requiredPages=no===2&&m.kind==="终版议程"?AGENDA_OCR_PAGES:0;
+  if(cache(m,pid,requiredPages))continue;
   const ext=m.file_key.split(".").pop().toLowerCase();
   const nativeOffice=office.SUPPORTED.has(ext);
   if(!nativeOffice&&(!OCR_TYPES.has(ext)||isDemoMode()||!available))continue;
   const file=await storage().get(m.file_key);
   if(!file?.buffer)continue;
   try{
-   const result=nativeOffice?office.extract(file.buffer,ext):await ocr.recognize(file.buffer,ext);
+   const result=nativeOffice?office.extract(file.buffer,ext):await ocr.recognize(file.buffer,ext,{maxPages:requiredPages||undefined});
    if(result?.text?.trim()){persist(m,pid,result,operator);processed++;}
   }catch(e){
    if(["OCR_DISABLED","OCR_ENGINE_MISSING","OCR_PROVIDER_MISCONFIGURED","OCR_UNAVAILABLE","OCR_TIMEOUT"].includes(e.code))throw e;
@@ -109,7 +113,7 @@ function amounts(text){
 function report(pid,no){
  const p=db.prepare("SELECT id,name,assoc,date,form FROM projects WHERE id=?").get(pid);
  const docs=materials(pid,no).map(m=>{
-  const r=cache(m,pid),ext=m.file_key.split(".").pop().toLowerCase();
+  const r=cache(m,pid,no===2&&m.kind==="终版议程"?AGENDA_OCR_PAGES:0),ext=m.file_key.split(".").pop().toLowerCase();
   return {materialId:m.id,kind:m.kind,name:m.name,fileName:m.file_name,fileKey:m.file_key,
    version:m.version,mode:r?.mode||null,pages:r?.pages||0,totalPages:r?.total_pages||0,
    truncated:!!r?.truncated,state:r?"recognized":OCR_TYPES.has(ext)||office.SUPPORTED.has(ext)?"not-recognized":"unsupported",
