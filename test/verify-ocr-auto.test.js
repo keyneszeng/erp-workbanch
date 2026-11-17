@@ -232,6 +232,49 @@ test("第2项仅扫描终版议程和讲者照片；文件名姓名精确比对�
  assert.equal(stale.data.error.code,"OCR_REPORT_STALE");
  db.prepare("UPDATE materials SET deleted_at='2026-11-08' WHERE id=?").run(photo);
 });
+test("第2项OCR终版议程可有额外姓名，上传照片均在议程即可一致",async()=>{
+ const agenda=db.prepare("SELECT id FROM materials WHERE pid=? AND kind='终版议程' AND version='终版' ORDER BY id DESC LIMIT 1").get(pid);
+ assert.ok(agenda);
+ const before=db.prepare("SELECT recognized_text FROM material_ocr_results WHERE material_id=?").get(agenda.id);
+ const photo=addDoc("讲者照片","李四照片","", "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee.jpg");
+ db.prepare("UPDATE materials SET file_name='李四照片.jpg' WHERE id=?").run(photo);
+ try{
+   db.prepare("UPDATE material_ocr_results SET recognized_text=? WHERE material_id=?")
+     .run("讲者：张三教授 课题：精准诊疗技术新进展\n讲者：李四主任\n讲者：王五医生",agenda.id);
+   const ok=await call("admin","POST",pathStep(2)+"/scan",{});
+   assert.equal(ok.status,200,JSON.stringify(ok.data));
+   const check=ok.data.report.checks.find(x=>x.name==="讲者照片姓名与终版议程");
+   assert.equal(check?.status,"一致",JSON.stringify(ok.data.report.checks));
+   assert.match(check.detail,/不影响一致/);
+   db.prepare("UPDATE materials SET file_name='赵六.jpg' WHERE id=?").run(photo);
+   const wrong=await call("admin","POST",pathStep(2)+"/scan",{});
+   assert.equal(wrong.status,200);
+   assert.equal(wrong.data.report.checks.find(x=>x.name==="讲者照片姓名与终版议程")?.status,"不一致");
+ }finally{
+   db.prepare("UPDATE materials SET deleted_at='2026-11-17' WHERE id=?").run(photo);
+   db.prepare("UPDATE material_ocr_results SET recognized_text=? WHERE material_id=?").run(before.recognized_text,agenda.id);
+ }
+});
+test("第3项OCR含不同时间单位时只要任一参会时长严格大于30分钟就一致",async()=>{
+ const materialId=addDoc("在线时长","线上参会时长",
+   "短时参与：20分钟\n实际观看时长：40 min", "ffffffffffffffffffffffffffffffff.pdf");
+ try{
+   const scan=async()=>{
+     const result=await call("admin","POST",pathStep(3)+"/scan",{});
+     assert.equal(result.status,200,JSON.stringify(result.data));
+     return result.data.report.checks.find(x=>x.name==="参会时长超过30分钟");
+   };
+   assert.equal((await scan())?.status,"一致");
+   db.prepare("UPDATE material_ocr_results SET recognized_text=? WHERE material_id=?").run("有效时长：30分钟",materialId);
+   assert.equal((await scan())?.status,"不一致");
+   db.prepare("UPDATE material_ocr_results SET recognized_text=? WHERE material_id=?").run("观看时长：00:31:30",materialId);
+   assert.equal((await scan())?.status,"一致");
+   db.prepare("UPDATE material_ocr_results SET recognized_text=? WHERE material_id=?").run("会议开始 10:45",materialId);
+   assert.equal((await scan())?.status,"无法确认","钟点不得误判为在线时长");
+ }finally{
+   db.prepare("UPDATE materials SET deleted_at='2026-11-17' WHERE id=?").run(materialId);
+ }
+});
 test("核销第5项OCR与证据：仅关联劳务登记表和劳务专家合同，彻底排除会务及赞助合同",async()=>{
  const labor=addDoc("劳务登记表","劳务登记表","姓名：张三\n时间：2026-11-08\n角色：讲者\n金额：1000",
    "51111111111111111111111111111111.pdf");

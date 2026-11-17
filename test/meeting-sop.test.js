@@ -110,7 +110,7 @@ test("第2项只核对终版议程与讲者照片的原件姓名，签到表和�
    get(){return {n:1};},
    all(){return [{name:"甲老师"},{name:"甲老师"}];}
  };}};
- assert.throws(()=>validateSopEvidence(2,e,project,duplicated),/讲者照片原始文件名/);
+ assert.equal(validateSopEvidence(2,{...e,photoSpeakers:undefined},project,duplicated).photoRecordsMatched,2);
 });
 test("第2项关联材料和人工兼容表单均仅包含终版议程与讲者照片",()=>{
  const fs=require("node:fs"),path=require("node:path");

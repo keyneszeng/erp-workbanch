@@ -16,15 +16,35 @@ test("讲者照片按真实原文件名取姓名，移除图片后缀和常见�
  assert.equal(photoName({file_name:"speaker.png",name:"测试讲者"}),"测试讲者","legacy generic image name uses explicit registered label");
  assert.equal(photoName({file_name:"多人合影01.jpg",name:"张三"}),"","未指明姓名的图片不能猜人名");
 });
-test("讲者姓名精确比对：漏人、增人、重复、冒名都不得自动通过",()=>{
- const a=["张三教授","李四主任"];
- assert.equal(compareNames(a,["张三","李四"]).matched,true);
- const missing=compareNames(a,["张三"]);
- assert.equal(missing.matched,false);assert.deepEqual(missing.missing,["李四"]);
- const extra=compareNames(a,["张三","李四","赵六"]);
- assert.equal(extra.matched,false);assert.deepEqual(extra.extra,["赵六"]);
+test("讲者照片姓名均包含在议程时一致，不要求议程所有讲者都有照片",()=>{
+ const a=["张三教授","李四主任","王五医生"];
+ const subset=compareNames(a,["张三","王五"]);
+ assert.equal(subset.matched,true);
+ assert.deepEqual(subset.missing,["李四"]);
+ const extra=compareNames(a,["张三","赵六"]);
+ assert.equal(extra.matched,false);
+ assert.deepEqual(extra.extra,["赵六"]);
  const duplicate=compareNames(a,["张三","张三"]);
- assert.equal(duplicate.matched,false);assert.deepEqual(duplicate.duplicate,["张三"]);
+ assert.equal(duplicate.matched,true);
+ assert.deepEqual(duplicate.duplicate,["张三"]);
+});
+test("OCR议程多场次、无课题表格和独立姓名行尽可能提取全部姓名",()=>{
+ const raw=[
+   "2026年学术会议 终版议程",
+   "时间    内容    讲者    单位",
+   "09:00-09:30    精准诊疗    徐一劲    东莞市人民医院",
+   "09:35-10:10    讨论    王五主任    东莞市人民医院",
+   "讲者：张三教授、李四主任",
+   "姓名：赵六",
+   "主持人：孙七",
+   "邀请报告：周八老师"
+ ].join("\n");
+ const people=agendaSpeakers(raw,["徐一劲","王五","张三","李四","赵六","孙七","周八"]);
+ for(const name of ["徐一劲","王五","张三","李四","赵六","孙七","周八"])
+   assert.ok(people.includes(name),"应识别 "+name+"；结果："+people.join("、"));
+ const onlyOCR="专题报告\n专家 李四主任\n会议简介";
+ assert.ok(agendaSpeakers(onlyOCR,["李四"]).includes("李四"),
+  "表格断裂时以照片姓名在原始OCR文本精确出现为兜底");
 });
 test("课件主题须完整匹配终版议程课题；包含关键词或较长扩展题目不算一致",()=>{
  const agenda="讲者：张三教授 课题：精准诊疗技术新进展\n讲者：李四主任 课题：人工智能与影像诊断";
@@ -40,4 +60,19 @@ test("课件主题须完整匹配终版议程课题；包含关键词或较长�
  assert.deepEqual(title,["精准诊疗技术新进展"]);
  const unknown=courseTopics("课程介绍\n不同的临床研究案例",subjects);
  assert.deepEqual(unknown,[],"没有可靠主题时应标记无法确认，不能模糊猜测");
+});
+
+test("参会时长OCR单位及严格大于30分钟判定",()=>{
+ const {extractDurations}=require("../server/lib/verify-duration-evidence");
+ for(const phrase of ["观看时长：35分钟","累计在线 1小时20分","有效时长：45 min",
+   "在线时长 00:35:00","有效观看时长 三十五分钟","1.5小时","30分钟1秒",">30分钟","超过30分钟"]){
+   const hits=extractDurations(phrase);
+   assert.ok(hits.some(x=>x.qualifies),phrase+" 应满足30分钟以上严格阈值");
+ }
+ for(const phrase of ["30分钟","0.5小时","30分00秒","在线时长 00:30:00",
+   "观看时长 29min","10:45","30分钟以上"]){
+   const hits=extractDurations(phrase);
+   assert.ok(!hits.some(x=>x.qualifies),phrase+" 不得作为严格大于30分钟");
+ }
+ assert.equal(extractDurations("参会时长20分钟; 观看时长 45分钟").some(x=>x.qualifies),true);
 });

@@ -51,17 +51,25 @@ test("仅有历史版议程、当前终版已删除均不能使用",()=>{
   db.close();
  }
 });
-test("漏人、增人、重复同名照片、照片文件名与显示名称冲突均不通过",()=>{
- for(const change of [
-  db=>db.prepare("DELETE FROM materials WHERE file_name='李四主任.jpg'").run(),
-  db=>db.prepare("UPDATE materials SET file_name='赵六.jpg' WHERE file_name='李四主任.jpg'").run(),
-  db=>db.prepare("UPDATE materials SET file_name='张三照片.jpg' WHERE file_name='李四主任.jpg'").run(),
-  db=>db.prepare("UPDATE materials SET file_name='合影01.jpg' WHERE file_name='李四主任.jpg'").run()
- ]){
-  const {db}=build();change(db);
-  assert.throws(()=>validateSopEvidence(2,evidence,project,db),/照片原始文件名/);
-  db.close();
+test("议程姓名可以多于照片；但照片姓名未出现在议程时必须拒绝",()=>{
+ const {db}=build();
+ db.prepare("DELETE FROM materials WHERE file_name='李四主任.jpg'").run();
+ const ok=validateSopEvidence(2,evidence,project,db);
+ assert.equal(ok.photoRecordsMatched,1);
+ assert.equal(ok.agendaPeople,2);
+ db.close();
+ for(const wrong of ["赵六.jpg","合影01.jpg"]){
+   const {db}=build();
+   db.prepare("UPDATE materials SET file_name=? WHERE file_name='李四主任.jpg'").run(wrong);
+   assert.throws(()=>validateSopEvidence(2,evidence,project,db),/照片原始文件名/);
+   db.close();
  }
+});
+test("同名多张照片仍符合姓名包含关系",()=>{
+ const {db}=build();
+ db.prepare("UPDATE materials SET file_name='张三照片.jpg' WHERE file_name='李四主任.jpg'").run();
+ assert.equal(validateSopEvidence(2,evidence,project,db).photoRecordsMatched,2);
+ db.close();
 });
 
 test("归档材料批量上传允许多位讲者照片，最多10份并保留原始文件名",()=>{
@@ -79,5 +87,6 @@ test("归档材料批量上传允许多位讲者照片，最多10份并保留原
  assert.equal(matched.matched,true,"原始文件名应逐一识别讲者并与议程名单关联");
  assert.equal(matched.photoCount,3);
  const duplicate=compareNames(speakers,[photos[0],photos[0],photos[2]].map(photoName));
- assert.equal(duplicate.matched,false,"重复讲者不得被默默接受");
+ assert.equal(duplicate.matched,true,"重复照片姓名仍全部包含在议程；重复信息应单独提示");
+ assert.deepEqual(duplicate.duplicate,["张三"]);
 });

@@ -55,7 +55,7 @@ function validateSopEvidence(no, evidence, project, db, invoiceAmount) {
         comparedWith:"串场",matchedSources:[e.documentKind,"终版议程","串场"]};
     }
     case 2: {
-      // 核销第2项：当前终版议程的讲者 ↔ 讲者照片原始文件名。
+      // 第2项只要求每张讲者照片的姓名都在终版议程里，无须覆盖全部议程讲者。
       // 签到表仅供核销第3项使用；OCR模式从终版议程提取人名。
       const baseline=list(e.agendaSpeakers).map(speakerName);
       if(!sameNames(baseline,baseline))
@@ -68,11 +68,14 @@ function validateSopEvidence(no, evidence, project, db, invoiceAmount) {
       const photos=db.prepare("SELECT name,file_name FROM materials WHERE pid=? AND kind='讲者照片' AND (deleted_at IS NULL OR deleted_at='') AND file_key IS NOT NULL AND file_key<>''").all(pid);
       const matched=compareNames(baseline,photos.map(photoName));
       if(!matched.matched||matched.photoCount!==photos.length)
-        fail("讲者照片原始文件名与终版议程名单不一致，请检查缺失、多余、重复或无法识别姓名的照片");
-      if(Array.isArray(e.photoSpeakers)&&e.photoSpeakers.length&&!sameNames(baseline,e.photoSpeakers.map(speakerName)))
-        fail("人工录入的照片讲者名单与终版议程不一致");
-      if(e.noOmissions!==true)fail("须人工确认终版议程与讲者照片逐人一致，无漏项、冒名或重复");
-      return {matchedPeople:baseline.length,matchedSources:["终版议程","讲者照片"],
+        fail("讲者照片原始文件名有姓名未包含在终版议程中，或存在无法识别的文件名");
+      if(Array.isArray(e.photoSpeakers)&&e.photoSpeakers.length){
+        const uploaded=photos.map(photoName).sort(),provided=e.photoSpeakers.map(speakerName).sort();
+        if(uploaded.length!==provided.length||uploaded.some((name,i)=>name!==provided[i]))
+          fail("人工录入的讲者照片姓名与上传照片文件名不一致");
+      }
+      if(e.noOmissions!==true)fail("须人工确认所有讲者照片姓名均能在终版议程中找到");
+      return {matchedPeople:photos.length,agendaPeople:baseline.length,matchedSources:["终版议程","讲者照片"],
         photoRecordsMatched:photos.length,noOmissions:true};
     }
     case 3: {

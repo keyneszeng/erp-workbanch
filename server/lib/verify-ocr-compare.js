@@ -7,9 +7,12 @@ const {contractPool,linkLaborContracts}=require("./labor-contracts"),{demandSopS
 const {sponsorRights}=require("./sponsor-rights");
 const office=require("./verify-office-text");
 const agendaEvidence=require("./verify-agenda-evidence");
+const {extractDurations}=require("./verify-duration-evidence");
 const laborSheet=require("./labor-sheet-extract");
 const {extractInvoiceAmount}=require("./invoice-extract");
 const OCR_TYPES=new Set(["jpg","png","pdf"]),MAX_FILES=32;
+// 终版议程独立提高扫描页数，普通核销附件仍沿用OCR默认页数。
+const AGENDA_OCR_PAGES=Math.min(80,Math.max(3,Number(process.env.ERP_AGENDA_OCR_MAX_PAGES||20)));
 const KINDS={
  1:["会议通知","招商函","终版议程","串场"],2:["终版议程","讲者照片"],
  3:["签到表","在线记录","直播数据","在线时长","会议截图"],
@@ -44,7 +47,7 @@ function materials(pid,no){
  return docs.filter(m=>((KINDS[no]||[]).includes(m.kind)||(expertIds?.has(Number(m.id))))
   &&!(m.kind==="终版议程"&&([1,2,4].includes(no)?m.version!=="终版":m.version==="历史版"))).slice(0,MAX_FILES);
 }
-function cache(m,pid){
+function cache(m,pid,requiredPages=0){
  const row=db.prepare("SELECT recognized_text,engine,mode,pages,total_pages,truncated FROM material_ocr_results WHERE material_id=? AND pid=? AND file_key=?").get(m.id,pid,m.file_key);
  if(!row)return null;
  const ext=m.file_key.split(".").pop().toLowerCase();
@@ -52,6 +55,7 @@ function cache(m,pid){
  // Previous XLSX reader appended the entire shared-string pool, including unused names,
  // so its cached "recognized" result cannot be trusted for speaker verification.
  if(ext==="xlsx"&&row.engine!==office.XLSX_ENGINE)return null;
+ if(requiredPages&&ext==="pdf"&&Number(row.pages||0)<Math.min(Number(row.total_pages||requiredPages),requiredPages))return null;
  if(!OCR_TYPES.has(ext))return office.SUPPORTED.has(ext)?row:null;
  return ocr.providerMatches(row.engine)?row:null;
 }
@@ -83,14 +87,15 @@ async function scan(pid,no,operator){
  // and photos; image OCR cannot prove that contractual rights were delivered.
  let processed=0;
  for(const m of docs){
-  if(cache(m,pid))continue;
+  const requiredPages=no===2&&m.kind==="终版议程"?AGENDA_OCR_PAGES:0;
+  if(cache(m,pid,requiredPages))continue;
   const ext=m.file_key.split(".").pop().toLowerCase();
   const nativeOffice=office.SUPPORTED.has(ext);
   if(!nativeOffice&&(!OCR_TYPES.has(ext)||isDemoMode()||!available))continue;
   const file=await storage().get(m.file_key);
   if(!file?.buffer)continue;
   try{
-   const result=nativeOffice?office.extract(file.buffer,ext):await ocr.recognize(file.buffer,ext);
+   const result=nativeOffice?office.extract(file.buffer,ext):await ocr.recognize(file.buffer,ext,{maxPages:requiredPages||undefined});
    if(result?.text?.trim()){persist(m,pid,result,operator);processed++;}
   }catch(e){
    if(["OCR_DISABLED","OCR_ENGINE_MISSING","OCR_PROVIDER_MISCONFIGURED","OCR_UNAVAILABLE","OCR_TIMEOUT"].includes(e.code))throw e;
@@ -108,7 +113,7 @@ function amounts(text){
 function report(pid,no){
  const p=db.prepare("SELECT id,name,assoc,date,form FROM projects WHERE id=?").get(pid);
  const docs=materials(pid,no).map(m=>{
-  const r=cache(m,pid),ext=m.file_key.split(".").pop().toLowerCase();
+  const r=cache(m,pid,no===2&&m.kind==="终版议程"?AGENDA_OCR_PAGES:0),ext=m.file_key.split(".").pop().toLowerCase();
   return {materialId:m.id,kind:m.kind,name:m.name,fileName:m.file_name,fileKey:m.file_key,
    version:m.version,mode:r?.mode||null,pages:r?.pages||0,totalPages:r?.total_pages||0,
    truncated:!!r?.truncated,state:r?"recognized":OCR_TYPES.has(ext)||office.SUPPORTED.has(ext)?"not-recognized":"unsupported",
@@ -136,35 +141,41 @@ function report(pid,no){
   }
   add("原件盖章真实性",null,"OCR无法验证实体印章或签章法律效力，需人工查看");
  }else if(no===2){
-  // Step 2 is strictly FINAL agenda -> speaker photo original filenames.
-  // Attendance belongs to step 3 and never affects this result.
-  const people=agendaEvidence.agendaSpeakers(agenda),photos=by("讲者照片");
+  // All uploaded photo names must appear in the current final agenda.
+  // Agenda-only people do not block the check.
+  const photos=by("讲者照片");
   const photoNames=photos.map(x=>agendaEvidence.photoName({file_name:x.fileName,name:x.name}));
+  const people=agendaEvidence.agendaSpeakers(agenda,photoNames);
   const matched=agendaEvidence.compareNames(people,photoNames);
   const invalid=photoNames.filter(x=>!x).length;
   add("终版议程讲者提取",agendaDocs.length===1&&people.length?true:null,
-    agendaDocs.length===1&&people.length?"从当前终版议程提取"+people.length+"位讲者":"尚未从唯一的当前终版议程可靠提取姓名",ids(agendaDocs));
+    agendaDocs.length===1&&people.length?"从当前终版议程识别"+people.length+"位姓名":"尚未从唯一的当前终版议程识别出姓名",ids(agendaDocs));
   const checkable=agendaDocs.length===1&&people.length&&photos.length;
   const status=!checkable?null:invalid?false:matched.matched;
   const problems=[];
-  if(matched.missing.length)problems.push("缺少："+matched.missing.join("、"));
-  if(matched.extra.length)problems.push("多出："+matched.extra.join("、"));
-  if(matched.duplicate.length)problems.push("重复："+matched.duplicate.join("、"));
-  if(invalid)problems.push("无法从文件名提取姓名："+invalid+"份");
+  if(matched.extra.length)problems.push("照片姓名未在议程找到："+matched.extra.join("、"));
+  if(invalid)problems.push("文件名无法识别姓名："+invalid+"份");
+  if(matched.missing.length)problems.push("议程其他姓名未上传照片（不影响一致）："+matched.missing.length+"位");
+  if(matched.duplicate.length)problems.push("同名照片："+matched.duplicate.length+"组（不影响姓名包含关系）");
   add("讲者照片姓名与终版议程",status,
-    "终版议程"+people.length+"位、照片"+photos.length+"份；"+
-    (problems.join("；")|| (status===true?"逐人姓名完全一致":"需要核对原件及照片文件名")),
+    "议程已识别"+people.length+"位、照片"+photos.length+"份；"+
+    (problems.join("；")||(status===true?"全部照片姓名均包含在终版议程中":"请核对议程原件与照片文件名")),
     ids([...agendaDocs,...photos]));
- }else if(no===3){
+}else if(no===3){
+  // A qualifying unit-marked duration in any step-3 document passes the time
+  // comparison; do not require every unrelated duration to exceed 30 minutes.
+  const durationHits=docs.flatMap(file=>extractDurations(file.text)
+    .map(hit=>({...hit,materialId:file.materialId,kind:file.kind})));
+  const qualified=durationHits.filter(x=>x.qualifies);
+  add("参会时长超过30分钟",durationHits.length?qualified.length>0:null,
+    qualified.length?"识别到大于30分钟的时长："+qualified.slice(0,3).map(x=>x.raw).join("、"):
+    durationHits.length?"仅识别到不超过30分钟的时长："+durationHits.slice(0,3).map(x=>x.raw).join("、"):
+    "未识别到带单位的时长（支持分钟、小时、min、秒以及明确的时长HH:MM:SS）",
+    ids(docs.filter(x=>durationHits.some(hit=>hit.materialId===x.materialId))));
+  // For offline/hybrid events, retain the independent signature evidence check.
   if(["线下","混合"].includes(p.form))
-   add("线下签到表",txt("签到表")?true:null,"签到表文字识别不代表签字真实",ids(by("签到表")));
-  if(["线上","混合"].includes(p.form)){
-   const online=docs.filter(x=>/在线|直播|时长/.test(x.kind));
-   const minutes=online.flatMap(x=>[...x.text.matchAll(/(?:有效时长|在线时长|讲者时长)\s*[:：]?\s*(\d{1,4})\s*分钟/g)].map(x=>Number(x[1])));
-   add("在线时长超过30分钟",minutes.length?minutes.every(x=>x>30):null,
-    minutes.length?"识别时长："+minutes.join("、")+"分钟":"未提取到有效在线时长",ids(online));
-  }
- }else if(no===4){
+    add("线下签到表",txt("签到表")?true:null,"签到表文字识别不代表签字真实",ids(by("签到表")));
+}else if(no===4){
   const topics=agendaEvidence.agendaTopics(agenda),courses=by("课件");
   const allowed=new Set(topics.map(agendaEvidence.topicKey));
   add("终版议程课题",agendaDocs.length===1&&topics.length?true:null,
