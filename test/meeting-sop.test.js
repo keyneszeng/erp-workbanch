@@ -154,14 +154,14 @@ test("第4步仅要求课件主题包含在终版议程内，允许议程有其�
  assert.equal(validateSopEvidence(4,noLogoFields,project,db).matchedTopics,1,
    "旧版串场与 Logo 字段不应再作为核验条件");
 });
-test("核销第4步文字、关联材料与表单中不再包含串场和 Logo 必填项",()=>{
+test("第4项允许演示型串场课件，但不恢复普通串场与Logo必填字段",()=>{
  const fs=require("node:fs"),path=require("node:path");
  const root=path.join(__dirname,"..");
  const labels=fs.readFileSync(path.join(root,"server/lib/constants.js"),"utf8");
  const form=fs.readFileSync(path.join(root,"web/assets/js/lib/sop-fields.js"),"utf8");
  const detail=fs.readFileSync(path.join(root,"web/assets/js/lib/verify-detail.js"),"utf8");
  assert.match(labels,/name: "课件主题在终版议程里"/);
- assert.match(detail,/4:\["终版议程","课件"\]/);
+ assert.match(detail,/4:\["终版议程","课件","串场课件"\]/);
  assert.ok(form.includes('area("agendaTopics"'));
  assert.ok(form.includes('area("courseTopics"'));
  const stepFour=form.split("    4:area(")[1]?.split("    5:area(")[0]||"";
