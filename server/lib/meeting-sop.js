@@ -147,15 +147,15 @@ function validateSopEvidence(no, evidence, project, db, invoiceAmount) {
       if(!d.required)fail("尚未建立会务需求表，第6项不适用","SOP_NOT_APPLICABLE");
       if(!d.confirmed)fail("请先确认并归档会务需求表","DEMAND_NOT_CONFIRMED");
       if(!d.contractCount)fail("请先签署「会务需求」类别合同","CONTRACT_NOT_SIGNED");
-      if(!d.agreements.length)fail("请上传已签署会务合同对应的原件","SOP_MATERIAL_MISSING");
+      if(!d.agreements.length)fail("请上传已签署会务合同或会务协议原件","SOP_MATERIAL_MISSING");
       if(!d.invoices.length)fail("请上传会务发票原件","SOP_MATERIAL_MISSING");
       if(e.demandReviewed!==true||e.meetingContractReviewed!==true||e.meetingInvoiceReviewed!==true)
-        fail("请逐项人工检查会务需求表、已签会务合同和会务发票原件");
+        fail("请逐项人工检查会务需求表、已签会务合同/会务协议和会务发票原件");
       if(cents(d.budgetTotal)!==cents(d.contractTotal))
         fail("会务需求总预算与已签署会务合同总金额不一致");
       return {meetingMatched:true,matchedFields:2,invoiceLinked:true,invoiceCount:d.invoices.length,meetingContractTotal:d.contractTotal,
         demandBudget:d.budgetTotal,needCount:d.needCount,
-        demandSopSignature:d.signature,comparedWith:"会务需求表+会务合同+会务发票"};
+        demandSopSignature:d.signature,comparedWith:"会务需求表+会务合同（含会务协议）+会务发票"};
     }
     case 7: return validateRightsEvidence(db,pid,e);
     default: throw bad("核销步骤必须为 1~7");
