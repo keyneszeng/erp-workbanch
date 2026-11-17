@@ -318,7 +318,7 @@ test("第2项仅扫描终版议程和讲者照片；文件名姓名精确比对�
  db.prepare("UPDATE materials SET deleted_at='2026-11-08' WHERE id=?").run(photo);
 });
 test("第2项OCR终版议程可有额外姓名，上传照片均在议程即可一致",async()=>{
- const agenda=db.prepare("SELECT id FROM materials WHERE pid=? AND kind='终版议程' AND version='终版' ORDER BY id DESC LIMIT 1").get(pid);
+ const agenda=db.prepare("SELECT id FROM materials WHERE pid=? AND kind='终版议程' AND version='终版' AND (deleted_at IS NULL OR deleted_at='') ORDER BY id DESC LIMIT 1").get(pid);
  assert.ok(agenda);
  const before=db.prepare("SELECT recognized_text FROM material_ocr_results WHERE material_id=?").get(agenda.id);
  const photo=addDoc("讲者照片","李四照片","", "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee.jpg");
