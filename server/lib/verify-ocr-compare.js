@@ -14,6 +14,8 @@ const OCR_TYPES=new Set(["jpg","png","pdf"]),MAX_FILES=32;
 // 终版议程独立提高扫描页数，普通核销附件仍沿用OCR默认页数。
 const AGENDA_OCR_PAGES=Math.min(80,Math.max(3,Number(process.env.ERP_AGENDA_OCR_MAX_PAGES||20)));
 const COURSE_SCAN_PAGES=1;
+// More pages for meeting agreement/invoice PDFs, without OCR being a settlement gate.
+const MEETING_PDF_PAGES=Math.min(30,Math.max(3,Number(process.env.ERP_MEETING_PDF_OCR_PAGES||12)||12));
 /** 课件与演示型串场归为第四项；普通串场稿只用于第一项。 */
 function isCourseMaterial(m){
  if(["课件","串场课件"].includes(m.kind))return true;
@@ -95,8 +97,8 @@ function publicReport(pid,no){
 }
 async function scan(pid,no,operator){
  const docs=materials(pid,no);
- // Step 6 is a materials-link check; invoice OCR is not a prerequisite.
- if(no===6)return {...publicReport(pid,no),processed:0};
+ // Step 6 scans its linked PDF originals as well. This is advisory OCR:
+ // lack of text does not override signed-contract, budget and invoice gates.
  const available=ocr.enabled()&&storage().name==="fs";
  // Native Office files (including XLSX attendance) never require RapidOCR.
  // On demo installs do not simulate image recognition, but do read real Office bytes.
@@ -108,16 +110,19 @@ async function scan(pid,no,operator){
  let processed=0;
  for(const m of docs){
   const coursePreview=no===4&&isCourseMaterial(m);
-  const requiredPages=m.kind==="终版议程"&&[2,4].includes(no)?AGENDA_OCR_PAGES:
+  const requiredPages=no===6&&m.file_key.toLowerCase().endsWith(".pdf")?MEETING_PDF_PAGES:
+   m.kind==="终版议程"&&[2,4].includes(no)?AGENDA_OCR_PAGES:
    coursePreview?COURSE_SCAN_PAGES:0;
   if(cache(m,pid,requiredPages,coursePreview))continue;
   const ext=m.file_key.split(".").pop().toLowerCase();
   const nativeOffice=office.SUPPORTED.has(ext);
-  if(!nativeOffice&&(!OCR_TYPES.has(ext)||isDemoMode()||!available))continue;
+  const textPdfOnly=no===6&&ext==="pdf"&&!available&&storage().name==="fs";
+  if(!nativeOffice&&!textPdfOnly&&(!OCR_TYPES.has(ext)||isDemoMode()||!available))continue;
   const file=await storage().get(m.file_key);
   if(!file?.buffer)continue;
   try{
-   let result=nativeOffice?office.extract(file.buffer,ext,coursePreview?{maxSlides:COURSE_SCAN_PAGES}:{})
+   let result=textPdfOnly?await ocr.extractPdfText(file.buffer,{maxPages:MEETING_PDF_PAGES}):
+    nativeOffice?office.extract(file.buffer,ext,coursePreview?{maxSlides:COURSE_SCAN_PAGES}:{})
     :await ocr.recognize(file.buffer,ext,{
       maxPages:requiredPages||undefined,
       // Cover titles flattened into PDF artwork need visual OCR even when a
@@ -158,7 +163,8 @@ function report(pid,no){
  const p=db.prepare("SELECT id,name,assoc,date,form FROM projects WHERE id=?").get(pid);
  const docs=materials(pid,no).map(m=>{
   const coursePreview=no===4&&isCourseMaterial(m);
-  const requiredPages=m.kind==="终版议程"&&[2,4].includes(no)?AGENDA_OCR_PAGES:
+  const requiredPages=no===6&&m.file_key.toLowerCase().endsWith(".pdf")?MEETING_PDF_PAGES:
+   m.kind==="终版议程"&&[2,4].includes(no)?AGENDA_OCR_PAGES:
    coursePreview?COURSE_SCAN_PAGES:0;
   const r=cache(m,pid,requiredPages,coursePreview),ext=m.file_key.split(".").pop().toLowerCase();
   return {materialId:m.id,kind:m.kind,name:m.name,fileName:m.file_name,fileKey:m.file_key,
@@ -291,18 +297,21 @@ function report(pid,no){
   const invoiceIds=new Set(d.invoices.map(x=>Number(x.id)));
   const agreements=docs.filter(x=>contractIds.has(Number(x.materialId)));
   const invoices=docs.filter(x=>invoiceIds.has(Number(x.materialId)));
-  // Step 6 requires a linked invoice original, not OCR extraction of its amount.
-  // Keep invoice text recognition optional; it must not block a linked-file check.
+  // Both "会务协议" and "会务合同" are contract originals. PDF OCR is
+  // advisory: missing text or mismatched invoice amount cannot replace the
+  // signed-ledger, budget and linked-original checks.
   invoiceAmount=null;
   add("会务需求表",d.required?d.confirmed:null,
     d.required?"已登记需求表，确认归档："+(d.confirmed?"是":"否")+"；预算"+d.budgetTotal+"元":"未建立会务需求表");
-  add("已签会务合同原件",d.contractCount&&agreements.length?true:null,
-    "已签「会务需求」合同"+d.contractCount+"份，关联原件"+agreements.length+"份",ids(agreements));
+  add("已签会务合同/会务协议原件",d.contractCount&&agreements.length?true:null,
+    "已签会务合同（含会务协议）"+d.contractCount+"份，关联原件"+agreements.length+"份；PDF文字已识别"+
+    agreements.filter(x=>x.state==="recognized").length+"份",ids(agreements));
   add("会务需求表与会务合同金额一致",d.contractCount?
     Math.round(d.budgetTotal*100)===Math.round(d.contractTotal*100):null,
     "需求表"+d.budgetTotal+"元，会务合同"+d.contractTotal+"元",ids(agreements));
   add("已关联会务发票原件",invoices.length>0,
-    invoices.length?"已关联"+invoices.length+"份会务发票原件":"尚未关联会务发票原件",ids(invoices));
+    invoices.length?"已关联"+invoices.length+"份会务发票原件；PDF文字已识别"+
+      invoices.filter(x=>x.state==="recognized").length+"份":"尚未关联会务发票原件",ids(invoices));
  }else if(no===7){
   const rights=sponsorRights(db,pid);
   add("赞助合同与权益来源",rights.activeContracts.length?true:null,
