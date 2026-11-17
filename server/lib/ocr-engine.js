@@ -16,7 +16,7 @@ async function execNative(program,args,opts={}){
     reject(fail("OCR_PROCESS_FAILED","OCR 引擎未能处理此文件（损坏、加密或无法解析）",422));
   }));
 }
-function cleanText(x){return String(x||"").replace(/\0/g,"").replace(/\r\n?/g,"\n").replace(/[\x01-\x08\x0b\x0c\x0e-\x1f]/g,"").trim().slice(0,30000);}
+function cleanText(x){return String(x||"").replace(/\0/g,"").replace(/\r\n?/g,"\n").replace(/[\x01-\x08\x0b\x0c\x0e-\x1f]/g,"").trim().slice(0,100000);}
 /* ───────────────────────── OCR 引擎：RapidOCR ─────────────────────────
  * 只用统一维护的 rapidocr Python 包 + ONNX Runtime CPU，离线运行。
  * 原件不出服务器，也不需要 GPU 或云 API。
@@ -45,7 +45,7 @@ async function renderPdf(dir,file,pages,exec,scale=3600){
   const files=(await fs.readdir(dir)).filter(s=>/^page-\d+\.png$/.test(s)).sort((a,b)=>
     Number(a.match(/\d+/)[0])-Number(b.match(/\d+/)[0]));
   if(!files.length)throw fail("OCR_RENDER_FAILED","未能转换 PDF 扫描页",422);
-  return files.slice(0,MAX_PAGES).map(n=>path.join(dir,n));
+  return files.slice(0,pages).map(n=>path.join(dir,n));
 }
 /**
  * RapidOCR：统一 Python 包，ONNX Runtime CPU，不用 GPU。
@@ -168,10 +168,11 @@ async function recognize(buffer,ext,opts={}){
 
     let pages=1,totalPages=1,truncated=false;
     if(ext==="pdf"){
-      const info=await exec("pdfinfo",[file],{timeout:10000});
+      const maxPages=Number.isInteger(opts.maxPages)&&opts.maxPages>0?Math.min(80,opts.maxPages):MAX_PAGES;
+    const info=await exec("pdfinfo",[file],{timeout:10000});
       const match=/^Pages:\s+(\d+)/im.exec(info);
       if(!match||!(+match[1]>0))throw fail("OCR_INVALID_PDF","PDF 页数无效或文件已加密",422);
-      totalPages=+match[1];pages=Math.min(totalPages,MAX_PAGES);truncated=totalPages>MAX_PAGES;
+      totalPages=+match[1];pages=Math.min(totalPages,maxPages);truncated=totalPages>maxPages;
       const layer=cleanText(await exec("pdftotext",["-f","1","-l",String(pages),"-layout",file,"-"],{timeout:10000}));
       // 有文本层就用文本层：比任何视觉模型都准，而且不花钱
       if(layer.length>=40)
