@@ -85,6 +85,57 @@ test("自动扫描读取已有的真实OCR缓存，课件课题与终版议程�
  db.prepare("UPDATE material_ocr_results SET recognized_text=? WHERE material_id=?")
    .run("课件主题：精准诊疗技术新进展",course.id);
 });
+test("第4项真实上传8张幻灯片串场PPTX，仅提取前5张即可标记主题一致",async()=>{
+ const zip=new PizZip();
+ zip.file("[Content_Types].xml","<Types/>");
+ zip.file("_rels/.rels","<Relationships/>");
+ zip.file("ppt/presentation.xml","<p:presentation/>");
+ const slides=["封面","开幕致辞","嘉宾介绍","会议安排","精准诊疗技术新进展","另一个课题","附录","结束"];
+ slides.forEach((title,i)=>zip.file("ppt/slides/slide"+(i+1)+".xml",
+  "<p:sld><a:p><a:t>"+title+"</a:t></a:p></p:sld>"));
+ const buffer=zip.generate({type:"nodebuffer",compression:"DEFLATE"});
+ const response=await fetch(base+"/api/uploads?pid="+pid,{method:"POST",
+  headers:{cookie:cookies.admin,
+   "content-type":"application/vnd.openxmlformats-officedocument.presentationml.presentation",
+   "x-file-name":encodeURIComponent("主持串场演示.pptx")},body:buffer});
+ const uploaded=await response.json();
+ assert.equal(response.status,200,JSON.stringify(uploaded));
+ const created=await call("admin","POST","/api/projects/"+pid+"/materials",{
+   kind:"串场",name:"主持串场演示课件",
+   file_key:uploaded.key,file_name:uploaded.name,file_size:uploaded.size,file_mime:uploaded.mime
+ });
+ assert.equal(created.status,200,JSON.stringify(created.data));
+ const material=db.prepare("SELECT id FROM materials WHERE pid=? AND file_key=?").get(pid,uploaded.key);
+ assert.ok(material);
+ try{
+   // Legacy whole-deck caches must be refreshed into a 5-slide preview.
+   db.prepare("INSERT INTO material_ocr_results(material_id,pid,file_key,recognized_text,suggestions_json,engine,mode,pages,total_pages,truncated,updated_at,updated_by) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)")
+    .run(material.id,pid,uploaded.key,"课件主题：议程里没有的题目","[]",
+      "Office原生文本提取","office-text",0,0,0,"2026-11-10 09:00","旧引擎");
+   const first=await call("admin","POST",pathStep(4)+"/scan",{});
+   assert.equal(first.status,200,JSON.stringify(first.data));
+   const doc=first.data.report.files.find(x=>Number(x.materialId)===Number(material.id));
+   assert.ok(doc,JSON.stringify(first.data.report.files));
+   assert.equal(doc.state,"recognized");
+   assert.equal(doc.pages,5);
+   assert.equal(doc.totalPages,8);
+   assert.equal(doc.truncated,true);
+   const cmp=first.data.report.checks.find(x=>x.name==="课件：主持串场演示课件");
+   assert.equal(cmp?.status,"一致",JSON.stringify(first.data.report.checks));
+   assert.match(cmp.detail,/前5页\/张/);
+   assert.ok(!first.data.report.checks.some(x=>x.name==="超出扫描页数：主持串场演示课件"),
+    "5-slide preview is intentional and must not veto a matching theme");
+   const cache=db.prepare("SELECT engine,pages,total_pages FROM material_ocr_results WHERE material_id=?").get(material.id);
+   assert.equal(cache.engine,require("../server/lib/verify-office-text").COURSE_PREVIEW_ENGINE);
+   assert.equal(cache.pages,5);
+   const second=await call("admin","POST",pathStep(4)+"/scan",{});
+   assert.equal(second.status,200);
+   assert.equal(second.data.processed,0,"unchanged five-slide OCR result must be reused");
+   assert.equal(second.data.report.token,first.data.report.token);
+ }finally{
+   db.prepare("UPDATE materials SET deleted_at='2026-11-17' WHERE id=?").run(material.id);
+ }
+});
 test("没有三级字段输入：凭OCR比对凭证和人工通过按钮可直接记录结论",async()=>{
  const {data,status}=await call("admin","POST",pathStep(4)+"/scan",{});
  assert.equal(status,200);
