@@ -36,7 +36,10 @@ async function run(){
  const modal=page.locator("#modal.open");
  await modal.locator('input[data-grant="module"]').first().waitFor({timeout:10000});
  const rights=modal.locator('input[data-grant="permission"]');
- assert.ok(await rights.count()>=25);
+ assert.ok(await rights.count()>=23);
+ assert.equal(await modal.locator('input[data-grant="module"][value="system"]').count(),0);
+ assert.equal(await modal.locator('input[data-grant="permission"][value="user:manage"]').count(),0);
+ assert.equal(await modal.locator('input[data-grant="permission"][value="setting:write"]').count(),0);
  await modal.locator('[data-grant-none="permission"]').click();
  assert.equal(await modal.locator('input[data-grant="permission"]:checked').count(),0);
  await modal.locator('[data-grant-none="module"]').click();
@@ -50,6 +53,21 @@ async function run(){
  assert.equal(await reopen.locator('input[data-grant="permission"][value="material:write"]').isChecked(),true);
  assert.equal(await reopen.locator('input[data-grant="module"][value="materials"]').isChecked(),true);
  await reopen.locator('[data-x="0"]').click();
+ // Even a genuine business-permission holder must not access system pages.
+ const memberContext=await browser.newContext({viewport:{width:1100,height:860}});
+ const memberPage=await memberContext.newPage();
+ memberPage.on("pageerror",e=>jsErrors.push(String(e)));
+ await memberPage.goto(origin);
+ await memberPage.locator('input[name="username"]').fill("guest");
+ await memberPage.locator('input[name="password"]').fill("123456");
+ await memberPage.locator("#lbtn").click();
+ await memberPage.locator("#nav").waitFor({timeout:15000});
+ assert.doesNotMatch(await memberPage.locator("#nav").innerText(),/系统配置|用户与权限|邀请函上线配置/);
+ await memberPage.goto(origin+"/#/users");
+ await memberPage.waitForURL(/#\/dashboard$/, {timeout:15000});
+ assert.doesNotMatch(await memberPage.locator("#content").innerText(),/账号列表|分配权限/);
+ await memberContext.close();
+
  // 零权限账号应仅有可进入的“我的工作台”，不再展示点击后被弹回的总览。
  const created=await page.evaluate(async()=>{
   const response=await fetch("/api/users",{method:"POST",headers:{"content-type":"application/json"},
