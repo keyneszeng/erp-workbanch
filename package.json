@@ -2,7 +2,7 @@
   "name": "assoc-meeting-erp",
   "version": "1.2.23",
   "private": true,
-  "description": "协会会议执行 ERP：生产业务服务与独立的演示数据模式",
+  "description": "会规智云：协会会议执行 ERP、生产业务服务与独立的演示数据模式",
   "type": "commonjs",
   "engines": {
     "node": ">=22.5.0"

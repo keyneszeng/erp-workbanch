@@ -56,7 +56,7 @@ function pdfText(text, x, y, size = 10, rgb = "0.13 0.18 0.27") {
 }
 
 /** 小体积 PDF 中文正文；所有动态文字以 UTF-16BE 十六进制编码，避免 PDF 注入。 */
-function createReportPdf(lines, title, { footer = "内部归档 · 核销资料卷宗" } = {}) {
+function createReportPdf(lines, title, { footer = "会规智云 · 内部归档 · 核销资料卷宗" } = {}) {
   const flat = [];
   for (const line of lines) {
     const max = line.kind === "title" ? 32 : 50;
@@ -136,7 +136,7 @@ function makeLines(d, sources) {
   };
   add("核销资料封存卷宗", "title");
   add("生成时间：" + new Date().toISOString().replace("T", " ").slice(0, 19) + " UTC");
-  add("会议编号：" + p.id + "   资料来源：ERP 归档状态快照");
+  add("会议编号：" + p.id + "   资料来源：会规智云归档状态快照");
   add("提示：仅有登记信息的材料不会被虚构为原文件；缺失和无法转换项均单独列出。");
   section("一、会议概况");
   item("会议名称", p.name);
@@ -312,7 +312,7 @@ async function buildArchivePdf(data, store) {
   }
   dest.setTitle(data.project.id + " 核销资料汇编");
   dest.setSubject("已归档会议资料、核销七步及原件");
-  dest.setCreator("Association ERP");
+  dest.setCreator("会规智云");
   return Buffer.from(await dest.save({ useObjectStreams: false }));
 }
 

@@ -216,7 +216,7 @@ async function buildSelectedMaterialsPdf({project,materials,watermark,compressor
  }
  dest.setTitle(sanitize(project.name)+" - 会议材料");
  dest.setSubject("自选材料库类别 PDF 合集");
- dest.setCreator("Association ERP");
+ dest.setCreator("会规智云");
  dest.setKeywords(["materials-export","watermark:"+(watermark?.mode||"default"),"source-count:"+originalCount]);
  return Buffer.from(await dest.save({useObjectStreams:false}));
 }

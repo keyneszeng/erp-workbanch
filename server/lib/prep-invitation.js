@@ -104,6 +104,6 @@ function invitationPdf(snapshot) {
     ...snapshot.paragraphs.flatMap(s => [{ kind: "body", text: s }, { kind: "body", text: "" }]),
     ...(snapshot.footer_text ? [{kind:"body",text:snapshot.footer_text}] : [])
   ];
-  return createReportPdf(lines, snapshot.template_name, { footer: "会议项目筹备 · 正式邀请函" });
+  return createReportPdf(lines, snapshot.template_name, { footer: "会规智云 · 会议项目筹备 · 正式邀请函" });
 }
 module.exports = { TEMPLATES, projectFields, recipientFields, renderInvitation, invitationPdf, clean };
