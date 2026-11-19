@@ -6,7 +6,7 @@
     "pages/account/index","pages/invite/index"
   ],
   "window":{
-    "navigationBarTitleText":"会规化会务执行系统","navigationBarBackgroundColor":"#10243f",
+    "navigationBarTitleText":"会规智云","navigationBarBackgroundColor":"#10243f",
     "navigationBarTextStyle":"white","backgroundColor":"#f2f5f9","backgroundTextStyle":"dark"
   },
   "style":"v2","sitemapLocation":"sitemap.json"

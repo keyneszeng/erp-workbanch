@@ -145,3 +145,33 @@ test("企业云端电路 LOGO 同步接入网页、微信小程序和浏览器�
   assert.doesNotMatch(src("miniprogram/pages/welcome/index.wxml"),/hero-brand-mark/);
   assert.doesNotMatch(src("miniprogram/pages/home/index.wxml"),/hero-brand-mark/);
 });
+
+
+test("会规智云品牌在 Web、小程序、邀请函、导出 PDF 与发布文档中保持一致",()=>{
+ const visible=[
+  "web/index.html","web/invite.html","web/assets/js/app.js",
+  "web/assets/js/pages/login.js","miniprogram/app.json",
+  "miniprogram/pages/welcome/index.wxml",
+  "miniprogram/pages/invite/index.wxml",
+  "miniprogram/project.config.json","miniprogram/README.md","README.md",
+  "server/lib/archive-pdf.js","server/lib/material-export-pdf.js",
+  "server/lib/prep-invitation.js"
+ ];
+ const legacyName=new RegExp("会规化"+"会务执行系统");
+ for(const file of visible){
+  const content=src(file);
+  assert.match(content,/会规智云/,file+" 缺少统一品牌");
+  assert.doesNotMatch(content,legacyName,file+" 存在旧品牌");
+ }
+ const html=src("web/index.html");
+ assert.match(html,/<title>会规智云<\/title>/);
+ assert.match(html,/class="brand-t">会规智云<\/div>/);
+ assert.match(src("miniprogram/app.json"),/"navigationBarTitleText":"会规智云"/);
+ assert.match(src("miniprogram/pages/invite/index.js"),/会规智云 · /);
+ assert.match(src("miniprogram/pages/welcome/index.js"),/会规智云 · /);
+ assert.match(src("server/lib/archive-pdf.js"),/setCreator\("会规智云"\)/);
+ assert.match(src("server/lib/material-export-pdf.js"),/setCreator\("会规智云"\)/);
+ assert.match(src("package.json"),/"description": "会规智云：/);
+ assert.match(src("deploy/aliyun/deploy.sh"),/会规智云/);
+ assert.match(src("README.md"),/erp-workbanch/,"保留技术仓库名称");
+});
