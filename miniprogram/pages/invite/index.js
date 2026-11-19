@@ -41,6 +41,6 @@ Page({
     });
   },
   onShareAppMessage() {
-    return {title:this.data.title||"会议邀请函",path:"/pages/invite/index?token="+this.data.token};
+    return {title:"会规智云 · "+(this.data.title||"会议邀请函"),path:"/pages/invite/index?token="+this.data.token};
   }
 });

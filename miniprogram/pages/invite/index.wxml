@@ -1,6 +1,6 @@
 <view class="wrap invitation-shell">
   <view class="card invitation-card">
-    <view class="invitation-brand">会规化会务执行系统</view>
+    <view class="invitation-brand">会规智云</view>
     <view class="invitation-title">{{title}}</view>
     <view class="invitation-template">{{template}}</view>
     <view class="invitation-divider"></view>
