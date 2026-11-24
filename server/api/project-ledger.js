@@ -40,7 +40,7 @@ const val=(n)=>yuan(Number(n)||0);
 const raw=(pid)=>{
   const project=getProject(pid);
   const contracts=db.prepare(
-    "SELECT id,pid,name,vendor,category,amount,status,sign_date,file_key,file_name,created_at FROM contracts WHERE pid=? ORDER BY id"
+    "SELECT id,pid,name,vendor,category,amount,status,sign_date,file_key,file_name,created_at FROM contracts WHERE pid=? AND deleted_at IS NULL ORDER BY id"
   ).all(pid);
   const payments=db.prepare(
     "SELECT id,pid,type,payee,amount,status,invoice_no,paid_at,created_at FROM payments WHERE pid=? ORDER BY created_at,id"
@@ -48,7 +48,7 @@ const raw=(pid)=>{
   const settlement=db.prepare(
     "SELECT id,pid,income,expense,profit,status,created_at FROM settlements WHERE pid=?").get(pid)||null;
   const materials=db.prepare(
-    "SELECT id,pid,kind,name,version,file_key,file_name,created_at FROM materials WHERE pid=? AND (kind LIKE '%发票%' OR kind LIKE '%付款%' OR kind LIKE '%财务%' OR kind LIKE '%结算%' OR kind LIKE '%劳务%' OR kind LIKE '%合同%') ORDER BY id"
+    "SELECT id,pid,kind,name,version,file_key,file_name,created_at FROM materials WHERE pid=? AND deleted_at IS NULL AND (kind LIKE '%发票%' OR kind LIKE '%付款%' OR kind LIKE '%财务%' OR kind LIKE '%结算%' OR kind LIKE '%劳务%' OR kind LIKE '%合同%') ORDER BY id"
   ).all(pid);
   const approvals=db.prepare(
     "SELECT id,pid,type,ref_id,status,amount,decided_at FROM approvals WHERE pid=? AND type='付款审批' ORDER BY id"
