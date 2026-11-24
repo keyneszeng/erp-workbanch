@@ -64,7 +64,7 @@ async function verifiedProject(name) {
   const c = admin;
   const mk = await c("POST", "/api/projects", {
     name: `${name}-${Date.now()}`, assoc: "华东医学会", form: "线下",
-    date: "2027-11-11", budget: 50000, people: 30, owner: "王敏", agenda: "09:00 开幕"
+    date: "2027-11-11", tax_fee_rate:0, budget: 50000, people: 30, owner: "王敏", agenda: "09:00 开幕"
   });
   assert.equal(mk.status, 200, JSON.stringify(mk.data));
   const pid = mk.data.project.id;
