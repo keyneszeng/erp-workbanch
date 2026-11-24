@@ -176,3 +176,21 @@ test("会规智云品牌在 Web、小程序、邀请函、导出 PDF 与发布�
  assert.match(src("deploy/aliyun/deploy.sh"),/会规智云/);
  assert.match(src("README.md"),/erp-workbanch/,"保留技术仓库名称");
 });
+
+test("付款明细导出改为可搜索和多选会议，必须明确选择后 POST，并显示选择数量",()=>{
+ const finance=src("web/assets/js/pages/finance.js");
+ const server=src("server/api/system.js");
+ assert.match(finance,/ep\.onclick = \(\) => openPaymentExport\(focusPid\)/);
+ assert.match(finance,/按会议导出付款明细（支持多选）/);
+ assert.match(finance,/data-payment-search/);
+ assert.match(finance,/data-payment-select-visible/);
+ assert.match(finance,/data-payment-clear/);
+ assert.match(finance,/selected\.size===0/);
+ assert.match(finance,/\[\.\.\.selected\]/);
+ assert.match(finance,/method:"POST",body:\{pids:/);
+ assert.match(server,/router\.post\("\/api\/export\/payments"/);
+ assert.match(server,/selectedPaymentPids\(ctx\)/);
+ assert.match(server,/scopeFilter\(ctx\.user\)/);
+ assert.match(server,/会议编号/);
+ assert.doesNotMatch(finance,/ep\.onclick = \(\) => dl\("\/api\/export\/payments"\)/);
+});
