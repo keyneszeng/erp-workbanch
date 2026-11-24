@@ -70,8 +70,15 @@ async function waitReady() {
   if(!Buffer.from(await file.body()).equals(BYTES))throw Error("XLS bytes changed after upload");
   if(!file.headers()["content-disposition"]?.startsWith("attachment;"))
     throw Error("legacy Excel should force download rather than embed");
+  // Materials are now organized under project folders: open this project's
+  // directory before asserting the uploaded original remains visible.
+  const folder=page.locator('[data-material-project="'+pid+'"]');
+  await folder.waitFor({timeout:12000});
+  await folder.click();
+  await page.waitForURL(BASE+"/#/materials/"+pid,{timeout:12000});
+  await page.getByText("已收集材料详情",{exact:true}).waitFor({timeout:12000});
   await page.reload({waitUntil:"domcontentloaded"});
-  await page.waitForTimeout(500);
+  await page.getByText("已收集材料详情",{exact:true}).waitFor({timeout:12000});
   const text=await page.textContent("body");
   if(!text.includes("测试旧版.xls"))throw Error("material list did not show XLS download");
   if(await page.locator('img.thumb[src$=".xls"]').count())throw Error("XLS wrongly rendered as image");

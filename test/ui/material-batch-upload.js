@@ -152,6 +152,13 @@ async function ready(){
 
   // Same dialog from Material Center; fail one upload then retry only that item.
   await page.goto(origin+"/#/materials",{waitUntil:"domcontentloaded"});
+  const folder=page.locator('[data-material-project="'+pid+'"]');
+  await folder.waitFor({timeout:12000});
+  assert.match(await folder.innerText(),/份材料/,"project directory shows material counts");
+  await folder.click();
+  await page.waitForURL(origin+"/#/materials/"+pid,{timeout:12000});
+  await page.getByText("已收集材料详情",{exact:true}).waitFor({timeout:12000});
+  assert.match(await page.locator("#content").innerText(),/已收集材料详情/);
   const guide=page.locator("[data-guide-kind]");
   await guide.first().waitFor({timeout:12000});
   assert.ok(await guide.count()>=12,"central material panel lists the same recommended categories as mini");

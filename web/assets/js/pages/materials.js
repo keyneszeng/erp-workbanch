@@ -5,87 +5,134 @@ import { checkFile, fileUrl, formatBytes, UPLOAD_ACCEPT, UPLOAD_TIP } from "../l
 import { openContractMaterialReplace } from "../lib/contract-material-replace.js";
 
 const PAGE_SIZE = 50;
+// Preserve the existing lifecycle gate: browsing a project folder grants no upload access.
+const UPLOAD_STATUSES = new Set(["筹备中", "执行中", "待核销", "已核销"]);
 let curPage = 1;
+let lastProject = "";
+let projectSearch = "";
+let renderSeq = 0;
 
-export async function render(root) {
-  const d = await api.get(`/api/materials?page=${curPage}&size=${PAGE_SIZE}`);
-  const complete = d.projects.filter((p) => p.uploadedCount > 0).length;
+/** 材料中心：一级按项目名列目录，二级只展示该项目的材料与上传操作。 */
+export async function render(root, params = []) {
+  const pid = String(params[0] || "");
+  if (pid !== lastProject) { curPage = 1; lastProject = pid; }
+  const seq = ++renderSeq;
+  const qs = new URLSearchParams({ page: String(curPage), size: String(pid ? PAGE_SIZE : 1) });
+  if (pid) qs.set("pid", pid);
+  const d = await api.get("/api/materials?" + qs);
+  if (seq !== renderSeq || !root.isConnected) return;
+  const project = pid ? d.projects.find(p => p.id === pid) : null;
+  const writableProjects = d.projects.filter(p => UPLOAD_STATUSES.has(p.status));
+  const canWrite = can("material:write");
+  if (pid && !project) {
+    root.innerHTML = '<div class="panel">该项目不存在或不在当前账号的材料查看范围内。<button type="button" class="btn btn-o" data-go="materials">返回项目目录</button></div>';
+    return;
+  }
 
-  root.innerHTML = `<div class="phead">
-      <div><h2>材料中心</h2><p>材料类别自由选择 · 上传后按会议归档，不再要求固定类别</p></div>
-      <div class="acts">${can("material:write") ? '<button class="btn btn-p" id="add">+ 登记材料</button>' : ""}</div>
-    </div>
-    <div class="grid g4">
-      <div class="kpi"><div class="t">材料条目</div><div class="v">${d.total}<span class="u">条</span></div></div>
-      <div class="kpi k2"><div class="t">在管项目</div><div class="v">${d.projects.length}<span class="u">个</span></div></div>
-      <div class="kpi k4"><div class="t">已有附件项目</div><div class="v">${complete}<span class="u">个</span></div></div>
-      <div class="kpi k3"><div class="t">尚未上传附件</div><div class="v">${d.projects.length - complete}<span class="u">个</span></div></div>
-    </div>
+  if (!pid) {
+    const uploaded = d.projects.filter(p => p.uploadedCount > 0).length;
+    root.innerHTML = '<div class="phead"><div><h2>材料收集</h2><p>按项目名称建立目录，点击项目查看材料详情、上传记录与附件</p></div>' +
+      '<div class="acts">' + (canWrite && writableProjects.length ? '<button type="button" class="btn btn-p" id="add">+ 登记材料</button>' : "") + '</div></div>' +
+      '<div class="grid g3">' +
+        '<div class="kpi"><div class="t">项目目录</div><div class="v">' + d.projects.length + '<span class="u">个</span></div></div>' +
+        '<div class="kpi k2"><div class="t">已收集材料项目</div><div class="v">' + uploaded + '<span class="u">个</span></div></div>' +
+        '<div class="kpi k4"><div class="t">已登记材料</div><div class="v">' + d.total + '<span class="u">份</span></div></div>' +
+      '</div>' +
+      '<div class="panel mt"><div class="panel-h"><h2>项目材料目录</h2><span class="hint" id="materialFolderCount">' + d.projects.length + ' 个项目</span></div>' +
+        '<div class="filters"><input type="search" id="materialFolderSearch" aria-label="搜索项目材料目录" placeholder="搜索项目名称 / 会议编号 / 状态" value="' + esc(projectSearch) + '"></div>' +
+        '<div class="material-folder-grid" id="materialFolderGrid">' +
+          d.projects.map(p => '<button type="button" class="material-folder" data-material-project="' + esc(p.id) + '" aria-label="查看' + esc(p.name) + '的材料详情">' +
+            '<span class="material-folder-icon" aria-hidden="true">📁</span>' +
+            '<span class="material-folder-body"><strong class="material-folder-name">' + esc(p.name) + '</strong>' +
+              '<span class="material-folder-id">' + esc(p.id) + '</span>' +
+              '<span class="material-folder-meta">' + esc(p.status) + ' · ' + (p.count || 0) + ' 份材料 · ' + (p.have?.length || 0) + ' 类</span></span>' +
+            '<span class="material-folder-open" aria-hidden="true">›</span></button>').join("") +
+        '</div><p class="hint" id="materialFolderEmpty" hidden>没有符合条件的项目</p></div>';
 
-    <div class="panel mt">
-      <div class="panel-h"><h2>材料收集 · 按类别录入</h2><span class="hint">与微信小程序使用同一类别清单</span></div>
-      <div class="material-kind-panel">
-        <p class="hint">以下为建议收集的材料类别。点击对应类别即可打开上传窗口并自动预选；并非每类都必须上传。要查看已录入文件名，可进入项目详情的「归档材料」并切换类别。</p>
-        <div class="material-kind-chips">${(d.kinds||[]).map(kind=>
-          '<button type="button" class="material-kind-chip" data-guide-kind="'+esc(kind)+'"'+
-          (can("material:write")?"":" disabled")+'>'+esc(kind)+'</button>'
-        ).join("")}</div>
-        <span class="hint">其他材料类别可通过「+ 登记材料」自定义；每份文件保留原始名称。</span>
-      </div>
-    </div>
-    <div class="panel mt">
-      <div class="panel-h"><h2>项目材料上传情况</h2><span class="hint">任意类别上传至少一份附件即可进入后续流程</span></div>
-      ${table([{ t: "项目" }, { t: "状态", w: "84px" }, { t: "上传原件", w: "110px" }, { t: "类别数" }, { t: "操作", w: "90px" }],
-        d.projects.map((p) => ({
-          c: [`<a class="link" data-go="projects/${p.id}">${esc(p.name)}</a>`,
-            esc(p.status), `<b class="${p.uploadedCount ? "pos" : "neg"}">${p.uploadedCount || 0} 份</b>`,
-            esc(String(p.have?.length || 0))+" 类 · "+(p.uploadedCount ? "已满足材料条件" : "待上传附件"),
-            `<button class="link" data-go="projects/${p.id}">查看</button>`]
-        })), { empty: "暂无项目" })}
-    </div>
+    root.querySelectorAll("[data-material-project]").forEach(btn => {
+      btn.onclick = () => {
+        curPage = 1;
+        location.hash = "#/materials/" + encodeURIComponent(btn.dataset.materialProject);
+      };
+    });
+    const input = root.querySelector("#materialFolderSearch");
+    const filter = () => {
+      projectSearch = input.value;
+      const term = projectSearch.trim().toLowerCase();
+      let count = 0;
+      root.querySelectorAll("[data-material-project]").forEach(btn => {
+        const found = !term || btn.textContent.toLowerCase().includes(term);
+        btn.style.display = found ? "" : "none";
+        if (found) count++;
+      });
+      root.querySelector("#materialFolderCount").textContent = count + " 个项目";
+      root.querySelector("#materialFolderEmpty").hidden = count !== 0;
+    };
+    input.addEventListener("input", filter);
+    filter();
+    const add = root.querySelector("#add");
+    if (add) add.onclick = () => openMaterialRegistration(root, writableProjects, d.kinds);
+    return;
+  }
 
-    <div class="panel">
-      <div class="panel-h"><h2>材料清单</h2><span class="hint">共 ${d.total} 条</span></div>
-      ${table([{ t: "项目", w: "170px" }, { t: "类别", w: "92px" }, { t: "名称" }, { t: "附件", w: "86px" },
-        { t: "版本", w: "56px" }, { t: "上传人", w: "76px" }, { t: "时间", w: "130px" }, { t:"操作",w:"78px" }],
-        d.rows.map((m) => ({
-          c: [`<a class="link" data-go="projects/${m.pid}">${esc(m.pname)}</a>`, esc(m.kind==="劳务收集表"?"劳务表":m.kind)+(m.kind==="权益照片"?`<div class="hint">${esc(m.sponsor_enterprise||"未关联赞助合同")} · ${esc(m.sponsor_right_category||"未关联权益类目")}</div>`:""),
-            esc(m.name),
-            m.file_key
-              ? (m.file_mime === "application/pdf" || /\.(doc|docx|ppt|pptx|xls|xlsx|csv|txt)$/i.test(m.file_key)
-                  ? `<a class="link" href="${fileUrl(m.file_key)}" target="_blank" rel="noopener">${esc(m.file_name || "下载附件")}</a>`
-                  : `<a href="${fileUrl(m.file_key)}" target="_blank" rel="noopener"><img class="thumb" src="${fileUrl(m.file_key)}" alt=""></a>`)
-              : '<span style="color:var(--mute)">—</span>',
-            esc(m.version || ""), esc(m.uploader || ""), `<span class="mono">${esc(m.created_at)}</span>`,
-            (can("material:file:replace") && m.file_key && !["已核销","已结算","已归档"].includes(m.pstatus)
-              ? `<button class="link" data-replace-material="${Number(m.id)}">修改</button>` : "") +
-            (canDownloadArchivePdf({status:m.pstatus,assoc:m.passoc})
-              ? ` <button class="link" data-archive-pdf="${esc(m.pid)}">材料下载</button>` : "") || "—"]
-        })),
-        { empty: "暂无材料" })}
-      ${pager(d, { unit: "条" })}
-    </div>
-`;
+  const refresh = () => render(root, [pid]);
+  const writable = canWrite && UPLOAD_STATUSES.has(project.status);
+  const kinds = [...new Set([...(d.kinds || []), ...(project.have || [])])].filter(Boolean);
+  root.innerHTML = '<div class="phead"><div><button type="button" class="btn btn-o btn-sm" data-go="materials">← 返回项目目录</button>' +
+      '<h2 style="margin-top:12px">' + esc(project.name) + '</h2>' +
+      '<p>材料收集 / ' + esc(project.id) + ' · ' + esc(project.status) + '</p></div>' +
+      '<div class="acts">' +
+        (writable ? '<button type="button" class="btn btn-p" id="add">+ 上传材料</button>' : "") +
+        (canDownloadArchivePdf({status: project.status, assoc: project.assoc}) ? ' <button type="button" class="btn btn-o" data-archive-pdf="' + esc(pid) + '">材料下载</button>' : "") +
+      '</div></div>' +
+    '<div class="grid g3">' +
+      '<div class="kpi"><div class="t">已登记材料</div><div class="v">' + project.count + '<span class="u">份</span></div></div>' +
+      '<div class="kpi k2"><div class="t">已上传原件</div><div class="v">' + project.uploadedCount + '<span class="u">份</span></div></div>' +
+      '<div class="kpi k4"><div class="t">材料类别</div><div class="v">' + (project.have?.length || 0) + '<span class="u">类</span></div></div>' +
+    '</div>' +
+    '<div class="panel mt"><div class="panel-h"><h2>材料收集类别</h2><span class="hint">' +
+      (writable ? "点击类别可直接上传，自动归入当前项目" : "该项目仅可查看已录入材料") +
+    '</span></div><div class="material-kind-panel">' +
+      '<p class="hint">材料按类别收集，文件保留原始名称；未上传的类别可选择登记，无需每类都上传。</p>' +
+      '<div class="material-kind-chips">' + kinds.map(kind =>
+        '<button type="button" class="material-kind-chip" data-guide-kind="' + esc(kind) + '"' + (writable ? "" : " disabled") + '>' +
+          esc(kind) + (project.have?.includes(kind) ? ' <span class="hint">已收集</span>' : "") + '</button>'
+      ).join("") + '</div></div></div>' +
+    '<div class="panel mt"><div class="panel-h"><h2>已收集材料详情</h2><span class="hint">共 ' + d.total + ' 条 · 仅本项目</span></div>' +
+      table([{t:"类别",w:"110px"},{t:"材料名称"},{t:"附件",w:"120px"},
+        {t:"版本",w:"64px"},{t:"上传人",w:"85px"},{t:"上传时间",w:"138px"},{t:"操作",w:"85px"}],
+        d.rows.map(m => ({c:[
+          esc(m.kind === "劳务收集表" ? "劳务表" : m.kind) +
+            (m.kind === "权益照片" ? '<div class="hint">' + esc(m.sponsor_enterprise || "未关联赞助合同") + ' · ' + esc(m.sponsor_right_category || "未关联权益类目") + '</div>' : ""),
+          esc(m.name),
+          m.file_key
+            ? (m.file_mime === "application/pdf" || /\.(doc|docx|ppt|pptx|xls|xlsx|csv|txt)$/i.test(m.file_key)
+                ? '<a class="link" href="' + fileUrl(m.file_key) + '" target="_blank" rel="noopener">' + esc(m.file_name || "下载附件") + '</a>'
+                : '<a href="' + fileUrl(m.file_key) + '" target="_blank" rel="noopener"><img class="thumb" src="' + fileUrl(m.file_key) + '" alt="查看材料图片"></a>')
+            : '<span class="hint">—</span>',
+          esc(m.version || ""), esc(m.uploader || ""), '<span class="mono">' + esc(m.created_at) + '</span>',
+          (can("material:file:replace") && m.file_key && !["已核销", "已结算", "已归档"].includes(project.status)
+            ? '<button type="button" class="link" data-replace-material="' + Number(m.id) + '">修改</button>' : "") || "—"
+        ]})), {empty:"该项目尚未收集材料"}) +
+      pager(d, {unit:"份材料"}) + '</div>';
 
-  bindPager(root, (n) => { curPage = n; render(root); });
+  bindPager(root, n => { curPage = n; refresh(); });
   bindArchivePdfButtons(root);
-
   const add = root.querySelector("#add");
-  const writableProjects=d.projects.filter(p=>!["已结算","已归档"].includes(p.status));
-  if (add) add.onclick = () => openMaterialRegistration(root, writableProjects, d.kinds);
-  root.querySelectorAll("[data-guide-kind]").forEach(btn=>{
-    btn.onclick=()=>openMaterialRegistration(root,writableProjects,d.kinds,"",null,btn.dataset.guideKind);
+  if (add) add.onclick = () => openMaterialRegistration(root, [project], d.kinds, pid, refresh);
+  root.querySelectorAll("[data-guide-kind]").forEach(btn => {
+    btn.onclick = () => openMaterialRegistration(root, [project], d.kinds, pid, refresh, btn.dataset.guideKind);
   });
-  root.querySelectorAll("[data-replace-material]").forEach(btn=>{
-    btn.onclick=()=>{
-      const item=d.rows.find(x=>Number(x.id)===Number(btn.dataset.replaceMaterial));
-      if(item)openContractMaterialReplace(item,()=>render(root));
+  root.querySelectorAll("[data-replace-material]").forEach(btn => {
+    btn.onclick = () => {
+      const item = d.rows.find(x => Number(x.id) === Number(btn.dataset.replaceMaterial));
+      if (item) openContractMaterialReplace(item, refresh);
     };
   });
 }
 
 /**
- * 两处入口（会议项目→归档材料、材料中心）共享同一登记表单。
+ * 两处入口（会议项目→材料收集、材料目录）共享同一登记表单。
  * 材料名称严格使用用户所选择文件的原始名称；附件不做有损压缩。
  * 最多 10 份/批、并发 3 份，逐份显示结果，失败文件可单独重试。
  */

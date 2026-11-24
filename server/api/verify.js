@@ -381,22 +381,28 @@ function register(router) {
     const { sql, params } = require("../lib/rbac").scopeFilter(ctx.user);
     const paging = readPaging(ctx.query);
 
-    const base = `FROM materials m JOIN projects p ON p.id = m.pid LEFT JOIN sponsor_rights sr ON sr.id=m.sponsor_right_id LEFT JOIN meeting_sponsor_contracts sc ON sc.id=sr.sponsor_id WHERE ${sql} AND m.deleted_at IS NULL`;
+    const scopedBase = `FROM materials m JOIN projects p ON p.id = m.pid LEFT JOIN sponsor_rights sr ON sr.id=m.sponsor_right_id LEFT JOIN meeting_sponsor_contracts sc ON sc.id=sr.sponsor_id WHERE ${sql} AND m.deleted_at IS NULL`;
+    // A project directory must show all accessible projects (including archived).
+    // Filter only the material rows; directory counts remain complete for every project.
+    const pid=String(ctx.query.pid||"").trim();
+    if(pid.length>80)throw bad("项目编号无效");
+    const base=scopedBase+(pid?" AND m.pid=?":"");
+    const rowParams=pid?[...params,pid]:params;
     let rows;
     let total;
     if (paging) {
-      total = countOf(db.prepare(`SELECT COUNT(*) AS c ${base}`).get(...params));
+      total = countOf(db.prepare(`SELECT COUNT(*) AS c ${base}`).get(...rowParams));
       rows = db.prepare(
         `SELECT m.*, p.name AS pname, p.status AS pstatus, p.assoc AS passoc, sr.category AS sponsor_right_category, sc.enterprise AS sponsor_enterprise ${base} ORDER BY m.id DESC LIMIT ? OFFSET ?`
-      ).all(...params, paging.size, paging.offset);
+      ).all(...rowParams, paging.size, paging.offset);
     } else {
-      rows = db.prepare(`SELECT m.*, p.name AS pname, p.status AS pstatus, p.assoc AS passoc, sr.category AS sponsor_right_category, sc.enterprise AS sponsor_enterprise ${base} ORDER BY m.id DESC`).all(...params);
+      rows = db.prepare(`SELECT m.*, p.name AS pname, p.status AS pstatus, p.assoc AS passoc, sr.category AS sponsor_right_category, sc.enterprise AS sponsor_enterprise ${base} ORDER BY m.id DESC`).all(...rowParams);
       total = rows.length;
     }
 
     // 分页清单不能用于计算项目上传量；单独汇总各项目未删除材料。
     const statsByPid=new Map();
-    for(const row of db.prepare(`SELECT m.pid,m.kind,m.file_key ${base}`).all(...params)) {
+    for(const row of db.prepare(`SELECT m.pid,m.kind,m.file_key ${scopedBase}`).all(...params)) {
       if(!statsByPid.has(row.pid))statsByPid.set(row.pid,{kinds:new Set(),count:0,uploadedCount:0});
       const stats=statsByPid.get(row.pid);
       stats.kinds.add(canonicalMaterialKind(row.kind));
@@ -404,9 +410,9 @@ function register(router) {
       if(row.file_key)stats.uploadedCount++;
     }
 
-    // 已归档项目卷宗封存，不再出现在可登记列表
+    // 目录包含所有可见项目；已归档项目仅展示历史附件，上传仍由写入接口禁止。
     const projects = db.prepare(
-      `SELECT p.id, p.name, p.status FROM projects p WHERE ${sql} AND p.status IN ('筹备中','执行中','待核销','已核销','已结算') ORDER BY p.date DESC`
+      `SELECT p.id, p.name, p.status, p.assoc FROM projects p WHERE ${sql} ORDER BY p.date DESC,p.id DESC`
     ).all(...params).map((p) => {
       const stats=statsByPid.get(p.id)||{kinds:new Set(),count:0,uploadedCount:0};
       return { ...p, have:[...stats.kinds],required:[],missing:stats.uploadedCount?[]:["至少上传1份材料附件"],
