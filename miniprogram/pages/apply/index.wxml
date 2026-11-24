@@ -81,7 +81,8 @@
       <input class="field-control" type="digit" value="{{tax_fee_rate}}" data-key="tax_fee_rate"
         bindinput="input" placeholder="必填，例如 10；无费用请填 0" disabled="{{status!=='草稿'}}"/>
       <view class="field-hint">0～100%，最多两位小数；必须明确填写，未填写不能保存草稿或提交审批。</view>
-      <view class="field-hint">可用预算（自动计算）：{{availableBudget?('¥'+availableBudget):'请先填写预算及税费率'}}</view>
+      <view wx:if="{{availableBudget}}" class="field-hint">可用预算（自动计算）：¥{{availableBudget}}</view>
+      <view wx:else class="field-hint">可用预算：请先填写预算及税费率</view>
     </view>
     <view class="field">
       <view class="field-label">预计参会人数</view>
