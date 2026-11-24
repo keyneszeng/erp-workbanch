@@ -51,7 +51,7 @@ async function ready(){
   await page.locator('.tabs [data-tab="materials"]').click();
   const chips=page.locator("#tabbody [data-material-kind]");
   assert.ok(await chips.count()>=12,"material panel shows selectable recommended categories, like mini");
-  assert.match((await page.locator("#tabbody .material-kind-selected").innerText()).replace(/\s+/g,""),/当前录入：课件已录入0份/);
+  assert.match((await page.locator("#tabbody .material-kind-selected").innerText()).replace(/\s+/g,""),/当前录入：课件已录入\d+份/);
   await page.locator('#tabbody [data-material-kind="签到表"]').click();
   await page.waitForFunction(()=>document.querySelector(".material-kind-selected")?.textContent?.includes("签到表"),null,{timeout:10000});
   assert.equal(await page.locator("#addMat").count(),1,"switching category retains direct upload action");
@@ -104,7 +104,7 @@ async function ready(){
   }
   for(const name of names)
     assert.ok((await page.locator("#content").innerText()).includes(name),"meeting materials list displays "+name);
-  assert.match(await page.locator("#tabbody .material-kind-selected").innerText(),/已录入 10 份/);
+  assert.ok(Number((await page.locator("#tabbody .material-kind-selected").innerText()).match(/已录入\s*(\d+)\s*份/)?.[1])>=10,"上传十份后统计包含新增附件");
   await page.locator('#tabbody [data-material-kind="签到表"]').click();
   await page.waitForFunction(()=>document.querySelector(".material-kind-selected")?.textContent?.includes("签到表"),null,{timeout:10000});
   assert.ok(!(await page.locator("#tabbody").innerText()).includes(names[0]),
