@@ -527,7 +527,10 @@ function wire(root, pid, d, body) {
     }));
   body.querySelectorAll("[data-ex-ok]").forEach((b) => b.onclick = () => exDecide(root, pid, b.dataset.exOk, true));
   body.querySelectorAll("[data-ex-no]").forEach((b) => b.onclick = () => exDecide(root, pid, b.dataset.exNo, false));
-  body.querySelectorAll("[data-del-mat]").forEach((b) => b.onclick = () => delMaterial(root, pid, b.dataset.delMat));
+  body.querySelectorAll("[data-del-mat]").forEach((b) => b.onclick = () => {
+    const m=d.materials.find(x=>Number(x.id)===Number(b.dataset.delMat));
+    delMaterial(root,pid,b.dataset.delMat,m?.kind);
+  });
   body.querySelectorAll("[data-replace-material]").forEach(b=>b.onclick=()=>{
     const m=d.materials.find(x=>Number(x.id)===Number(b.dataset.replaceMaterial));
     if(m)openContractMaterialReplace(m,()=>refresh(root,pid));
@@ -874,11 +877,14 @@ async function openMaterial(root,pid){
     ()=>refresh(root,pid));
 }
 
-async function delMaterial(root, pid, id) {
-  if (!await confirmBox("确认删除该材料？", { ok: "删除", danger: true })) return;
+async function delMaterial(root, pid, id, kind) {
+  const message=kind==="合同"
+    ? "确认删除这份合同原件？如关联未签署合同，将同步从合同看板移除并撤销待审批申请；已签署和赞助合同禁止直接删除。历史审计记录保留。"
+    : "确认删除该材料？历史审计记录仍会保留。";
+  if (!await confirmBox(message, { ok: "删除", danger: true })) return;
   try {
-    await api.del(`/api/materials/${id}`);
-    toast("已删除", "ok");
+    const result=await api.del(`/api/materials/${id}`);
+    toast(result.message||"已删除", "ok");
     await refresh(root, pid);
   } catch (e) { toast(e.message, "warn"); }
 }
