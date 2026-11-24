@@ -77,6 +77,21 @@ test("列表搜索可按会议编号定位并保留跨模块只读汇总",async(
  assert.equal((await request("admin","/api/project-ledger?page=0")).status,400);
  assert.equal((await request("admin","/api/project-ledger?size=1000")).status,400);
 });
+test("按会议编号对照应展示结余（结算利润）而非结算支出",async()=>{
+ const source=fs.readFileSync(path.join(__dirname,"..","web/assets/js/pages/project-ledger.js"),"utf8");
+ assert.match(source,/\\{t:"结余",w:"110px"\\}/);
+ assert.match(source,/x\\.financial_summary\\.settlement_profit===null\\?"未生成":num\\(x\\.financial_summary\\.settlement_profit\\)/);
+ assert.doesNotMatch(source,/\\{t:"结算支出",w:"110px"\\}/);
+ const list=await request("admin","/api/project-ledger?page=1&size=100");
+ assert.equal(list.status,200);
+ const settled=list.body.rows.filter(x=>x.financial_summary.settlement_profit!==null);
+ assert.ok(settled.length>0,"测试数据应包含已有结算单的会议");
+ for(const row of settled){
+  const detail=await request("admin","/api/project-ledger/"+row.meeting_no);
+  assert.equal(detail.status,200);
+  assert.equal(row.financial_summary.settlement_profit,detail.body.settlement.profit);
+ }
+});
 test("金额基于真实业务字段；发票号码与发票原件不被混为一项",async()=>{
  const out=await request("admin","/api/project-ledger/MP-2026-006");
  assert.equal(out.status,200);

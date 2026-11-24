@@ -34,12 +34,12 @@ async function load(root){
   const box=root.querySelector("#ledgerList");
   box.innerHTML=table(
     [{t:"会议编号",w:"150px"},{t:"会议名称"},{t:"协会"},{t:"会议预算",w:"115px"},{t:"合同总额",w:"110px"},
-      {t:"已付款",w:"110px"},{t:"结算支出",w:"110px"},{t:"提示",w:"65px"}],
+      {t:"已付款",w:"110px"},{t:"结余",w:"110px"},{t:"提示",w:"65px"}],
     data.rows.map(x=>({c:[
       anchor(x.meeting_no),td(x.project_name),td(x.association),
       num(x.financial_summary.budget),num(x.financial_summary.contract_total),
       num(x.financial_summary.payment_paid),
-      x.financial_summary.settlement_expense===null?"未生成":num(x.financial_summary.settlement_expense),
+      x.financial_summary.settlement_profit===null?"未生成":num(x.financial_summary.settlement_profit),
       '<span title="'+esc(x.warnings.join("；"))+'">'+x.warnings.length+' 项</span>'
     ]})),{empty:"当前没有会议项目"}
   )+pager(data,{unit:"个项目"});
