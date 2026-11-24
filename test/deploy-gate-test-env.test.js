@@ -90,18 +90,31 @@ test("console 通道无法混入生产：生产门禁必须拒绝", () => {
   }), /erp-test|持久/);
 });
 
-test("ECS deployment defaults to the correct branch and rejects unsynced production code", () => {
+test("ECS test and prod share the exact reviewed main revision", () => {
   const fs = require("node:fs");
   const path = require("node:path");
   const { spawnSync } = require("node:child_process");
   const script = path.join(__dirname, "../deploy/aliyun/deploy.sh");
   const shell = fs.readFileSync(script, "utf8");
   assert.match(shell, /REF="\$\{ERP_REF:-\}"/);
-  assert.match(shell, /REF="云服务器测试版本"/);
-  assert.match(shell, /REF="main"/);
-  assert.match(shell, /测试部署只允许 云服务器测试版本 分支/);
-  assert.match(shell, /生产部署只允许已同步测试版功能的 main 分支/);
-  assert.match(shell, /git -C "\$RELEASE_DIR" diff --quiet refs\/remotes\/origin\/erp-test-baseline HEAD/);
+  assert.match(shell, /if \[ -z "\$REF" \]; then REF="main"; fi/);
+  assert.match(shell, /if \[ "\$REF" != "main" \]/);
+  assert.doesNotMatch(shell, /REF="云服务器测试版本"/);
+  assert.doesNotMatch(shell, /erp-test-baseline|git -C "\$RELEASE_DIR" diff --quiet/);
+  assert.match(shell, /SOURCE_SHA="\$\(git -C "\$RELEASE_DIR" rev-parse HEAD\)"/);
+  assert.match(shell, /APPROVED_SHA="\$\{ERP_APPROVED_SHA:-\}"/);
+  assert.match(shell, /TEST_REV="\/opt\/erp-test\/current\/\.revision"/);
+  assert.match(shell, /\[ "\$APPROVED_SHA" = "\$SOURCE_SHA" \]/);
+  assert.match(shell, /printf '%s\\n' "\$SOURCE_SHA" > "\$RELEASE_DIR\/\.revision"/);
   const parsed = spawnSync("bash", ["-n", script], { encoding: "utf8", timeout: 5000 });
   assert.equal(parsed.status, 0, parsed.stderr);
+  const legacy = spawnSync("bash", [script, "--test", "--ref", "云服务器测试版本", "--dry-run"], {
+    encoding: "utf8", timeout: 5000
+  });
+  assert.notEqual(legacy.status, 0);
+  assert.match(legacy.stderr, /只允许统一的 main 分支/);
+  const standard = spawnSync("bash", [script, "--test", "--ref", "main", "--dry-run"], {
+    encoding: "utf8", timeout: 5000
+  });
+  assert.doesNotMatch(standard.stderr || "", /只允许统一的 main 分支/);
 });
