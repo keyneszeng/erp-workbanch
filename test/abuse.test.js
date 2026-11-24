@@ -316,7 +316,12 @@ test("导出范围与列表口径一致（嘉宾 / 协会）", async () => {
   assert.equal(g.status, 403);
 });
 
-test("付款明细导出可勾选多场会议：只包含选中记录，含会议编号、完整表头及导出留痕",async()=>{
+test("付款明细导出可勾选多场会议：只包含选中记录，含会议编号、完整表头及导出留痕",async(t)=>{
+ t.after(()=>{
+  const cleanup=new (require("node:sqlite").DatabaseSync)(DB);
+  try{cleanup.prepare("DELETE FROM payments WHERE id LIKE 'PY-MULTI-EXPORT-%'").run();}
+  finally{cleanup.close();}
+ });
  const all=await admin("GET","/api/projects");
  assert.equal(all.status,200);
  const pids=all.data.rows.slice(0,3).map(p=>p.id);
