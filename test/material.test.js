@@ -126,3 +126,56 @@ test("assoc 仍可登记材料（回归）", async () => {
   const r = await assoc("POST", `/api/projects/${p.id}/materials`, { kind: "签到表", name: "回归测试.pdf" });
   assert.equal(r.status, 200);
 });
+
+test("劳务收集表类别退役：新上传规范为劳务表，旧原件仍可按劳务表查看并用于第5项核销",async()=>{
+  const {MATERIAL_KINDS,MATERIAL_MODULE_KINDS}=require("../server/lib/constants");
+  const {DatabaseSync}=require("node:sqlite");
+  const {laborSheetInfo}=require("../server/lib/labor-sop");
+  assert.ok(MATERIAL_KINDS.includes("劳务表"));
+  assert.ok(!MATERIAL_KINDS.includes("劳务收集表"));
+  assert.ok(MATERIAL_MODULE_KINDS.includes("劳务表"));
+  assert.ok(!MATERIAL_MODULE_KINDS.includes("劳务收集表"));
+  const exec=client(await login("exec"));
+  const projects=await exec("GET","/api/projects");
+  const p=projects.data.rows.find(x=>!["已结算","已归档"].includes(x.status));
+  assert.ok(p,"应有可登记材料的项目");
+  const list=await exec("GET","/api/materials");
+  assert.equal(list.status,200);
+  assert.ok(list.data.kinds.includes("劳务表"));
+  assert.ok(!list.data.kinds.includes("劳务收集表"));
+  // Old mini clients can still submit the retired name; no new duplicate kind is created.
+  const saved=await exec("POST","/api/projects/"+p.id+"/materials",
+    {kind:"劳务收集表",name:"旧客户端兼容劳务材料"});
+  assert.equal(saved.status,200,JSON.stringify(saved.data));
+  const after=await exec("GET","/api/materials");
+  const row=after.data.rows.find(x=>x.pid===p.id&&x.name==="旧客户端兼容劳务材料");
+  assert.equal(row.kind,"劳务表","新写入应规范为唯一类别");
+  // Simulate an older persisted record without rewriting its legal/audit history.
+  const db=new DatabaseSync(DB);
+  db.prepare("UPDATE materials SET kind='劳务收集表',file_key=?,file_name=? WHERE id=?")
+    .run("f".repeat(32)+".pdf","旧版专家劳务表.pdf",row.id);
+  assert.equal(laborSheetInfo(db,p.id).required,true,"旧分类原件仍应触发核销第5项");
+  const moduleBefore=db.prepare("SELECT enabled FROM meeting_material_modules WHERE pid=? AND kind='劳务表'").get(p.id);
+  assert.equal(moduleBefore,undefined);
+  db.prepare("INSERT OR REPLACE INTO meeting_material_modules(pid,kind,enabled) VALUES (?,'劳务收集表',0)")
+    .run(p.id);
+  db.close();
+  const workbench=await exec("GET","/api/projects/"+p.id+"/material-workbench");
+  assert.equal(workbench.status,200,JSON.stringify(workbench.data));
+  assert.ok(workbench.data.kinds.includes("劳务表"));
+  assert.ok(!workbench.data.kinds.includes("劳务收集表"));
+  assert.ok(workbench.data.modules.some(x=>x.kind==="劳务表"&&x.enabled===0),
+    "历史停用开关在新名称下仍有效");
+  assert.ok(workbench.data.materials.some(x=>x.id===row.id&&x.kind==="劳务表"&&
+    x.filename==="旧版专家劳务表.pdf"),"历史文件不从小程序消失，也不重复显示旧类别");
+  const stopped=await exec("POST","/api/projects/"+p.id+"/materials",
+    {kind:"劳务收集表",name:"停用后不可上传"});
+  assert.equal(stopped.status,409,"旧模块已停用时，旧名称提交亦不能绕过服务端门禁");
+  const admin=client(await login("admin"));
+  const enabled=await admin("POST","/api/projects/"+p.id+"/material-workbench/modules",
+    {kind:"劳务表",enabled:true});
+  assert.equal(enabled.status,200,JSON.stringify(enabled.data));
+  const resumed=await exec("POST","/api/projects/"+p.id+"/materials",
+    {kind:"劳务表",name:"新名称重新启用成功"});
+  assert.equal(resumed.status,200,JSON.stringify(resumed.data));
+});
