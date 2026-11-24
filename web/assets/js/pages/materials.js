@@ -23,6 +23,17 @@ export async function render(root) {
     </div>
 
     <div class="panel mt">
+      <div class="panel-h"><h2>材料收集 · 按类别录入</h2><span class="hint">与微信小程序使用同一类别清单</span></div>
+      <div class="material-kind-panel">
+        <p class="hint">以下为建议收集的材料类别。点击对应类别即可打开上传窗口并自动预选；并非每类都必须上传。要查看已录入文件名，可进入项目详情的「归档材料」并切换类别。</p>
+        <div class="material-kind-chips">${(d.kinds||[]).map(kind=>
+          '<button type="button" class="material-kind-chip" data-guide-kind="'+esc(kind)+'"'+
+          (can("material:write")?"":" disabled")+'>'+esc(kind)+'</button>'
+        ).join("")}</div>
+        <span class="hint">其他材料类别可通过「+ 登记材料」自定义；每份文件保留原始名称。</span>
+      </div>
+    </div>
+    <div class="panel mt">
       <div class="panel-h"><h2>项目材料上传情况</h2><span class="hint">任意类别上传至少一份附件即可进入后续流程</span></div>
       ${table([{ t: "项目" }, { t: "状态", w: "84px" }, { t: "上传原件", w: "110px" }, { t: "类别数" }, { t: "操作", w: "90px" }],
         d.projects.map((p) => ({
@@ -60,7 +71,11 @@ export async function render(root) {
   bindArchivePdfButtons(root);
 
   const add = root.querySelector("#add");
-  if (add) add.onclick = () => openMaterialRegistration(root, d.projects.filter(p=>!["已结算","已归档"].includes(p.status)), d.kinds);
+  const writableProjects=d.projects.filter(p=>!["已结算","已归档"].includes(p.status));
+  if (add) add.onclick = () => openMaterialRegistration(root, writableProjects, d.kinds);
+  root.querySelectorAll("[data-guide-kind]").forEach(btn=>{
+    btn.onclick=()=>openMaterialRegistration(root,writableProjects,d.kinds,"",null,btn.dataset.guideKind);
+  });
   root.querySelectorAll("[data-replace-material]").forEach(btn=>{
     btn.onclick=()=>{
       const item=d.rows.find(x=>Number(x.id)===Number(btn.dataset.replaceMaterial));
