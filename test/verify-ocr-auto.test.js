@@ -76,13 +76,13 @@ test("自动扫描读取已有的真实OCR缓存，课件课题与终版议程�
  const course=db.prepare("SELECT id FROM materials WHERE pid=? AND kind='课件' AND file_key=?").get(pid,
   "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.pdf");
  assert.ok(course?.id,"must mutate the exact scanned course fixture, not a seeded course");
- db.prepare("UPDATE material_ocr_results SET recognized_text=? WHERE material_id=?")
+ db.prepare("UPDATE material_ocr_cover_results SET recognized_text=? WHERE material_id=?")
    .run("课件主题：精准诊疗技术新进展补充专题",course.id);
  const mismatch=await call("admin","POST",pathStep(4)+"/scan",{});
  assert.equal(mismatch.status,200);
  assert.ok(mismatch.data.report.checks.some(x=>x.name.includes("课件")&&x.status==="不一致"),
    JSON.stringify(mismatch.data.report.checks));
- db.prepare("UPDATE material_ocr_results SET recognized_text=? WHERE material_id=?")
+ db.prepare("UPDATE material_ocr_cover_results SET recognized_text=? WHERE material_id=?")
    .run("课件主题：精准诊疗技术新进展",course.id);
 });
 test("第4项：串场课件已识别完整主题且议程原文包含主题时不得再显示无法确认",async()=>{
@@ -110,7 +110,7 @@ test("第4项：串场课件已识别完整主题且议程原文包含主题时�
    "保留 truncated 元数据供人工查看，但不得覆盖已匹配的标题");
   assert.equal(report.files.find(x=>Number(x.materialId)===newest).truncated,true);
 
-  db.prepare("UPDATE material_ocr_results SET recognized_text='课件主题：精准诊疗技术新进展补充专题' WHERE material_id=?").run(host);
+  db.prepare("UPDATE material_ocr_cover_results SET recognized_text='课件主题：精准诊疗技术新进展补充专题' WHERE material_id=?").run(host);
   const mismatch=await call("admin","POST",pathStep(4)+"/scan",{});
   assert.equal(mismatch.status,200);
   assert.equal(mismatch.data.report.checks.find(x=>x.name==="课件：主持串场课件")?.status,"不一致",
