@@ -49,7 +49,7 @@ test("立项→总管理员审批→执行人待办→进入筹备，财务没�
   assert.equal(execMe.status,200);
   const name=execMe.data.user.name;
   const input={name:"QA三角色连贯性验证",assoc:"华东医学会",form:"线下",
-    date:"2027-11-25",days:1,budget:10000,people:30,owner:name,agenda:"10:00 学术交流"};
+    date:"2027-11-25",days:1,budget:10000,tax_fee_rate:0,people:30,owner:name,agenda:"10:00 学术交流"};
   const created=await request("POST","/api/projects",input,exec);
   assert.equal(created.status,200,JSON.stringify(created.data));
   const pid=created.data.project.id;

@@ -54,7 +54,7 @@ test("mobile participant application: own-association draft, edit, submit and ma
  const alice=await auth("13900139000"),bob=await auth("13700137000");
  const base={name:"移动端真实立项申请",assoc:ASSOCS[0],form:"线下",date:"2027-08-10",days:2,
   event_end_date:"2027-08-11",event_start_time:"09:00",event_end_time:"18:00",
-  budget:20000,people:120,agenda:"09:00开场；09:30专题发言；10:30交流"};
+  budget:20000,tax_fee_rate:12.5,people:120,agenda:"09:00开场；09:30专题发言；10:30交流"};
  assert.equal((await req("POST","/api/projects",{...base,owner_id:a.body.user.id},alice)).status,403,
   "ordinary user cannot bypass the dedicated application API");
  assert.equal((await req("POST","/api/mini/applications",{...base,assoc:ASSOCS[1]},alice)).status,403,
@@ -73,6 +73,14 @@ test("mobile participant application: own-association draft, edit, submit and ma
  assert.match(importAgenda.body.agenda,/专题报告/);
  const invalidPeriod=await req("POST","/api/mini/applications",{...base,event_end_date:"2027-08-12"},alice);
  assert.equal(invalidPeriod.status,400,"会期必须与举办时间段一致");
+ for(const value of [undefined,""]){
+  const input={...base};
+  if(value===undefined)delete input.tax_fee_rate;
+  else input.tax_fee_rate=value;
+  const invalid=await req("POST","/api/mini/applications",input,alice);
+  assert.equal(invalid.status,400,JSON.stringify(invalid.body));
+  assert.match(invalid.body.error.message,/税费管理费率.*必填/);
+ }
  const created=await req("POST","/api/mini/applications",base,alice);
  assert.equal(created.status,200,JSON.stringify(created.body));
  const id=created.body.project.id;
@@ -81,6 +89,7 @@ test("mobile participant application: own-association draft, edit, submit and ma
  assert.equal(period.event_end_date,"2027-08-11");
  assert.equal(period.event_start_time,"09:00");
  assert.equal(period.event_end_time,"18:00");
+ assert.equal(period.tax_fee_rate,12.5,"小程序立项应持久保存并读取管理税费率");
  const mine=await req("GET","/api/mini/applications",undefined,alice);
  assert.equal(mine.status,200);
  assert.ok(mine.body.rows.some(x=>x.id===id&&x.status==="草稿"));

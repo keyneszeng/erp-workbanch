@@ -102,7 +102,7 @@ test("Unicode / emoji 项目名可正确存取", async () => {
   const name = "国际会议 🎉 Ünïcode テスト";
   const c = await assoc("POST", "/api/projects", {
     name, assoc: "华东医学会", form: "线下", date: "2027-02-01",
-    budget: 5000, owner: "王敏", agenda: "09:00 开幕", people: 10
+    tax_fee_rate:0, budget: 5000, owner: "王敏", agenda: "09:00 开幕", people: 10
   });
   assert.equal(c.status, 200);
   const d = await assoc("GET", `/api/projects/${c.data.project.id}`);
@@ -112,7 +112,7 @@ test("Unicode / emoji 项目名可正确存取", async () => {
 test("超长项目名（>120 字）被拒", async () => {
   const r = await assoc("POST", "/api/projects", {
     name: "长".repeat(121), assoc: "华东医学会", form: "线下", date: "2027-02-01",
-    budget: 5000, owner: "王敏", agenda: "09:00 开幕"
+    tax_fee_rate:0, budget: 5000, owner: "王敏", agenda: "09:00 开幕"
   });
   assert.equal(r.status, 400);
 });
@@ -120,7 +120,7 @@ test("超长项目名（>120 字）被拒", async () => {
 test("超长议程（>3000 字）被拒", async () => {
   const r = await assoc("POST", "/api/projects", {
     name: "议程超长", assoc: "华东医学会", form: "线下", date: "2027-02-01",
-    budget: 5000, owner: "王敏", agenda: "议".repeat(3001)
+    tax_fee_rate:0, budget: 5000, owner: "王敏", agenda: "议".repeat(3001)
   });
   assert.equal(r.status, 400);
 });
@@ -165,7 +165,7 @@ test("CSV：逗号、引号、换行正确转义", async () => {
   const name = '含,逗号 "引号" 与\n换行';
   await assoc("POST", "/api/projects", {
     name, assoc: "华东医学会", form: "线下", date: "2027-03-01",
-    budget: 6000, owner: "王敏", agenda: "09:00 开幕"
+    tax_fee_rate:0, budget: 6000, owner: "王敏", agenda: "09:00 开幕"
   });
   const r = await fetch(`${BASE}/api/export/projects`, { headers: { cookie: await login("assoc") } });
   const text = Buffer.from(await r.arrayBuffer()).toString("utf8");
@@ -179,7 +179,7 @@ test("CSV：逗号、引号、换行正确转义", async () => {
 test("CSV：公式注入被中和", async () => {
   await assoc("POST", "/api/projects", {
     name: '=HYPERLINK("http://evil","click")', assoc: "华东医学会", form: "线下",
-    date: "2027-03-02", budget: 7000, owner: "王敏", agenda: "09:00 开幕"
+    date: "2027-03-02", tax_fee_rate:0, budget: 7000, owner: "王敏", agenda: "09:00 开幕"
   });
   const r = await fetch(`${BASE}/api/export/projects`, { headers: { cookie: await login("assoc") } });
   const text = Buffer.from(await r.arrayBuffer()).toString("utf8");
@@ -231,7 +231,7 @@ test("例外原因超长（>500）被拒", async () => {
 async function buildVerifyProject(tag) {
   const c = await assoc("POST", "/api/projects", {
     name: `并发测试-${tag}`, assoc: "华东医学会", form: "线下", date: "2027-04-01",
-    budget: 90000, owner: "王敏", agenda: "09:00 开幕 / 10:00 报告", people: 30
+    tax_fee_rate:0, budget: 90000, owner: "王敏", agenda: "09:00 开幕 / 10:00 报告", people: 30
   });
   const pid = c.data.project.id;
   const users = await assoc("GET", "/api/users/pickable");
@@ -255,7 +255,7 @@ async function buildVerifyProject(tag) {
 test("并发：6 次同时提交立项，只有 1 次成功", async () => {
   const c = await assoc("POST", "/api/projects", {
     name: "并发提交测试", assoc: "华东医学会", form: "线下", date: "2027-05-01",
-    budget: 20000, owner: "王敏", agenda: "09:00 开幕"
+    tax_fee_rate:0, budget: 20000, owner: "王敏", agenda: "09:00 开幕"
   });
   const pid = c.data.project.id;
   const rs = await Promise.all(Array.from({ length: 6 }, () =>

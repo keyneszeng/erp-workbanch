@@ -86,7 +86,7 @@ async function freshProject({ budget = 50000, owner = "陈静" } = {}) {
   const r = await c("POST", "/api/projects", {
     name: `双人复核用例项目 ${Date.now()}-${++seq}`,
     assoc: "华东医学会", form: "线下", date: "2027-06-01",
-    budget, people: 60, owner, agenda: "09:00 开幕致辞 / 13:30 分论坛"
+    budget, tax_fee_rate:0, people: 60, owner, agenda: "09:00 开幕致辞 / 13:30 分论坛"
   });
   assert.equal(r.status, 200, `建项目失败：${JSON.stringify(r.data)}`);
   const pid = r.data.project.id;

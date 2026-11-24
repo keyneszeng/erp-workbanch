@@ -115,7 +115,7 @@ test("嘉宾不能读取非成员项目详情", async () => {
 
 test("嘉宾不能立项 / 付款 / 导出 / 核销", async () => {
   const cases = [
-    ["POST", "/api/projects", { name: "越权", assoc: "华东医学会", form: "线下", date: "2027-01-01", budget: 1000, owner: "x", agenda: "abcd" }],
+    ["POST", "/api/projects", { name: "越权", assoc: "华东医学会", form: "线下", date: "2027-01-01", tax_fee_rate:0, budget: 1000, owner: "x", agenda: "abcd" }],
     ["POST", "/api/payments", { pid: "MP-2026-002", type: "学会公付", payee: "x", amount: 100 , payee_bank: "中国银行北京分行", payee_account: "3210987654321098"}],
     ["GET", "/api/export/projects", undefined],
     ["POST", "/api/projects/MP-2026-002/verify/steps/1", { result: "通过" }]
@@ -158,7 +158,7 @@ const ALL_ACTIONS = ["submit", "approve", "prep", "exec", "request_verify", "ver
 test("状态机：草稿项目除 submit 外全部动作被拒", async () => {
   const c = await assoc("POST", "/api/projects", {
     name: "状态机枚举-草稿", assoc: "华东医学会", form: "线下", date: "2027-06-01",
-    budget: 30000, owner: "王敏", agenda: "09:00 开幕"
+    tax_fee_rate:0, budget: 30000, owner: "王敏", agenda: "09:00 开幕"
   });
   assert.equal(c.status, 200);
   const pid = c.data.project.id;
@@ -172,7 +172,7 @@ test("状态机：草稿项目除 submit 外全部动作被拒", async () => {
 test("状态机：待审批项目除 approve/reject 外全部动作被拒", async () => {
   const c = await assoc("POST", "/api/projects", {
     name: "状态机枚举-待审批", assoc: "华东医学会", form: "线下", date: "2027-06-02",
-    budget: 30000, owner: "王敏", agenda: "09:00 开幕"
+    tax_fee_rate:0, budget: 30000, owner: "王敏", agenda: "09:00 开幕"
   });
   const pid = c.data.project.id;
   await assoc("POST", `/api/projects/${pid}/transition`, { action: "submit" });
@@ -217,7 +217,7 @@ test("幂等：同一付款单重复审批 / 重复付款被拒", async () => {
 test("幂等：重复结算 / 重复归档被拒", async () => {
   const c = await assoc("POST", "/api/projects", {
     name: "幂等-结算归档", assoc: "华东医学会", form: "线下", date: "2027-06-03",
-    budget: 50000, owner: "王敏", agenda: "09:00 开幕"
+    tax_fee_rate:0, budget: 50000, owner: "王敏", agenda: "09:00 开幕"
   });
   const pid = c.data.project.id;
   const users = await assoc("GET", "/api/users/pickable");
@@ -273,7 +273,7 @@ test("日期脏数据：不存在的日期被拒", async () => {
   for (const date of ["2026-02-30", "2026-13-01", "2026-00-10", "2026-04-31"]) {
     const r = await assoc("POST", "/api/projects", {
       name: "日期脏数据", assoc: "华东医学会", form: "线下", date,
-      budget: 1000, owner: "王敏", agenda: "09:00 开幕"
+      tax_fee_rate:0, budget: 1000, owner: "王敏", agenda: "09:00 开幕"
     });
     assert.equal(r.status, 400, `${date} 应 400，实际 ${r.status}`);
   }

@@ -69,7 +69,7 @@ const dec = (n) => (String(n).split(".")[1] || "").length;
 async function projectReadyToPay(name, budget) {
   const mk = await admin("POST", "/api/projects", {
     name, assoc: "华东医学会", form: "线下", date: "2026-12-20",
-    budget, owner: "王敏", agenda: "金额精度回归", people: 20
+    budget, tax_fee_rate:0, owner: "王敏", agenda: "金额精度回归", people: 20
   });
   assert.equal(mk.status, 200, mk.msg);
   const pid = mk.data.project.id;

@@ -19,7 +19,13 @@ export function bindBudgetFeePreview(modal){
  </div>`);
  const output=modal.querySelector("[data-available-budget]");
  function refresh(){
-  const n=budgetAvailablePreview(budget.value,fee.value||0);
+  const rawRate=String(fee.value).trim();
+  if(rawRate===""){
+   output.textContent="请填写税费管理费率";
+   fld.classList.add("err");
+   return false;
+  }
+  const n=budgetAvailablePreview(budget.value,rawRate);
   output.textContent=n===null?"请检查预算和费率":"¥"+n.toLocaleString("zh-CN",{minimumFractionDigits:2,maximumFractionDigits:2});
   const r=Number(fee.value||0);
   fld.classList.toggle("err",!Number.isFinite(r)||r<0||r>100||!isCents(r));

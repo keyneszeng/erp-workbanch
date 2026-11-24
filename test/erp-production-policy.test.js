@@ -49,7 +49,7 @@ test("production: association member IDs, approved contract signing and pay-afte
   assert.equal(members.status,200);
   assert.ok(members.body.rows.some(x=>x.id===a.body.user.id));
   assert.ok(!members.body.rows.some(x=>x.id===b.body.user.id));
-  const base={name:"生产流程验证",assoc:ASSOCS[0],form:"线下",date:"2027-08-10",budget:20000,people:20,agenda:"09:00开幕；10:00专家分享"};
+  const base={name:"生产流程验证",assoc:ASSOCS[0],form:"线下",date:"2027-08-10",budget:20000,tax_fee_rate:0,people:20,agenda:"09:00开幕；10:00专家分享"};
   const fake=await request("POST","/api/projects",{...base,owner:"任意伪造姓名"},cookie);
   assert.equal(fake.status,400);
   const foreign=await request("POST","/api/projects",{...base,owner_id:b.body.user.id},cookie);

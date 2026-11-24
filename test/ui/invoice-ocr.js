@@ -57,7 +57,7 @@ async function run(){
  };
  const p=await post("/api/projects",{
   name:"发票OCR浏览器端到端项目",assoc:"华东医学会",form:"线下",
-  date:"2027-11-20",budget:954,people:25,owner:"陈静",agenda:"发票扫描"
+  date:"2027-11-20",budget:954,tax_fee_rate:0,people:25,owner:"陈静",agenda:"发票扫描"
  });
  const pid=p.project.id;
  const file=await ctx.request.post(base+"/api/uploads?pid="+pid,{
