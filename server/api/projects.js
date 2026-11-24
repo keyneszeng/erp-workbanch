@@ -300,7 +300,8 @@ function register(router) {
   });
 
   router.post("/api/projects/agenda-ocr", async (ctx) => {
-    assertCan(ctx.user, "project:create", "当前账号无权上传立项议程");
+    if(!can(ctx.user,"project:create")&&!can(ctx.user,"mini:apply"))
+      throw forbidden("当前账号无权上传立项议程");
     return require("./public-event-proposals").recognizeAgenda(ctx.body,ctx.ip);
   });
 
