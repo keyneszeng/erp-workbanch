@@ -61,7 +61,7 @@ const assert=require("node:assert/strict");
   await folder.waitFor({timeout:12000});
   await folder.click();
   await page.getByText("已收集材料详情",{exact:true}).waitFor({timeout:12000});
-  await page.locator('[data-go="materials"]').click();
+  await page.locator('#content [data-go="materials"]').click();
   await page.locator("#materialFolderGrid").waitFor({timeout:12000});
   await page.locator("#add").click();
   assert.equal(await page.locator('#modal [name="version"]').count(),0,
