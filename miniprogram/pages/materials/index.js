@@ -9,7 +9,7 @@ Page({
   // 兼容未升级的 API；正常情况下以后端共享 MATERIAL_KINDS 为唯一材料类别来源。
   standardKinds:["立项文件","会议通知","招商函","合同","会务协议","劳务协议","议程","终版议程","课件","串场","签到表","劳务表","讲者照片","现场照片","会议截图","在线记录","发票","会务发票","权益照片"],
   activeKinds:[],historyKinds:[],materialRows:[],visibleFiles:[],filesLoading:false,
-  custom:false,customKind:"",locked:false,batchResults:[],speakerFiles:[],
+  custom:false,customKind:"",locked:false,batchResults:[],speakerFiles:[],deletingId:0,
   sponsorRights:[{id:"",label:"请选择赞助权益类目"}],rightIndex:0,rightId:""},
  onLoad(q){if(q.pid)this.setData({pid:q.pid});},
  onShow(){return this.load();},
@@ -186,6 +186,41 @@ Page({
    if(!files.length)throw new Error("未选择文件");
    await this.uploadBatch(files);
   }catch(e){this.setData({error:e.message||"文件选择失败"});}
+ },
+ // 误传纠错：仅删除当前项目已正式登记的这份材料，绝不直接清理存储原件。
+ // 后端执行权限/核销/合同冻结校验并软删除至总管理员废件箱。
+ async removeUploaded(e){
+  if(this.data.busy||this.data.locked||!this.data.pid)return;
+  const id=Number(e.currentTarget?.dataset?.id);
+  const pid=this.data.pid;
+  const item=this.data.materialRows.find(row=>Number(row.id)===id);
+  if(!Number.isSafeInteger(id)||id<1||!item)return;
+  const name=String(item.filename||"此材料");
+  this.setData({busy:true,deletingId:id,error:"",uploaded:""});
+  try{
+   const confirm=await new Promise((resolve,reject)=>wx.showModal({
+    title:"确认删除已上传材料",
+    content:"确定删除「"+name+"」吗？删除后会从材料收集列表移除，原件留在废件箱，仅总管理员可以恢复。若已被合同或核销锁定，系统将拒绝删除。",
+    confirmText:"删除",confirmColor:"#c0392b",cancelText:"取消",
+    success:resolve,fail:reject
+   }));
+   if(!confirm.confirm)return;
+   // 确认框打开期间如上下文已失效，必须终止而非删除别的会议原件。
+   if(this.data.pid!==pid||!this.data.materialRows.some(row=>Number(row.id)===id))
+    throw new Error("项目或材料已变化，请刷新后重试");
+   await app.api("/materials/"+id,"DELETE");
+   if(this.data.pid!==pid)return;
+   // 服务端已成功软删时立即从本地列表移除，即使随后的刷新网络失败也不误显示。
+   this.setData({materialRows:this.data.materialRows.filter(row=>Number(row.id)!==id)});
+   this.syncVisibleFiles();
+   await this.loadKinds(pid,{preserveError:true});
+   this.setData({uploaded:"已删除「"+name+"」，如需恢复请联系总管理员"});
+   wx.showToast({title:"已删除",icon:"success"});
+  }catch(err){
+   if(this.data.pid===pid)this.setData({error:"删除失败："+(err?.message||"请重试")});
+  }finally{
+   this.setData({busy:false,deletingId:0});
+  }
  },
  async retryFailed(){if(this._batch&&!this.data.busy)await this.uploadBatch(null);},
  async uploadBatch(files){
