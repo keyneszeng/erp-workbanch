@@ -209,7 +209,7 @@ test("业务单据已有结论时，点通过不报错，而是同步关闭审�
 
   // 造一个待核销项目 → 第 1 步判不通过 → 自动生成例外单 + 审批单
   const pid = await (async () => {
-    const r = await e("POST", "/api/projects", {
+    const r = await e("POST", "/api/projects", {tax_fee_rate:0,
       name: `V1.2.15 幽灵单用例 ${Date.now()}-${++seq}`,
       assoc: "华东医学会", form: "线下", date: "2027-08-08", budget: 60000, people: 60,
       owner: "陈静", agenda: "09:00 开幕"
