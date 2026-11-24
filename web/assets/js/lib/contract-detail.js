@@ -88,8 +88,8 @@ export function openContractDetail(c, opt = {}) {
   const hint = opt.locked ? "" : flowHint(c);
   // 已核销可以走独立更正申请；已结算/归档只能先走财务更正。
   const amendmentPerm = can("contract:write") || can("contract:approve");
-  const lockedStatus = String(c.pstatus || opt.locked || "");
-  const mayAmend = c.status === "已签署" && can("contract:write") &&
+  const lockedStatus = String(c.pstatus || "");
+  const mayAmend = c.status === "已签署" && can("contract:write") && !opt.locked &&
     !["已结算","已归档"].includes(lockedStatus);
 
 
