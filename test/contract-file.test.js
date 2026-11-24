@@ -192,7 +192,7 @@ test("数据范围外的用户不能下载合同原件", async () => {
   const adminC = client(admin);
   const mk = await adminC("POST", "/api/projects", {
     name: `越权下载用例-${Date.now()}`, assoc: "华东医学会", form: "线下",
-    date: "2027-09-09", budget: 1000, people: 10, owner: "王敏", agenda: "09:00 开幕"
+    date: "2027-09-09", tax_fee_rate:0, budget: 1000, people: 10, owner: "王敏", agenda: "09:00 开幕"
   });
   assert.equal(mk.status, 200, JSON.stringify(mk.data));
   const pid = mk.data.project.id;

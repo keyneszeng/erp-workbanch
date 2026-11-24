@@ -51,7 +51,7 @@ before(async()=>{
  for(const user of ["admin","exec","assoc","guest"])await login(user);
  const created=await req("exec","POST","/api/projects",{
   name:"合同更正受控测试会议",assoc:"华东医学会",form:"线下",date:"2027-07-01",
-  budget:100000,people:80,owner:"陈静",agenda:"上午论坛与下午讨论议程安排"});
+  tax_fee_rate:0, budget:100000,people:80,owner:"陈静",agenda:"上午论坛与下午讨论议程安排"});
  assert.equal(created.status,200,JSON.stringify(created.body));pid=created.body.project.id;
  assert.equal((await req("exec","POST","/api/projects/"+pid+"/transition",{action:"submit"})).status,200);
  assert.equal((await req("assoc","POST","/api/projects/"+pid+"/transition",{action:"approve"})).status,200);
