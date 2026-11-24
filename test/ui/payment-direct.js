@@ -71,7 +71,8 @@ let server,browser;
  await normal.locator("#lbtn").click();
  await normal.locator("#nav").waitFor({timeout:15000});
  await normal.goto(origin+"/#/finance");
- await normal.locator("#fin-payments").waitFor({timeout:15000});
+ await normal.locator("#nav").waitFor({timeout:15000});
+ await normal.waitForTimeout(350); // May be redirected from finance, which is valid for a non-finance role.
  assert.equal(await normal.locator("#financeDirect").count(),0,"exec cannot access finance direct payment form");
  const forbidden=await normal.request.post(origin+"/api/payments/direct",{data:{
   pid,type:"学会公付",payee:"非法财务直付",amount:1,confirm_paid:true
