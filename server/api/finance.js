@@ -491,7 +491,7 @@ function register(router) {
 
   router.get("/api/projects/:id/payee-options", async ctx => {
     const p=getProject(ctx.params.id);assertProjectVisible(ctx.user,p);
-    assertCan(ctx.user,"payment:create","无权查看收款人信息");
+    if(!can(ctx.user,"payment:create")&&!can(ctx.user,"payment:pay"))throw forbidden("无权查看收款人信息");
     return {rows:require("../lib/verified-payees").options(p.id),
       note:"候选来自已签署合同与第五步已核验劳务资料，敏感银行账号只显示尾号"};
   });

@@ -152,7 +152,7 @@ export async function render(root, params = []) {
       <div id="settlementDetail" aria-live="polite"></div>
     </div>
 
-    <div class="foot-note">门禁说明：七项核销规则中所有适用项通过后才可申请付款，否则接口返回 <code>VERIFY_GATE</code>；
+    <div class="foot-note">门禁说明：七项核销规则中所有适用项通过后才可登记付款，否则接口返回 <code>VERIFY_GATE</code>；
       「已付款」指内部系统记录，不是自动发起银行转账。结算后相关账目和原件被冻结。</div>`;
 
   if (incomeReadable) renderIncomeWorkbench(root.querySelector("#incomeWorkbench"),
