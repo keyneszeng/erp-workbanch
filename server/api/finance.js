@@ -748,6 +748,35 @@ function register(router) {
     return { payment: db.prepare("SELECT * FROM payments WHERE id = ?").get(y.id), message: `${y.id} 已付款` };
   });
 
+  /** 补传历史已付款凭证；不得覆盖先前已关联的付款原件。 */
+  router.post("/api/payments/:id/receipt",async(ctx)=>{
+    const y=db.prepare("SELECT * FROM payments WHERE id=?").get(ctx.params.id);
+    if(!y)throw notFound("付款单不存在");
+    const p=getProject(y.pid);
+    assertProjectVisible(ctx.user,p);
+    assertCan(ctx.user,"payment:pay","仅财务与总管理员可以上传付款凭证");
+    if(y.status!=="已付款")throw conflict("付款尚未完成，不能登记已付款凭证","PAYMENT_NOT_PAID");
+    if(y.receipt_file_key)throw conflict("该付款记录已有凭证，原件不可直接覆盖","PAYMENT_RECEIPT_EXISTS");
+    const key=String(ctx.body?.file_key||"").trim();
+    if(!FILE_KEY_RE.test(key))throw bad("请上传真实的付款回单文件");
+    assertUploadAttachable(key,p.id,ctx.user);
+    const obj=await storage().get(key);
+    if(!obj?.buffer?.length)throw notFound("上传文件不存在");
+    if(obj.buffer.length>20*1024*1024)throw bad("付款凭证最大20MB");
+    const mime=sniffMime(obj.buffer,key);
+    if(!mime||ALLOWED_MIME[mime]!==key.split(".").pop())throw bad("凭证文件内容与类型不符");
+    const name=safeName(ctx.body?.file_name||key),at=now();
+    transaction(()=>{
+      const changed=db.prepare("UPDATE payments SET receipt_file_key=?,receipt_file_name=?,receipt_uploaded_at=? WHERE id=? AND status='已付款' AND receipt_file_key IS NULL")
+        .run(key,name,at,y.id);
+      if(!changed.changes)throw conflict("凭证已被其他操作员上传，请刷新页面","PAYMENT_RECEIPT_EXISTS");
+    });
+    logAudit({user:ctx.user,module:"财务结算",action:"补传已付款凭证",target:y.pid,
+      detail:y.id+" · "+name+" · 历史付款凭证补录",ip:ctx.ip});
+    return {paymentId:y.id,receipt:{file_key:key,file_name:name,uploaded_at:at},
+      message:"付款凭证已上传并归档"};
+  });
+
   /* ---------------- 审批中心 ---------------- */
   router.get("/api/approvals", async (ctx) => {
     /**
