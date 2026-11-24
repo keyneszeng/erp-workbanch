@@ -162,7 +162,7 @@ const PAY = 60000;
 let pid = "";
 
 test("全链路：立项 → 筹备 → 执行 → 核销（含例外）→ 付款 → 结算 → 归档", async () => {
-  const created = await assoc("POST", "/api/projects", {
+  const created = await assoc("POST", "/api/projects", {tax_fee_rate:0,
     name: "全链路回归会", assoc: "华东医学会", form: "线下", date: "2027-05-20",
     days: 2, budget: BUDGET, people: 200, owner: "王敏", phone: "13800000002",
     dept: "秘书处", agenda: "09:00 开幕 / 10:00 主题演讲 / 14:00 分论坛"
