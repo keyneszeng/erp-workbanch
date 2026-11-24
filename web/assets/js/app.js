@@ -14,6 +14,7 @@ import * as projectLedger from "./pages/project-ledger.js";
 import * as contracts from "./pages/contracts.js";
 import * as prepInvitations from "./pages/prep-invitations.js";
 import * as materials from "./pages/materials.js";
+import * as recycleBin from "./pages/recycle-bin.js";
 import * as demand from "./pages/demand.js";
 import * as archive from "./pages/archive.js";
 import * as audit from "./pages/audit.js";
@@ -42,6 +43,7 @@ const ROUTES = [
   { re: /^demand$/, page: demand, nav: "demand", title: "会务需求确认", sub: "四组清单：设计 / 制作 / 现场执行 / 其他" },
   { re: /^demand\/([\w-]+)$/, page: demand, nav: "demand", title: "需求单", sub: "逐条确认会务需求" },
   { re: /^materials$/, page: materials, nav: "materials", title: "材料中心", sub: "材料自由登记与终版议程上传" },
+  { re: /^recycle-bin$/, page: recycleBin, nav: "recycle-bin", title: "废件箱", sub: "仅总管理员 · 已删除材料的原路恢复" },
   { re: /^archive$/, page: archive, nav: "archive", title: "数字卷宗", sub: "已归档项目检索与导出" },
   { re: /^audit$/, page: audit, nav: "audit", title: "审计日志", sub: "Who / When / What / Which" },
   { re: /^users$/, page: users, nav: "users", title: "用户与权限", sub: "账号、角色与数据范围" },

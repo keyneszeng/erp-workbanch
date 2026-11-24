@@ -100,7 +100,7 @@ const NAV_MODULE = {
   dashboard: "dashboard", flow: "dashboard",
   projects: "projects", approvals: "projects", contracts: "prep", "prep-invitations": "prep",
   demand: "demand", verify: "verify", finance: "finance", "project-ledger": "finance",
-  materials: "materials", archive: "archive", audit: "audit", users: "system", "invitation-config": "system", "public-proposals": "system"
+  materials: "materials", "recycle-bin": "system", archive: "archive", audit: "audit", users: "system", "invitation-config": "system", "public-proposals": "system"
 };
 
 /**
@@ -128,7 +128,7 @@ function canVisitNav(user, nav) {
   if (!hasModule(user,need)) return false;
   if (nav === "project-ledger") return can(user,"ledger:read");
   if (nav === "prep-invitations") return can(user, "invite:manage");
-  if (["users","public-proposals","invitation-config"].includes(nav)) return isSuper(user);
+  if (["users","public-proposals","invitation-config","recycle-bin"].includes(nav)) return isSuper(user);
   if (nav === "approvals") {
     return can(user, "project:approve") || can(user, "verify:exception_approve") || can(user, "payment:approve") || can(user, "contract:approve");
   }

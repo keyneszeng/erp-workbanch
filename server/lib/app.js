@@ -79,6 +79,7 @@ function buildRouter() {
     require("../api/projects"),
     require("../api/project-notice"),
     require("../api/verify"),
+    require("../api/recycle-bin"),
     require("../api/finance"),
     require("../api/contract-amendments"),
     require("../api/income"),

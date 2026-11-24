@@ -64,6 +64,9 @@ jobs:
           node --input-type=module --check < web/assets/js/lib/contract-detail.js
           node --input-type=module --check < web/assets/js/pages/contracts.js
           node --check server/api/verify.js
+          node --check server/api/recycle-bin.js
+          node --check test/recycle-bin.test.js
+          node --input-type=module --check < web/assets/js/pages/recycle-bin.js
           node --check server/lib/verify-ocr-compare.js
           node --check server/lib/verify-agenda-evidence.js
           node --input-type=module --check < web/assets/js/lib/verify-detail.js

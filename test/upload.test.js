@@ -190,7 +190,10 @@ test("材料软删保留附件与历史证据", async () => {
   assert.equal(del.status, 200);
 
   const gone = await fetch(`${BASE}/api/uploads/${up.data.key}`, { headers: { cookie: exec } });
-  assert.equal(gone.status, 200, "软删历史材料必须保留原件，不得销毁证据");
+  assert.equal(gone.status, 403, "废件箱材料只有总管理员可查看，旧链接不得绕过删除权限");
+  const retained = await fetch(`${BASE}/api/uploads/${up.data.key}`, { headers: { cookie: admin } });
+  assert.equal(retained.status, 200, "软删只限制权限，不得销毁历史原件");
+  assert.ok(Buffer.from(await retained.arrayBuffer()).equals(JPEG), "废件箱应完整保留文件字节");
 });
 
 test("非法 file_key 被拒绝", async () => {
