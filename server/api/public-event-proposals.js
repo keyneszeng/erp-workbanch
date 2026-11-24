@@ -5,7 +5,8 @@
  */
 const crypto=require("node:crypto");
 const {db,transaction}=require("../lib/db");
-const {now,nextId}=require("../lib/util");
+const {now}=require("../lib/util");
+const {nextMeetingId}=require("../lib/meeting-codes");
 const {bad,forbidden}=require("../lib/util");
 const {isSuper}=require("../lib/rbac");
 const {logAudit}=require("../lib/audit");
@@ -181,7 +182,7 @@ function register(router){
    if(previous)return {project:{id:previous.project_id,status:db.prepare("SELECT status FROM projects WHERE id=?").get(previous.project_id)?.status||"草稿"},alreadyConverted:true};
    const p=db.prepare("SELECT * FROM public_event_proposals WHERE id=?").get(id);
    if(!p)throw Object.assign(new Error("公众活动申请不存在"),{status:404,code:"NOT_FOUND"});
-   const projectId=nextId(db,"projects","id","MP"),at=now();
+   const projectId=nextMeetingId(db,assoc,p.event_date),at=now();
    const fields=["id","name","assoc","form","date","days","budget","tax_fee_rate","people",
     "owner","owner_id","phone","dept","agenda","public_event_time","public_contact_name",
     "public_contact_info","event_start_time","event_end_date","event_end_time",
