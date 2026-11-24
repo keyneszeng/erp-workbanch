@@ -73,7 +73,7 @@ function validatePeriod(body){
   throw bad("举办结束时间不能早于开始时间");
 }
 function validate(body, partial = false) {
-  const need = { name: "会议名称", assoc: "所属协会", form: "会议形式", date: "会议日期", budget: "预算", owner: "项目负责人", agenda: "初版议程要点" };
+  const need = { name: "会议名称", assoc: "所属协会", form: "会议形式", date: "会议日期", budget: "预算", tax_fee_rate: "协会管理费及税费率", owner: "项目负责人", agenda: "初版议程要点" };
   for (const [k, label] of Object.entries(need)) {
     if (partial && !(k in body)) continue;
     const v = body[k];
