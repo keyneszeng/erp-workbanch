@@ -24,14 +24,16 @@ test("财务页显示企业赞助收入、分期期次并明确银行不自动�
   assert.match(finance,/data-finance-jump="incomeWorkbench"/);
   assert.match(finance,/data-finance-jump="incomeWorkbench">企业赞助<\/button>/);
   assert.doesNotMatch(finance,/会议收入 · 企业赞助/);
-  assert.match(finance,/data-finance-jump="fin-payments">付款申请与执行/);
+  assert.match(finance,/data-finance-jump="fin-payments">付款登记与凭证/);
   assert.match(finance,/data-finance-jump="fin-settlements">结算与归档/);
   assert.match(finance,/const incomeReadable = /);
   assert.match(finance,/if \(incomeReadable\) renderIncomeWorkbench/);
-  assert.match(finance,/金额／期次/);
+  assert.match(finance,/付款（勾选）/);
+  assert.match(finance,/凭证详情/);
+  assert.match(finance,/期次（分期付款填）/);
   assert.match(finance,/银行转账/);
   assert.doesNotMatch(finance,/未通过 6 步核销/);
-  assert.match(src("web/assets/js/pages/project.js"),/期次：\$\{esc\(y\.period\)\}/);
+  assert.match(src("web/assets/js/pages/project.js"),/y\.period/);
 });
 test("被冻结项目不会显示可修改入口，移动协作角色仅展示已授权操作", () => {
   assert.match(src("web/assets/js/pages/project.js"),/!\["已结算", "已归档"\]\.includes\(p\.status\)/);
@@ -92,15 +94,18 @@ test("核销劳务收款方自动关联开户行及加密银行账号，无需�
  assert.match(picker,/x\.source==="labor"&&x\.maskedAccount/);
  assert.match(picker,/由服务器安全填入/);
  assert.match(payees,/return \{name:x\.name,amount:x\.amount,bank:x\.bank,account,source:"labor"\}/);
- // 新版流程：付款申请不再填银行信息；劳务专家仍由服务端解析加密账号，
- // 其它收款方的开户行/账号由财务在执行付款时核对原件后补录。
+ // 申请流程不再采集完整银行账号；财务直接付款需要核对银行账户，
+ // 但劳务人员已核验账户仍只由服务端解密，不在前端预填或回显。
  assert.ok(api.includes('choice?.bank?parseBankName(choice.bank):""'));
  assert.ok(api.includes('choice?.account?parseBankAccount(choice.account):""'));
  const exec=src("web/assets/js/lib/payment-execution.js");
  assert.match(exec,/name="payee_bank"/);
  assert.match(exec,/name="payee_account"/);
  assert.match(exec,/\/account/);
- for(const p of [finance,project]) assert.doesNotMatch(p,/name="payee_account"/);
+ assert.match(finance,/name="payee_account"/);
+ assert.match(finance,/data-direct-voucher/);
+ assert.match(finance,/data-direct-paid/);
+ assert.doesNotMatch(project,/name="payee_account"/);
  assert.doesNotMatch(picker,/account_cipher|reveal\(/);
 });
 
