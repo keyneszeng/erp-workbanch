@@ -13,11 +13,15 @@
   </view>
 
   <view class="form-section">
-    <view class="section-head"><view class="row"><view class="section-index">01</view><view class="section-caption">选择材料类别</view></view></view>
-    <view class="muted">停用类别会自动隐藏；如没有合适选项，可使用自定义类别。</view>
+    <view class="section-head"><view class="row"><view class="section-index">01</view><view class="section-caption">按类别直接录入材料</view></view></view>
+    <view class="muted">点选材料类别后，直接在下方上传文件；文件名自动作为材料名称，无需单独填写。</view>
     <view class="chip-list">
       <view wx:for="{{activeKinds}}" wx:key="*this" data-kind="{{item}}" bindtap="chooseKind" class="select-chip {{!custom&&kind===item?'chip-selected':''}}">{{item}}</view>
       <view bindtap="chooseCustom" class="select-chip {{custom?'chip-selected':''}}">＋ 自定义</view>
+    </view>
+    <view wx:if="{{historyKinds.length}}" class="field-hint">已录入的其他类别：</view>
+    <view wx:if="{{historyKinds.length}}" class="chip-list">
+      <view wx:for="{{historyKinds}}" wx:key="*this" data-kind="{{item}}" bindtap="chooseKind" class="select-chip {{!custom&&kind===item?'chip-selected':''}}">{{item}}</view>
     </view>
     <view wx:if="{{custom}}" class="field">
       <view class="field-label"><text class="required">*</text>自定义类别</view>
@@ -28,20 +32,17 @@
       <picker mode="selector" range="{{sponsorRights}}" range-key="label" value="{{rightIndex}}" bindchange="pickRight"><view class="picker-control"><text class="picker-value">{{sponsorRights[rightIndex].label}}</text><text class="picker-arrow">⌄</text></view></picker>
       <view class="field-hint">权益类目需先在 Web 端确认，照片才能关联到对应赞助合同。</view>
     </view>
-  </view>
-
-  <view class="form-section">
-    <view class="section-head"><view class="row"><view class="section-index">02</view><view class="section-caption">填写材料信息</view></view></view>
+    <view class="category-upload-caption">当前录入：{{custom?(customKind||'请填写自定义类别'):kind}}</view>
     <view class="notice"><text class="notice-icon">i</text><text>每份材料自动采用对应文件名，无须逐份手工填写名称。单批最多10份。</text></view>
     <view wx:if="{{!custom&&kind==='讲者照片'}}" class="field-hint">讲者照片：可直接用下方「拍照或从相册选择」批量选图，选完逐张填写讲者姓名（姓名即材料名称）；也可从微信会话选择已用姓名命名的图片（如张三.jpg），系统按文件名关联。</view>
     <view wx:if="{{!custom&&kind==='终版议程'}}" class="field-hint">可同时选择最多10份议程，按选择顺序登记，最后一份作为唯一当前终版，其余为历史版。</view>
     <view wx:if="{{error}}" class="error"><text class="feedback-icon">!</text><text>{{error}}</text></view>
     <view wx:if="{{uploaded}}" class="success-note"><text class="feedback-icon">✓</text><text>{{uploaded}}</text></view>
 
-    <button class="upload-panel" loading="{{busy}}" disabled="{{busy||locked||!pid||(!custom&&kind==='权益照片'&&!rightId)}}" bindtap="addPhoto">
+    <button class="upload-panel" loading="{{busy}}" disabled="{{busy||locked||!pid||(custom&&!customKind)||(!custom&&kind==='权益照片'&&!rightId)}}" bindtap="addPhoto">
       <view class="upload-icon">照</view><view class="upload-title">拍照或从相册选择</view><view class="upload-sub">{{!custom&&kind==='讲者照片'?'相册批量选图，选完逐张填写讲者姓名':'相册可批量选择照片，每批最多10份'}}</view>
     </button>
-    <button class="upload-panel" loading="{{busy}}" disabled="{{busy||locked||!pid||(!custom&&kind==='权益照片'&&!rightId)}}" bindtap="addFile">
+    <button class="upload-panel" loading="{{busy}}" disabled="{{busy||locked||!pid||(custom&&!customKind)||(!custom&&kind==='权益照片'&&!rightId)}}" bindtap="addFile">
       <view class="upload-icon" style="background:#1f5f8b">档</view><view class="upload-title">从微信会话选择文件</view><view class="upload-sub">一次最多选择10份 Office、PDF、CSV、TXT 或图片</view>
     </button>
     <view wx:if="{{!custom&&kind==='讲者照片'&&speakerFiles.length}}" class="speaker-block">
@@ -68,6 +69,21 @@
         <view wx:if="{{item.error}}" class="error">{{item.error}}</view>
       </view>
       <button wx:if="{{!busy&&error}}" class="btn ghost" bindtap="retryFailed">重试未成功文件</button>
+    </view>
+    <view class="uploaded-file-list">
+      <view class="uploaded-file-head">
+        <text class="uploaded-file-title">已录入文件 · {{custom?customKind:kind}}</text>
+        <text class="uploaded-file-count">{{visibleFiles.length}} 份</text>
+      </view>
+      <view wx:if="{{filesLoading}}" class="field-hint">正在加载已上传材料…</view>
+      <view wx:elif="{{visibleFiles.length}}">
+        <view wx:for="{{visibleFiles}}" wx:key="id" class="uploaded-file-item">
+          <text class="uploaded-file-name">{{item.filename}}</text>
+          <text wx:if="{{item.version==='终版'}}" class="uploaded-file-version">当前终版</text>
+          <text wx:elif="{{item.version==='历史版'}}" class="uploaded-file-version muted">历史版</text>
+        </view>
+      </view>
+      <view wx:else class="field-hint">该类别暂无已上传文件，选择上方入口即可录入。</view>
     </view>
     <view class="privacy-note">每批最多10份文件，单个附件不超过20 MB。OCR 仅辅助识别，不代表核销通过。</view>
   </view>

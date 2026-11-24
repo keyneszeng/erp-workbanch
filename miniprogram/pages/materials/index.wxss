@@ -53,3 +53,50 @@
 }
 
 .speaker-submit { margin-top: 16rpx; }
+
+/* 单页按类别录入：选择后直接上传，并展示当前类别的真实归档文件名。 */
+.category-upload-caption {
+  margin: 28rpx 0 16rpx;
+  padding: 14rpx 20rpx;
+  border-left: 6rpx solid #2f78c4;
+  background: #f1f7fe;
+  color: #244a75;
+  font-size: 26rpx;
+  font-weight: 700;
+}
+.uploaded-file-list {
+  margin-top: 24rpx;
+  padding: 22rpx;
+  border: 1rpx solid #dbe6f3;
+  border-radius: 16rpx;
+  background: #fff;
+}
+.uploaded-file-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16rpx;
+}
+.uploaded-file-title { font-size: 27rpx; font-weight: 700; color: #24374e; }
+.uploaded-file-count { font-size: 23rpx; color: #647b96; }
+.uploaded-file-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12rpx;
+  justify-content: space-between;
+  padding: 17rpx 0;
+  border-top: 1rpx solid #eef2f7;
+}
+.uploaded-file-name {
+  flex: 1;
+  min-width: 0;
+  color: #253348;
+  font-size: 25rpx;
+  overflow-wrap: anywhere;
+  word-break: break-all;
+}
+.uploaded-file-version {
+  flex: 0 0 auto;
+  font-size: 21rpx;
+  color: #1c7394;
+}

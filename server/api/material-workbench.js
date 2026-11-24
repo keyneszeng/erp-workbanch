@@ -50,6 +50,11 @@ function register(router) {
     assertModule(ctx.user,"materials","material:write");
     const p=getProject(ctx.params.id);assertProjectVisible(ctx.user,p);
     return {pid:p.id,modules:moduleRows(p.id),tasks:taskRows(p.id),
+      // Uploaded names are retrieved from the project's active material records,
+      // not just the mini-program's latest upload batch. Return no file keys or
+      // finance data; the existing materials-module and project-scope ACL applies.
+      materials:db.prepare("SELECT id,kind,COALESCE(NULLIF(file_name,''),name) AS filename,version,created_at "+
+        "FROM materials WHERE pid=? AND deleted_at IS NULL AND file_key IS NOT NULL ORDER BY id DESC").all(p.id),
       ocrAvailable:ocr.enabled() && !isDemoMode() && storage().name==="fs",
       note:"上传的中文/英文图片与 PDF 可由本地 OCR 识别；建议项须人工确认后才生成待办"};
   });
