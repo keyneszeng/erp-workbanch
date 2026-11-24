@@ -55,8 +55,14 @@ const assert=require("node:assert/strict");
   assert.doesNotMatch(await page.locator("body").innerText(),
     /终版议程\s*[·•]\s*材料模块与待办|从终版议程生成待办/,
     "final agenda must not require a separate speaker/topic task wizard");
-  assert.ok((await page.locator("body").innerText()).includes("项目材料上传情况"),
-    "material center should show flexible upload status instead of 8/8 mandatory categories");
+  assert.ok((await page.locator("body").innerText()).includes("项目材料目录"),
+    "material collection should show project folders rather than a flat or mandatory-category list");
+  const folder=page.locator('[data-material-project="'+projects[0].id+'"]');
+  await folder.waitFor({timeout:12000});
+  await folder.click();
+  await page.getByText("已收集材料详情",{exact:true}).waitFor({timeout:12000});
+  await page.locator('[data-go="materials"]').click();
+  await page.locator("#materialFolderGrid").waitFor({timeout:12000});
   await page.locator("#add").click();
   assert.equal(await page.locator('#modal [name="version"]').count(),0,
     "登记材料表单应彻底移除版本输入框");
