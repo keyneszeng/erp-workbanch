@@ -3,7 +3,7 @@ import { api, can, state } from "../lib/api.js";
 import {bindPayeePicker} from "../lib/payee-picker.js";
 import {renderIncomeWorkbench} from "../lib/income-workbench.js";
 import {renderSettlementBreakdown} from "../lib/settlement-breakdown.js";
-import { badge, bindPager, confirmBox, esc, formHtml, modal, money, pager, panel, readForm, table, toast, validate } from "../lib/ui.js";
+import { badge, bindPager, closeModal, confirmBox, esc, formHtml, modal, money, pager, panel, readForm, table, toast, validate } from "../lib/ui.js";
 
 const PAGE_SIZE = 50;
 let filterStatus = "";
@@ -162,7 +162,7 @@ export async function render(root, params = []) {
     }
   });
   const ep = root.querySelector("#expPay");
-  if (ep) ep.onclick = () => dl("/api/export/payments");
+  if (ep) ep.onclick = () => openPaymentExport(focusPid);
   const es = root.querySelector("#expSt");
   if (es) es.onclick = () => dl("/api/export/settlements");
   const np = root.querySelector("#newPay");
@@ -177,6 +177,92 @@ export async function render(root, params = []) {
       toast("该项目当前没有付款记录", "warn");
     }
   }
+}
+
+/**
+ * 导出付款明细：先勾选 1～300 场本人有权限的会议，再合并导出为一份 CSV。
+ * 本页的付款列表可能仅加载 50 行，因此会议候选要通过项目列表独立获取。
+ */
+async function openPaymentExport(focusPid="") {
+  let projects;
+  try {
+    const res=await api.get("/api/projects");
+    projects=(res.rows||[]).filter(p=>p.id&&p.name);
+  }catch(e){toast("会议列表读取失败："+e.message,"warn");return;}
+  if(!projects.length){toast("当前没有可选择的会议","warn");return;}
+  const selected=new Set(focusPid&&projects.some(p=>p.id===focusPid)?[focusPid]:[]);
+  const m=modal({title:"按会议导出付款明细（支持多选）",width:"min(700px, 94vw)",body:`
+    <div class="hint" style="line-height:1.7;margin-bottom:12px">勾选需要导出的会议（可跨不同协会，但仅限本人有权查看的会议），所有选中会议的付款记录将合并为一份 CSV。未发生付款的会议不会产生明细行。</div>
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px">
+      <input type="search" data-payment-search placeholder="搜索会议名称、编号或协会" aria-label="搜索可导出会议" style="flex:1;min-width:200px;padding:9px 12px;border:1px solid var(--line);border-radius:8px">
+      <button type="button" class="btn btn-o btn-sm" data-payment-select-visible>全选筛选结果</button>
+      <button type="button" class="btn btn-o btn-sm" data-payment-clear>清空选择</button>
+    </div>
+    <div data-payment-count role="status" class="hint" style="margin-bottom:8px"></div>
+    <div data-payment-projects role="group" aria-label="选择导出的会议" style="border:1px solid var(--line);border-radius:10px;max-height:360px;overflow-y:auto;padding:4px 12px"></div>
+    <div class="hint" style="margin-top:10px">导出包含付款单号、会议编号、会议名称、收款方、金额、付款状态及原有财务字段。最多一次选择 300 场会议。</div>
+    <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:18px">
+      <button type="button" class="btn btn-o" data-payment-cancel>取消</button>
+      <button type="button" class="btn btn-p" data-payment-confirm disabled>导出所选付款明细</button>
+    </div>`});
+  const search=m.querySelector("[data-payment-search]");
+  const list=m.querySelector("[data-payment-projects]");
+  const counter=m.querySelector("[data-payment-count]");
+  const exportBtn=m.querySelector("[data-payment-confirm]");
+  const visibleBtn=m.querySelector("[data-payment-select-visible]");
+  let filtered=projects;
+  let downloading=false;
+  const redraw=()=>{
+    const q=search.value.trim().toLowerCase();
+    filtered=projects.filter(p=>
+      [p.name,p.id,p.assoc].some(x=>String(x||"").toLowerCase().includes(q)));
+    counter.textContent="已选择 "+selected.size+" 场会议 · 当前匹配 "+filtered.length+" 场";
+    list.innerHTML=filtered.length?filtered.map(p=>`
+      <label style="display:flex;gap:10px;align-items:center;padding:10px 4px;border-bottom:1px solid var(--line);cursor:pointer">
+        <input type="checkbox" data-payment-pid="${esc(p.id)}" ${selected.has(p.id)?"checked":""} ${downloading?"disabled":""} style="width:17px;height:17px;flex-shrink:0">
+        <span style="flex:1;min-width:0">
+          <strong style="display:block;font-size:13px;overflow-wrap:anywhere">${esc(p.name)}</strong>
+          <span class="hint">${esc(p.id)} · ${esc(p.assoc||"未标注协会")} · ${esc(p.status||"")}${Number.isFinite(Number(p.pay_cnt))?" · "+Number(p.pay_cnt)+" 笔付款":""}</span>
+        </span>
+      </label>`).join(""):'<div class="hint" style="padding:18px;text-align:center">没有匹配的会议</div>';
+    list.querySelectorAll("[data-payment-pid]").forEach(c=>{
+      c.onchange=()=>{
+        if(c.checked){
+          if(selected.size>=300){c.checked=false;toast("单次最多选择 300 场会议","warn");return;}
+          selected.add(c.dataset.paymentPid);
+        }else selected.delete(c.dataset.paymentPid);
+        redraw();
+      };
+    });
+    exportBtn.disabled=downloading||selected.size===0;
+    visibleBtn.disabled=downloading||!filtered.length;
+    search.disabled=downloading;
+    m.querySelector("[data-payment-clear]").disabled=downloading||!selected.size;
+  };
+  search.oninput=redraw;
+  visibleBtn.onclick=()=>{
+    const next=new Set([...selected,...filtered.map(p=>p.id)]);
+    if(next.size>300){toast("所选会议超过 300 场，请先搜索缩小范围","warn");return;}
+    for(const id of next)selected.add(id);
+    redraw();
+  };
+  m.querySelector("[data-payment-clear]").onclick=()=>{selected.clear();redraw();};
+  m.querySelector("[data-payment-cancel]").onclick=closeModal;
+  exportBtn.onclick=async()=>{
+    if(!selected.size||downloading)return;
+    downloading=true;redraw();
+    exportBtn.textContent="导出中…";
+    try{
+      const r=await api.download("/api/export/payments",{
+        method:"POST",body:{pids:[...selected]}});
+      closeModal();
+      toast("已导出 "+selected.size+" 场会议："+r.name,"ok");
+    }catch(e){
+      downloading=false;exportBtn.textContent="导出所选付款明细";
+      redraw();toast(e.message,"warn");
+    }
+  };
+  redraw();
 }
 
 async function dl(path) {

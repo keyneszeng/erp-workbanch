@@ -179,6 +179,8 @@ jobs:
         run: ERP_DEMO_MODE=1 node test/ui/contract-verify-sources.js
       - name: "Black-box step 5: labor sheets and expert contracts only, never meeting or sponsor agreements"
         run: ERP_DEMO_MODE=1 node test/ui/labor-step5-scope.js
+      - name: "Black-box multi-meeting payment export: search, selection, CSV and isolation"
+        run: ERP_DEMO_MODE=1 node test/ui/payment-export-multi.js
       - name: "Black-box project material batch: concurrent uploads, original filenames, per-file retry"
         run: ERP_DEMO_MODE=1 node test/ui/material-batch-upload.js
       - name: "Black-box legacy XLS upload from material register"
