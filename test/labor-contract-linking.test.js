@@ -9,7 +9,7 @@ const record=(name)=>({name,time:"2027-01-01",role:"讲者",amount:"1000",bankAc
 function fixture(){
  const db=new DatabaseSync(":memory:");
  db.exec("CREATE TABLE materials(id INTEGER PRIMARY KEY AUTOINCREMENT,pid TEXT,kind TEXT,name TEXT,file_name TEXT,file_key TEXT,deleted_at TEXT);"+
-   "CREATE TABLE contracts(id TEXT,pid TEXT,name TEXT,vendor TEXT,category TEXT,status TEXT,file_key TEXT)");
+   "CREATE TABLE contracts(id TEXT,pid TEXT,name TEXT,vendor TEXT,category TEXT,status TEXT,file_key TEXT,deleted_at TEXT)");
  const add=(pid,kind,name,file_name,file_key="file.pdf",deleted_at=null)=>
    Number(db.prepare("INSERT INTO materials(pid,kind,name,file_name,file_key,deleted_at) VALUES(?,?,?,?,?,?)")
      .run(pid,kind,name,file_name,file_key,deleted_at).lastInsertRowid);
@@ -129,5 +129,26 @@ test("历史讲者个人合同按明确的讲者合同文件名进入专家劳�
  add(project.id,"合同","企业赞助合同","企业赞助协议.pdf","sponsor.pdf");
  assert.deepEqual(contractPool(db,project.id).rows.map(x=>x.id),[speaker]);
  assert.equal(linkLaborContracts(db,project.id,["测试讲者"]).linked.length,1);
+ db.close();
+});
+
+test("已软删除/终止的劳务台账合同不再进入第5项核销，也不能退化为按文件名猜测",()=>{
+ const {db,add,ledger}=fixture();
+ const material=add(project.id,"劳务专家合同","张三劳务合同","张三.pdf","deleted-labor.pdf");
+ ledger("deleted-labor.pdf","张三");
+ assert.equal(linkLaborContracts(db,project.id,["张三"]).linked.length,1);
+ const activeSignature=contractPool(db,project.id).signature;
+ db.prepare("UPDATE contracts SET deleted_at='2026-11-24' WHERE file_key='deleted-labor.pdf'").run();
+ const deletedPool=contractPool(db,project.id);
+ assert.equal(deletedPool.rows.some(m=>m.id===material),false);
+ assert.notEqual(deletedPool.signature,activeSignature);
+ assert.deepEqual(linkLaborContracts(db,project.id,["张三"]).missing,["张三"]);
+ assert.throws(()=>validateSopEvidence(5,{collectionRecords:[record("张三")]},project,db),
+  e=>e.code==="SOP_PERSON_CONTRACT_MISSING");
+ db.prepare("UPDATE contracts SET deleted_at=NULL,status='已终止' WHERE file_key='deleted-labor.pdf'").run();
+ assert.equal(contractPool(db,project.id).rows.length,0);
+ db.prepare("UPDATE contracts SET status='草稿' WHERE file_key='deleted-labor.pdf'").run();
+ assert.equal(linkLaborContracts(db,project.id,["张三"]).linked.length,1,
+  "恢复为草稿需重新走签署流程，但不应在材料池造成幽灵引用");
  db.close();
 });
