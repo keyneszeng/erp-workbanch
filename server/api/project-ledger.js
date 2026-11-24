@@ -59,7 +59,7 @@ const raw=(pid)=>{
 function summarize(x){
   const {project:p,contracts, payments,settlement,materials}=x;
   const signed=total(contracts,r=>r.status==="已签署"&&r.category!=="企业赞助");
-  const signedTotal=total(contracts,r=>r.category!=="企业赞助");
+  const signedTotal=total(contracts,r=>r.category!=="企业赞助"&&r.status!=="已终止");
   const sponsorContracts=contracts.filter(r=>r.category==="企业赞助");
   const paid=total(payments,r=>r.status==="已付款");
   const active=total(payments,r=>r.status!=="已驳回");
