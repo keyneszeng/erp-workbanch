@@ -44,7 +44,7 @@ function demandSopState(db,pid){
   "SELECT id,grp,item,need,budget,quantity,unit_price FROM demand_items WHERE pid=? AND need='需要' ORDER BY id"
  ).all(pid);
  const allLedger=db.prepare(
-  "SELECT id,name,category,status,amount,file_key FROM contracts WHERE pid=? AND file_key IS NOT NULL AND file_key<>'' ORDER BY id"
+  "SELECT id,name,category,status,amount,file_key FROM contracts WHERE pid=? AND deleted_at IS NULL AND file_key IS NOT NULL AND file_key<>'' ORDER BY id"
  ).all(pid);
  const byKey=new Map();
  for(const item of allLedger){
@@ -58,7 +58,7 @@ function demandSopState(db,pid){
  const agreements=materials.filter(m=>isMeetingAgreement(m,byKey));
  const agreementKeys=new Set(agreements.map(x=>x.file_key));
  const contracts=db.prepare(
-  "SELECT id,name,category,amount,status,file_key FROM contracts WHERE pid=? AND status='已签署' ORDER BY id"
+  "SELECT id,name,category,amount,status,file_key FROM contracts WHERE pid=? AND deleted_at IS NULL AND status='已签署' ORDER BY id"
  ).all(pid).filter(c=>c.category===MEETING ||
   (matchingLegacyContract(c)&&c.file_key&&agreementKeys.has(c.file_key)));
  const invoices=materials.filter(isMeetingInvoice);
