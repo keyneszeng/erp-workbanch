@@ -304,10 +304,10 @@ test("小程序材料类别与录入合并：切换类别显示历史文件名�
  page.chooseCustom();
  page.input({currentTarget:{dataset:{key:"customKind"}},detail:{value:"工作总结"}});
  assert.deepEqual(Array.from(page.data.visibleFiles.map(r=>r.filename)),["总结材料.docx"]);
- page.select({detail:{value:"0"}});
- await new Promise(resolve=>setTimeout(resolve,0));
+ await page.onShow();
  assert.equal(page.data.pid,projectId);
- assert.deepEqual(Array.from(page.data.visibleFiles.map(r=>r.filename)),[]);
+ assert.deepEqual(Array.from(page.data.visibleFiles.map(r=>r.filename)),["总结材料.docx"],
+  "重新进入小程序材料页仍从服务端读取该类别历史文件名");
 });
 test("小程序材料工作台同一个表单显示类别、上传与已录入文件名，后台只回已保存附件",()=>{
  const xml=fs.readFileSync(path.join(__dirname,"../miniprogram/pages/materials/index.wxml"),"utf8");
