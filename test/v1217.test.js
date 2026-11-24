@@ -220,7 +220,7 @@ test("BUG-02 零权限角色审批已通过的单子应 403，而不是 409 暴�
 /* ---------------- FLOW-01 核销通过自动带财务 ---------------- */
 
 test("FLOW-01 核销通过后财务自动进成员，能直接生成结算单", async () => {
-  const mk = await admin("POST", "/api/projects", {
+  const mk = await admin("POST", "/api/projects", {tax_fee_rate:0,
     name: `FLOW-01 结算断点-${Date.now()}`, assoc: "华东医学会", form: "线下",
     date: "2027-10-10", budget: 20000, people: 20, owner: "王敏", agenda: "09:00 开幕"
   });
