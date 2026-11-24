@@ -215,7 +215,7 @@ function tabOverview(d, p) {
       ] : []),
       ["承办部门", esc(p.dept && (state.meta.depts || []).includes(p.dept) ? p.dept : (p.dept ? "历史部门（待重新分类）" : "—"))],
       ["预算", `<b class="num">¥${money(p.budget)}</b>`],
-      ["税费管理费率", `${money(Number(p.tax_fee_rate)||0)}%`],
+      ["协会管理费及税费率", `${money(Number(p.tax_fee_rate)||0)}%`],
       ["可用预算", `<b class="num">¥${money(p.available_budget ?? p.budget)}</b>`],
       ["初版议程", `<span style="white-space:pre-wrap">${esc(p.agenda || "—")}</span>`]
     ]))}</div>
@@ -977,7 +977,7 @@ async function openEdit(root, pid, p) {
     { k: "date", l: "会议日期", t: "date", req: 1 },
     { k: "days", l: "会期（天）", t: "number" },
     { k: "budget", l: "预算（元）", t: "number", req: 1, full: 1 },
-    { k: "tax_fee_rate", l: "税费管理费率（%）", t: "number", full: 1,
+    { k: "tax_fee_rate", l: "协会管理费及税费率（%）", t: "number", req: 1, full: 1,
       tip: "自定义输入 0～100，最多两位小数；可用预算实时重新计算。" },
     { k: "people", l: "预计人数", t: "number" },
     { k: "owner_id", l: "负责人（协会成员）", t: "select", req: 1, opts: members.map((u) => ({v:String(u.id),l:u.name+"（"+u.role_name+"）"})) },
