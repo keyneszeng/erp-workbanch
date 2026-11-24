@@ -457,8 +457,8 @@ function tabMaterials(d, p) {
   const recommended=(state.meta?.materialKinds||[]).filter(k=>!unavailable.has(k));
   const otherKinds=[...new Set(validMaterials.map(m=>m.kind))]
     .filter(k=>!recommended.includes(k));
-  const allKinds=[...recommended,...otherKinds];
   const selected=selectedMaterialKinds.get(p.id)||(recommended.includes("课件")?"课件":recommended[0]||otherKinds[0]||"课件");
+  const allKinds=[...new Set([...recommended,...otherKinds,selected])];
   const current=validMaterials.filter(m=>m.kind===selected);
   const writable=can("material:write")&&!d.settlement&&!["已结算","已归档"].includes(p.status)&&
     !unavailable.has(selected);
