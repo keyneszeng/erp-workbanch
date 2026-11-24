@@ -6,7 +6,8 @@ const MAX_FILE_BYTES=20*1024*1024;
 let speakerSeq=0;
 Page({
  data:{projects:[],index:0,pid:"",kind:"课件",name:"",error:"",busy:false,uploaded:"",
-  standardKinds:["课件","串场","劳务收集表","劳务协议","议程","终版议程","签到表","讲者照片","现场照片","权益照片"],
+  // 兼容未升级的 API；正常情况下以后端共享 MATERIAL_KINDS 为唯一材料类别来源。
+  standardKinds:["立项文件","会议通知","招商函","合同","会务协议","劳务协议","议程","终版议程","课件","串场","签到表","劳务表","劳务收集表","讲者照片","现场照片","会议截图","在线记录","发票","会务发票","权益照片"],
   activeKinds:[],historyKinds:[],materialRows:[],visibleFiles:[],filesLoading:false,
   custom:false,customKind:"",locked:false,batchResults:[],speakerFiles:[],
   sponsorRights:[{id:"",label:"请选择赞助权益类目"}],rightIndex:0,rightId:""},
@@ -41,9 +42,10 @@ Page({
   try{
    const data=await app.api("/projects/"+encodeURIComponent(pid)+"/material-workbench");
    if(this.data.pid!==pid)return; // another project was selected while loading
-   const kinds=this.data.standardKinds.filter(k=>!data.modules?.some(m=>m.kind===k&&m.enabled===0));
+   const catalog=Array.isArray(data.kinds)&&data.kinds.length?data.kinds:this.data.standardKinds;
+   const kinds=catalog.filter(k=>!data.modules?.some(m=>m.kind===k&&m.enabled===0));
    const rows=(data.materials||[]).filter(row=>row&&row.filename&&row.kind);
-   const history=[...new Set(rows.map(row=>row.kind))].filter(k=>!this.data.standardKinds.includes(k));
+   const history=[...new Set(rows.map(row=>row.kind))].filter(k=>!kinds.includes(k));
    const chosen=this.data.kind;
    const kind=kinds.includes(chosen)||history.includes(chosen)?chosen:(kinds[0]||"现场照片");
    this.setData({activeKinds:kinds,historyKinds:history,materialRows:rows,kind,

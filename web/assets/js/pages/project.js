@@ -30,6 +30,8 @@ const TABS = [
   ["team", "成员与授权"], ["timeline", "操作留痕"]
 ];
 let tab = "overview";
+// 与微信小程序一致：材料类别即录入入口，按项目记住最后选择的类别。
+const selectedMaterialKinds=new Map();
 
 export async function render(root, [pid]) {
   const d = await api.get(`/api/projects/${pid}`);
@@ -149,7 +151,6 @@ function tabDemand(d, p) {
       esc(it.quantity || "—"),
       it.unit_price ? "¥" + money(it.unit_price) : "—",
       it.budget ? '<b class="num">¥' + money(it.budget) + '</b>' : "—",
-      esc(it.owner || "—"),
       esc(it.due || "—")
     ]
   }));
@@ -157,7 +158,7 @@ function tabDemand(d, p) {
   const banner = dm.archived
     ? `<div class="banner ok" style="margin-bottom:12px">✓ 已由 <b>${esc(dm.confirmedBy || "—")}</b> 于 ${esc(dm.confirmedAt || "—")} 确认并归档
         —— 后续核销以这份清单和预算金额为依据。</div>`
-    : `<div class="gate" style="margin-bottom:12px"><b>草稿，尚未归档</b>负责人填完点「确认并归档」后，这份清单才成为核销依据。</div>`;
+    : `<div class="gate" style="margin-bottom:12px"><b>草稿，尚未归档</b>填写完毕并点「确认并归档」后，这份清单才成为核销依据。</div>`;
 
   return `${banner}
     ${panel("会务需求清单",
@@ -165,13 +166,13 @@ function tabDemand(d, p) {
       table([{ t: "分组", w: "84px" }, { t: "项目 / 业务提示", w: "220px" },
         { t: "规格", w: "160px" },
         { t: "数量", w: "66px", nw: true }, { t: "单价", w: "90px", cls: "num", nw: true },
-        { t: "总价", w: "100px", cls: "num", nw: true }, { t: "负责人", w: "100px" },
+        { t: "总价", w: "100px", cls: "num", nw: true },
         { t: "交付时间", w: "114px", nw: true }], rows,
         { empty: "暂无标记为「需要」的条目", minw: 1060 }),
       inPhase && writable
         ? `<button class="btn btn-o" data-go="demand/${esc(p.id)}">${dm.archived ? "查看 / 撤销归档" : "去填写"}</button>`
         : writable ? `<button class="btn btn-o" data-go="demand/${esc(p.id)}">查看完整需求单</button>` : "")}
-    <div class="hint" style="padding:6px 14px">只显示标记为「需要」的条目，包含规格、业务提示、数量、单价、总价、负责人及交付时间。「不需要」项在本清单隐藏，也不计入合计；原始需求表记录不受影响。</div>`;
+    <div class="hint" style="padding:6px 14px">只显示标记为「需要」的条目，包含规格、业务提示、数量、单价、总价及交付时间。「不需要」项在本清单隐藏，也不计入合计；原始需求表记录不受影响。</div>`;
 }
 
 /* ---------------- 概览 ---------------- */
@@ -451,15 +452,43 @@ function tabVerify(d, p) {
 /* ---------------- 材料 ---------------- */
 function tabMaterials(d, p) {
   const ms = d.materialsStatus;
+  const validMaterials=(d.materials||[]).filter(m=>!m.deleted_at);
+  const unavailable=new Set(ms.disabled||[]);
+  const recommended=(state.meta?.materialKinds||[]).filter(k=>!unavailable.has(k));
+  const otherKinds=[...new Set(validMaterials.map(m=>m.kind))]
+    .filter(k=>!recommended.includes(k));
+  const selected=selectedMaterialKinds.get(p.id)||(recommended.includes("课件")?"课件":recommended[0]||otherKinds[0]||"课件");
+  const allKinds=[...new Set([...recommended,...otherKinds,selected])];
+  const current=validMaterials.filter(m=>m.kind===selected);
+  const writable=can("material:write")&&!d.settlement&&!["已结算","已归档"].includes(p.status)&&
+    !unavailable.has(selected);
+  const kindButtons=allKinds.map(k=>{
+    const count=validMaterials.filter(m=>m.kind===k).length;
+    return '<button type="button" class="material-kind-chip'+(selected===k?' active':'')+
+      '" data-material-kind="'+esc(k)+'" aria-pressed="'+(selected===k?'true':'false')+'">'+
+      esc(k)+(count?' <span class="hint">'+count+' 份</span>':'')+'</button>';
+  }).join("");
   const rightById=new Map((d.sponsorRights?.rights||[]).map(r=>[Number(r.id),r]));
   const sponsorsById=new Map((d.sponsorRights?.contracts||[]).map(c=>[c.id,c]));
   return panel("归档材料",
     `已上传 ${ms.uploadedCount || 0} 份附件 · ${ms.have.length} 类 · ${ms.ok ? "可进入后续流程" : "请先上传至少一份附件"}`, `
-    <div class="hint" style="padding:8px 14px">材料类别可自由选择（「权益照片」须选择合同对应权益内容），不再要求固定类别齐全；至少上传一份原件即可满足材料门槛。核销与财务独立审批仍须按流程完成。</div>
-    <div class="chips">${ms.have.map((k) => `<span class="chip"><i>✓</i><b>${esc(k)}</b></span>`).join("")}</div>
+    <div class="hint" style="padding:8px 14px">按类别直接录入：点击下面的类别，查看已上传文件名或上传新材料。类别用于引导，不代表每类均必交；实际核销仍按对应步骤检查。</div>
+    <div class="material-kind-panel" aria-label="材料类别选择">
+      <div class="material-kind-heading">材料收集类别 · 点击选择</div>
+      <div class="material-kind-chips">${kindButtons}</div>
+      ${can("material:write")&&!d.settlement&&!["已结算","已归档"].includes(p.status)?
+        '<div class="material-custom"><input data-material-custom maxlength="20" placeholder="其他材料类别（可自定义，20 字以内）" aria-label="自定义材料类别">'+
+        '<button class="btn btn-o btn-sm" data-material-custom-apply>选择自定义类别</button></div>':""}
+      <div class="material-kind-selected"><b>当前录入：${esc(selected)}</b><span>已录入 ${current.length} 份</span></div>
+      ${selected==="权益照片"?'<p class="hint">权益照片需关联已签赞助合同对应的权益二级类目。</p>':""}
+      ${selected==="讲者照片"?'<p class="hint">讲者照片请用讲者姓名命名文件（例如：张三.jpg），以便核销识别。</p>':""}
+      ${selected==="终版议程"?'<p class="hint">批量选择议程时，最后一份作为当前终版，其余保留为历史版。</p>':""}
+      <div class="material-kind-actions">${writable?'<button class="btn btn-p" id="addMat">+ 上传当前类别材料</button>':""}
+        <span class="hint">${unavailable.has(selected)?"该类别材料模块已停用，可查看历史附件但不能继续上传":"一次最多 10 份，上传后自动显示原始文件名"}</span></div>
+    </div>
     ${table([{ t: "类别", w: "104px" }, { t: "材料名称" }, { t: "附件", w: "84px" }, { t: "版本", w: "56px" },
       { t: "上传人", w: "76px" }, { t: "时间", w: "130px" }, { t: "操作", w: "120px" }],
-      (d.materials||[]).filter(m=>!m.deleted_at).map((m) => ({
+      current.map((m) => ({
         c: [
           esc(m.kind)+(m.kind==="权益照片"?`<div class="hint">${esc(sponsorsById.get(rightById.get(Number(m.sponsor_right_id))?.sponsor_id)?.enterprise||"未关联赞助合同")} · ${esc(rightById.get(Number(m.sponsor_right_id))?.category||"未关联权益类目")}</div>`:""), esc(m.name),
           m.file_key
@@ -475,8 +504,8 @@ function tabMaterials(d, p) {
             ? ` <button class="link" data-replace-material="${m.id}">修改</button>` : "") || "—"
         ]
       })),
-      { empty: "暂无材料" })}`,
-    can("material:write") && p.status !== "已归档" && !d.settlement ? '<button class="btn btn-p btn-sm" id="addMat">+ 登记材料</button>' : "");
+      { empty: "该类别尚无已上传文件，请选择上方类别并上传" })}`,
+    "");
 }
 
 /* ---------------- 成员 ---------------- */
@@ -567,7 +596,21 @@ function wire(root, pid, d, body) {
   const ac = body.querySelector("#addContract"); if (ac) ac.onclick = () => openContract(root, pid);
   const ap = body.querySelector("#addPay"); if (ap) ap.onclick = () => openPay(root, pid, d);
   const ae = body.querySelector("#addEx"); if (ae) ae.onclick = () => openException(root, pid, d);
-  const am = body.querySelector("#addMat"); if (am) am.onclick = () => openMaterial(root, pid);
+  // 项目材料面板使用和小程序相同的「类别 → 上传 → 已录入文件」顺序。
+  body.querySelectorAll("[data-material-kind]").forEach(btn=>{
+    btn.onclick=()=>{selectedMaterialKinds.set(pid,btn.dataset.materialKind);render(root,[pid]);};
+  });
+  body.querySelector("[data-material-custom-apply]")?.addEventListener("click",()=>{
+    const name=String(body.querySelector("[data-material-custom]")?.value||"").trim();
+    if(!name||name.length>20)return toast("请输入 1～20 字的材料类别名称","warn");
+    selectedMaterialKinds.set(pid,name);
+    render(root,[pid]);
+  });
+  body.querySelector("[data-material-custom]")?.addEventListener("keydown",e=>{
+    if(e.key==="Enter"){e.preventDefault();body.querySelector("[data-material-custom-apply]")?.click();}
+  });
+  const am = body.querySelector("#addMat"); if (am) am.onclick = () =>
+    openMaterial(root, pid, selectedMaterialKinds.get(pid)||"课件");
   const amm = body.querySelector("#addMem"); if (amm) amm.onclick = () => openMember(root, pid, d);
 }
 
@@ -870,11 +913,11 @@ function openException(root, pid, d) {
   };
 }
 
-async function openMaterial(root,pid){
-  // 两处入口使用完全相同的“归档材料 → 登记材料”弹窗和上传逻辑。
+async function openMaterial(root,pid,kind="课件"){
+  // 与小程序统一：类别已在材料面板选定，上传表单自动预选，不必重复选择。
   const {openMaterialRegistration}=await import("./materials.js");
   openMaterialRegistration(root,[{id:pid,name:pid}],state.meta.materialKinds,pid,
-    ()=>refresh(root,pid));
+    ()=>refresh(root,pid),kind);
 }
 
 async function delMaterial(root, pid, id, kind) {

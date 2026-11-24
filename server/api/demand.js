@@ -268,26 +268,34 @@ function register(router) {
         throw bad(`「${it.grp}」分组下存在重复条目「${name}」，同一分组内条目名必须唯一`, "DUPLICATE_ITEM");
       }
       seen.add(key);
-      // 仅需求表的负责人可自由填写；立项项目负责人仍按协会成员权限模型校验。
-      // 向后兼容旧客户端的 owner_id，用户输入的新姓名优先，且不额外授予任何项目权限。
-      const typedOwner = String(it.owner ?? "").trim();
-      if (it.owner_id != null && String(it.owner_id).trim() !== "") {
-        const member = assignedMember(it.owner_id, p.assoc);
-        if (!typedOwner || typedOwner === member.name) {
-          it.owner = member.name;
-          it.owner_id = member.id;
-        } else {
-          it.owner = typedOwner;
-          it.owner_id = null;
-        }
-      } else {
-        it.owner = typedOwner;
-        // 自由输入不自动授予系统用户身份；仅姓名未改变时保留原有成员关联。
-        const previousOwner = db.prepare(
+      // 负责人已从需求登记表移除；仅为历史归档和旧客户端兼容保留后台元数据。
+      // 新表单不提交这两列时，保存不擦除本项目同组同名旧条目的负责人记录。
+      if(!Object.prototype.hasOwnProperty.call(it,"owner") &&
+         !Object.prototype.hasOwnProperty.call(it,"owner_id")){
+        const previous=db.prepare(
           "SELECT owner,owner_id FROM demand_items WHERE pid=? AND grp=? AND item=?"
         ).get(p.id,it.grp,name);
-        it.owner_id = previousOwner && String(previousOwner.owner||"").trim()===typedOwner
-          ? (previousOwner.owner_id||null) : null;
+        it.owner=previous?.owner||"";
+        it.owner_id=previous?.owner_id||null;
+      }else{
+        const typedOwner=String(it.owner??"").trim();
+        if(it.owner_id!=null&&String(it.owner_id).trim()!==""){
+          const member=assignedMember(it.owner_id,p.assoc);
+          if(!typedOwner||typedOwner===member.name){
+            it.owner=member.name;
+            it.owner_id=member.id;
+          }else{
+            it.owner=typedOwner;
+            it.owner_id=null;
+          }
+        }else{
+          it.owner=typedOwner;
+          const previous=db.prepare(
+            "SELECT owner,owner_id FROM demand_items WHERE pid=? AND grp=? AND item=?"
+          ).get(p.id,it.grp,name);
+          it.owner_id=previous&&String(previous.owner||"").trim()===typedOwner
+            ? (previous.owner_id||null):null;
+        }
       }
       // 新版客户端发送数量/单价时，只允许服务端自动计算总价。
       // 老版接口未传数量/单价：兼容旧金额；旧单在新版编辑时仍保留原手填金额。
@@ -358,8 +366,8 @@ function register(router) {
       const rows = db.prepare("SELECT * FROM demand_items WHERE pid=? AND need='需要'").all(p.id);
       // 全部不需要也允许确认：明确的零需求比强迫用户勾选虚假需求更可靠。
       for (const it of rows) {
-        const labels={spec:"规格",owner:"负责人",due:"交付时间"};
-        const missing=["spec","owner","due"].filter(k=>!String(it[k]??"").trim());
+        const labels={spec:"规格",due:"交付时间"};
+        const missing=["spec","due"].filter(k=>!String(it[k]??"").trim());
         if (missing.length) throw invalidField("需求「"+it.item+"」请补充"+missing.map(k=>labels[k]).join("、"),
           it,missing[0]);
       }
@@ -430,16 +438,16 @@ function register(router) {
     if (!p) throw notFound("会议项目不存在");
     assertProjectVisible(ctx.user, p);
     const sheet = loadSheet(p.id);
-    const headers = ["分组", "项目", "业务提示", "是否需要", "规格", "数量", "单价", "总价", "负责人", "交付时间"];
+    const headers = ["分组", "项目", "业务提示", "是否需要", "规格", "数量", "单价", "总价", "交付时间"];
     const rows = [];
     for (const g of DEMAND_GROUPS) {
       for (const it of (sheet.items[g] || [])) {
         rows.push([g, it.item, it.note || "", it.need, it.spec || "", it.quantity || "",
           it.unit_price ? Number(it.unit_price).toFixed(2) : "",
-          it.budget ? Number(it.budget).toFixed(2) : "", it.owner || "", it.due || ""]);
+          it.budget ? Number(it.budget).toFixed(2) : "", it.due || ""]);
       }
     }
-    rows.push(["合计", "", "", "", "", "", "需要项总价合计", Number(sheet.budgetTotal).toFixed(2), "", ""]);
+    rows.push(["合计", "", "", "", "", "", "需要项总价合计", Number(sheet.budgetTotal).toFixed(2), ""]);
     const csv = toCsv(headers, rows);
     return { __csv: csv, __filename: `会务需求_${p.id}.csv` };
   });

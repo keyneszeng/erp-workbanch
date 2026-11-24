@@ -39,7 +39,6 @@ function cells(it, locked) {
     <td>${locked ? plain(it.quantity) : `<input class="mini" type="number" data-f="quantity" min="0" max="1000000" step="any" inputmode="decimal" value="${esc(it.quantity || "")}" placeholder="数量">`}</td>
     <td>${locked ? plain(it.unit_price, true) : `<input class="mini" type="number" data-f="unit_price" min="0" step="0.01" inputmode="decimal" value="${esc(it.unit_price || "")}" placeholder="单价">`}</td>
     <td>${locked ? plain(it.budget, true) : `<input class="mini" data-f="budget" value="${esc(it.budget || "")}" readonly tabindex="-1" title="总价根据数量与单价自动计算；历史金额保持原值" placeholder="自动计算">`}</td>
-    <td>${locked ? plain(it.owner) : `<input class="mini" data-f="owner" value="${esc(it.owner || "")}" placeholder="填写负责人姓名" aria-label="需求负责人姓名，可自定义填写">`}</td>
     <td>${locked ? plain(it.due) : `<input class="mini" type="date" data-f="due" value="${esc(it.due || "")}">`}</td>
     <td style="width:34px;text-align:center">${locked ? "" : '<button class="link del" data-del="1" title="删除该条">×</button>'}</td>`;
 }
@@ -54,11 +53,11 @@ function groupPanel(grp, items, locked) {
       <thead><tr>
         <th>项目 / 业务提示</th><th style="width:84px">是否需要</th><th>规格</th>
         <th style="width:88px">数量</th><th style="width:100px">单价</th><th style="width:105px">总价</th>
-        <th style="width:96px">负责人</th><th style="width:130px">交付时间</th>
+        <th style="width:130px">交付时间</th>
         <th style="width:34px"></th>
       </tr></thead>
       <tbody>${items.map((it) => `<tr data-grp="${esc(grp)}">${cells(it, locked)}</tr>`).join("")}
-        ${locked ? "" : `<tr class="addrow"><td colspan="9">
+        ${locked ? "" : `<tr class="addrow"><td colspan="8">
           <button class="link" data-add="${esc(grp)}">+ 新增一行</button></td></tr>`}
       </tbody>
     </table></div>
@@ -96,7 +95,6 @@ function validateDemand(root, mode, { focus = false } = {}) {
       fail(used.get(key),"item","同一分组不能有重复项目名称");
     } else used.set(key,tr);
     if(val("spec").length>200)fail(tr,"spec","规格说明不能超过200字");
-    if(val("owner").length>20)fail(tr,"owner","负责人不能超过20字");
     const due=val("due"),dueInput=tr.querySelector('[data-f="due"]');
     if(dueInput?.validity?.badInput || (due && (!/^\d{4}-\d{2}-\d{2}$/.test(due) ||
       !Number.isFinite(Date.parse(due)) || new Date(due).toISOString().slice(0,10)!==due)))
@@ -113,7 +111,6 @@ function validateDemand(root, mode, { focus = false } = {}) {
       fail(tr,"unit_price","数量 × 单价超过金额上限");
     if(mode==="confirm" && root.dataset.demandRequireCompletion==="1" && val("need")==="需要") {
       if(!val("spec"))fail(tr,"spec","确认归档前请填写规格");
-      if(!val("owner"))fail(tr,"owner","确认归档前请填写负责人");
       if(!due)fail(tr,"due","确认归档前请填写交付时间");
     }
   }

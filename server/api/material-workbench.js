@@ -3,7 +3,7 @@ const { db } = require("../lib/db");
 const { now, bad, notFound, conflict } = require("../lib/util");
 const { getProject, assertNotFrozen } = require("../lib/workflow");
 const { assertProjectVisible, assertCan, assertModule } = require("../lib/rbac");
-const { MATERIAL_MODULE_KINDS } = require("../lib/constants");
+const { MATERIAL_MODULE_KINDS, MATERIAL_KINDS } = require("../lib/constants");
 const { logAudit } = require("../lib/audit");
 const { storage } = require("../lib/storage");
 const { isDemoMode } = require("../lib/runtime");
@@ -49,7 +49,7 @@ function register(router) {
   router.get("/api/projects/:id/material-workbench",async ctx=>{
     assertModule(ctx.user,"materials","material:write");
     const p=getProject(ctx.params.id);assertProjectVisible(ctx.user,p);
-    return {pid:p.id,modules:moduleRows(p.id),tasks:taskRows(p.id),
+    return {pid:p.id,kinds:MATERIAL_KINDS,modules:moduleRows(p.id),tasks:taskRows(p.id),
       // Uploaded names are retrieved from the project's active material records,
       // not just the mini-program's latest upload batch. Return no file keys or
       // finance data; the existing materials-module and project-scope ACL applies.
