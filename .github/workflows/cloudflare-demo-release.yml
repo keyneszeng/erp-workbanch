@@ -79,7 +79,7 @@ jobs:
           const fs=require('node:fs');
           fs.writeFileSync('web/deploy-manifest.json',JSON.stringify({
             environment:'cloudflare-demo',sourceCommit:process.env.SOURCE_SHA,
-            releasedAt:new Date().toISOString(),app:'会规化会务执行系统'
+            releasedAt:new Date().toISOString(),app:'会规智云'
           },null,2)+'\n');
           NODE
 

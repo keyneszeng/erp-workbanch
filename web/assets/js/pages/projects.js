@@ -124,8 +124,11 @@ async function openCreate(root) {
     { k: "name", l: "会议名称", req: 1, ph: "如：京津冀论坛 2027", full: 1 },
     { k: "assoc", l: "所属协会", t: "select", req: 1, opts: state.meta.assocs },
     { k: "form", l: "会议形式", t: "select", req: 1, opts: state.meta.forms },
-    { k: "date", l: "会议日期", t: "date", req: 1 },
-    { k: "days", l: "会期（天）", t: "number", v: "1" },
+    { k: "date", l: "举办开始日期", t: "date", req: 1 },
+    { k: "event_end_date", l: "举办结束日期", t: "date", req: 1 },
+    { k: "event_start_time", l: "开始时间", t: "time", v: "09:00" },
+    { k: "event_end_time", l: "结束时间", t: "time", v: "18:00" },
+    { k: "days", l: "会期（按日期自动计算）", t: "number", v: "1" },
     { k: "budget", l: "预算（元）", t: "number", req: 1, ph: "如：240000", full: 1 },
     { k: "tax_fee_rate", l: "税费管理费率（%）", t: "number", v: "0", full: 1,
       ph: "如：10 表示 10%",tip:"自定义输入 0～100，最多两位小数。按税费管理费率从立项预算扣减。" },
@@ -139,13 +142,56 @@ async function openCreate(root) {
     title: "新建立项申请",
     width: "640px",
     body: `<div class="hint" style="margin-bottom:12px">保存为「草稿」后，可在项目详情页提交审批；提交后进入「待审批」，协会管理员审批通过才进入筹备。</div>
-      ${formHtml(fields)}`,
+      ${formHtml(fields)}
+      <div class="fld full" style="grid-column:1/-1">
+        <label>上传初版议程文件 · OCR 识别录入</label>
+        <input id="agendaImportFile" type="file" accept=".pdf,.png,.jpg,.jpeg,.docx,.pptx,.xlsx,.txt">
+        <div class="tip" id="agendaImportStatus">PDF / 图片 / DOCX / PPTX / XLSX / TXT；最多 2MB。识别内容可编辑。</div>
+      </div>`,
     footer: `<button class="btn btn-o" data-a="cancel">取消</button>
              <button class="btn btn-o" data-a="draft">保存草稿</button>
              <button class="btn btn-p" data-a="submit">保存并提交</button>`
   });
   const validateFee=bindBudgetFeePreview(m);
   const box = m.querySelector(".mbox");
+  const dateInput=box.querySelector('[name="date"]');
+  const endInput=box.querySelector('[name="event_end_date"]');
+  const daysInput=box.querySelector('[name="days"]');
+  daysInput.readOnly=true;
+  const syncDates=()=>{
+    if(dateInput.value&&!endInput.value)endInput.value=dateInput.value;
+    if(!dateInput.value||!endInput.value)return;
+    const delta=(Date.parse(endInput.value+"T00:00:00Z")-Date.parse(dateInput.value+"T00:00:00Z"))/86400000;
+    daysInput.value=delta>=0&&delta<=59?String(1+delta):"";
+  };
+  dateInput.addEventListener("change",syncDates);
+  endInput.addEventListener("change",syncDates);
+  const agendaFile=box.querySelector("#agendaImportFile");
+  agendaFile?.addEventListener("change",async()=>{
+    const file=agendaFile.files?.[0];
+    if(!file)return;
+    const notice=box.querySelector("#agendaImportStatus");
+    if(file.size>2*1024*1024){
+      toast("议程文件不能超过2MB，请先压缩后导入","warn");
+      agendaFile.value="";return;
+    }
+    agendaFile.disabled=true;notice.textContent="正在读取议程文件并识别…";
+    try{
+      const encoded=await new Promise((resolve,reject)=>{
+        const reader=new FileReader();
+        reader.onerror=()=>reject(new Error("读取议程文件失败"));
+        reader.onload=()=>resolve(String(reader.result||"").split(",")[1]||"");
+        reader.readAsDataURL(file);
+      });
+      const result=await api.post("/api/projects/agenda-ocr",{filename:file.name,content_base64:encoded});
+      box.querySelector('[name="agenda"]').value=result.agenda;
+      notice.textContent=(result.truncated?"仅识别了部分页，请检查补齐。":"")+"已回填初版议程，可继续编辑";
+      toast("初版议程已识别并回填","ok");
+    }catch(err){
+      notice.textContent="识别失败，请手动录入或更换文件";
+      toast(err.message||"议程识别失败","warn");
+    }finally{agendaFile.disabled=false;}
+  });
   const assocSelect = box.querySelector('[name="assoc"]');
   const ownerSelect = box.querySelector('[name="owner_id"]');
   if (assocSelect && ownerSelect) {
@@ -160,6 +206,13 @@ async function openCreate(root) {
   box.querySelectorAll("[data-a]").forEach((btn) => {
     if (btn.dataset.a === "cancel") return;
     btn.addEventListener("click", async () => {
+      syncDates();
+      if(!daysInput.value){toast("举办时间段不正确（最多60天）","warn");return;}
+      const start=box.querySelector('[name="event_start_time"]')?.value||"";
+      const end=box.querySelector('[name="event_end_time"]')?.value||"";
+      if(dateInput.value===endInput.value&&start&&end&&end<start){
+        toast("结束时间不能早于开始时间","warn");return;
+      }
       if (!validate(box, fields) || !validateFee()) return;
       const v = readForm(box);
       btn.disabled = true;

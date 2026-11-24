@@ -724,6 +724,16 @@ function migrate() {
   addColumn("public_event_proposals", "handled_at", "handled_at TEXT");
   addColumn("public_event_proposals", "handled_by", "handled_by INTEGER REFERENCES users(id) ON DELETE SET NULL");
   addColumn("public_event_proposals", "handling_note", "handling_note TEXT NOT NULL DEFAULT ''");
+  // 公众立项与内部立项统一核心字段；历史数据使用原始日期/默认会期兼容。
+  addColumn("public_event_proposals", "event_end_date", "event_end_date TEXT");
+  addColumn("public_event_proposals", "event_end_time", "event_end_time TEXT");
+  addColumn("public_event_proposals", "requested_assoc", "requested_assoc TEXT NOT NULL DEFAULT ''");
+  addColumn("public_event_proposals", "dept", "dept TEXT NOT NULL DEFAULT ''");
+  addColumn("public_event_proposals", "people", "people INTEGER NOT NULL DEFAULT 0");
+  addColumn("public_event_proposals", "tax_fee_rate", "tax_fee_rate REAL NOT NULL DEFAULT 0");
+  addColumn("projects", "event_start_time", "event_start_time TEXT");
+  addColumn("projects", "event_end_date", "event_end_date TEXT");
+  addColumn("projects", "event_end_time", "event_end_time TEXT");
   // V1.0.3：跨实例吊销签名令牌
   addColumn("users", "token_ver", "token_ver INTEGER NOT NULL DEFAULT 0");
   // 显式按用户授权；迁移时不会将旧角色权限自动转为用户授权。

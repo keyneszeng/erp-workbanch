@@ -26,6 +26,7 @@ function formFor(ctx,b){
   const v={
     name:String(b.name||"").trim(),assoc,
     form:String(b.form||"线下"),date:String(b.date||""),
+    event_end_date:String(b.event_end_date||""),event_start_time:String(b.event_start_time||""),event_end_time:String(b.event_end_time||""),
     days:b.days===undefined?1:b.days,budget:b.budget,people:b.people===undefined?0:b.people,
     owner:actor.name,owner_id:actor.id,phone:String(b.phone||""),
     dept:String(b.dept||"").trim(),agenda:String(b.agenda||"").trim()
@@ -45,8 +46,8 @@ function register(router){
     requireMini();
     assertCan(ctx.user,"mini:apply","当前账号尚未获微信端立项申请权限");
     const p=ownApplication(ctx,ctx.params.id);
-    const {id,name,assoc,form,date,days,budget,people,phone,dept,agenda,status,created_at}=p;
-    return {project:{id,name,assoc,form,date,days,budget,people,phone,dept,agenda,status,created_at}};
+    const {id,name,assoc,form,date,days,event_end_date,event_start_time,event_end_time,budget,people,phone,dept,agenda,status,created_at}=p;
+    return {project:{id,name,assoc,form,date,days,event_end_date,event_start_time,event_end_time,budget,people,phone,dept,agenda,status,created_at}};
   });
   router.post("/api/mini/applications",async ctx=>{
     requireMini();
@@ -55,8 +56,8 @@ function register(router){
     const pending=db.prepare("SELECT COUNT(*) AS n FROM projects WHERE created_by=? AND status IN ('草稿','待审批')").get(ctx.user.id).n;
     if(pending>=5)throw conflict("你已有 5 份未审批的申请，请先处理现有申请","APPLICATION_LIMIT");
     const id=nextId(db,"projects","id","MP"),at=now();
-    db.prepare("INSERT INTO projects (id,name,assoc,form,date,days,budget,people,owner,owner_id,phone,dept,agenda,status,status_at,created_by,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
-      .run(id,v.name,v.assoc,v.form,v.date,Number(v.days),Number(v.budget),Number(v.people),v.owner,v.owner_id,v.phone,v.dept,v.agenda,"草稿",at,ctx.user.id,at,at);
+    db.prepare("INSERT INTO projects (id,name,assoc,form,date,days,event_end_date,event_start_time,event_end_time,budget,people,owner,owner_id,phone,dept,agenda,status,status_at,created_by,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
+      .run(id,v.name,v.assoc,v.form,v.date,Number(v.days),v.event_end_date||null,v.event_start_time||null,v.event_end_time||null,Number(v.budget),Number(v.people),v.owner,v.owner_id,v.phone,v.dept,v.agenda,"草稿",at,ctx.user.id,at,at);
     db.prepare("INSERT OR IGNORE INTO project_members (project_id,user_id,role) VALUES (?,?,?)").run(id,ctx.user.id,"创建人");
     logAudit({user:ctx.user,module:"项目管理",action:"微信立项申请草稿",target:id,detail:"按本人协会创建申请草稿",ip:ctx.ip});
     return {project:{id,status:"草稿"},message:"草稿已保存，尚未提交审批"};
@@ -67,8 +68,8 @@ function register(router){
     const p=ownApplication(ctx,ctx.params.id);
     if(p.status!=="草稿")throw conflict("申请已提交，只能编辑草稿","APPLICATION_LOCKED");
     const v=formFor(ctx,ctx.body||{});
-    db.prepare("UPDATE projects SET name=?,assoc=?,form=?,date=?,days=?,budget=?,people=?,phone=?,dept=?,agenda=?,updated_at=? WHERE id=?")
-      .run(v.name,v.assoc,v.form,v.date,Number(v.days),Number(v.budget),Number(v.people),v.phone,v.dept,v.agenda,now(),p.id);
+    db.prepare("UPDATE projects SET name=?,assoc=?,form=?,date=?,days=?,event_end_date=?,event_start_time=?,event_end_time=?,budget=?,people=?,phone=?,dept=?,agenda=?,updated_at=? WHERE id=?")
+      .run(v.name,v.assoc,v.form,v.date,Number(v.days),v.event_end_date||null,v.event_start_time||null,v.event_end_time||null,Number(v.budget),Number(v.people),v.phone,v.dept,v.agenda,now(),p.id);
     logAudit({user:ctx.user,module:"项目管理",action:"修改本人立项草稿",target:p.id,detail:"提交前补充申请信息",ip:ctx.ip});
     return {project:{id:p.id,status:p.status},message:"草稿已更新"};
   });

@@ -38,15 +38,33 @@
       </picker>
     </view>
     <view class="field">
-      <view class="field-label"><text class="required">*</text>会议日期</view>
+      <view class="field-label"><text class="required">*</text>举办开始日期</view>
       <picker mode="date" value="{{date}}" bindchange="pickDate" disabled="{{status!=='草稿'}}">
-        <view class="picker-control"><text class="picker-value">{{date||'选择日期'}}</text><text class="picker-arrow">⌄</text></view>
+        <view class="picker-control"><text class="picker-value">{{date||'选择开始日期'}}</text><text class="picker-arrow">⌄</text></view>
       </picker>
     </view>
     <view class="field">
-      <view class="field-label">会期</view>
-      <input class="field-control" type="number" value="{{days}}" data-key="days" bindinput="input" placeholder="请输入天数" disabled="{{status!=='草稿'}}"/>
-      <view class="field-hint">按自然日填写，默认 1 天</view>
+      <view class="field-label"><text class="required">*</text>举办结束日期</view>
+      <picker mode="date" value="{{event_end_date}}" bindchange="pickEndDate" disabled="{{status!=='草稿'}}">
+        <view class="picker-control"><text class="picker-value">{{event_end_date||'选择结束日期'}}</text><text class="picker-arrow">⌄</text></view>
+      </picker>
+    </view>
+    <view class="field">
+      <view class="field-label">开始时间</view>
+      <picker mode="time" value="{{event_start_time}}" bindchange="pickStartTime" disabled="{{status!=='草稿'}}">
+        <view class="picker-control"><text class="picker-value">{{event_start_time}}</text><text class="picker-arrow">⌄</text></view>
+      </picker>
+    </view>
+    <view class="field">
+      <view class="field-label">结束时间</view>
+      <picker mode="time" value="{{event_end_time}}" bindchange="pickEndTime" disabled="{{status!=='草稿'}}">
+        <view class="picker-control"><text class="picker-value">{{event_end_time}}</text><text class="picker-arrow">⌄</text></view>
+      </picker>
+    </view>
+    <view class="field">
+      <view class="field-label">自动计算会期</view>
+      <view class="field-readonly">{{days||'待选择日期区间'}} 天</view>
+      <view class="field-hint">支持跨日举办，自动按自然日计算，最多60天</view>
     </view>
   </view>
 
@@ -74,8 +92,11 @@
     </view>
     <view class="field">
       <view class="field-label"><text class="required">*</text>初版议程</view>
-      <textarea class="textarea-control" value="{{agenda}}" data-key="agenda" bindinput="input" placeholder="例如：09:00 开场；09:30 专题演讲" maxlength="2000" disabled="{{status!=='草稿'}}"/>
-      <view class="field-hint">可填写主要环节、时间安排与拟邀嘉宾</view>
+      <button wx:if="{{status==='草稿'}}" class="btn ghost" loading="{{ocrBusy}}" disabled="{{ocrBusy||busy}}" bindtap="chooseAgenda">上传议程文件 · OCR 识别录入</button>
+      <view class="field-hint">PDF、图片、DOCX、PPTX、XLSX、TXT 不超过2MB；识别后可修改</view>
+      <view wx:if="{{agendaFile}}" class="field-hint">已识别文件：{{agendaFile}}</view>
+      <view wx:if="{{ocrNotice}}" class="field-hint">{{ocrNotice}}</view>
+      <textarea class="textarea-control" value="{{agenda}}" data-key="agenda" bindinput="input" placeholder="上传议程自动回填，或手动填写环节" maxlength="3000" disabled="{{status!=='草稿'}}"/>
     </view>
   </view>
 

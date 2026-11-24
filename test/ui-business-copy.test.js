@@ -155,7 +155,8 @@ test("会规智云品牌在 Web、小程序、邀请函、导出 PDF 与发布�
   "miniprogram/pages/invite/index.wxml",
   "miniprogram/project.config.json","miniprogram/README.md","README.md",
   "server/lib/archive-pdf.js","server/lib/material-export-pdf.js",
-  "server/lib/prep-invitation.js"
+  "server/lib/prep-invitation.js","server/api/auth.js",
+  ".github/workflows/cloudflare-demo-release.yml"
  ];
  const legacyName=new RegExp("会规化"+"会务执行系统");
  for(const file of visible){

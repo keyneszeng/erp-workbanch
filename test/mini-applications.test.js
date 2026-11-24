@@ -53,6 +53,7 @@ test("mobile participant application: own-association draft, edit, submit and ma
  }
  const alice=await auth("13900139000"),bob=await auth("13700137000");
  const base={name:"移动端真实立项申请",assoc:ASSOCS[0],form:"线下",date:"2027-08-10",days:2,
+  event_end_date:"2027-08-11",event_start_time:"09:00",event_end_time:"18:00",
   budget:20000,people:120,agenda:"09:00开场；09:30专题发言；10:30交流"};
  assert.equal((await req("POST","/api/projects",{...base,owner_id:a.body.user.id},alice)).status,403,
   "ordinary user cannot bypass the dedicated application API");
@@ -64,9 +65,21 @@ test("mobile participant application: own-association draft, edit, submit and ma
  assert.ok(!meta.body.depts.includes("会务部"));
  const rejectedDept=await req("POST","/api/mini/applications",{...base,dept:"会务部"},alice);
  assert.equal(rejectedDept.status,400,"旧部门不能用于新立项");
+ const agendaFile={filename:"初版议程.txt",content_base64:Buffer.from("09:00 开幕\n10:00 专题报告").toString("base64")};
+ assert.equal((await req("POST","/api/projects/agenda-ocr",agendaFile)).status,401,
+  "内部议程OCR不能被匿名调用");
+ const importAgenda=await req("POST","/api/projects/agenda-ocr",agendaFile,alice);
+ assert.equal(importAgenda.status,200,JSON.stringify(importAgenda.body));
+ assert.match(importAgenda.body.agenda,/专题报告/);
+ const invalidPeriod=await req("POST","/api/mini/applications",{...base,event_end_date:"2027-08-12"},alice);
+ assert.equal(invalidPeriod.status,400,"会期必须与举办时间段一致");
  const created=await req("POST","/api/mini/applications",base,alice);
  assert.equal(created.status,200,JSON.stringify(created.body));
  const id=created.body.project.id;
+ const period=(await req("GET","/api/mini/applications/"+id,undefined,alice)).body.project;
+ assert.equal(period.event_end_date,"2027-08-11");
+ assert.equal(period.event_start_time,"09:00");
+ assert.equal(period.event_end_time,"18:00");
  const mine=await req("GET","/api/mini/applications",undefined,alice);
  assert.equal(mine.status,200);
  assert.ok(mine.body.rows.some(x=>x.id===id&&x.status==="草稿"));

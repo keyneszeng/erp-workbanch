@@ -13,9 +13,9 @@ const sample={
  contact_name:"公众联系人",contact_phone:"13800138000",
  contact_info:"contact@example.org",consent:true,website:""
 };
-async function req(url,method="GET",data,cookie){
+async function req(url,method="GET",data,cookie,extraHeaders={}){
  const r=await fetch(base+url,{
-  method,headers:{...(data?{"content-type":"application/json"}:{}),...(cookie?{cookie}:{})},
+  method,headers:{...(data?{"content-type":"application/json"}:{}),...(cookie?{cookie}:{}),...extraHeaders},
   body:data?JSON.stringify(data):undefined
  });
  return {status:r.status,data:await r.json(),cookie:r.headers.get("set-cookie")?.split(";")[0]};
@@ -80,6 +80,54 @@ test("public submissions validate required fields, consent and dates, and reject
  const limited=await req("/api/public/event-proposals","POST",sample);
  assert.equal(limited.status,429);
 });
+test("public uses internal-template fields and a spanning event period without creating approvals",async()=>{
+ const input={...sample,topic:"2027 跨日会议",event_date:"2027-03-14",event_end_date:"2027-03-16",
+  event_time:"08:30",event_end_time:"18:00",requested_assoc:"示例协会",
+  dept:"学术部",people:"250",tax_fee_rate:"8.5"};
+ const r=await req("/api/public/event-proposals","POST",input,null,{"x-real-ip":"198.51.100.25"});
+ assert.equal(r.status,200,JSON.stringify(r.data));
+ const row=db.prepare("SELECT * FROM public_event_proposals WHERE id=?").get(r.data.reference);
+ assert.equal(row.event_end_date,"2027-03-16");
+ assert.equal(row.event_end_time,"18:00");
+ assert.equal(row.requested_assoc,"示例协会");
+ assert.equal(row.people,250);
+ assert.equal(row.dept,"学术部");
+ assert.equal(row.tax_fee_rate,8.5);
+ const assoc=(await req("/api/associations","GET",undefined,adminCookie)).data.rows[0];
+ const converted=await req("/api/admin/public-event-proposals/"+row.id+"/convert","POST",{assoc},adminCookie);
+ assert.equal(converted.status,200,JSON.stringify(converted.data));
+ const p=db.prepare("SELECT * FROM projects WHERE id=?").get(converted.data.project.id);
+ assert.equal(p.days,3,"跨日日期自动映射内部会期");
+ assert.equal(p.event_start_time,"08:30");
+ assert.equal(p.event_end_date,"2027-03-16");
+ assert.equal(p.event_end_time,"18:00");
+ assert.equal(p.people,250);
+ assert.equal(p.tax_fee_rate,8.5);
+ assert.equal(p.dept,"学术部");
+ assert.equal(p.status,"草稿");
+});
+test("public OCR accepts genuine text file and blocks spoofed, oversized or unsupported documents",async()=>{
+ const endpoint="/api/public/event-proposals/agenda-ocr";
+ const agenda="09:00 开幕致辞\n10:00 临床专题分享\n11:00 病例讨论";
+ const good=await req(endpoint,"POST",{filename:"议程.txt",content_base64:Buffer.from(agenda).toString("base64")});
+ assert.equal(good.status,200,JSON.stringify(good.data));
+ assert.match(good.data.agenda,/临床专题分享/);
+ const fake=await req(endpoint,"POST",{filename:"恶意.pdf",content_base64:Buffer.from("<script>alert(1)</script>").toString("base64")});
+ assert.equal(fake.status,400);
+ const huge=await req(endpoint,"POST",{filename:"议程.txt",content_base64:"A".repeat(2.9*1024*1024|0)});
+ assert.ok([400,413].includes(huge.status));
+});
+test("public event period rejects reverse time order and calendar-invalid end dates",async()=>{
+ for(const invalid of [
+  {event_end_date:"2027-03-13"},
+  {event_end_date:"2027-03-14",event_end_time:"08:00"},
+  {event_end_date:"2027-02-30"},
+  {event_end_date:"2027-05-31",event_end_time:"10:00"}
+ ]){
+  const result=await req("/api/public/event-proposals","POST",{...sample,...invalid});
+  assert.equal(result.status,400,JSON.stringify({invalid,data:result.data}));
+ }
+});
 test("mini public page does not depend on wx.login or internal draft approval",()=>{
  const appJson=JSON.parse(fs.readFileSync(path.join(__dirname,"../miniprogram/app.json"),"utf8"));
  assert.equal(appJson.pages[0],"pages/welcome/index");
@@ -87,6 +135,12 @@ test("mini public page does not depend on wx.login or internal draft approval",(
  const publicJs=fs.readFileSync(path.join(__dirname,"../miniprogram/pages/public-proposal/index.js"),"utf8");
  const inside=fs.readFileSync(path.join(__dirname,"../miniprogram/pages/apply/index.js"),"utf8");
  assert.match(publicJs,/\/public\/event-proposals/);
+ assert.match(publicJs,/chooseAgenda/);
+ assert.match(publicJs,/event_end_date/);
+ assert.match(publicJs,/requested_assoc/);
+ const publicView=fs.readFileSync(path.join(__dirname,"../miniprogram/pages/public-proposal/index.wxml"),"utf8");
+ assert.match(publicView,/上传议程文件/);
+ assert.match(publicView,/举办结束日期/);
  assert.doesNotMatch(publicJs,/\/mini\/applications/);
  assert.match(inside,/\/mini\/applications/);
  const app=fs.readFileSync(path.join(__dirname,"../miniprogram/app.js"),"utf8");
