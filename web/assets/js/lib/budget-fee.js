@@ -19,10 +19,10 @@ export function bindBudgetFeePreview(modal){
  </div>`);
  const output=modal.querySelector("[data-available-budget]");
  function refresh(){
-  const n=budgetAvailablePreview(budget.value,fee.value||0);
+  const n=String(fee.value).trim()===""?null:budgetAvailablePreview(budget.value,fee.value);
   output.textContent=n===null?"请检查预算和费率":"¥"+n.toLocaleString("zh-CN",{minimumFractionDigits:2,maximumFractionDigits:2});
-  const r=Number(fee.value||0);
-  fld.classList.toggle("err",!Number.isFinite(r)||r<0||r>100||!isCents(r));
+  const r=Number(fee.value);
+  fld.classList.toggle("err",String(fee.value).trim()===""||!Number.isFinite(r)||r<0||r>100||!isCents(r));
   return n!==null;
  }
  budget.addEventListener("input",refresh);
@@ -30,7 +30,7 @@ export function bindBudgetFeePreview(modal){
  refresh();
  return ()=>{
    if(!refresh()){
-     toast("预算须大于0；税费管理费率为0～100%，最多两位小数","warn");
+     toast("请填写协会管理费及税费率（可明确填写0%）；费率应为0～100%，最多两位小数","warn");
      return false;
    }
    return true;
