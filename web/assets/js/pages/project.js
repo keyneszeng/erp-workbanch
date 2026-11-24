@@ -452,7 +452,8 @@ function tabVerify(d, p) {
 /* ---------------- 材料 ---------------- */
 function tabMaterials(d, p) {
   const ms = d.materialsStatus;
-  const validMaterials=(d.materials||[]).filter(m=>!m.deleted_at);
+  const validMaterials=(d.materials||[]).filter(m=>!m.deleted_at)
+    .map(m=>m.kind==="劳务收集表"?{...m,kind:"劳务表"}:m);
   const unavailable=new Set(ms.disabled||[]);
   const recommended=(state.meta?.materialKinds||[]).filter(k=>!unavailable.has(k));
   const otherKinds=[...new Set(validMaterials.map(m=>m.kind))]
