@@ -11,7 +11,7 @@ Page({
   custom:false,customKind:"",locked:false,batchResults:[],speakerFiles:[],
   sponsorRights:[{id:"",label:"请选择赞助权益类目"}],rightIndex:0,rightId:""},
  onLoad(q){if(q.pid)this.setData({pid:q.pid});},
- onShow(){this.load();},
+ onShow(){return this.load();},
  async load(){
   try{
    const r=await app.api("/projects?page=1&size=100");
