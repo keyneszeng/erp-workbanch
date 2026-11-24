@@ -26,7 +26,7 @@ export const NAV = [
   { k: "materials", n: "材料收集", items: [{ k: "materials", n: "材料收集" }] },
   { k: "archive", n: "档案中心", items: [{ k: "archive", n: "数字卷宗" }] },
   { k: "audit", n: "审计日志", items: [{ k: "audit", n: "操作留痕" }] },
-  { k: "system", n: "系统配置", items: [{ k: "users", n: "用户与权限", need: () => !!state.super }, { k: "recycle-bin", n: "废件箱", need: () => !!state.super }, { k: "public-proposals", n: "公众活动申请收件箱", need: () => !!state.super }, { k: "invitation-config", n: "邀请函上线配置", need: () => !!state.super }] }
+  { k: "system", n: "系统配置", items: [{ k: "users", n: "用户与权限", need: () => !!state.super }, { k: "recycle-bin", n: "废件箱", need: () => !!state.super }, { k: "admin-content", n: "全部内容修订", need: () => !!state.super }, { k: "public-proposals", n: "公众活动申请收件箱", need: () => !!state.super }, { k: "invitation-config", n: "邀请函上线配置", need: () => !!state.super }] }
 ];
 
 /**
@@ -35,7 +35,7 @@ export const NAV = [
  */
 export function canVisit(nav) {
   // 纵使旧客户端还缓存了 system 模块，也不允许非总管理员进入。
-  if (["users","public-proposals","invitation-config","recycle-bin"].includes(nav) && !state.super) return false;
+  if (["users","public-proposals","invitation-config","recycle-bin","admin-content"].includes(nav) && !state.super) return false;
   const mods = state.role?.modules || [];
   // 操作模块对会议有只读依赖；API仍按账号数据范围与每项业务授权裁剪。
   if(nav==="projects" && (
