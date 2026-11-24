@@ -151,6 +151,14 @@ async function ready(){
 
   // Same dialog from Material Center; fail one upload then retry only that item.
   await page.goto(origin+"/#/materials",{waitUntil:"domcontentloaded"});
+  const guide=page.locator("[data-guide-kind]");
+  await guide.first().waitFor({timeout:12000});
+  assert.ok(await guide.count()>=12,"central material panel lists the same recommended categories as mini");
+  await page.locator('[data-guide-kind="劳务收集表"]').click();
+  const guidedModal=page.locator("#modal.open");
+  assert.equal(await guidedModal.locator('[name="kind"]').inputValue(),"劳务收集表",
+    "category chip should directly open uploader with selected kind");
+  await guidedModal.locator('[data-x="0"]').click();
   await page.locator("#add").click();
   const second=page.locator("#modal.open");
   await second.locator('[name="pid"]').selectOption(pid);
