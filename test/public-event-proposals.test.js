@@ -13,9 +13,9 @@ const sample={
  contact_name:"公众联系人",contact_phone:"13800138000",
  contact_info:"contact@example.org",consent:true,website:""
 };
-async function req(url,method="GET",data,cookie){
+async function req(url,method="GET",data,cookie,extraHeaders={}){
  const r=await fetch(base+url,{
-  method,headers:{...(data?{"content-type":"application/json"}:{}),...(cookie?{cookie}:{})},
+  method,headers:{...(data?{"content-type":"application/json"}:{}),...(cookie?{cookie}:{}),...extraHeaders},
   body:data?JSON.stringify(data):undefined
  });
  return {status:r.status,data:await r.json(),cookie:r.headers.get("set-cookie")?.split(";")[0]};
@@ -84,7 +84,7 @@ test("public uses internal-template fields and a spanning event period without c
  const input={...sample,topic:"2027 跨日会议",event_date:"2027-03-14",event_end_date:"2027-03-16",
   event_time:"08:30",event_end_time:"18:00",requested_assoc:"示例协会",
   dept:"学术部",people:"250",tax_fee_rate:"8.5"};
- const r=await req("/api/public/event-proposals","POST",input);
+ const r=await req("/api/public/event-proposals","POST",input,null,{"x-real-ip":"198.51.100.25"});
  assert.equal(r.status,200,JSON.stringify(r.data));
  const row=db.prepare("SELECT * FROM public_event_proposals WHERE id=?").get(r.data.reference);
  assert.equal(row.event_end_date,"2027-03-16");
