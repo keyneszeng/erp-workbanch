@@ -247,15 +247,18 @@ const EXPORTS = {
   },
   payments: {
     module: "财务结算", file: "付款明细",
-    headers: ["付款单号", "项目", "类型", "收款方", "开户行", "银行账号", "金额", "期次", "发票号", "申请人", "状态", "付款时间"],
-    sql: (u) => {
+    headers: ["付款单号", "会议编号", "项目", "类型", "收款方", "开户行", "银行账号", "金额", "期次", "发票号", "申请人", "状态", "付款时间"],
+    sql: (u, selectedPids = null) => {
       const { sql, params } = scopeFilter(u);
+      // 仅绑定参数，绝不把前端会议编号拼进 SQL。旧 GET 无选择时兼容原全量导出。
+      const selected=Array.isArray(selectedPids)&&selectedPids.length
+        ? " AND p.id IN ("+selectedPids.map(()=>"?").join(",")+")" : "";
       return {
-        sql: `SELECT y.*, p.name AS pname FROM payments y JOIN projects p ON p.id=y.pid WHERE ${sql} ORDER BY y.created_at DESC`,
-        params
+        sql: `SELECT y.*, p.name AS pname FROM payments y JOIN projects p ON p.id=y.pid WHERE ${sql}${selected} ORDER BY y.created_at DESC, y.id DESC`,
+        params: selected ? [...params,...selectedPids] : params
       };
     },
-    map: (r, user) => [r.id, r.pname, r.type, r.payee, r.payee_bank || "",
+    map: (r, user) => [r.id, r.pid, r.pname, r.type, r.payee, r.payee_bank || "",
       can(user,"payment:pay") ? (r.payee_account || "") : (r.payee_account ? "****"+String(r.payee_account).slice(-4) : ""),
       r.amount, r.period || "", r.invoice_no, r.req_user, r.status, r.paid_at || ""]
   },
@@ -679,24 +682,48 @@ function register(router) {
     return { rows: db.prepare("SELECT * FROM exports ORDER BY id DESC LIMIT 50").all() };
   });
 
-  router.get("/api/export/:kind", async (ctx) => {
-    const kind = ctx.params.kind.replace(/\.csv$/, "");
-    const def = EXPORTS[kind];
-    if (!def) throw notFound("不支持的导出类型");
-    if (kind !== "audit") assertCan(ctx.user, "export:any", "当前角色无导出权限");
-    else if (!can(ctx.user, "audit:read")) throw require("../lib/util").forbidden("当前角色无审计导出权限");
-    const q = def.sql(ctx.user);
-    const rows = db.prepare(q.sql).all(...q.params);
-    const csv = toCsv(def.headers, rows.map((row) => def.map(row, ctx.user)));
-    const filename = `${def.file}-${today().replace(/-/g, "")}.csv`;
+  // POST 付款导出必须显式选择会议，允许跨多场合并为一个 CSV；旧 GET 入口保持兼容。
+  // 同时校验会议范围而非只过滤付款行：越权/不存在的会议不能被静默忽略。
+  function selectedPaymentPids(ctx) {
+    assertCan(ctx.user,"export:any","当前角色无付款明细导出权限");
+    const raw=ctx.body?.pids;
+    if(!Array.isArray(raw)||raw.length===0||raw.length>300)
+      throw bad("请选择 1～300 场会议后导出付款明细");
+    const ids=raw.map(id=>typeof id==="string"?id.trim():"");
+    if(ids.some(id=>!id||id.length>80)||new Set(ids).size!==ids.length)
+      throw bad("会议编号无效或重复，请重新选择");
+    const {sql,params}=scopeFilter(ctx.user);
+    const placeholders=ids.map(()=>"?").join(",");
+    const authorized=db.prepare(
+      `SELECT COUNT(*) AS n FROM projects p WHERE (${sql}) AND p.id IN (${placeholders})`
+    ).get(...params,...ids);
+    if(Number(authorized?.n)!==ids.length)
+      throw forbidden("所选会议包含无权访问或不存在的项目，请刷新会议列表后重新选择");
+    return ids;
+  }
+
+  function exportCsv(ctx,kind,selectedPids=null) {
+    const def=EXPORTS[kind];
+    if(!def)throw notFound("不支持的导出类型");
+    if(kind!=="audit")assertCan(ctx.user,"export:any","当前角色无导出权限");
+    else if(!can(ctx.user,"audit:read"))throw forbidden("当前角色无审计导出权限");
+    const q=def.sql(ctx.user,selectedPids);
+    const rows=db.prepare(q.sql).all(...q.params);
+    const csv=toCsv(def.headers,rows.map(row=>def.map(row,ctx.user)));
+    const suffix=selectedPids ? "-"+selectedPids.length+"场会议" : "";
+    const filename=`${def.file}${suffix}-${today().replace(/-/g,"")}.csv`;
     db.prepare("INSERT INTO exports (at,user_name,module,filename,rows) VALUES (?,?,?,?,?)")
-      .run(now(), ctx.user.name, def.module, filename, rows.length);
-    logAudit({ user: ctx.user, module: def.module, action: "导出", target: kind, detail: `导出 ${filename}，${rows.length} 行`, ip: ctx.ip });
-    return {
-      __csv: csv,
-      __filename: filename
-    };
-  });
+      .run(now(),ctx.user.name,def.module,filename,rows.length);
+    logAudit({user:ctx.user,module:def.module,action:"导出",target:kind,
+      detail:`导出 ${filename}，${rows.length} 行`+(selectedPids?"；选择会议 "+selectedPids.join("、"):""),ip:ctx.ip});
+    return {__csv:csv,__filename:filename};
+  }
+
+  router.get("/api/export/:kind", async ctx=>
+    exportCsv(ctx,ctx.params.kind.replace(/\.csv$/,"")));
+
+  router.post("/api/export/payments", async ctx=>
+    exportCsv(ctx,"payments",selectedPaymentPids(ctx)));
 
   /* ---------------- 演示数据重置 ---------------- */
 
