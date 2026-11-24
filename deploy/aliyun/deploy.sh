@@ -254,12 +254,12 @@ if [ "$DRY_RUN" = "0" ]; then
     TEST_REV="/opt/erp-test/current/.revision"
     APPROVED_SHA="${ERP_APPROVED_SHA:-}"
     if [ -z "$APPROVED_SHA" ] && [ -f "$TEST_REV" ]; then
-      APPROVED_SHA="$(tr -d '\\r\\n' < "$TEST_REV")"
+      APPROVED_SHA="$(head -n 1 "$TEST_REV")"
     fi
     [ -n "$APPROVED_SHA" ] || die "生产发布缺少已验收的版本：请先部署并验收同机测试版，或提供 ERP_APPROVED_SHA（40 位 main 提交 SHA）"
     [ "$APPROVED_SHA" = "$SOURCE_SHA" ] || die "生产提交 $SOURCE_SHA 与已验收的测试提交 $APPROVED_SHA 不一致；禁止跨版本发布"
   fi
-  printf '%s\\n' "$SOURCE_SHA" > "$RELEASE_DIR/.revision"
+  printf '%s\n' "$SOURCE_SHA" > "$RELEASE_DIR/.revision"
   log "统一代码版本：$SOURCE_SHA"
 fi
 
