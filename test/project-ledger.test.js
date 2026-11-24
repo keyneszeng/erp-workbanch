@@ -79,9 +79,9 @@ test("列表搜索可按会议编号定位并保留跨模块只读汇总",async(
 });
 test("按会议编号对照应展示结余（结算利润）而非结算支出",async()=>{
  const source=fs.readFileSync(path.join(__dirname,"..","web/assets/js/pages/project-ledger.js"),"utf8");
- assert.match(source,/\\{t:"结余",w:"110px"\\}/);
- assert.match(source,/x\\.financial_summary\\.settlement_profit===null\\?"未生成":num\\(x\\.financial_summary\\.settlement_profit\\)/);
- assert.doesNotMatch(source,/\\{t:"结算支出",w:"110px"\\}/);
+ assert.ok(source.includes('{t:"结余",w:"110px"}'));
+ assert.ok(source.includes('x.financial_summary.settlement_profit===null?"未生成":num(x.financial_summary.settlement_profit)'));
+ assert.ok(!source.includes('{t:"结算支出",w:"110px"}'));
  const list=await request("admin","/api/project-ledger?page=1&size=100");
  assert.equal(list.status,200);
  const settled=list.body.rows.filter(x=>x.financial_summary.settlement_profit!==null);
