@@ -316,6 +316,80 @@ test("导出范围与列表口径一致（嘉宾 / 协会）", async () => {
   assert.equal(g.status, 403);
 });
 
+test("付款明细导出可勾选多场会议：只包含选中记录，含会议编号、完整表头及导出留痕",async()=>{
+ const all=await admin("GET","/api/projects");
+ assert.equal(all.status,200);
+ const pids=all.data.rows.slice(0,3).map(p=>p.id);
+ assert.equal(pids.length,3,"演示库应有三场不同会议");
+ const {DatabaseSync}=require("node:sqlite");
+ const db=new DatabaseSync(DB);
+ try{
+  for(let i=0;i<3;i++){
+   db.prepare("INSERT INTO payments(id,pid,type,payee,payee_bank,payee_account,amount,invoice_no,req_user,status,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)")
+    .run("PY-MULTI-EXPORT-"+i,pids[i],"学会公付","多会议导出测试收款人"+i,
+      "测试银行","1234567890123456",100+i,"EXP-"+i,"测试员","已付款","2026-11-25 00:00:00");
+  }
+ }finally{db.close();}
+ const cookie=await login("admin");
+ async function exportFor(pids){
+  const res=await fetch(BASE+"/api/export/payments",{
+   method:"POST",headers:{cookie,"content-type":"application/json"},
+   body:JSON.stringify({pids})});
+  return {status:res.status,text:await res.text(),disposition:res.headers.get("content-disposition")||""};
+ }
+ const two=await exportFor(pids.slice(0,2));
+ assert.equal(two.status,200,two.text);
+ assert.match(two.text,/^﻿"付款单号","会议编号","项目","类型"/);
+ assert.match(two.text,/PY-MULTI-EXPORT-0/);
+ assert.match(two.text,/PY-MULTI-EXPORT-1/);
+ assert.doesNotMatch(two.text,/PY-MULTI-EXPORT-2/);
+ assert.match(two.disposition,/2%E5%9C%BA%E4%BC%9A%E8%AE%AE|2场会议/);
+ const data=two.text.split("\r\n").slice(1).filter(Boolean);
+ assert.ok(data.length>=2);
+ for(const line of data){
+  const m=/^"[^"]*","([^"]+)"/.exec(line);
+  assert.ok(m,"每行在付款单号之后明确导出会议编号");
+  assert.ok(pids.slice(0,2).includes(m[1]),"意外导出未勾选会议 "+m[1]);
+ }
+ const one=await exportFor([pids[2]]);
+ assert.equal(one.status,200,one.text);
+ assert.match(one.text,/PY-MULTI-EXPORT-2/);
+ assert.doesNotMatch(one.text,/PY-MULTI-EXPORT-0|PY-MULTI-EXPORT-1/);
+ const legacy=await fetch(BASE+"/api/export/payments",{headers:{cookie}});
+ assert.equal(legacy.status,200,"旧 GET 导出仍须保持兼容");
+ const history=await admin("GET","/api/exports");
+ assert.equal(history.status,200);
+ assert.ok(history.data.rows.some(r=>String(r.filename).includes("付款明细-2场会议")),
+  "按会议选择导出必须与已有导出动作一样写入审计台账");
+});
+
+test("付款导出选择校验：空、重复、超量、无权限与跨协会混选均被拒绝",async()=>{
+ const all=(await admin("GET","/api/projects")).data.rows;
+ const scope=(await assoc("GET","/api/projects")).data.rows;
+ const visibleIds=new Set(scope.map(x=>x.id));
+ const outside=all.find(p=>!visibleIds.has(p.id));
+ assert.ok(scope.length>=1&&outside,"测试数据必须含本协会及外协会会议");
+ const cookie=await login("assoc");
+ const request=async pids=>{
+  const res=await fetch(BASE+"/api/export/payments",{
+   method:"POST",headers:{cookie,"content-type":"application/json"},body:JSON.stringify({pids})});
+  return {status:res.status,text:await res.text()};
+ };
+ assert.equal((await request([])).status,400);
+ assert.equal((await request([scope[0].id,scope[0].id])).status,400);
+ assert.equal((await request(Array.from({length:301},(_,i)=>"MP-INVALID-"+i))).status,400);
+ assert.equal((await request(["unknown-meeting"])).status,403);
+ assert.equal((await request([scope[0].id,outside.id])).status,403,
+  "混入不在本人范围内的会议必须拒绝整次导出，不能泄漏明细");
+ const allowed=await request([scope[0].id]);
+ assert.equal(allowed.status,200,allowed.text);
+ const denied=await guest("POST","/api/export/payments",{pids:[scope[0].id]});
+ assert.equal(denied.status,403,"无导出权限的访客不能只靠传会议号获取付款信息");
+ assert.equal((await request([1])).status,400);
+ assert.equal((await request([scope[0].id,"' OR 1=1 --"])).status,403,
+  "会议编号必须经过作用域 SQL 参数校验，不能注入或访问全部数据");
+});
+
 /* ---------------- 协议健壮性 ---------------- */
 
 test("方法不对返回 405 + Allow，路径不存在才 404", async () => {
