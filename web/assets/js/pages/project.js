@@ -56,6 +56,7 @@ export async function render(root, [pid]) {
       ${d.actions.map((a) => `<button class="btn ${a.enabled ? "btn-p" : "btn-o"}"
         data-act="${a.action}" ${a.enabled ? "" : "disabled"} title="${esc(a.reason || "")}">${a.label}</button>`).join("")}
       ${canEdit ? '<button class="btn btn-o" id="editBtn">编辑资料</button>' : ""}
+      ${state.super ? '<button class="btn btn-o" data-go="admin-content/'+esc(p.id)+'">总管理员修订全部内容</button>' : ""}
       ${!participant && can("project:change") && ["已立项", "筹备中", "执行中"].includes(p.status) ? '<button class="btn btn-o" id="changeBtn">提交变更</button>' : ""}
     </div>
   </div>

@@ -15,6 +15,7 @@ import * as contracts from "./pages/contracts.js";
 import * as prepInvitations from "./pages/prep-invitations.js";
 import * as materials from "./pages/materials.js";
 import * as recycleBin from "./pages/recycle-bin.js";
+import * as adminContent from "./pages/admin-content.js";
 import * as demand from "./pages/demand.js";
 import * as archive from "./pages/archive.js";
 import * as audit from "./pages/audit.js";
@@ -45,6 +46,8 @@ const ROUTES = [
   { re: /^materials$/, page: materials, nav: "materials", title: "材料收集", sub: "按项目名称查看材料目录" },
   { re: /^materials\/([\w-]+)$/, page: materials, nav: "materials", title: "项目材料详情", sub: "查看项目材料与上传记录" },
   { re: /^recycle-bin$/, page: recycleBin, nav: "recycle-bin", title: "废件箱", sub: "仅总管理员 · 已删除材料的原路恢复" },
+  { re: /^admin-content$/, page: adminContent, nav: "admin-content", title: "全部内容修订", sub: "总管理员 · 跨模块随时更正与历史留痕" },
+  { re: /^admin-content\/([\w-]+)$/, page: adminContent, nav: "admin-content", title: "项目内容修订", sub: "跨模块修改项目内容" },
   { re: /^archive$/, page: archive, nav: "archive", title: "数字卷宗", sub: "已归档项目检索与导出" },
   { re: /^audit$/, page: audit, nav: "audit", title: "审计日志", sub: "Who / When / What / Which" },
   { re: /^users$/, page: users, nav: "users", title: "用户与权限", sub: "账号、角色与数据范围" },
