@@ -45,3 +45,21 @@ test("财务执行付款从权限校验接口读取原件并可在窗口内预�
  assert.match(finance,/openPaymentExecution\(id,/);
  assert.match(read("server/lib/db.js"),/addColumn\("payments", "payee_source_id"/);
 });
+
+test("导出付款明细先选择会议并允许多选，表单提交单次带所选会议列表",()=>{
+ const frontend=read("web/assets/js/pages/finance.js");
+ const backend=read("server/api/system.js");
+ assert.match(frontend,/ep\.onclick = \(\) => openPaymentExport\(focusPid\)/);
+ assert.match(frontend,/按会议导出付款明细（支持多选）/);
+ assert.match(frontend,/data-payment-search/);
+ assert.match(frontend,/data-payment-select-visible/);
+ assert.match(frontend,/data-payment-clear/);
+ assert.match(frontend,/selected\.add/);
+ assert.match(frontend,/selected\.size===0/);
+ assert.match(frontend,/method:"POST",body:\{pids:\[\.\.\.selected\]\}/);
+ assert.match(backend,/router\.post\("\/api\/export\/payments"/);
+ assert.match(backend,/selectedPaymentPids\(ctx\)/);
+ assert.match(backend,/scopeFilter\(ctx\.user\)/);
+ assert.match(backend,/会议编号/);
+ assert.doesNotMatch(frontend,/ep\.onclick = \(\) => dl\("\/api\/export\/payments"\)/);
+});
