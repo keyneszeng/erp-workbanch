@@ -31,6 +31,26 @@ test("历史项目默认0%：可用预算不应被迁移意外扣减",async()=>{
  assert.equal(Number(r.body.project.tax_fee_rate),0);
  assert.equal(r.body.project.available_budget,72000);
 });
+test("内部立项税费管理费率为必填：缺失、空串、null 拒绝，主动填写0%合法",async()=>{
+ const meta=await req("GET","/api/meta"),me=await req("GET","/api/auth/me");
+ const baseData={name:"内立项费率必填测试",assoc:meta.body.assocs[0],form:meta.body.forms[0],
+   date:"2027-09-15",days:1,budget:10000,people:1,
+   owner:me.body.user.name,agenda:"10:00专题"};
+ for(const value of [undefined,"",null,"   "]){
+  const raw={...baseData};
+  if(value!==undefined)raw.tax_fee_rate=value;
+  const r=await req("POST","/api/projects",raw);
+  assert.equal(r.status,400,JSON.stringify({value,response:r.body}));
+  assert.match(r.body.error.message,/协会管理费及税费率.*必填/);
+ }
+ const zero=await req("POST","/api/projects",{...baseData,tax_fee_rate:0});
+ assert.equal(zero.status,200,JSON.stringify(zero.body));
+ assert.equal(zero.body.project.tax_fee_rate,0);
+ assert.equal(zero.body.project.available_budget,10000);
+ const existing=await req("PATCH","/api/projects/"+zero.body.project.id,{name:"修改历史费率0的项目"});
+ assert.equal(existing.status,200,JSON.stringify(existing.body));
+ assert.equal(existing.body.project.tax_fee_rate,0,"修改已有项不能因为未重传费率而清空历史");
+});
 test("创建立项：预算100000、税费10%自动返回可用90000并持久保存",async()=>{
  const meta=await req("GET","/api/meta");
  const admin=await req("GET","/api/auth/me");
