@@ -159,7 +159,7 @@ test("第4项真实上传8张PPTX，只扫描封面第一页且不沿用旧5页�
    assert.match(cmp.detail,/前1页\/张/);
    assert.ok(!first.data.report.checks.some(x=>x.name==="超出扫描页数：主持串场演示课件"),
     "single-slide preview is intentional and must not veto a matching theme");
-   const cache=db.prepare("SELECT engine,pages,total_pages FROM material_ocr_results WHERE material_id=?").get(material.id);
+   const cache=db.prepare("SELECT engine,pages,total_pages FROM material_ocr_cover_results WHERE material_id=?").get(material.id);
    assert.equal(cache.engine,require("../server/lib/verify-office-text").COURSE_PREVIEW_ENGINE);
    assert.equal(cache.pages,1);
    const second=await call("admin","POST",pathStep(4)+"/scan",{});

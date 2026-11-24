@@ -65,8 +65,16 @@ function materials(pid,no){
  }
  return selected.slice(0,MAX_FILES);
 }
+function coverCache(m,pid){
+ return db.prepare("SELECT recognized_text,engine,mode,pages,total_pages,truncated FROM material_ocr_cover_results WHERE material_id=? AND pid=? AND file_key=?").get(m.id,pid,m.file_key);
+}
 function cache(m,pid,requiredPages=0,coursePreview=false){
- const row=db.prepare("SELECT recognized_text,engine,mode,pages,total_pages,truncated FROM material_ocr_results WHERE material_id=? AND pid=? AND file_key=?").get(m.id,pid,m.file_key);
+ // One uploaded host PPTX/PDF can participate in step 1 (full script) and
+ // step 4 (cover slide only). These are independent recognition scopes.
+ // Legacy installs may still hold a cover result in the old full-text table;
+ // use that as a fallback until the first scan migrates it.
+ const scoped=coursePreview?coverCache(m,pid):null;
+ const row=scoped||db.prepare("SELECT recognized_text,engine,mode,pages,total_pages,truncated FROM material_ocr_results WHERE material_id=? AND pid=? AND file_key=?").get(m.id,pid,m.file_key);
  if(!row)return null;
  const ext=m.file_key.split(".").pop().toLowerCase();
  // 原生 Office/TXT 文本并非 OCR，仍可复用；图片和扫描 PDF 必须来自 RapidOCR。
@@ -88,8 +96,11 @@ function cache(m,pid,requiredPages=0,coursePreview=false){
  if(!OCR_TYPES.has(ext))return office.SUPPORTED.has(ext)?row:null;
  return ocr.providerMatches(row.engine)?row:null;
 }
-function persist(m,pid,result,operator){
- db.prepare("INSERT INTO material_ocr_results(material_id,pid,file_key,recognized_text,suggestions_json,engine,mode,pages,total_pages,truncated,updated_at,updated_by) VALUES (?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(material_id) DO UPDATE SET file_key=excluded.file_key,recognized_text=excluded.recognized_text,suggestions_json=excluded.suggestions_json,engine=excluded.engine,mode=excluded.mode,pages=excluded.pages,total_pages=excluded.total_pages,truncated=excluded.truncated,updated_at=excluded.updated_at,updated_by=excluded.updated_by")
+function persist(m,pid,result,operator,coursePreview=false){
+ // Scope is chosen exclusively from the trusted server-side OCR workflow.
+ // A cover scan must never erase the full-script cache or step-1 evidence.
+ const table=coursePreview?"material_ocr_cover_results":"material_ocr_results";
+ db.prepare("INSERT INTO "+table+" (material_id,pid,file_key,recognized_text,suggestions_json,engine,mode,pages,total_pages,truncated,updated_at,updated_by) VALUES (?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(material_id) DO UPDATE SET file_key=excluded.file_key,recognized_text=excluded.recognized_text,suggestions_json=excluded.suggestions_json,engine=excluded.engine,mode=excluded.mode,pages=excluded.pages,total_pages=excluded.total_pages,truncated=excluded.truncated,updated_at=excluded.updated_at,updated_by=excluded.updated_by")
  .run(m.id,pid,m.file_key,result.text,JSON.stringify(m.kind==="终版议程"?ocr.parseAgenda(result.text):[]),
   result.engine,result.mode,result.pages,result.totalPages,result.truncated?1:0,now(),operator);
 }
@@ -123,7 +134,17 @@ async function scan(pid,no,operator){
   // Reuse already-recognized agenda OCR text for step 4 even if it was
   // scanned under another step with fewer than 20 pages.
   const cachePages=no===4&&m.kind==="终版议程"?0:requiredPages;
-  if(cache(m,pid,cachePages,coursePreview))continue;
+  const cached=cache(m,pid,cachePages,coursePreview);
+  if(cached){
+   if(coursePreview&&!coverCache(m,pid)){
+    // Preserve legacy cover OCR before another step upgrades the old shared
+    // row to a full transcript, otherwise scans alternate forever.
+    persist(m,pid,{text:cached.recognized_text,engine:cached.engine,
+     mode:cached.mode,pages:cached.pages,totalPages:cached.total_pages,
+     truncated:cached.truncated},operator,true);
+   }
+   continue;
+  }
   const ext=m.file_key.split(".").pop().toLowerCase();
   const nativeOffice=office.SUPPORTED.has(ext);
   const textPdfOnly=no===6&&ext==="pdf"&&!available&&storage().name==="fs";
@@ -155,7 +176,7 @@ async function scan(pid,no,operator){
     if(imageText.length)result={...result,text:[result.text,...imageText].filter(Boolean).join("\n"),
       mode:"office-cover-ocr"};
    }
-   if(result?.text?.trim()){persist(m,pid,result,operator);processed++;}
+   if(result?.text?.trim()){persist(m,pid,result,operator,coursePreview);processed++;}
   }catch(e){
    if(["OCR_DISABLED","OCR_ENGINE_MISSING","OCR_PROVIDER_MISCONFIGURED","OCR_UNAVAILABLE","OCR_TIMEOUT"].includes(e.code))throw e;
    // Corrupt/unreadable originals remain 'not recognized' in the report; never

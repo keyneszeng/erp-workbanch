@@ -356,6 +356,23 @@ CREATE TABLE IF NOT EXISTS material_ocr_results (
   updated_by TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_material_ocr_results_pid ON material_ocr_results(pid);
+-- Course-cover OCR has a different extraction scope from full host-script OCR.
+-- Never let step 4 overwrite the full transcript used by step 1.
+CREATE TABLE IF NOT EXISTS material_ocr_cover_results (
+  material_id INTEGER PRIMARY KEY REFERENCES materials(id) ON DELETE CASCADE,
+  pid TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  file_key TEXT NOT NULL,
+  recognized_text TEXT NOT NULL,
+  suggestions_json TEXT NOT NULL,
+  engine TEXT NOT NULL,
+  mode TEXT NOT NULL,
+  pages INTEGER NOT NULL,
+  total_pages INTEGER NOT NULL,
+  truncated INTEGER NOT NULL DEFAULT 0,
+  updated_at TEXT NOT NULL,
+  updated_by TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_material_ocr_cover_pid ON material_ocr_cover_results(pid);
 
 CREATE TABLE IF NOT EXISTS demand_revisions (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -709,6 +726,16 @@ function migrate() {
   addColumn("verify_steps", "evidence_json", "evidence_json TEXT");
   addColumn("materials", "deleted_at", "deleted_at TEXT");
   addColumn("materials", "deleted_by", "deleted_by TEXT");
+  // Existing Node/Cloudflare databases also need the independent cover cache.
+  // Read-only verification must never mutate a step's evidence fingerprint.
+  db.exec("CREATE TABLE IF NOT EXISTS material_ocr_cover_results ("+
+    "material_id INTEGER PRIMARY KEY REFERENCES materials(id) ON DELETE CASCADE,"+
+    "pid TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,"+
+    "file_key TEXT NOT NULL, recognized_text TEXT NOT NULL, suggestions_json TEXT NOT NULL,"+
+    "engine TEXT NOT NULL, mode TEXT NOT NULL, pages INTEGER NOT NULL,"+
+    "total_pages INTEGER NOT NULL, truncated INTEGER NOT NULL DEFAULT 0,"+
+    "updated_at TEXT NOT NULL, updated_by TEXT)");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_material_ocr_cover_pid ON material_ocr_cover_results(pid)");
   addColumn("demand_items", "owner_id", "owner_id INTEGER");
   addColumn("demand_items", "budget_owner", "budget_owner TEXT");
   // 旧单的 budget 属历史手填金额，不作破坏性重算；新输入按数量×单价自动更新。
