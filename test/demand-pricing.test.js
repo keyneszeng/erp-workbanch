@@ -197,6 +197,7 @@ test("CSV 含数量、单价、总价及需要项合计",async()=>{
   const bytes=Buffer.from(await r.arrayBuffer()),csv=bytes.toString("utf8");
   assert.deepEqual([...bytes.subarray(0,3)],[0xef,0xbb,0xbf]);
   assert.match(csv,/"数量","单价","总价"/);
+  assert.doesNotMatch(csv,/"负责人"/,"需求 CSV 不再导出已移除的负责人列");
   assert.match(csv,/30\.30/);
   assert.match(csv,/需要项总价合计/);
 });
@@ -216,4 +217,28 @@ test("重置恢复默认全不需要；零需求也可明确确认归档",async(
   assert.equal(detail.data.demand.needCount,0);
   assert.equal(detail.data.demand.items.length,0,"没有需要项时项目详情应显示空清单");
   assert.equal(detail.data.demand.total,23,"隐藏不需要项不应修改历史需求总数");
+});
+
+test("需求负责人字段移除：不填写负责人也可确认归档，旧条目负责人记录不被保存流程误清空",async()=>{
+ const opened=await admin("POST","/api/demand/"+PID+"/unarchive",{});
+ assert.equal(opened.status,200,JSON.stringify(opened.data));
+ const legacy=await admin("PATCH","/api/demand/"+PID,{items:[{
+   grp:"设计",item:"会议场地布置",need:"需要",spec:"根据议程布置",
+   due:"2026-12-20",quantity:"1",unit_price:"1200",owner:"历史会务负责人"
+ }]});
+ assert.equal(legacy.status,200,JSON.stringify(legacy.data));
+ const revised=await admin("PATCH","/api/demand/"+PID,{items:[{
+   grp:"设计",item:"会议场地布置",need:"需要",spec:"根据议程布置",
+   due:"2026-12-20",quantity:"1",unit_price:"1200"
+ }]});
+ assert.equal(revised.status,200,JSON.stringify(revised.data));
+ assert.equal(revised.data.sheet.items["设计"][0].owner,"历史会务负责人");
+ const confirmed=await admin("POST","/api/demand/"+PID+"/confirm",{});
+ assert.equal(confirmed.status,200,JSON.stringify(confirmed.data));
+ assert.equal(confirmed.data.sheet.archived,true,"不要求需求负责人仍应正常确认归档");
+ const csvResponse=await fetch(BASE+"/api/demand/"+PID+"/export",{headers:{cookie:await login("admin")}});
+ assert.equal(csvResponse.status,200);
+ const csv=await csvResponse.text();
+ assert.doesNotMatch(csv,/负责人/,"导出文件不出现已删除类目");
+ assert.match(csv,/会议场地布置/);
 });
