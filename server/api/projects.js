@@ -224,7 +224,7 @@ function detail(project, user) {
   const approvals = db.prepare("SELECT * FROM approvals WHERE pid = ? ORDER BY created_at DESC, id DESC").all(pid);
   // created_by_name 给合同详情弹窗显示录入人（责任追溯），只是 LEFT JOIN，不影响行数
   const contracts = db.prepare(
-    "SELECT c.*, u.name AS created_by_name FROM contracts c LEFT JOIN users u ON u.id = c.created_by WHERE c.pid = ? ORDER BY c.id"
+    "SELECT c.*, u.name AS created_by_name FROM contracts c LEFT JOIN users u ON u.id = c.created_by WHERE c.pid = ? AND c.deleted_at IS NULL ORDER BY c.id"
   ).all(pid);
   const payments = db.prepare("SELECT * FROM payments WHERE pid = ? ORDER BY created_at DESC, id DESC").all(pid);
   const settlement = settlementOf(pid);

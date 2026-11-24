@@ -171,6 +171,56 @@ test("没有旧附件的待签署合同可补传并自动同步到归档材料",
     "原来没有附件的合同应该补齐归档材料");
 });
 
+test("删除未签署的合同原件，同步隐藏合同看板、项目详情、统计并撤销待审批",async()=>{
+  const uploaded=await upload("exec",PDF1,"待删除合同原件.pdf");
+  assert.equal(uploaded.status,200,JSON.stringify(uploaded.data));
+  const created=await req("exec","POST","/api/contracts",{
+    pid:PID,name:"准备取消的合同",vendor:"未签署供应商",amount:3456,status:"草稿",
+    file_key:uploaded.data.key,file_name:uploaded.data.name,
+    file_size:uploaded.data.size,file_mime:uploaded.data.mime
+  });
+  assert.equal(created.status,200,JSON.stringify(created.data));
+  const id=created.data.contract.id;
+  const submitted=await req("exec","POST","/api/contracts/"+id+"/transition",{action:"submit"});
+  assert.equal(submitted.status,200,JSON.stringify(submitted.data));
+  const detailBefore=await req("admin","GET","/api/projects/"+PID);
+  const material=detailBefore.data.materials.find(m=>m.kind==="合同"&&m.file_key===uploaded.data.key);
+  assert.ok(material,"合同录入应自动关联归档材料");
+  const before=await req("admin","GET","/api/contracts?pid="+PID+"&page=1&size=100");
+  assert.equal(before.status,200);
+  assert.ok(before.data.rows.some(c=>c.id===id));
+  const deleted=await req("exec","DELETE","/api/materials/"+material.id);
+  assert.equal(deleted.status,200,JSON.stringify(deleted.data));
+  assert.equal(deleted.data.linkedContract,id);
+  const list=await req("admin","GET","/api/contracts?pid="+PID);
+  const paged=await req("admin","GET","/api/contracts?pid="+PID+"&page=1&size=100");
+  assert.ok(!list.data.rows.some(c=>c.id===id),"合同看板不能继续展示已删除记录");
+  assert.equal(paged.data.total,before.data.total-1,"分页合同统计要同步减少");
+  assert.ok(!paged.data.rows.some(c=>c.id===id),"分页清单不得回显");
+  const project=await req("admin","GET","/api/projects/"+PID);
+  assert.ok(!project.data.contracts.some(c=>c.id===id),"项目详情合同清单同步隐藏");
+  assert.ok(!project.data.materials.some(m=>m.id===material.id),"归档材料同步隐藏");
+  const approval=await req("admin","GET","/api/approvals?type="+encodeURIComponent("合同审批"));
+  assert.ok(!approval.data.rows.some(a=>a.ref_id===id&&a.status==="待审批"),"删除后不能遗留待审批幽灵单");
+  const again=await req("exec","POST","/api/contracts/"+id+"/transition",{action:"sign"});
+  assert.equal(again.status,404,"历史记录不能通过流转接口复活");
+  const second=await req("exec","DELETE","/api/materials/"+material.id);
+  assert.equal(second.status,409,"重复删除仍需被拒绝");
+});
+
+test("已签署合同不可通过删除材料消失，必须先处理合同财务关系",async()=>{
+  const detail=await req("admin","GET","/api/projects/"+PID);
+  const material=detail.data.materials.find(m=>m.kind==="合同"&&m.file_key===secondKey);
+  assert.ok(material,"已签署的测试合同应有真实归档原件");
+  const denied=await req("exec","DELETE","/api/materials/"+material.id);
+  assert.equal(denied.status,409,JSON.stringify(denied.data));
+  assert.equal(denied.data.error.code,"SIGNED_CONTRACT_LOCKED");
+  const current=await contract();
+  assert.equal(current.status,"已签署");
+  assert.ok((await req("admin","GET","/api/projects/"+PID)).data.materials.some(m=>m.id===material.id),
+    "拒绝删除已签合同原件，审计证据不可被误删");
+});
+
 test("已结算项目一律禁止更新旧合同，不能删除或覆盖文件",async()=>{
   const up=await upload("admin",PDF1,"封存后不可替换.pdf","MP-2026-006");
   assert.equal(up.status,200);

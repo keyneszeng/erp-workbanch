@@ -188,7 +188,7 @@ const GUARDS = {
         if(step?.result!=="通过")
           return "已建立会务需求表时必须先完成第6项会务合同与发票关联核对";
       }
-      const signedTotal=db.prepare("SELECT COALESCE(SUM(amount),0) AS total FROM contracts WHERE pid=? AND status='已签署' AND COALESCE(category,'')<>'企业赞助'").get(p.id).total;
+      const signedTotal=db.prepare("SELECT COALESCE(SUM(amount),0) AS total FROM contracts WHERE pid=? AND deleted_at IS NULL AND status='已签署' AND COALESCE(category,'')<>'企业赞助'").get(p.id).total;
       if(cents(paid.total)!==cents(signedTotal))
         return `已付款总额 ¥${yuan(paid.total)} 与已核销合同请款总额 ¥${yuan(signedTotal)} 不一致，不能结算；含免票专家劳务费`;
     }

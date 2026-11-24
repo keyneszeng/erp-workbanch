@@ -177,7 +177,9 @@ CREATE TABLE IF NOT EXISTS contracts (
   file_key    TEXT,
   file_name   TEXT,
   file_size   INTEGER,
-  file_mime   TEXT
+  file_mime   TEXT,
+  deleted_at  TEXT,
+  deleted_by  TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_contracts_pid ON contracts(pid);
 
@@ -737,6 +739,8 @@ function migrate() {
   addColumn("verify_steps", "evidence_json", "evidence_json TEXT");
   addColumn("materials", "deleted_at", "deleted_at TEXT");
   addColumn("materials", "deleted_by", "deleted_by TEXT");
+  addColumn("contracts", "deleted_at", "deleted_at TEXT");
+  addColumn("contracts", "deleted_by", "deleted_by TEXT");
   // Existing Node/Cloudflare databases also need the independent cover cache.
   // Read-only verification must never mutate a step's evidence fingerprint.
   db.exec("CREATE TABLE IF NOT EXISTS material_ocr_cover_results ("+
@@ -959,14 +963,40 @@ function migrate() {
     /* 旧库没有 settlements 表，忽略 */
   }
 
-  // 兼容历史合同：只为有原件、尚未在同项目材料中心出现的合同建立引用。
+  // 历史修复：旧版删除合同归档原件时，只软删了 materials，留下合同看板幽灵行。
+  // 只回填未签署、非赞助、未结算/核票的合同；已签署合同必须保留合同财务证据，
+  // 不可通过删除附件擅自撤销，需由管理员办理正式合同终止。
+  try {
+    db.exec(`UPDATE contracts SET
+      deleted_at=(SELECT MAX(m.deleted_at) FROM materials m
+        WHERE m.pid=contracts.pid AND m.kind='合同' AND m.file_key=contracts.file_key
+          AND m.deleted_at IS NOT NULL),
+      deleted_by='历史归档材料删除回填'
+      WHERE deleted_at IS NULL AND status IN ('草稿','待签署')
+        AND COALESCE(category,'')<>'企业赞助' AND file_key IS NOT NULL
+        AND EXISTS (SELECT 1 FROM materials m WHERE m.pid=contracts.pid
+          AND m.kind='合同' AND m.file_key=contracts.file_key AND m.deleted_at IS NOT NULL)
+        AND NOT EXISTS (SELECT 1 FROM materials m WHERE m.pid=contracts.pid
+          AND m.kind='合同' AND m.file_key=contracts.file_key AND m.deleted_at IS NULL)
+        AND NOT EXISTS (SELECT 1 FROM settlements s WHERE s.pid=contracts.pid)
+        AND NOT EXISTS (SELECT 1 FROM verify_steps v WHERE v.pid=contracts.pid
+          AND v.step_no=6 AND v.result='通过')
+        AND NOT EXISTS (SELECT 1 FROM projects p WHERE p.id=contracts.pid
+          AND p.status IN ('已核销','已结算','已归档'))`);
+    db.exec(`UPDATE approvals SET status='已撤销',decided_by='系统修复',
+      decided_at=CURRENT_TIMESTAMP,comment='关联合同原件已删除，历史合同软删同步'
+      WHERE type='合同审批' AND status='待审批'
+        AND ref_id IN (SELECT id FROM contracts WHERE deleted_at IS NOT NULL)`);
+  } catch { /* 旧库结构不完整时保留原始数据，避免破坏迁移 */ }
+
+  // 兼容历史合同：只为有原件、尚未在同项目材料中心出现的合同建立引用.
   // 原始文件不会复制、移动或修改，迁移可重复执行。
   try {
     db.exec(`INSERT INTO materials(pid,kind,name,version,uploader,created_at,file_key,file_name,file_size,file_mime)
       SELECT c.pid,'合同',c.id || ' · ' || c.name,c.status,'历史合同自动归档',c.created_at,
              c.file_key,c.file_name,c.file_size,c.file_mime
       FROM contracts c
-      WHERE c.file_key IS NOT NULL AND c.file_key<>''
+      WHERE c.file_key IS NOT NULL AND c.file_key<>'' AND c.deleted_at IS NULL
         AND NOT EXISTS (SELECT 1 FROM materials m WHERE m.pid=c.pid AND m.file_key=c.file_key)`);
   }catch{/* 旧库表结构不完整时，保持安全降级 */}
   // V1.2.15：审批单 ↔ 业务单据脱钩（老种子把 ref_id 写成了项目号）

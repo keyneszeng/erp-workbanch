@@ -11,7 +11,7 @@ function setup(){
  const db=new DatabaseSync(":memory:");
  db.exec("CREATE TABLE demand_sheets(pid TEXT PRIMARY KEY,confirmed INTEGER);"+
   "CREATE TABLE demand_items(id INTEGER PRIMARY KEY,pid TEXT,grp TEXT,item TEXT,need TEXT,budget TEXT,quantity TEXT,unit_price TEXT);"+
-  "CREATE TABLE contracts(id TEXT PRIMARY KEY,pid TEXT,name TEXT,category TEXT,amount REAL,status TEXT,file_key TEXT);"+
+  "CREATE TABLE contracts(id TEXT PRIMARY KEY,pid TEXT,name TEXT,category TEXT,amount REAL,status TEXT,file_key TEXT,deleted_at TEXT);"+
   "CREATE TABLE materials(id INTEGER PRIMARY KEY,pid TEXT,kind TEXT,name TEXT,file_name TEXT,file_key TEXT,version TEXT,deleted_at TEXT)");
  const addMaterial=(kind,name,fileKey=null)=>db.prepare(
   "INSERT INTO materials(pid,kind,name,file_name,file_key,version) VALUES (?,?,?,?,?,'v1')"
@@ -108,6 +108,15 @@ test("劳务专家、企业赞助合同和无关材料不参与第6项金额及�
  assert.equal(demandSopState(db,project.id).signature,first);
  db.prepare("UPDATE materials SET file_key='meeting-replaced.pdf' WHERE file_key='meeting.pdf'").run();
  assert.notEqual(demandSopState(db,project.id).signature,first);
+ db.close();
+});
+test("已软删除的合同不能进入会务需求金额或第六项原件统计",()=>{
+ const {db,addMaterial,addContract}=setup();addDemand(db);
+ addThreeSources(db,addMaterial,addContract);
+ db.prepare("UPDATE contracts SET deleted_at='2026-11-24' WHERE id='HT-MEETING'").run();
+ const state=demandSopState(db,project.id);
+ assert.equal(state.contractCount,0);
+ assert.equal(state.contractTotal,0);
  db.close();
 });
 test("会务需求表未确认归档，不得用已录金额直接通过",()=>{

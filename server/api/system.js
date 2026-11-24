@@ -265,7 +265,7 @@ const EXPORTS = {
     sql: (u) => {
       const { sql, params } = scopeFilter(u);
       return {
-        sql: `SELECT c.*, p.name AS pname FROM contracts c JOIN projects p ON p.id=c.pid WHERE ${sql} ORDER BY c.id`,
+        sql: `SELECT c.*, p.name AS pname FROM contracts c JOIN projects p ON p.id=c.pid WHERE ${sql} AND c.deleted_at IS NULL ORDER BY c.id`,
         params
       };
     },
