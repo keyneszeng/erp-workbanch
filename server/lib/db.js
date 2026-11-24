@@ -607,6 +607,19 @@ CREATE TABLE IF NOT EXISTS prep_invitations (
   response         TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_prep_invitations_pid ON prep_invitations(pid);
+-- Auditable superadmin revisions. Business IDs and original file bytes never change through this table.
+CREATE TABLE IF NOT EXISTS admin_content_revisions(
+ id INTEGER PRIMARY KEY AUTOINCREMENT,
+ pid TEXT NOT NULL,
+ entity_type TEXT NOT NULL,
+ record_id TEXT NOT NULL,
+ reason TEXT NOT NULL,
+ before_json TEXT NOT NULL,
+ after_json TEXT NOT NULL,
+ changed_by TEXT NOT NULL,
+ changed_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_admin_content_rev ON admin_content_revisions(pid,entity_type,record_id,id DESC);
 `;
 
 /* ---------------------------------------------------------------- 后端实现 */
