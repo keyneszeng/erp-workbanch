@@ -190,7 +190,7 @@ test("数据范围外的用户不能下载合同原件", async () => {
    * guest 一定看不见的项目（admin 创建、不拉他进成员），再挂一份带原件的合同。
    */
   const adminC = client(admin);
-  const mk = await adminC("POST", "/api/projects", {
+  const mk = await adminC("POST", "/api/projects", {tax_fee_rate:0,
     name: `越权下载用例-${Date.now()}`, assoc: "华东医学会", form: "线下",
     date: "2027-09-09", budget: 1000, people: 10, owner: "王敏", agenda: "09:00 开幕"
   });
