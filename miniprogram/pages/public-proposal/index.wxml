@@ -1,9 +1,9 @@
 <view class="wrap">
   <view class="card card-accent">
     <view class="public-brand-row"><image class="public-brand-logo" src="/assets/brand-logo.jpg" mode="aspectFit" aria-label="企业 LOGO"/><view class="page-kicker">PUBLIC EVENT PROPOSAL</view></view>
-    <view class="heading">公众活动立项申请</view>
-    <view class="subtitle">无需账号，提交活动举办意向，由平台总管理员统一接收</view>
-    <view class="notice"><text class="notice-icon">i</text><text>提交不代表活动获批或确定举办，也不会自动触发内部审批、立项及付款流程。</text></view>
+    <view class="heading">公众立项申请</view>
+    <view class="subtitle">采用内部立项模板填写会议信息，无需账号，由总管理员审核接收</view>
+    <view class="notice"><text class="notice-icon">i</text><text>公众提交后进入总管理员收件箱，审核后按内部立项流程转为草稿，不会直接审批或付款。</text></view>
   </view>
 
   <view wx:if="{{submitted}}" class="card card-accent">
@@ -19,18 +19,31 @@
 
   <block wx:else>
     <view class="form-section">
-      <view class="section-head"><view class="row"><view class="section-index">01</view><view class="section-caption">活动信息</view></view><view class="micro">带 * 为必填</view></view>
+      <view class="section-head"><view class="row"><view class="section-index">01</view><view class="section-caption">会议基本信息（与内部立项一致）</view></view><view class="micro">带 * 为必填</view></view>
       <view class="field">
-        <view class="field-label"><text class="required">*</text>活动主题</view>
-        <input class="field-control" value="{{topic}}" data-key="topic" bindinput="input" maxlength="120" placeholder="请输入活动主题"/>
+        <view class="field-label"><text class="required">*</text>会议名称</view>
+        <input class="field-control" value="{{topic}}" data-key="topic" bindinput="input" maxlength="120" placeholder="请输入会议名称"/>
       </view>
       <view class="field">
-        <view class="field-label"><text class="required">*</text>计划举办日期</view>
-        <picker mode="date" value="{{event_date}}" bindchange="pickDate"><view class="picker-control"><text>{{event_date||'选择日期'}}</text><text class="picker-arrow">⌄</text></view></picker>
+        <view class="field-label"><text class="required">*</text>举办开始日期</view>
+        <picker mode="date" value="{{event_date}}" bindchange="pickDate"><view class="picker-control"><text>{{event_date||'选择开始日期'}}</text><text class="picker-arrow">⌄</text></view></picker>
       </view>
       <view class="field">
-        <view class="field-label"><text class="required">*</text>计划开始时间</view>
-        <picker mode="time" value="{{event_time}}" bindchange="pickTime"><view class="picker-control"><text>{{event_time||'选择开始时间'}}</text><text class="picker-arrow">⌄</text></view></picker>
+        <view class="field-label"><text class="required">*</text>举办结束日期</view>
+        <picker mode="date" value="{{event_end_date}}" bindchange="pickEndDate"><view class="picker-control"><text>{{event_end_date||'选择结束日期'}}</text><text class="picker-arrow">⌄</text></view></picker>
+      </view>
+      <view class="field">
+        <view class="field-label"><text class="required">*</text>开始时间</view>
+        <picker mode="time" value="{{event_time}}" bindchange="pickTime"><view class="picker-control"><text>{{event_time}}</text><text class="picker-arrow">⌄</text></view></picker>
+      </view>
+      <view class="field">
+        <view class="field-label"><text class="required">*</text>结束时间</view>
+        <picker mode="time" value="{{event_end_time}}" bindchange="pickEndTime"><view class="picker-control"><text>{{event_end_time}}</text><text class="picker-arrow">⌄</text></view></picker>
+        <view class="field-hint">支持跨日举办，系统按日期区间自动计算会期</view>
+      </view>
+      <view class="field">
+        <view class="field-label">拟归属协会</view>
+        <input class="field-control" value="{{requested_assoc}}" data-key="requested_assoc" bindinput="input" maxlength="40" placeholder="选填；总管理员转换时确认正式协会"/>
       </view>
       <view class="field">
         <view class="field-label"><text class="required">*</text>活动形式</view>
@@ -41,13 +54,29 @@
         <input class="field-control" type="digit" value="{{budget}}" data-key="budget" bindinput="input" placeholder="请输入预算金额"/>
       </view>
       <view class="field">
-        <view class="field-label"><text class="required">*</text>活动议程</view>
-        <textarea class="textarea-control" value="{{agenda}}" data-key="agenda" bindinput="input" maxlength="3000" placeholder="请填写计划议程、活动内容或主要环节"/>
+        <view class="field-label">税费管理费率（%）</view>
+        <input class="field-control" type="digit" value="{{tax_fee_rate}}" data-key="tax_fee_rate" bindinput="input" placeholder="默认 0"/>
+      </view>
+      <view class="field">
+        <view class="field-label">预计参会人数</view>
+        <input class="field-control" type="number" value="{{people}}" data-key="people" bindinput="input" placeholder="选填，如 200"/>
+      </view>
+      <view class="field">
+        <view class="field-label">承办部门</view>
+        <input class="field-control" value="{{dept}}" data-key="dept" bindinput="input" maxlength="40" placeholder="选填；由内部管理员核定"/>
+      </view>
+      <view class="field">
+        <view class="field-label"><text class="required">*</text>初版议程</view>
+        <button class="btn ghost" loading="{{ocrBusy}}" disabled="{{ocrBusy||busy}}" bindtap="chooseAgenda">上传议程文件 · OCR 识别录入</button>
+        <view class="field-hint">支持 PDF、图片、DOCX、PPTX、XLSX、TXT；最多2MB。可继续手动修改识别结果。</view>
+        <view wx:if="{{agendaFile}}" class="field-hint">已识别文件：{{agendaFile}}</view>
+        <view wx:if="{{ocrNotice}}" class="field-hint">{{ocrNotice}}</view>
+        <textarea class="textarea-control" value="{{agenda}}" data-key="agenda" bindinput="input" maxlength="3000" placeholder="上传文件自动回填，或手动填写会议主要环节"/>
       </view>
     </view>
 
     <view class="form-section">
-      <view class="section-head"><view class="row"><view class="section-index">02</view><view class="section-caption">联系信息</view></view></view>
+      <view class="section-head"><view class="row"><view class="section-index">02</view><view class="section-caption">项目联系人与沟通信息</view></view></view>
       <view class="field">
         <view class="field-label"><text class="required">*</text>联系人</view>
         <input class="field-control" value="{{contact_name}}" data-key="contact_name" bindinput="input" maxlength="60" placeholder="请输入联系人姓名"/>

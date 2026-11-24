@@ -12,7 +12,7 @@ async function convertToInternalDraft(entry){
        '<select name="assoc"><option value="">请选择所属协会</option>'+
        options.map(a=>'<option value="'+esc(a)+'">'+esc(a)+'</option>').join("")+'</select></div>'+
        '<div class="hint">公众申请编号：'+esc(entry.id)+'<br>主题：'+esc(entry.topic)+
-       '<br>日期：'+esc(entry.event_date)+' '+esc(entry.event_time)+
+       '<br>举办时间：'+esc(entry.event_date)+' '+esc(entry.event_time)+' 至 '+esc(entry.event_end_date||entry.event_date)+' '+esc(entry.event_end_time||entry.event_time)+
        '<br>预算：¥'+Number(entry.budget||0).toLocaleString("zh-CN")+'</div>',
   footer:'<button class="btn btn-o" data-cancel>取消</button><button class="btn btn-p" data-convert>确认转换并保存草稿</button>'
  });
@@ -45,9 +45,10 @@ export async function render(root){
       {t:"接收时间"},{t:"主题／日期／形式"},{t:"预算"},{t:"联系人"},{t:"议程及补充信息"},{t:"状态"},{t:"操作",w:"215px"}
     ],d.rows.map(x=>({c:[
      esc(x.received_at||""),
-     '<b>'+esc(x.topic)+'</b><div class="hint">'+esc(x.event_date)+' '+esc(x.event_time)+' · '+esc(x.form)+'</div><div class="hint">'+esc(x.id)+'</div>',
+     '<b>'+esc(x.topic)+'</b>'<div class="hint">'+esc(x.event_date)+' '+esc(x.event_time)+' 至 '+esc(x.event_end_date||x.event_date)+' '+esc(x.event_end_time||x.event_time)+' · '+esc(x.form)+'</div><div class="hint">'+esc(x.id)+'</div>',
      '¥'+Number(x.budget||0).toLocaleString("zh-CN",{minimumFractionDigits:2,maximumFractionDigits:2}),
      esc(x.contact_name)+'<div class="hint">'+esc(x.contact_phone)+'</div><div class="hint">'+esc(x.contact_info||"")+'</div>',
+     '<div class="hint">拟归属：'+esc(x.requested_assoc||'未指定')+' · 参会人数：'+esc(x.people||0)+' · 承办：'+esc(x.dept||'待核定')+'</div>'+
      '<div style="max-width:400px;white-space:pre-wrap;overflow-wrap:anywhere">'+esc(x.agenda)+'</div>'+
       (x.handling_note?'<div class="hint">处理备注：'+esc(x.handling_note)+'</div>':''),
      x.status==="已归档"?'<span class="tag">已处理</span>':'<span class="tag tag-warn">待处理</span>',
