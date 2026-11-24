@@ -100,7 +100,7 @@ test("超大请求体返回 413 而非 500", async () => {
 
 test("Unicode / emoji 项目名可正确存取", async () => {
   const name = "国际会议 🎉 Ünïcode テスト";
-  const c = await assoc("POST", "/api/projects", {
+  const c = await assoc("POST", "/api/projects", {tax_fee_rate:0,
     name, assoc: "华东医学会", form: "线下", date: "2027-02-01",
     budget: 5000, owner: "王敏", agenda: "09:00 开幕", people: 10
   });
@@ -110,7 +110,7 @@ test("Unicode / emoji 项目名可正确存取", async () => {
 });
 
 test("超长项目名（>120 字）被拒", async () => {
-  const r = await assoc("POST", "/api/projects", {
+  const r = await assoc("POST", "/api/projects", {tax_fee_rate:0,
     name: "长".repeat(121), assoc: "华东医学会", form: "线下", date: "2027-02-01",
     budget: 5000, owner: "王敏", agenda: "09:00 开幕"
   });
@@ -118,7 +118,7 @@ test("超长项目名（>120 字）被拒", async () => {
 });
 
 test("超长议程（>3000 字）被拒", async () => {
-  const r = await assoc("POST", "/api/projects", {
+  const r = await assoc("POST", "/api/projects", {tax_fee_rate:0,
     name: "议程超长", assoc: "华东医学会", form: "线下", date: "2027-02-01",
     budget: 5000, owner: "王敏", agenda: "议".repeat(3001)
   });
@@ -163,7 +163,7 @@ test("登录 Cookie 带 HttpOnly 与 SameSite", async () => {
 /* ---------------- CSV ---------------- */
 test("CSV：逗号、引号、换行正确转义", async () => {
   const name = '含,逗号 "引号" 与\n换行';
-  await assoc("POST", "/api/projects", {
+  await assoc("POST", "/api/projects", {tax_fee_rate:0,
     name, assoc: "华东医学会", form: "线下", date: "2027-03-01",
     budget: 6000, owner: "王敏", agenda: "09:00 开幕"
   });
@@ -177,7 +177,7 @@ test("CSV：逗号、引号、换行正确转义", async () => {
 });
 
 test("CSV：公式注入被中和", async () => {
-  await assoc("POST", "/api/projects", {
+  await assoc("POST", "/api/projects", {tax_fee_rate:0,
     name: '=HYPERLINK("http://evil","click")', assoc: "华东医学会", form: "线下",
     date: "2027-03-02", budget: 7000, owner: "王敏", agenda: "09:00 开幕"
   });
@@ -229,7 +229,7 @@ test("例外原因超长（>500）被拒", async () => {
 
 /* ---------------- 并发一致性 ---------------- */
 async function buildVerifyProject(tag) {
-  const c = await assoc("POST", "/api/projects", {
+  const c = await assoc("POST", "/api/projects", {tax_fee_rate:0,
     name: `并发测试-${tag}`, assoc: "华东医学会", form: "线下", date: "2027-04-01",
     budget: 90000, owner: "王敏", agenda: "09:00 开幕 / 10:00 报告", people: 30
   });
@@ -253,7 +253,7 @@ async function buildVerifyProject(tag) {
 }
 
 test("并发：6 次同时提交立项，只有 1 次成功", async () => {
-  const c = await assoc("POST", "/api/projects", {
+  const c = await assoc("POST", "/api/projects", {tax_fee_rate:0,
     name: "并发提交测试", assoc: "华东医学会", form: "线下", date: "2027-05-01",
     budget: 20000, owner: "王敏", agenda: "09:00 开幕"
   });
