@@ -491,17 +491,21 @@ function register(router) {
 
   router.get("/api/projects/:id/payee-options", async ctx => {
     const p=getProject(ctx.params.id);assertProjectVisible(ctx.user,p);
-    assertCan(ctx.user,"payment:create","无权查看收款人信息");
+    if(!can(ctx.user,"payment:create")&&!can(ctx.user,"payment:pay"))throw forbidden("无权查看收款人信息");
     return {rows:require("../lib/verified-payees").options(p.id),
       note:"候选来自已签署合同与第五步已核验劳务资料，敏感银行账号只显示尾号"};
   });
 
   /** 付款申请 —— 核销是唯一前置门 */
-  router.post("/api/payments", async (ctx) => {
+  async function createPayment(ctx,direct=false) {
     const b = ctx.body || {};
     const p = getProject(b.pid);
     assertProjectVisible(ctx.user, p);
-    assertCan(ctx.user, "payment:create", "当前角色无付款申请权限");
+    if(direct){
+      if(!isSuper(ctx.user) && ctx.user.role!=="finance")
+        throw forbidden("仅财务人员或总管理员可以直接登记已完成付款");
+      assertCan(ctx.user,"payment:pay","当前账号未获得财务付款权限");
+    }else assertCan(ctx.user,"payment:create","当前角色无付款申请权限");
     /**
      * V1.2.23 NEW-01：门禁先于字段校验。
      *
@@ -536,8 +540,11 @@ function register(router) {
     if(choice && b.payee && String(b.payee).trim()!==choice.name)throw bad("收款方与选定的核销资料不一致");
     // Request stage never asks for bank details; verified labor data may be resolved
     // server-side, otherwise finance enters it only when executing payment.
-    const payeeBank=choice?.bank?parseBankName(choice.bank):"";
-    const payeeAccount=choice?.account?parseBankAccount(choice.account):"";
+    const payeeBank=direct?(b.payee_bank?parseBankName(b.payee_bank):choice?.bank?parseBankName(choice.bank):""):
+      choice?.bank?parseBankName(choice.bank):"";
+    const payeeAccount=direct?(b.payee_account?parseBankAccount(b.payee_account):choice?.account?parseBankAccount(choice.account):""):
+      choice?.account?parseBankAccount(choice.account):"";
+    if(direct&&(!payeeBank||!payeeAccount))throw bad("直接付款必须确认收款银行和银行账号");
     // 发票属于核销材料，不是付款单字段；专家费个人报销不存在发票号。
     const invoiceNo=String(b.invoice_no||"").trim(); // Legacy API remains readable/deduplicated; new UI omits this field.
     if(invoiceNo.length>40)throw bad("发票号不能超过 40 字");
@@ -582,6 +589,21 @@ function register(router) {
       );
     }
     const at = now();
+    // A direct payment is evidence of an already executed offline bank transfer.
+    // Never create 'paid' without a verified, uploaded receipt.
+    let receiptKey=null,receiptName=null;
+    if(direct){
+      if(b.confirm_paid!==true)throw bad("请先勾选确认银行已实际付款");
+      receiptKey=String(b.receipt_file_key||"").trim();
+      if(!FILE_KEY_RE.test(receiptKey))throw bad("财务直接付款必须上传付款凭证");
+      assertUploadAttachable(receiptKey,p.id,ctx.user);
+      const receipt=await storage().get(receiptKey);
+      if(!receipt?.buffer?.length)throw notFound("上传的付款凭证不存在");
+      if(receipt.buffer.length>20*1024*1024)throw bad("付款凭证不可超过20MB");
+      const mime=sniffMime(receipt.buffer,receiptKey);
+      if(!mime||ALLOWED_MIME[mime]!==receiptKey.split(".").pop())throw bad("付款凭证类型与文件不一致");
+      receiptName=safeName(b.receipt_file_name||receiptKey);
+    }
 
     // 一票一付：同项目 + 同收款方 + 同发票号 已有有效付款单，说明这张票已经报过账。
     // 只按发票号拦会误伤（不同收款方各自开票，号段可能撞），所以三个条件一起判。
@@ -607,11 +629,14 @@ function register(router) {
         const same=findExistingPayment(p.id,b.type,payee,amount,period);
         if(same)throw duplicatePaymentError(same);
         id=nextId(db,"payments","id","PY");
-        db.prepare("INSERT INTO payments (id,pid,type,payee,payee_bank,payee_account,amount,invoice_no,dedupe_key,period,req_user,status,remark,created_by,created_at,payee_source_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
-          .run(id,p.id,b.type,payee,payeeBank,payeeAccount,amount,invoiceNo,key,period,ctx.user.name,"待审批",remark,ctx.user.id,at,choice?String(b.payee_option_id):null);
-        const apId=nextId(db,"approvals","id","AP");
-        db.prepare("INSERT INTO approvals (id,type,title,pid,ref_id,amount,by_user,sla,status,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)")
-          .run(apId,"付款审批",`${b.type} ¥${amount.toLocaleString("zh-CN")}`,p.id,id,amount,ctx.user.name,"1 个工作日","待审批",at);
+        if(direct)assertUploadAttachable(receiptKey,p.id,ctx.user);
+        db.prepare("INSERT INTO payments (id,pid,type,payee,payee_bank,payee_account,amount,invoice_no,dedupe_key,period,req_user,status,remark,created_by,created_at,payee_source_id,paid_at,receipt_file_key,receipt_file_name,receipt_uploaded_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
+          .run(id,p.id,b.type,payee,payeeBank,payeeAccount,amount,invoiceNo,key,period,ctx.user.name,direct?"已付款":"待审批",remark,ctx.user.id,at,choice?String(b.payee_option_id):null,direct?at:null,receiptKey,receiptName,direct?at:null);
+        if(!direct){
+          const apId=nextId(db,"approvals","id","AP");
+          db.prepare("INSERT INTO approvals (id,type,title,pid,ref_id,amount,by_user,sla,status,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)")
+            .run(apId,"付款审批",`${b.type} ¥${amount.toLocaleString("zh-CN")}`,p.id,id,amount,ctx.user.name,"1 个工作日","待审批",at);
+        }
       });
     }catch(err){
       if(err.code==="DUPLICATE_PAYMENT")throw err;
@@ -620,12 +645,15 @@ function register(router) {
       throw err;
     }
     logAudit({
-      user: ctx.user, module: "财务结算", action: "付款申请", target: p.id,
+      user: ctx.user, module: "财务结算", action: direct?"直接登记已付款（附凭证）":"付款申请", target: p.id,
       detail: `${id} ${b.type} ¥${amount.toLocaleString("zh-CN")}${period ? "（" + period + "）" : ""} → ${payee}（${payeeAccount ? "账户尾号 "+payeeAccount.slice(-4) : "财务付款时核对账户"}；核销已通过${force ? "；超预算特批" : ""}）`,
       ip: ctx.ip
     });
-    return { payment: db.prepare("SELECT * FROM payments WHERE id = ?").get(id), message: `付款申请 ${id} 已提交，等待财务审批` };
-  });
+    return { payment: db.prepare("SELECT * FROM payments WHERE id = ?").get(id),
+      message: direct?`付款 ${id} 已登记为已付款，凭证已归档`:`付款申请 ${id} 已提交，等待财务审批` };
+  }
+  router.post("/api/payments",ctx=>createPayment(ctx,false));
+  router.post("/api/payments/direct",ctx=>createPayment(ctx,true));
 
   /**
    * 补录收款账户（V1.2.18）。
@@ -715,9 +743,56 @@ function register(router) {
       );
     }
     if (!PAYABLE_STATUS.includes(p.status)) throw conflict("项目核销状态异常，付款已拦截", "VERIFY_GATE");
-    db.prepare("UPDATE payments SET status = '已付款', paid_at = ? WHERE id = ?").run(now(), y.id);
-    logAudit({ user: ctx.user, module: "财务结算", action: "付款", target: p.id, detail: `${y.id} ${y.type} ¥${Number(y.amount).toLocaleString("zh-CN")} 已提交银行`, ip: ctx.ip });
+    // Existing approved applications remain payable; the new UI attaches a real
+    // voucher in the same request, while legacy API clients can be migrated safely.
+    let key=null,name=null;
+    if(ctx.body?.receipt_file_key){
+      key=String(ctx.body.receipt_file_key);
+      if(!FILE_KEY_RE.test(key))throw bad("付款回单格式不合法");
+      assertUploadAttachable(key,p.id,ctx.user);
+      const obj=await storage().get(key);
+      if(!obj?.buffer?.length||obj.buffer.length>20*1024*1024)throw bad("付款凭证不存在或超过20MB");
+      const mime=sniffMime(obj.buffer,key);
+      if(!mime||ALLOWED_MIME[mime]!==key.split(".").pop())throw bad("付款凭证文件类型不符");
+      name=safeName(ctx.body.receipt_file_name||key);
+    }
+    const paidAt=now();
+    transaction(()=>{
+      if(key)assertUploadAttachable(key,p.id,ctx.user);
+      db.prepare("UPDATE payments SET status='已付款',paid_at=?,receipt_file_key=?,receipt_file_name=?,receipt_uploaded_at=? WHERE id=? AND status='已审批'")
+        .run(paidAt,key,name,key?paidAt:null,y.id);
+    });
+    logAudit({ user: ctx.user, module: "财务结算", action: "付款", target: p.id, detail: `${y.id} ${y.type} ¥${Number(y.amount).toLocaleString("zh-CN")} 已执行线下付款${key?"（凭证已存档）":""}`, ip: ctx.ip });
     return { payment: db.prepare("SELECT * FROM payments WHERE id = ?").get(y.id), message: `${y.id} 已付款` };
+  });
+
+  /** 补传历史已付款凭证；不得覆盖先前已关联的付款原件。 */
+  router.post("/api/payments/:id/receipt",async(ctx)=>{
+    const y=db.prepare("SELECT * FROM payments WHERE id=?").get(ctx.params.id);
+    if(!y)throw notFound("付款单不存在");
+    const p=getProject(y.pid);
+    assertProjectVisible(ctx.user,p);
+    assertCan(ctx.user,"payment:pay","仅财务与总管理员可以上传付款凭证");
+    if(y.status!=="已付款")throw conflict("付款尚未完成，不能登记已付款凭证","PAYMENT_NOT_PAID");
+    if(y.receipt_file_key)throw conflict("该付款记录已有凭证，原件不可直接覆盖","PAYMENT_RECEIPT_EXISTS");
+    const key=String(ctx.body?.file_key||"").trim();
+    if(!FILE_KEY_RE.test(key))throw bad("请上传真实的付款回单文件");
+    assertUploadAttachable(key,p.id,ctx.user);
+    const obj=await storage().get(key);
+    if(!obj?.buffer?.length)throw notFound("上传文件不存在");
+    if(obj.buffer.length>20*1024*1024)throw bad("付款凭证最大20MB");
+    const mime=sniffMime(obj.buffer,key);
+    if(!mime||ALLOWED_MIME[mime]!==key.split(".").pop())throw bad("凭证文件内容与类型不符");
+    const name=safeName(ctx.body?.file_name||key),at=now();
+    transaction(()=>{
+      const changed=db.prepare("UPDATE payments SET receipt_file_key=?,receipt_file_name=?,receipt_uploaded_at=? WHERE id=? AND status='已付款' AND receipt_file_key IS NULL")
+        .run(key,name,at,y.id);
+      if(!changed.changes)throw conflict("凭证已被其他操作员上传，请刷新页面","PAYMENT_RECEIPT_EXISTS");
+    });
+    logAudit({user:ctx.user,module:"财务结算",action:"补传已付款凭证",target:y.pid,
+      detail:y.id+" · "+name+" · 历史付款凭证补录",ip:ctx.ip});
+    return {paymentId:y.id,receipt:{file_key:key,file_name:name,uploaded_at:at},
+      message:"付款凭证已上传并归档"};
   });
 
   /* ---------------- 审批中心 ---------------- */

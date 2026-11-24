@@ -29,6 +29,7 @@ export async function openPaymentExecution(id,onDone){
   ((!y.bank||!y.maskedAccount)?'<div class="dsec"><h4>财务确认收款账号（执行付款时补录）</h4>'+
    '<label>开户行<input name="payee_bank" placeholder="开户行名称" autocomplete="off"></label>'+
    '<label>银行账号<input name="payee_account" placeholder="银行账号" autocomplete="off"></label></div>':"")+
+  '<div class="fld"><label>付款凭证 <span class="req">*</span></label><input type="file" data-payment-voucher accept=".pdf,.jpg,.jpeg,.png,.webp,.doc,.docx,.xls,.xlsx" aria-label="上传付款凭证"><p class="hint">请上传已实际完成的转账回单，最大20MB；提交后与付款单永久关联。</p></div>'+
   '<label class="hint"><input type="checkbox" data-verified> 我已核对关联原件、收款方和实际银行转账记录，确认付款已完成</label>';
  const m=modal({title:"财务执行付款 · 原件核对",width:"820px",body,
    footer:'<button class="btn btn-o" data-x="0">取消</button><button class="btn btn-p" data-x="1">确认已付款</button>'});
@@ -37,6 +38,9 @@ export async function openPaymentExecution(id,onDone){
  btn.onclick=async()=>{
   if(!docs.length){toast("未关联付款依据原件，请补充原件后再确认","warn");return;}
   if(!m.querySelector("[data-verified]")?.checked){toast("请先核对原件和线下付款事实","warn");return;}
+  const receipt=m.querySelector("[data-payment-voucher]")?.files?.[0];
+  if(!receipt){toast("完成付款必须上传付款凭证","warn");return;}
+  if(receipt.size>20*1024*1024){toast("单个付款凭证不能超过20MB","warn");return;}
   btn.disabled=true;
   try{
    if(!y.bank||!y.maskedAccount){
@@ -45,7 +49,10 @@ export async function openPaymentExecution(id,onDone){
     if(!bank||!account){toast("执行付款时请核实并填写开户行及银行账号","warn");return;}
     await api.patch("/api/payments/"+encodeURIComponent(id)+"/account",{payee_bank:bank,payee_account:account});
    }
-   const r=await api.post("/api/payments/"+encodeURIComponent(id)+"/pay",{});
+   const uploaded=await api.upload(receipt,{pid:y.pid});
+   const r=await api.post("/api/payments/"+encodeURIComponent(id)+"/pay",{
+    receipt_file_key:uploaded.key,receipt_file_name:uploaded.name
+   });
    toast(r.message,"ok");m.classList.remove("open");
    if(onDone)await onDone();
   }catch(e){toast(e.message,"warn");}

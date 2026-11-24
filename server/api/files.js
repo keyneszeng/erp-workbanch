@@ -43,7 +43,7 @@ function register(router) {
   router.post("/api/uploads", async (ctx) => {
     // 上传是所有附件类操作的公共入口，材料登记和合同录入都要用。
     // 只卡 material:write 会让「能录合同但不能登记材料」的角色传不了合同原件。
-    if (!can(ctx.user, "material:write") && !can(ctx.user, "contract:write")) {
+    if (!can(ctx.user, "material:write") && !can(ctx.user, "contract:write") && !can(ctx.user,"payment:pay")) {
       throw forbidden("当前角色无文件上传权限");
     }
 
@@ -117,7 +117,8 @@ function register(router) {
     const sponsor=c||m?null:db.prepare("SELECT pid,file_name FROM meeting_sponsor_contracts WHERE file_key=?").get(key);
     const receipt=c||m||sponsor?null:db.prepare("SELECT pid,file_name FROM meeting_sponsor_receipts WHERE file_key=?").get(key);
     const invoice=c||m||sponsor||receipt?null:db.prepare("SELECT pid,file_name FROM meeting_sponsor_invoices WHERE file_key=?").get(key);
-    const owner = m || c || sponsor || receipt || invoice;
+    const paymentReceipt=c||m||sponsor||receipt||invoice?null:db.prepare("SELECT pid,receipt_file_name FROM payments WHERE receipt_file_key=?").get(key);
+    const owner = m || c || sponsor || receipt || invoice || paymentReceipt;
     if (owner) {
       // 仅留存在废件箱的删除原件不能通过已知的 file_key 绕过管理员权限。
       // 合同更正产生的历史版本属正式签署证据，其权限仍按合同归属处理。
@@ -132,6 +133,10 @@ function register(router) {
           throw forbidden("已删除原件只能由总管理员从废件箱查看和恢复");
       }
       assertProjectVisible(ctx.user, getProject(owner.pid));
+      // Payment transfer vouchers contain sensitive financial evidence: project visibility
+      // alone is not enough, even when the user may view ordinary material attachments.
+      if (paymentReceipt && !can(ctx.user,"payment:pay"))
+        throw forbidden("付款凭证仅财务人员及总管理员可查看");
       // 单纯是项目成员的嘉宾并不自动获得合同和财务凭证的读取权限。
       if (!can(ctx.user, "material:write") && !can(ctx.user, "contract:write") &&
           !can(ctx.user, "verify:check") && !can(ctx.user, "archive:write") && !can(ctx.user,"payment:pay")) {
