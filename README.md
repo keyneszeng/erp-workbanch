@@ -47,10 +47,15 @@ npm run prod:check
 
 详见 [阿里云生产部署指南](docs/production-deployment.md) 和 [Cloudflare 演示环境约束](docs/cloudflare-secure-deployment.md)。
 
-## 云服务器测试版本（分支）
+## 唯一正式代码源：main（测试、生产、Web 与小程序共用）
 
-`云服务器测试版本` 分支用于「域名未备案、短信未审核」阶段的真实服务器验证：纯 HTTP 8080 用 IP 访问，短信走 console 通道写日志，其余（数据库、RBAC、审批核销状态机、上传）与生产完全一致。它与生产环境在端口、目录、数据库、服务名上完全隔离，可在同一台 ECS 上并存。
+自 2026-11-24 起，**GitHub `main` 是 Web 工作台、API、微信小程序和部署脚本的唯一业务代码基线**。ECS 测试、ECS 生产都从 `main` 构建，历史 `云服务器测试版本` 和 `production-ready-20261030` 分支只作为旧版本记录，不再作为部署来源。
 
+测试与生产**代码一致、环境严格隔离**：测试使用独立数据库、附件、后台服务、HTTP 8080 及 console 短信；生产使用独立持久数据、真实短信和 HTTPS。Cloudflare 仅运行隔离演示数据，仍从审核后的 `main` 单独发布。
+
+部署程序将完整 Git 提交 SHA 写入各自的 `.revision`。生产发布前必须先在测试环境验收**相同的 SHA**；同机优先读取 `/opt/erp-test/current/.revision`，如果测试在其他 ECS，则由发布者设置 `ERP_APPROVED_SHA`，提交不匹配或无验收依据会拒绝生产部署。历史分支未合并代码不得直接部署。
+
+测试环境允许纯 HTTP + IP 用于验收，**禁止录入真实业务数据**。已完成的历史修复和新增功能均以 `main` 中的版本为准。参见 [统一发布规范](docs/unified-source-release.md)。
 ```bash
 sudo ERP_TEST_FIXED_SMS_CODE=654321 bash deploy/aliyun/deploy.sh --test --admin-phone 13800000000
 ```
