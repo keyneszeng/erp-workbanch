@@ -24,6 +24,7 @@ function verification(pid) {
   const rows=db.prepare("SELECT * FROM verify_steps WHERE pid = ? ORDER BY step_no").all(pid);
   const map=new Map(rows.map(r=>[r.step_no,r]));
   const labor=laborSheetInfo(db,pid);
+  const laborContracts=contractPool(db,pid);
   const demand=demandSopState(db,pid);
   const sponsor=sponsorRights(db,pid);
   const steps=VERIFY_STEPS.map(def=>{
@@ -34,7 +35,7 @@ function verification(pid) {
     const stale=required && r?.result==="通过" && (
       (evidence?.origin==="ocr-assisted-human-review" && evidence.scanToken!==verifyOcr.report(pid,def.no).token) ||
       (def.no===5 && (evidence?.laborSourceSignature!==labor.signature ||
-        !evidence?.contractPoolSignature || evidence.contractPoolSignature!==contractPool(db,pid).signature)) ||
+        !evidence?.contractPoolSignature || evidence.contractPoolSignature!==laborContracts.signature)) ||
       (def.no===2 && !isDemoMode() && (
         !Array.isArray(evidence?.matchedSources) ||
         evidence.matchedSources.join("|")!=="终版议程|讲者照片"
@@ -57,6 +58,12 @@ function verification(pid) {
   const openExceptions=db.prepare("SELECT COUNT(*) AS c FROM exceptions WHERE pid = ? AND status IN ('待审批','待复核')").get(pid).c;
   const exceptions=db.prepare("SELECT * FROM exceptions WHERE pid = ? ORDER BY created_at DESC").all(pid);
   return {steps,judged,passed,total:active.length,laborRequired:labor.required,demandRequired:demand.required,rightsRequired:sponsor.required,failedSteps,openExceptions,exceptions,
+    // 前端核销详情只展示同一份后端材料池的有效原件，杜绝客户端按文件名
+    // 重新猜测被软删的合同/协议。只给编号，不泄漏历史废件箱的附件信息。
+    sourceMaterialIds:{
+      laborContracts:laborContracts.rows.map(m=>Number(m.id)),
+      meetingAgreements:demand.agreements.map(m=>Number(m.id))
+    },
     complete:passed===active.length && openExceptions===0 && (isDemoMode() || failedSteps.length===0)};
 }
 
