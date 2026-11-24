@@ -130,7 +130,7 @@ async function openCreate(root) {
     { k: "event_end_time", l: "结束时间", t: "time", v: "18:00" },
     { k: "days", l: "会期（按日期自动计算）", t: "number", v: "1" },
     { k: "budget", l: "预算（元）", t: "number", req: 1, ph: "如：240000", full: 1 },
-    { k: "tax_fee_rate", l: "税费管理费率（%）", t: "number", v: "0", full: 1,
+    { k: "tax_fee_rate", l: "税费管理费率（%）", t: "number", req: 1, full: 1,
       ph: "如：10 表示 10%",tip:"自定义输入 0～100，最多两位小数。按税费管理费率从立项预算扣减。" },
     { k: "people", l: "预计参会人数", t: "number", ph: "如：260" },
     { k: "owner_id", l: "项目负责人（协会成员）", t: "select", req: 1, opts: [] },
