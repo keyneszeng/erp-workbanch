@@ -75,12 +75,16 @@
         <text class="uploaded-file-title">已录入文件 · {{custom?customKind:kind}}</text>
         <text class="uploaded-file-count">{{visibleFiles.length}} 份</text>
       </view>
+      <view wx:if="{{!locked}}" class="field-hint">文件传错了？点击该文件右侧「删除」并确认。删除后进入废件箱，仅总管理员可恢复。</view>
       <view wx:if="{{filesLoading}}" class="field-hint">正在加载已上传材料…</view>
       <view wx:elif="{{visibleFiles.length}}">
         <view wx:for="{{visibleFiles}}" wx:key="id" class="uploaded-file-item">
           <text class="uploaded-file-name">{{item.filename}}</text>
           <text wx:if="{{item.version==='终版'}}" class="uploaded-file-version">当前终版</text>
           <text wx:elif="{{item.version==='历史版'}}" class="uploaded-file-version muted">历史版</text>
+          <button wx:if="{{!locked}}" type="warn" size="mini" class="uploaded-file-delete"
+            data-id="{{item.id}}" disabled="{{busy}}" loading="{{deletingId===item.id}}"
+            catchtap="removeUploaded">删除</button>
         </view>
       </view>
       <view wx:else class="field-hint">该类别暂无已上传文件，选择上方入口即可录入。</view>
