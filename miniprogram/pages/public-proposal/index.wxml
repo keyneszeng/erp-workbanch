@@ -46,7 +46,7 @@
         <input class="field-control" value="{{requested_assoc}}" data-key="requested_assoc" bindinput="input" maxlength="40" placeholder="选填；总管理员转换时确认正式协会"/>
       </view>
       <view class="field">
-        <view class="field-label"><text class="required">*</text>活动形式</view>
+        <view class="field-label"><text class="required">*</text>会议形式</view>
         <picker mode="selector" range="{{forms}}" value="{{formIndex}}" bindchange="pickForm"><view class="picker-control"><text>{{form}}</text><text class="picker-arrow">⌄</text></view></picker>
       </view>
       <view class="field">

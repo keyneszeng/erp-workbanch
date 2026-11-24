@@ -7,7 +7,7 @@ async function convertToInternalDraft(entry){
  if(!options.length){toast("请先在系统配置中建立有效协会","warn");return;}
  const box=modal({
   title:"转为内部立项 · 保存草稿",width:"620px",
-  body:'<div class="hint" style="margin-bottom:12px">将公众申请中的主题、日期、开始时间、形式、预算、完整议程、联系人和联系方式关联到新会议项目。草稿负责人先设为总管理员本人，不进入审批流程。</div>'+
+  body:'<div class="hint" style="margin-bottom:12px">将公众申请中的主题、日期、开始时间、形式、预算、完整议程、联系人、跨日会期、税费费率、人数和联系方式关联到新会议项目。草稿负责人先设为总管理员本人，不进入审批流程。</div>'+
        '<div class="fld"><label>所属协会<span class="req">*</span></label>'+
        '<select name="assoc"><option value="">请选择所属协会</option>'+
        options.map(a=>'<option value="'+esc(a)+'">'+esc(a)+'</option>').join("")+'</select></div>'+
@@ -45,7 +45,7 @@ export async function render(root){
       {t:"接收时间"},{t:"主题／日期／形式"},{t:"预算"},{t:"联系人"},{t:"议程及补充信息"},{t:"状态"},{t:"操作",w:"215px"}
     ],d.rows.map(x=>({c:[
      esc(x.received_at||""),
-     '<b>'+esc(x.topic)+'</b>'<div class="hint">'+esc(x.event_date)+' '+esc(x.event_time)+' 至 '+esc(x.event_end_date||x.event_date)+' '+esc(x.event_end_time||x.event_time)+' · '+esc(x.form)+'</div><div class="hint">'+esc(x.id)+'</div>',
+     '<b>'+esc(x.topic)+'</b><div class="hint">'+esc(x.event_date)+' '+esc(x.event_time)+' 至 '+esc(x.event_end_date||x.event_date)+' '+esc(x.event_end_time||x.event_time)+' · '+esc(x.form)+'</div><div class="hint">'+esc(x.id)+'</div>',
      '¥'+Number(x.budget||0).toLocaleString("zh-CN",{minimumFractionDigits:2,maximumFractionDigits:2}),
      esc(x.contact_name)+'<div class="hint">'+esc(x.contact_phone)+'</div><div class="hint">'+esc(x.contact_info||"")+'</div>',
      '<div class="hint">拟归属：'+esc(x.requested_assoc||'未指定')+' · 参会人数：'+esc(x.people||0)+' · 承办：'+esc(x.dept||'待核定')+'</div>'+
