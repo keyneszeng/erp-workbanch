@@ -878,8 +878,8 @@ async function openMaterial(root,pid){
 }
 
 async function delMaterial(root, pid, id, kind) {
-  const message=kind==="合同"
-    ? "确认删除这份合同原件？如关联未签署合同，将同步从合同看板移除并撤销待审批申请；已签署和赞助合同禁止直接删除。历史审计记录保留。"
+  const message=/(?:合同|协议)/u.test(String(kind||""))
+    ? "确认删除这份合同／协议原件？若关联未签署合同，将同步移除合同看板及同原件的全部合同材料，并撤销待审批签署申请。已签署合同、赞助合同及核销冻结记录不可直接删除，废件箱和审计历史保留。"
     : "确认删除该材料？历史审计记录仍会保留。";
   if (!await confirmBox(message, { ok: "删除", danger: true })) return;
   try {
