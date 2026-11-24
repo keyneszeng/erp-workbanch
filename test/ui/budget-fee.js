@@ -29,7 +29,14 @@ async function run(){
  await page.click("#newBtn");
  const form=page.locator("#modal");
  await form.locator('input[name="tax_fee_rate"]').waitFor({timeout:15000});
+ const feeInput=form.locator('input[name="tax_fee_rate"]');
+ if(await feeInput.inputValue()!=="")throw Error("新建内部立项费率必须留空由申请者填写，不能预设0%");
+ if(!(await form.locator('label').allInnerTexts()).some(x=>x.includes("协会管理费及税费率")&&x.includes("*")))
+   throw Error("协会管理费及税费率应有必填标识");
  await form.locator('input[name="budget"]').fill("100000");
+ await form.locator('[data-a="draft"]').click();
+ if(!(await form.isVisible()))throw Error("未填写费率不能保存草稿");
+
  await form.locator('input[name="tax_fee_rate"]').fill("10");
  const output=form.locator("[data-available-budget]");
  await output.getByText("¥90,000.00").waitFor();
