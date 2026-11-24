@@ -157,8 +157,9 @@ test("劳务收集表类别退役：新上传规范为劳务表，旧原件仍�
   assert.equal(laborSheetInfo(db,p.id).required,true,"旧分类原件仍应触发核销第5项");
   const moduleBefore=db.prepare("SELECT enabled FROM meeting_material_modules WHERE pid=? AND kind='劳务表'").get(p.id);
   assert.equal(moduleBefore,undefined);
-  db.prepare("INSERT OR REPLACE INTO meeting_material_modules(pid,kind,enabled) VALUES (?,'劳务收集表',0)")
-    .run(p.id);
+  db.prepare("INSERT INTO meeting_material_modules(pid,kind,enabled,updated_at) VALUES (?,'劳务收集表',0,?) "+
+    "ON CONFLICT(pid,kind) DO UPDATE SET enabled=0,updated_at=excluded.updated_at")
+    .run(p.id,new Date().toISOString());
   db.close();
   const workbench=await exec("GET","/api/projects/"+p.id+"/material-workbench");
   assert.equal(workbench.status,200,JSON.stringify(workbench.data));
