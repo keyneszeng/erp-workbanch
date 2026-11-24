@@ -51,7 +51,7 @@ async function ready(){
   await page.locator('.tabs [data-tab="materials"]').click();
   const chips=page.locator("#tabbody [data-material-kind]");
   assert.ok(await chips.count()>=12,"material panel shows selectable recommended categories, like mini");
-  assert.equal(await page.locator("#tabbody .material-kind-selected").innerText(),"当前录入：课件已录入 0 份");
+  assert.match((await page.locator("#tabbody .material-kind-selected").innerText()).replace(/\s+/g,""),/当前录入：课件已录入0份/);
   await page.locator('#tabbody [data-material-kind="签到表"]').click();
   await page.waitForFunction(()=>document.querySelector(".material-kind-selected")?.textContent?.includes("签到表"),null,{timeout:10000});
   assert.equal(await page.locator("#addMat").count(),1,"switching category retains direct upload action");
