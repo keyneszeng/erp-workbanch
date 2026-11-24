@@ -219,7 +219,7 @@ function register(router) {
 
     // 合同总额超预算是要预警的业务事实（不是错误，可能确需超支）。
     // 硬拦会让人没法录真实合同，所以只回一个 warning 让前端提示，不阻断。
-    const contractSum = Number(db.prepare("SELECT COALESCE(SUM(amount),0) AS s FROM contracts WHERE pid = ? AND deleted_at IS NULL AND COALESCE(category,'')<>'企业赞助'").get(p.id).s) || 0;
+    const contractSum = Number(db.prepare("SELECT COALESCE(SUM(amount),0) AS s FROM contracts WHERE pid = ? AND deleted_at IS NULL AND status<>'已终止' AND COALESCE(category,'')<>'企业赞助'").get(p.id).s) || 0;
     const budget = Number(p.budget) || 0;
     let warning = "";
     if (budget > 0 && contractSum > budget) {
