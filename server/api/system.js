@@ -709,7 +709,7 @@ function register(router) {
     else if(!can(ctx.user,"audit:read"))throw forbidden("当前角色无审计导出权限");
     const q=def.sql(ctx.user,selectedPids);
     const rows=db.prepare(q.sql).all(...q.params);
-    const csv=toCsv(def.headers,rows.map(row=>def.map(row,ctx.user)));
+    const csv=toCsv(def.headers, rows.map((row) => def.map(row, ctx.user)));
     const suffix=selectedPids ? "-"+selectedPids.length+"场会议" : "";
     const filename=`${def.file}${suffix}-${today().replace(/-/g,"")}.csv`;
     db.prepare("INSERT INTO exports (at,user_name,module,filename,rows) VALUES (?,?,?,?,?)")
