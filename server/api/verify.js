@@ -621,7 +621,11 @@ function register(router) {
 
     // 关联台账合同与材料必须同生共退。禁止通过删除合同原件绕过签署、赞助和核销流程。
     if (m.deleted_at) throw conflict("材料已处于历史冻结状态，不能重复删除", "ALREADY_DELETED");
-    const linked=m.kind==="合同"&&m.file_key
+    // 旧系统允许把合同原件登记成「会务协议」「专家劳务合同」等自定义类别。
+    // 删除时不能仅认 kind='合同'：只要这张材料引用的是该项目合同台账的
+    // 同一份原件，就必须同步处理台账，否则合同继续卡住第5/6项核销。
+    const contractEvidence=/(?:合同|协议)/u.test(String(m.kind||""));
+    const linked=contractEvidence&&m.file_key
       ? db.prepare("SELECT id,status,category FROM contracts WHERE pid=? AND file_key=? AND deleted_at IS NULL").all(p.id,m.file_key)
       : [];
     if(linked.length>1)throw conflict("多份合同共用同一原件，需先由管理员核对关联关系","SHARED_CONTRACT_FILE");
@@ -636,20 +640,29 @@ function register(router) {
       if(["已核销","已结算"].includes(p.status)||
          db.prepare("SELECT 1 FROM verify_steps WHERE pid=? AND step_no=6 AND result='通过'").get(p.id))
         throw conflict("合同已进入核票或核销，需先办理核销更正","CONTRACT_VERIFIED");
-      if(db.prepare("SELECT 1 FROM materials WHERE pid=? AND kind='合同' AND file_key=? AND id<>? AND deleted_at IS NULL")
-        .get(p.id,m.file_key,m.id))
-        throw conflict("合同原件仍被其他归档材料引用，请先核对后处理","SHARED_CONTRACT_FILE");
+      // 同一合同可能有多份按不同类别登记的原件引用。同步软删所有
+      // 合同/协议类别的同 key 材料；如被发票或其他非合同资料复用，拒绝
+      // 自动删除，防止错误移除其他业务原件。
+      const other=db.prepare(
+        "SELECT id,kind FROM materials WHERE pid=? AND file_key=? AND deleted_at IS NULL AND id<>?"
+      ).all(p.id,m.file_key,m.id);
+      if(other.some(x=>!/(?:合同|协议)/u.test(String(x.kind||""))))
+        throw conflict("该文件仍被非合同类材料引用，请先核对附件关联","SHARED_CONTRACT_FILE");
     }
     const at=now();
     transaction(()=>{
-      db.prepare("UPDATE materials SET deleted_at=?, deleted_by=? WHERE id=? AND deleted_at IS NULL")
-        .run(at,ctx.user.name,m.id);
       if(c){
+        db.prepare("UPDATE materials SET deleted_at=?,deleted_by=? WHERE pid=? AND file_key=? "+
+          "AND deleted_at IS NULL AND (kind LIKE '%合同%' OR kind LIKE '%协议%')")
+          .run(at,ctx.user.name,p.id,m.file_key);
         db.prepare("UPDATE contracts SET deleted_at=?,deleted_by=? WHERE id=? AND deleted_at IS NULL")
           .run(at,ctx.user.name,c.id);
         db.prepare("UPDATE approvals SET status='已撤销',decided_by=?,decided_at=?,comment='关联合同已删除，原签署申请失效' "+
           "WHERE type='合同审批' AND ref_id=? AND status='待审批'")
           .run(ctx.user.name,at,c.id);
+      }else{
+        db.prepare("UPDATE materials SET deleted_at=?, deleted_by=? WHERE id=? AND deleted_at IS NULL")
+          .run(at,ctx.user.name,m.id);
       }
     });
     logAudit({user:ctx.user,module:"材料中心",action:c?"软删合同及关联材料":"软删冻结",
