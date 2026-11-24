@@ -183,6 +183,35 @@ CREATE TABLE IF NOT EXISTS contracts (
 );
 CREATE INDEX IF NOT EXISTS idx_contracts_pid ON contracts(pid);
 
+-- 合同更正版本链：审批前仅登记候选证据；审批通过后旧版和新版均可追溯。
+CREATE TABLE IF NOT EXISTS contract_amendments (
+  id TEXT PRIMARY KEY,
+  contract_id TEXT NOT NULL REFERENCES contracts(id) ON DELETE CASCADE,
+  pid TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL,
+  reason TEXT NOT NULL,
+  old_amount REAL NOT NULL,
+  new_amount REAL,
+  old_status TEXT NOT NULL,
+  old_file_key TEXT,
+  old_file_name TEXT,
+  new_file_key TEXT NOT NULL,
+  new_file_name TEXT NOT NULL,
+  new_file_size INTEGER,
+  new_file_mime TEXT,
+  status TEXT NOT NULL DEFAULT '待审批',
+  requested_by_id INTEGER,
+  requested_by TEXT,
+  created_at TEXT NOT NULL,
+  approval_id TEXT,
+  decided_by_id INTEGER,
+  decided_by TEXT,
+  decided_at TEXT,
+  decision_note TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_amendments_contract ON contract_amendments(contract_id,created_at);
+
+
 -- 企业赞助收入独立于会务支出合同，避免错误计入核销合同费用。
 CREATE TABLE IF NOT EXISTS meeting_sponsor_contracts (
   id TEXT PRIMARY KEY,
