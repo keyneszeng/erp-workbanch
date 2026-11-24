@@ -28,7 +28,7 @@ function contractPool(db,pid){
   "AND file_key IS NOT NULL AND file_key<>'' ORDER BY id"
  ).all(pid);
  const ledgers=db.prepare(
-  "SELECT id,name,vendor,category,status,file_key FROM contracts WHERE pid=? "+
+  "SELECT id,name,vendor,category,status,file_key,deleted_at FROM contracts WHERE pid=? "+
   "AND file_key IS NOT NULL AND file_key<>'' ORDER BY id"
  ).all(pid);
  const byKey=new Map();
@@ -42,7 +42,9 @@ function contractPool(db,pid){
   // If an archived document is owned by ANY explicitly categorized ledger
   // contract, its ledger category is authoritative. No name-based override.
   if(linked.length){
-   const eligible=linked.filter(x=>x.category==="劳务专家");
+   // 旧附件仍在材料库时，已删除/终止的合同不能继续参与核销。
+   // 不能简单从 byKey 中移除墓碑，否则同名扫描件会被误认为独立专家合同。
+   const eligible=linked.filter(x=>!x.deleted_at&&x.status!=="已终止"&&x.category==="劳务专家");
    if(eligible.length!==1 || eligible.length!==linked.length)return [];
    return [{...m,expertVendor:eligible[0].vendor,ledgerContractId:eligible[0].id,
      ledgerName:eligible[0].name,ledgerCategory:eligible[0].category,
