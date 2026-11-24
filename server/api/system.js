@@ -417,12 +417,26 @@ function register(router) {
     return { rows: rows.map((u) => ({ id: u.id, name: u.name, role: u.role, role_name: ROLES[u.role]?.name || u.role })) };
   });
 
-  router.get("/api/associations", async ctx => ({rows:require("../lib/associations").list()}));
+  router.get("/api/associations", async ctx => ({
+    rows:require("../lib/associations").list(),
+    details:require("../lib/associations").details()
+  }));
   router.post("/api/associations", async ctx => {
     if (!isSuper(ctx.user)) throw forbidden("只有总管理员可以修改协会目录");
-    const name=require("../lib/associations").add(ctx.body?.name);
-    logAudit({user:ctx.user,module:"系统配置",action:"新增协会",target:name,detail:"协会加入目录",ip:ctx.ip});
-    return {name,rows:require("../lib/associations").list()};
+    const catalog=require("../lib/associations");
+    const name=catalog.add(ctx.body?.name,ctx.body?.code);
+    logAudit({user:ctx.user,module:"系统配置",action:"新增协会",target:name,
+      detail:"协会加入目录，字母简写："+catalog.getCode(name),ip:ctx.ip});
+    return {name,code:catalog.getCode(name),rows:catalog.list(),details:catalog.details()};
+  });
+  router.patch("/api/associations/:name", async ctx => {
+    if(!isSuper(ctx.user))throw forbidden("只有总管理员可以修改协会目录");
+    const name=decodeURIComponent(ctx.params.name);
+    const updated=require("../lib/associations").updateCode(name,ctx.body?.code);
+    logAudit({user:ctx.user,module:"系统配置",action:"修改协会字母简写",
+      target:name,detail:"新简写："+updated.code,ip:ctx.ip});
+    return {...updated,rows:require("../lib/associations").list(),
+      details:require("../lib/associations").details()};
   });
   router.delete("/api/associations/:name", async ctx => {
     if (!isSuper(ctx.user)) throw forbidden("只有总管理员可以修改协会目录");

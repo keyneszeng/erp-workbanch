@@ -28,7 +28,15 @@ const SCHEMA = `
 CREATE TABLE IF NOT EXISTS associations (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   name TEXT NOT NULL UNIQUE,
+  code TEXT,
   active INTEGER NOT NULL DEFAULT 1
+);
+-- Counter survives project deletion, so a public meeting code is never reused.
+CREATE TABLE IF NOT EXISTS meeting_code_sequences (
+  code TEXT NOT NULL,
+  year INTEGER NOT NULL,
+  last_seq INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY(code,year)
 );
 CREATE TABLE IF NOT EXISTS users (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -714,6 +722,9 @@ function migrate() {
     }
   };
 
+  addColumn("associations","code","code TEXT");
+  db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_associations_code ON associations(code) WHERE code IS NOT NULL AND code<>''");
+  db.exec("CREATE TABLE IF NOT EXISTS meeting_code_sequences (code TEXT NOT NULL,year INTEGER NOT NULL,last_seq INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(code,year))");
   addColumn("materials","sponsor_right_id","sponsor_right_id INTEGER");
   addColumn("meeting_sponsor_contracts","rights_scan_status","rights_scan_status TEXT NOT NULL DEFAULT '未识别'");
   addColumn("meeting_sponsor_contracts","rights_scan_note","rights_scan_note TEXT");
