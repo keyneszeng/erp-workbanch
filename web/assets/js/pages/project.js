@@ -1,4 +1,5 @@
 import {openPaymentExecution} from "../lib/payment-execution.js";
+import {openPaymentVoucher} from "../lib/payment-voucher.js";
 import { api, can, state } from "../lib/api.js";
 import {bindBudgetFeePreview} from "../lib/budget-fee.js";
 import {bindPayeePicker} from "../lib/payee-picker.js";
@@ -231,9 +232,9 @@ function tabOverview(d, p) {
         ? `<div class="gate ok"><b>结算单 ${settle.id} 已生成</b>
              项目预算 ¥${money(settle.income)} · 已付支出 ¥${money(settle.expense)} · 预算结余 ¥${money(settle.profit)}（${settle.created_at}）
            </div>`
-        : `<div class="gate"><b>结算单未生成</b>适用核销项通过后，还须完成付款申请、审批和付款登记，并核对合同与实际付款金额后才能结算；生成后资料冻结。</div>`}</div>
+        : `<div class="gate"><b>结算单未生成</b>适用核销项通过后，财务可在核销通过后直接登记付款并上传银行回单，完成金额核对后才能结算；生成后资料冻结。</div>`}</div>
       <div style="margin-top:10px">${PAYABLE.includes(p.status)
-        ? `<div class="gate ok"><b>付款门禁已放行</b>项目已完成核销，可提交付款申请。</div>`
+        ? `<div class="gate ok"><b>付款门禁已放行</b>项目已完成核销，财务人员可直接登记已付款并上传回单。</div>`
         : `<div class="gate"><b>付款门禁锁定</b>当前状态「${p.status}」，适用核销项全部通过（已核销）后才可付款${p.status === "已结算" ? "；结算后账目已封账" : p.status === "已归档" ? "；归档后卷宗已封存" : ""}。</div>`}</div>
       `)}
       ${panel("流程门禁", "系统实时校验", `<div style="display:flex;flex-direction:column;gap:8px;font-size:12.5px">
@@ -370,38 +371,40 @@ function contractFileCell(c) {
 
 /* ---------------- 付款 ---------------- */
 function tabPayments(d, p) {
-  const archived = p.status === "已归档";
-  const payable = PAYABLE.includes(p.status);
-  const gate = archived
-    ? `<div class="gate" style="margin-bottom:12px"><b>卷宗已封存</b>项目已归档，不可再新增付款；历史付款记录仍可查阅。</div>`
-    : p.status === "已结算"
-      ? `<div class="gate" style="margin-bottom:12px"><b>账目已封账</b>结算单已生成，不可再新增付款；如需补付请走线下流程。</div>`
-      : payable ? ""
-      : `<div class="gate" style="margin-bottom:12px"><b>付款门禁锁定</b>
-      项目状态「${p.status}」，按制度必须完成全部适用核销项并通过（已核销）才可付款。当前核销进度 ${d.verification.passed}/${d.verification.total}。</div>`;
-  return `${gate}
-  ${d.settlementBreakdown ? panel("结算单", esc(d.settlement.id), renderSettlementBreakdown(d.settlementBreakdown)) : ""}
-  ${panel("付款记录", `已付款 ¥${money(d.paidTotal)}`, table(
-    [{ t: "付款单号", w: "112px" }, { t: "类型", w: "86px" }, { t: "收款方" }, { t: "金额", w: "100px", cls: "num" },
-     { t: "发票号", w: "96px" }, { t: "申请人", w: "72px" }, { t: "状态", w: "80px" }, { t: "操作", w: "120px" }],
-    d.payments.map((y) => ({
-      c: [`<span class="mono">${y.id}</span>`, esc(y.type),
-        `${esc(y.payee)}<div style="font-size:11px;color:var(--mute)">
-          ${y.payee_account
-            ? `${esc(y.payee_bank || "")} · <span class="mono">${esc(can("payment:pay") ? y.payee_account : "尾号 " + String(y.payee_account).slice(-4))}</span>`
-            : '<span style="color:var(--warn)">未登记收款账户</span>'}
-        </div>`, `¥${money(y.amount)}${y.period ? `<div class="hint">期次：${esc(y.period)}</div>` : ""}`,
-        `<span class="mono">${esc(y.invoice_no || "—")}</span>`, esc(y.req_user || ""), badge(y.status),
-        `<div class="tacts">
-          ${y.status === "待审批" && can("payment:approve") ? `<button class="link" data-pay-approve="${y.id}">审批</button>` : ""}
-          ${y.status === "已审批" && can("payment:pay")  ? `<button class="link" data-pay-pay="${y.id}">付款</button>` : ""}
-          
-          ${y.status === "待审批" && can("payment:approve") ? `<button class="link danger" data-pay-reject="${y.id}">驳回</button>` : ""}
-        </div>`]
-    })), { empty: "暂无付款记录" }),
-    can("payment:create")
-      ? `<button class="btn btn-p btn-sm" id="addPay" ${payable ? "" : `disabled title="${archived ? "项目已归档，不可新增付款" : "核销通过后才可付款"}"`}>+ 付款申请</button>`
-      : "")}`;
+  const financeDirect=can("payment:pay")&&(state.super||state.user?.role==="finance");
+  const payable=PAYABLE.includes(p.status), archived=p.status==="已归档";
+  const gate=archived
+    ? '<div class="gate" style="margin-bottom:12px"><b>卷宗已封存</b>历史付款及凭证仅供查阅。</div>'
+    : p.status==="已结算"
+      ? '<div class="gate" style="margin-bottom:12px"><b>财务已结算</b>不再新增付款，已登记凭证可以查看。</div>'
+      : payable?'':'<div class="gate" style="margin-bottom:12px"><b>付款门禁锁定</b>需全部适用核销项通过后才可付款。</div>';
+  const controls=financeDirect
+    ? '<button class="btn btn-p btn-sm" data-go="finance/'+esc(p.id)+'">进入付款单页 · 直接登记与上传凭证</button>'
+    : can("payment:create")
+      ? '<button class="btn btn-p btn-sm" id="addPay"'+(payable?'':' disabled')+'>+ 付款申请</button>' : '';
+  const rows=d.payments.map(y=>({c:[
+    '<span class="mono">'+esc(y.id)+'</span><div class="hint">'+esc(y.payee)+(y.period?' · '+esc(y.period):'')+'</div>',
+    esc(y.type),
+    '¥'+money(y.amount),
+    y.status==="已付款"
+      ? '<label class="hint"><input type="checkbox" checked disabled aria-label="付款已完成"> 已付款</label><div class="hint">'+esc(y.paid_at||"")+'</div>'
+      : badge(y.status)+
+        (y.status==="待审批"&&can("payment:approve")?'<div><button class="link" data-pay-approve="'+esc(y.id)+'">审批</button> <button class="link danger" data-pay-reject="'+esc(y.id)+'">驳回</button></div>':'')+
+        (y.status==="已审批"&&can("payment:pay")?'<div><button class="link" data-pay-pay="'+esc(y.id)+'">☐ 确认付款</button></div>':''),
+    y.receipt_file_key
+      ? (can("payment:pay")
+          ? '<a class="link" href="/api/uploads/'+encodeURIComponent(y.receipt_file_key)+'" target="_blank" rel="noopener">查看凭证</a><div class="hint">'+esc(y.receipt_file_name||"")+'</div>'
+          : '<span class="hint">已归档</span>')
+      : y.status==="已付款"&&can("payment:pay")
+        ? '<button class="link" data-receipt="'+esc(y.id)+'" data-pid="'+esc(p.id)+'">上传文件</button>'
+        : '<span class="hint">付款后上传</span>'
+  ]}));
+  return gate+
+    (d.settlementBreakdown?panel("结算单",esc(d.settlement.id),renderSettlementBreakdown(d.settlementBreakdown)):"")+
+    panel("付款登记与凭证","已付款 ¥"+money(d.paidTotal),
+      table([{t:"付款单/收款方"},{t:"类目",w:"100px"},{t:"金额",w:"115px"},
+        {t:"付款（勾选）",w:"148px"},{t:"凭证详情",w:"128px"}],
+        rows,{empty:"暂无付款记录"}),controls);
 }
 
 /* ---------------- 核销 ---------------- */
@@ -541,6 +544,7 @@ function wire(root, pid, d, body) {
   body.querySelectorAll("[data-pay-approve]").forEach((b) => b.onclick = () => payAct(root, pid, b.dataset.payApprove, "approve"));
   body.querySelectorAll("[data-pay-reject]").forEach((b) => b.onclick = () => payAct(root, pid, b.dataset.payReject, "reject"));
   body.querySelectorAll("[data-pay-pay]").forEach((b) => b.onclick = () => payAct(root, pid, b.dataset.payPay, "pay"));
+  body.querySelectorAll("[data-receipt]").forEach(b=>b.onclick=()=>openPaymentVoucher(b.dataset.receipt,b.dataset.pid,()=>refresh(root,pid)));
   // 「登记账户」已并入财务执行付款弹窗（payment-execution.js），列表不再单独提供入口。
   // 「去登记材料 →」：切页签（tab 是模块级变量，直接改再重渲染）
   body.querySelectorAll("[data-goto-tab]").forEach((b) => b.onclick = () => {
@@ -685,7 +689,7 @@ async function doTransition(root, pid, action, project) {
   if (["archive", "verify_pass"].includes(action)) {
     const ok = await confirmBox(
       action === "archive" ? "归档后数字卷宗封存，材料不可再修改，确认继续？"
-        : "确认核销通过？通过后须先完成付款申请、审批与财务付款登记，金额核对后才能结算。",
+        : "确认核销通过？通过后财务可直接付款并上传真实凭证，完成金额核对后才能结算。",
       { ok: "确认", danger: action !== "verify_pass" });
     if (!ok) return;
   }
