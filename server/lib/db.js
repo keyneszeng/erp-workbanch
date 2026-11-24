@@ -998,15 +998,17 @@ function migrate() {
   try {
     db.exec(`UPDATE contracts SET
       deleted_at=(SELECT MAX(m.deleted_at) FROM materials m
-        WHERE m.pid=contracts.pid AND m.kind='合同' AND m.file_key=contracts.file_key
-          AND m.deleted_at IS NOT NULL),
+        WHERE m.pid=contracts.pid AND (m.kind LIKE '%合同%' OR m.kind LIKE '%协议%')
+          AND m.file_key=contracts.file_key AND m.deleted_at IS NOT NULL),
       deleted_by='历史归档材料删除回填'
       WHERE deleted_at IS NULL AND status IN ('草稿','待签署')
         AND COALESCE(category,'')<>'企业赞助' AND file_key IS NOT NULL
         AND EXISTS (SELECT 1 FROM materials m WHERE m.pid=contracts.pid
-          AND m.kind='合同' AND m.file_key=contracts.file_key AND m.deleted_at IS NOT NULL)
+          AND (m.kind LIKE '%合同%' OR m.kind LIKE '%协议%')
+          AND m.file_key=contracts.file_key AND m.deleted_at IS NOT NULL)
+        -- 任何仍存活的原件引用都可能是合法业务材料；不得靠猜测自动删合同。
         AND NOT EXISTS (SELECT 1 FROM materials m WHERE m.pid=contracts.pid
-          AND m.kind='合同' AND m.file_key=contracts.file_key AND m.deleted_at IS NULL)
+          AND m.file_key=contracts.file_key AND (m.deleted_at IS NULL OR m.deleted_at=''))
         AND NOT EXISTS (SELECT 1 FROM settlements s WHERE s.pid=contracts.pid)
         AND NOT EXISTS (SELECT 1 FROM verify_steps v WHERE v.pid=contracts.pid
           AND v.step_no=6 AND v.result='通过')
@@ -1017,6 +1019,27 @@ function migrate() {
       WHERE type='合同审批' AND status='待审批'
         AND ref_id IN (SELECT id FROM contracts WHERE deleted_at IS NOT NULL)`);
   } catch { /* 旧库结构不完整时保留原始数据，避免破坏迁移 */ }
+
+  // 历史修复：早期已软删除合同仍留有同原件的其他「合同/协议」类别材料，
+  // 核销可能误把残留扫描件当有效证据。仅处理明确关联到已删除的
+  // 未签署非赞助合同、且不存在任何同 key 有效合同的情况；原始字节不删除。
+  try {
+    db.exec(`UPDATE materials SET
+      deleted_at=(SELECT MAX(c.deleted_at) FROM contracts c
+        WHERE c.pid=materials.pid AND c.file_key=materials.file_key
+          AND c.deleted_at IS NOT NULL AND c.status IN ('草稿','待签署')
+          AND COALESCE(c.category,'')<>'企业赞助'),
+      deleted_by='历史已删除合同关联材料回填'
+      WHERE (deleted_at IS NULL OR deleted_at='')
+        AND (kind LIKE '%合同%' OR kind LIKE '%协议%')
+        AND file_key IS NOT NULL AND file_key<>''
+        AND EXISTS (SELECT 1 FROM contracts c WHERE c.pid=materials.pid
+          AND c.file_key=materials.file_key AND c.deleted_at IS NOT NULL
+          AND c.status IN ('草稿','待签署')
+          AND COALESCE(c.category,'')<>'企业赞助')
+        AND NOT EXISTS (SELECT 1 FROM contracts c WHERE c.pid=materials.pid
+          AND c.file_key=materials.file_key AND c.deleted_at IS NULL)`);
+  }catch{/* 旧库结构不完整时保留原值；不能静默删除正式已签合同证据 */}
 
   // 兼容历史合同：只为有原件、尚未在同项目材料中心出现的合同建立引用.
   // 原始文件不会复制、移动或修改，迁移可重复执行。

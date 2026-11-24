@@ -117,6 +117,9 @@ test("已软删除的合同不能进入会务需求金额或第六项原件统�
  const state=demandSopState(db,project.id);
  assert.equal(state.contractCount,0);
  assert.equal(state.contractTotal,0);
+ assert.deepEqual(state.agreements,[],"残留原件不得重新归类为独立会务协议");
+ assert.throws(()=>validateSopEvidence(6,reviewed,project,db,8000),
+  e=>e.code==="CONTRACT_NOT_SIGNED");
  db.close();
 });
 test("会务需求表未确认归档，不得用已录金额直接通过",()=>{
@@ -125,5 +128,20 @@ test("会务需求表未确认归档，不得用已录金额直接通过",()=>{
  db.prepare("UPDATE demand_sheets SET confirmed=0").run();
  assert.throws(()=>validateSopEvidence(6,reviewed,project,db,8000),
   e=>e.code==="DEMAND_NOT_CONFIRMED");
+ db.close();
+});
+
+test("旧系统删除会务合同后仍留有「会务协议」材料，不能作为第6项的有效原件",()=>{
+ const {db,addMaterial,addContract}=setup();addDemand(db);
+ addContract("HT-OLD","已删除会务执行合同","会务需求",8000,"old-meeting.pdf");
+ addMaterial("会务协议","旧已签合同扫描件","old-meeting.pdf");
+ addMaterial("会务发票","发票","invoice.pdf");
+ const valid=demandSopState(db,project.id);
+ assert.equal(valid.agreements.length,1);
+ db.prepare("UPDATE contracts SET deleted_at='2026-11-24' WHERE id='HT-OLD'").run();
+ const after=demandSopState(db,project.id);
+ assert.equal(after.contractCount,0);
+ assert.deepEqual(after.agreements,[]);
+ assert.notEqual(after.signature,valid.signature,"删除合同应失效第6步原核销证据");
  db.close();
 });

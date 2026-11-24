@@ -23,6 +23,9 @@ function isMeetingAgreement(m,byKey){
  if(contracts.length){
   if(contracts.length!==1)return false;
   const row=contracts[0];
+  // 墓碑优先：即便还有历史残留材料，已删除的同 key 合同也不得
+  // 重新被当成“独立会务协议”，使核销第6项持续出现幽灵关联。
+  if(row.deleted_at||row.status==="已终止")return false;
   return row.category===MEETING ||
     (explicitMeetingMaterial(m)&&matchingLegacyContract(row));
  }
@@ -44,7 +47,7 @@ function demandSopState(db,pid){
   "SELECT id,grp,item,need,budget,quantity,unit_price FROM demand_items WHERE pid=? AND need='需要' ORDER BY id"
  ).all(pid);
  const allLedger=db.prepare(
-  "SELECT id,name,category,status,amount,file_key FROM contracts WHERE pid=? AND deleted_at IS NULL AND file_key IS NOT NULL AND file_key<>'' ORDER BY id"
+  "SELECT id,name,category,status,amount,file_key,deleted_at FROM contracts WHERE pid=? AND file_key IS NOT NULL AND file_key<>'' ORDER BY id"
  ).all(pid);
  const byKey=new Map();
  for(const item of allLedger){

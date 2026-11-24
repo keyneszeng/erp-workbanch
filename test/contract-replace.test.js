@@ -208,6 +208,93 @@ test("删除未签署的合同原件，同步隐藏合同看板、项目详情�
   assert.equal(second.status,409,"重复删除仍需被拒绝");
 });
 
+
+test("自定义会务协议材料删除时联动所有同源合同材料，核销/合同看板不再引用已删合同",async()=>{
+ const {DatabaseSync}=require("node:sqlite");
+ const uploaded=await upload("exec",PDF1,"旧版会务协议.pdf");
+ assert.equal(uploaded.status,200,JSON.stringify(uploaded.data));
+ const created=await req("exec","POST","/api/contracts",{
+  pid:PID,name:"曾按会务协议类别归档的合同",vendor:"原签约供应商",amount:6300,
+  status:"草稿",category:"会务需求",file_key:uploaded.data.key,
+  file_name:uploaded.data.name,file_size:uploaded.data.size,file_mime:uploaded.data.mime
+ });
+ assert.equal(created.status,200,JSON.stringify(created.data));
+ const cid=created.data.contract.id;
+ let aliasId,originalId;
+ {
+  const db=new DatabaseSync(DB);
+  db.exec("PRAGMA busy_timeout=5000");
+  const original=db.prepare("SELECT * FROM materials WHERE pid=? AND file_key=? AND kind='合同'")
+   .get(PID,uploaded.data.key);
+  assert.ok(original);
+  originalId=Number(original.id);
+  db.prepare("UPDATE materials SET kind='会务协议' WHERE id=?").run(originalId);
+  aliasId=Number(db.prepare(
+   "INSERT INTO materials(pid,kind,name,version,uploader,created_at,file_key,file_name,file_size,file_mime) "+
+   "VALUES (?,?,?,?,?,?,?,?,?,?)"
+  ).run(PID,"合同","旧系统双归档："+cid,"v1","执行人员",original.created_at,
+   uploaded.data.key,uploaded.data.name,uploaded.data.size,uploaded.data.mime).lastInsertRowid);
+  db.close();
+ }
+ const found=(await req("admin","GET","/api/projects/"+PID)).data;
+ assert.ok(found.materials.some(m=>m.id===aliasId));
+ assert.ok(found.contracts.some(c=>c.id===cid));
+ const removed=await req("exec","DELETE","/api/materials/"+originalId);
+ assert.equal(removed.status,200,JSON.stringify(removed.data));
+ assert.equal(removed.data.linkedContract,cid);
+ const board=await req("admin","GET","/api/contracts?pid="+PID);
+ assert.ok(!board.data.rows.some(x=>x.id===cid),"合同看板不得出现被软删的会务合同");
+ const detail=(await req("admin","GET","/api/projects/"+PID)).data;
+ assert.ok(!detail.contracts.some(c=>c.id===cid));
+ assert.ok(!detail.materials.some(m=>m.id===originalId||m.id===aliasId),
+  "所有引用同一合同原件的合同/协议材料必须一起退出有效材料池");
+ const verify=await req("admin","GET","/api/projects/"+PID+"/verify");
+ assert.equal(verify.status,200,JSON.stringify(verify.data));
+ assert.ok(!verify.data.contracts.some(c=>c.id===cid));
+ assert.ok(!verify.data.materials.some(m=>m.file_key===uploaded.data.key),
+  "核销项目中不应再关联任何被删除合同的原件");
+ assert.ok(!verify.data.verification.sourceMaterialIds.meetingAgreements.includes(originalId));
+ assert.ok(!verify.data.verification.sourceMaterialIds.meetingAgreements.includes(aliasId));
+ assert.ok(!verify.data.verification.sourceMaterialIds.laborContracts.includes(originalId));
+ assert.ok(!verify.data.verification.sourceMaterialIds.laborContracts.includes(aliasId));
+ const bin=await req("admin","GET","/api/recycle-bin/materials?size=100");
+ assert.equal(bin.status,200);
+ assert.ok(bin.data.rows.some(m=>m.id===originalId));
+ assert.ok(bin.data.rows.some(m=>m.id===aliasId),"删除的其他类别合同材料也应留在废件箱");
+ assert.equal((await req("exec","POST","/api/contracts/"+cid+"/transition",{action:"submit"})).status,404,
+  "已删除合同不得仍发起签署");
+ assert.equal((await req("exec","DELETE","/api/materials/"+aliasId)).status,409);
+});
+
+test("合同原件与发票等非合同类材料共享同 key 时拒绝级联，不能误删其他核销证据",async()=>{
+ const {DatabaseSync}=require("node:sqlite");
+ const uploaded=await upload("exec",PDF1,"不可误删共享附件.pdf");
+ assert.equal(uploaded.status,200);
+ const created=await req("exec","POST","/api/contracts",{
+  pid:PID,name:"跨类别共享保护合同",vendor:"供应商",amount:520,
+  status:"草稿",category:"会务需求",file_key:uploaded.data.key,
+  file_name:uploaded.data.name,file_size:uploaded.data.size,file_mime:uploaded.data.mime
+ });
+ assert.equal(created.status,200,JSON.stringify(created.data));
+ let originalId,otherId;
+ {
+  const db=new DatabaseSync(DB);
+  db.exec("PRAGMA busy_timeout=5000");
+  originalId=Number(db.prepare("SELECT id FROM materials WHERE pid=? AND kind='合同' AND file_key=?")
+   .get(PID,uploaded.data.key).id);
+  otherId=Number(db.prepare(
+   "INSERT INTO materials(pid,kind,name,version,uploader,created_at,file_key) VALUES (?,?,?,?,?,?,?)"
+  ).run(PID,"会务发票","共享附件不能级联删除","v1","执行人员","2026-11-24",uploaded.data.key).lastInsertRowid);
+  db.close();
+ }
+ const denied=await req("exec","DELETE","/api/materials/"+originalId);
+ assert.equal(denied.status,409,JSON.stringify(denied.data));
+ assert.equal(denied.data.error.code,"SHARED_CONTRACT_FILE");
+ const detail=(await req("admin","GET","/api/projects/"+PID)).data;
+ assert.ok(detail.contracts.some(c=>c.id===created.data.contract.id));
+ assert.ok(detail.materials.some(m=>m.id===otherId&&m.file_key===uploaded.data.key));
+});
+
 test("已签署合同不可通过删除材料消失，必须先处理合同财务关系",async()=>{
   const detail=await req("admin","GET","/api/projects/"+PID);
   const material=detail.data.materials.find(m=>m.kind==="合同"&&m.file_key===secondKey);
