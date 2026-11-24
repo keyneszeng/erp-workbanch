@@ -45,7 +45,7 @@ before(async()=>{
 after(()=>{child?.kill("SIGTERM");fs.rmSync(dir,{recursive:true,force:true});});
 test("合同台账企业赞助自动编码，OCR预填，并同步会议收入签署状态",async()=>{
  const p=await request("POST","/api/projects",
-  {name:"合同台账关联赞助收入测试",assoc:"华东医学会",form:"线下",date:"2027-11-20",
+  {tax_fee_rate:0,name:"合同台账关联赞助收入测试",assoc:"华东医学会",form:"线下",date:"2027-11-20",
    budget:30000,people:30,owner:"陈静",agenda:"会务合作"},exec);
  assert.equal(p.status,200,JSON.stringify(p.data));
  const pid=p.data.project.id,key=await uploadDocx(exec,pid);
@@ -95,7 +95,7 @@ test("合同台账企业赞助自动编码，OCR预填，并同步会议收入�
 });
 
 test("赞助合同/到账凭证/开票逐笔登记、授权与预算差额",async()=>{
- const p=await request("POST","/api/projects",{name:"赞助收入测试项目",assoc:"华东医学会",form:"线下",date:"2027-10-20",budget:10000,people:60,owner:"陈静",agenda:"学术会议"},exec);
+ const p=await request("POST","/api/projects",{tax_fee_rate:0,name:"赞助收入测试项目",assoc:"华东医学会",form:"线下",date:"2027-10-20",budget:10000,people:60,owner:"陈静",agenda:"学术会议"},exec);
  assert.equal(p.status,200,JSON.stringify(p.data));const pid=p.data.project.id;
  const initial=await request("GET","/api/projects/"+pid+"/income",undefined,admin);assert.equal(initial.status,200);assert.equal(initial.data.summary.budget,10000);
  const forbidden=await request("GET","/api/projects/"+pid+"/income");assert.equal(forbidden.status,401);
@@ -148,7 +148,7 @@ test("赞助合同/到账凭证/开票逐笔登记、授权与预算差额",asyn
  const overview=await request("GET","/api/projects/"+pid+"/sponsor-rights",undefined,exec);
  assert.ok(overview.data.photos.some(x=>x.sponsor_right_id===rid&&x.file_key===photoKey));
  const otherProject=await request("POST","/api/projects",
-   {name:"跨项目权益附件检验",assoc:"华东医学会",form:"线上",date:"2027-11-11",
+   {tax_fee_rate:0,name:"跨项目权益附件检验",assoc:"华东医学会",form:"线上",date:"2027-11-11",
      budget:10000,owner:"陈静",agenda:"会议议程"},exec);
  assert.equal(otherProject.status,200,JSON.stringify(otherProject.data));
  const otherPid=otherProject.data.project.id,otherKey=await uploadPhoto(otherPid);
@@ -190,7 +190,7 @@ test("赞助合同/到账凭证/开票逐笔登记、授权与预算差额",asyn
 
 test("登记开票：上传真实 DOCX 发票、OCR 预览只读、自动候选字段可用于入账",async()=>{
  const PizZip=require("pizzip");
- const p=await request("POST","/api/projects",{
+ const p=await request("POST","/api/projects",{tax_fee_rate:0,
   name:"开票OCR端到端测试",assoc:"华东医学会",form:"线下",date:"2027-11-20",
   budget:954,people:30,owner:"陈静",agenda:"发票自动识别"
  },exec);
@@ -251,7 +251,7 @@ test("登记开票：上传真实 DOCX 发票、OCR 预览只读、自动候选�
 
 test("登记回款：上传真实银行回单 DOCX，OCR 预览交易金额和流水号码，然后登记到账",async()=>{
  const PizZip=require("pizzip");
- const p=await request("POST","/api/projects",{
+ const p=await request("POST","/api/projects",{tax_fee_rate:0,
   name:"银行回单OCR端到端",assoc:"华东医学会",form:"线下",date:"2027-12-01",
   budget:12345.67,people:20,owner:"陈静",agenda:"银行回款识别"
  },exec);
