@@ -94,7 +94,7 @@ function register(router) {
     // pstatus / created_by_name 是给「合同详情」弹窗用的：
     // 详情里要显示所属项目状态（决定能不能流转）和录入人（责任追溯）。
     // LEFT JOIN users 不会放大行数（u.id 是主键），COUNT 那条不受影响。
-    const base = `FROM contracts c JOIN projects p ON p.id = c.pid LEFT JOIN users u ON u.id = c.created_by WHERE ${whereSql}`;
+    const base = `FROM contracts c JOIN projects p ON p.id = c.pid LEFT JOIN users u ON u.id = c.created_by WHERE ${whereSql} AND c.deleted_at IS NULL`;
     const cols = "c.*, p.name AS pname, p.status AS pstatus, u.name AS created_by_name, "+
       "(SELECT m.id FROM materials m WHERE m.pid=c.pid AND m.kind='合同' AND m.file_key=c.file_key "+
       "AND m.deleted_at IS NULL ORDER BY m.id DESC LIMIT 1) AS material_id";
@@ -219,7 +219,7 @@ function register(router) {
 
     // 合同总额超预算是要预警的业务事实（不是错误，可能确需超支）。
     // 硬拦会让人没法录真实合同，所以只回一个 warning 让前端提示，不阻断。
-    const contractSum = Number(db.prepare("SELECT COALESCE(SUM(amount),0) AS s FROM contracts WHERE pid = ? AND COALESCE(category,'')<>'企业赞助'").get(p.id).s) || 0;
+    const contractSum = Number(db.prepare("SELECT COALESCE(SUM(amount),0) AS s FROM contracts WHERE pid = ? AND deleted_at IS NULL AND COALESCE(category,'')<>'企业赞助'").get(p.id).s) || 0;
     const budget = Number(p.budget) || 0;
     let warning = "";
     if (budget > 0 && contractSum > budget) {
@@ -243,7 +243,7 @@ function register(router) {
    * 不删审计，审计只记录操作证据，不是旧合同原件本身。
    */
   router.post("/api/contracts/:id/replace-file", async (ctx) => {
-    const c = db.prepare("SELECT * FROM contracts WHERE id=?").get(ctx.params.id);
+    const c = db.prepare("SELECT * FROM contracts WHERE id=? AND deleted_at IS NULL").get(ctx.params.id);
     if(!c)throw notFound("合同不存在");
     const p = getProject(c.pid);
     assertProjectVisible(ctx.user,p);
@@ -353,7 +353,7 @@ function register(router) {
   ];
 
   router.post("/api/contracts/:id/transition", async (ctx) => {
-    const c = db.prepare("SELECT * FROM contracts WHERE id = ?").get(ctx.params.id);
+    const c = db.prepare("SELECT * FROM contracts WHERE id = ? AND deleted_at IS NULL").get(ctx.params.id);
     if (!c) throw notFound("合同不存在");
     const p = getProject(c.pid);
     assertProjectVisible(ctx.user, p);
@@ -547,7 +547,7 @@ function register(router) {
       // 旧的「必须识别出发票金额」会让扫描件/多张发票的项目永远请不了款。
       if(v.demandRequired && v.steps.find(s=>s.no===6)?.result!=="通过")
         throw conflict("存在会务需求时必须先完成第6项会务合同与发票关联核对再请款","INVOICE_CHECK_REQUIRED");
-      const signed=db.prepare("SELECT COALESCE(SUM(amount),0) AS total FROM contracts WHERE pid=? AND status='已签署' AND COALESCE(category,'')<>'企业赞助'").get(p.id);
+      const signed=db.prepare("SELECT COALESCE(SUM(amount),0) AS total FROM contracts WHERE pid=? AND deleted_at IS NULL AND status='已签署' AND COALESCE(category,'')<>'企业赞助'").get(p.id);
       const allocated=db.prepare("SELECT COALESCE(SUM(amount),0) AS total FROM payments WHERE pid=? AND status IN ('待审批','已审批','已付款')").get(p.id);
       const requested=Number(b.amount);
       if(Number.isFinite(requested) && cents(allocated.total)+cents(requested)>cents(signed.total))
@@ -670,8 +670,8 @@ function register(router) {
     const selectedContract=String(y.payee_source_id||"").startsWith("contract:")?
       String(y.payee_source_id).slice(9):null;
     const contracts=selectedContract?
-      db.prepare("SELECT id,name,vendor,file_key,file_name,file_mime FROM contracts WHERE pid=? AND id=? AND status='已签署' AND COALESCE(category,'')<>'企业赞助'").all(y.pid,selectedContract):
-      db.prepare("SELECT id,name,vendor,file_key,file_name,file_mime FROM contracts WHERE pid=? AND status='已签署' AND COALESCE(category,'')<>'企业赞助' AND vendor=? ORDER BY id").all(y.pid,y.payee);
+      db.prepare("SELECT id,name,vendor,file_key,file_name,file_mime FROM contracts WHERE pid=? AND id=? AND deleted_at IS NULL AND status='已签署' AND COALESCE(category,'')<>'企业赞助'").all(y.pid,selectedContract):
+      db.prepare("SELECT id,name,vendor,file_key,file_name,file_mime FROM contracts WHERE pid=? AND deleted_at IS NULL AND status='已签署' AND COALESCE(category,'')<>'企业赞助' AND vendor=? ORDER BY id").all(y.pid,y.payee);
     const invoices=db.prepare(
       "SELECT id,kind,name,file_key,file_name,file_mime FROM materials WHERE pid=? AND (deleted_at IS NULL OR deleted_at='') AND kind IN ('会务发票','发票') AND file_key IS NOT NULL AND file_key<>'' ORDER BY id"
     ).all(y.pid).filter(x=>x.kind==="会务发票" || /会务|会议服务|会议执行/.test(String(x.name||"")+" "+String(x.file_name||"")));
@@ -827,7 +827,7 @@ function register(router) {
       return { message: `例外单 ${ex.id} ${approve ? "已通过" : "已驳回"}`, verification: verification(ex.pid) };
     }
     if (a.type === "合同审批") {
-      const c = db.prepare("SELECT * FROM contracts WHERE id=? AND pid=?").get(a.ref_id,p.id);
+      const c = db.prepare("SELECT * FROM contracts WHERE id=? AND pid=? AND deleted_at IS NULL").get(a.ref_id,p.id);
       if (!c) throw notFound("关联合同不存在");
       if (c.status !== "待签署") throw conflict("只有待签署合同可以审批，当前状态：" + c.status);
       if (!isDemoMode() && !isSuper(ctx.user) && Number(c.created_by) === Number(ctx.user.id))
