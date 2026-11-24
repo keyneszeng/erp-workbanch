@@ -359,7 +359,7 @@ const RESET_LABEL = {
   guests: "嘉宾", tasks: "任务", issues: "异常问题",
   meeting_material_tasks: "会议材料待办", meeting_material_modules: "会议固定材料模块", demand_revisions: "需求历史变更",
   material_ocr_results: "材料 OCR 识别结果",
-  verified_labor_payees: "加密劳务收款方", associations: "协会目录",
+  verified_labor_payees: "加密劳务收款方", associations: "协会目录", meeting_code_sequences:"会议编号顺序计数",
   user_associations: "用户关联协会", user_module_grants: "账号模块授权", user_permission_grants: "账号功能授权", meeting_sponsor_contracts: "企业赞助合同",
   sponsor_rights: "赞助合同权益二级类目",
   meeting_sponsor_receipts: "赞助到账凭证", meeting_sponsor_invoices: "企业赞助开票",
