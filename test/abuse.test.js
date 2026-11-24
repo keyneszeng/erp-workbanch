@@ -309,7 +309,7 @@ test("导出范围与列表口径一致（嘉宾 / 协会）", async () => {
     const r = await fetch(`${BASE}/api/export/projects`, { headers: { cookie: await login(name) } });
     assert.equal(r.status, 200);
     const text = Buffer.from(await r.arrayBuffer()).toString("utf8");
-    const records = text.split("\r\n").filter((l) => l.startsWith('"MP-')).length;
+    const records=text.split("\r\n").filter(line=>/^"(?:MP-\d{4}-\d+|[A-Z]{2,10}-\d{4}-\d{2})",/.test(line)).length;
     assert.equal(records, list.data.total, `${name} 导出行数应与列表一致`);
   }
   const g = await guest("GET", "/api/export/projects");

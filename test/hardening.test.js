@@ -170,9 +170,9 @@ test("CSV：逗号、引号、换行正确转义", async () => {
   const r = await fetch(`${BASE}/api/export/projects`, { headers: { cookie: await login("assoc") } });
   const text = Buffer.from(await r.arrayBuffer()).toString("utf8");
   assert.ok(text.includes('""引号""'), "双引号应被转义为两个双引号");
-  // 引号内的换行不应被当作记录分隔符：以 "MP- 开头的物理行数应等于接口返回的项目数
+  // 引号内的换行不应被当作记录分隔符：兼容历史 MP- 和新的协会代码会议号
   const total = (await assoc("GET", "/api/projects")).data.total;
-  const records = text.split("\r\n").filter((l) => l.startsWith('"MP-')).length;
+  const records=text.split("\r\n").filter(line=>/^"(?:MP-\d{4}-\d+|[A-Z]{2,10}-\d{4}-\d{2})",/.test(line)).length;
   assert.equal(records, total, `引号内换行不应产生多余记录（${records} vs ${total}）`);
 });
 
