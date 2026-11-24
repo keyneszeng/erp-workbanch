@@ -92,8 +92,15 @@ export function stepBody(d,no){
     6:"会务协议等同会务合同。关联已签会务协议/合同原件及会务发票 PDF，识别合同和发票正文供人工核查；核对会务需求预算与已签合同总额一致，不以PDF识别成功或发票金额作为通过门槛。",
     7:"有赞助权益内容或权益照片即必核：只关联赞助合同和权益照片，逐项核实交付内容及照片真实性。"
   };
+  const sourceIds=d.verification?.sourceMaterialIds;
+  const activeLabor=Array.isArray(sourceIds?.laborContracts)
+    ?new Set(sourceIds.laborContracts.map(Number)):null;
+  const activeMeeting=Array.isArray(sourceIds?.meetingAgreements)
+    ?new Set(sourceIds.meetingAgreements.map(Number)):null;
   const isLaborContract=m=>{
     if(!m?.file_key)return false;
+    // 新 API 的有效证据清单优先，旧 UI 不再自行重新激活已删台账的附件。
+    if(activeLabor)return activeLabor.has(Number(m.id));
     const linked=(d.contracts||[]).filter(c=>c.file_key===m.file_key);
     if(linked.length)return linked.length===1&&linked[0].category==="劳务专家";
     if(["劳务专家合同","专家劳务合同","劳务合同","专家合同"].includes(m.kind))return true;
@@ -118,6 +125,7 @@ export function stepBody(d,no){
     meetingWords.test(c.name||"");
   const meetingAgreement=m=>{
     if(!m?.file_key||m.version==="历史版")return false;
+    if(activeMeeting)return activeMeeting.has(Number(m.id));
     const linked=ledgerByKey.get(m.file_key)||[];
     if(linked.length)return linked.length===1&&(
       linked[0].category==="会务需求"||
