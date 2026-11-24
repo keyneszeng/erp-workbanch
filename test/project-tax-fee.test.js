@@ -31,6 +31,22 @@ test("历史项目默认0%：可用预算不应被迁移意外扣减",async()=>{
  assert.equal(Number(r.body.project.tax_fee_rate),0);
  assert.equal(r.body.project.available_budget,72000);
 });
+test("新建立项税费管理费率必填，明确填写0%仍允许保存",async()=>{
+ const meta=await req("GET","/api/meta");
+ const admin=await req("GET","/api/auth/me");
+ const base={name:"费率必填校验",assoc:meta.body.assocs[0],form:meta.body.forms[0],
+  date:"2027-06-11",budget:1000,owner:admin.body.user.name,agenda:"测试议程"};
+ for(const value of [undefined,null,"","  "]){
+  const input={...base};
+  if(value!==undefined)input.tax_fee_rate=value;
+  const r=await req("POST","/api/projects",input);
+  assert.equal(r.status,400,JSON.stringify({value,body:r.body}));
+  assert.match(r.body.error.message,/税费管理费率.*必填/);
+ }
+ const valid=await req("POST","/api/projects",{...base,tax_fee_rate:0});
+ assert.equal(valid.status,200,JSON.stringify(valid.body));
+ assert.equal(valid.body.project.tax_fee_rate,0);
+});
 test("创建立项：预算100000、税费10%自动返回可用90000并持久保存",async()=>{
  const meta=await req("GET","/api/meta");
  const admin=await req("GET","/api/auth/me");
