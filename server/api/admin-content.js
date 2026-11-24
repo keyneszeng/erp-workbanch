@@ -150,7 +150,8 @@ function register(router){
   if(!Number.isInteger(page)||page<1||page>100000||!Number.isInteger(size)||size<1||size>100)throw bad("分页参数无效");
   const filter=t.self?(t.pk||"id")+"=?":"pid=?";
   const total=db.prepare("SELECT COUNT(*) AS n FROM "+t.table+" WHERE "+filter).get(p.id).n;
-  const rows=db.prepare("SELECT * FROM "+t.table+" WHERE "+filter+" ORDER BY "+(t.pk||"id")+" DESC LIMIT ? OFFSET ?").all(p.id,size,(page-1)*size);
+  const cols=[...new Set([t.pk||"id",...(t.self?[]:["pid"]),...t.fields.map(f=>f.k),...(t.table==="settlements"?["profit"]:[])])];
+  const rows=db.prepare("SELECT "+cols.join(",")+" FROM "+t.table+" WHERE "+filter+" ORDER BY "+(t.pk||"id")+" DESC LIMIT ? OFFSET ?").all(p.id,size,(page-1)*size);
   return {project:{id:p.id,name:p.name,status:p.status},rows,total,page,size,pages:Math.max(1,Math.ceil(total/size)),
    fields:t.fields,label:t.label,kind:ctx.params.kind};
  });
@@ -199,7 +200,8 @@ function register(router){
     detail:logDetail(oldFields,newFields,reason,id),ip:ctx.ip});
    return next;
   });
-  return {row,message:"更正已保存；历史版本已保留。涉及账目、合同或核销时请复核关联记录"};
+  const safe=Object.fromEntries([t.pk||"id",...(t.self?[]:["pid"]),...t.fields.map(f=>f.k),...(t.table==="settlements"?["profit"]:[])].map(k=>[k,row[k]]));
+  return {row:safe,message:"更正已保存；历史版本已保留。涉及账目、合同或核销时请复核关联记录"};
  });
 }
 module.exports={register,TYPES};
