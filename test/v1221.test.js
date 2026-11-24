@@ -117,7 +117,7 @@ test("重置预览：只有总管理员能看，且数量与实际一致", async
 
 test("重置：脏数据被清空，回到出厂规模", async () => {
   // 造一批「测试残留」：项目、账号、付款、合同
-  const p = await admin("POST", "/api/projects", {
+  const p = await admin("POST", "/api/projects", {tax_fee_rate:0,
     name: "残留项目-重置用例", assoc: "华东医学会", form: "线下",
     date: "2027-07-07", budget: 5000, owner: "王敏", agenda: "09:00 开场"
   });
@@ -165,7 +165,7 @@ test("重置会写审计，记下清空前的规模", async () => {
 
 test("重置后系统可正常使用：能建项目、能登录、数据范围正常", async () => {
   const a = client(await login("admin"));
-  const c = await a("POST", "/api/projects", {
+  const c = await a("POST", "/api/projects", {tax_fee_rate:0,
     name: "重置后可用性验证", assoc: "华东医学会", form: "线下",
     date: "2027-08-08", budget: 8000, owner: "王敏", agenda: "09:00 开场"
   });
