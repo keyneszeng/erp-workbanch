@@ -11,7 +11,7 @@ const {parseTaxFeeRate,availableBudget,withBudgetFee}=require("../lib/budget-fee
 const {buildSettlementBreakdown}=require("../lib/settlement-breakdown");
 const { assignedMember } = require("../lib/member-directory");
 
-const EDITABLE = ["name", "assoc", "form", "date", "days", "budget", "tax_fee_rate", "people", "owner", "owner_id", "phone", "dept", "agenda"];
+const EDITABLE = ["name", "assoc", "form", "date", "days", "event_end_date", "event_start_time", "event_end_time", "budget", "tax_fee_rate", "people", "owner", "owner_id", "phone", "dept", "agenda"];
 
 /**
  * 账目基准字段：结算单的 income 直接取 projects.budget，
@@ -48,6 +48,29 @@ function resolveOwnerId(name, actor) {
   return row ? row.id : null;
 }
 
+function validatePeriod(body){
+ const {date,event_end_date,event_start_time,event_end_time}=body;
+ const validDate=s=>{
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(String(s||"")))return false;
+  const timestamp=Date.parse(s+"T00:00:00Z");
+  return Number.isFinite(timestamp)&&new Date(timestamp).toISOString().slice(0,10)===s;
+ };
+ if(event_end_date!==undefined&&event_end_date!==null&&event_end_date!==""){
+  if(!validDate(event_end_date))throw bad("举办结束日期格式不正确");
+  if(validDate(date)&&event_end_date<date)throw bad("举办结束日期不能早于开始日期");
+  if(validDate(date)){
+   const days=1+(Date.parse(event_end_date+"T00:00:00Z")-Date.parse(date+"T00:00:00Z"))/86400000;
+   if(days>60)throw bad("举办时间段不能超过60个自然日");
+   if(body.days!==undefined&&Number(body.days)!==days)throw bad("会期天数必须与举办日期区间一致");
+  }
+ }
+ for(const [label,value] of [["开始时间",event_start_time],["结束时间",event_end_time]]){
+  if(value!==undefined&&value!==null&&value!==""&&!/^([01]\d|2[0-3]):[0-5]\d$/.test(String(value)))
+   throw bad("举办"+label+"格式应为 HH:mm");
+ }
+ if(validDate(date)&&event_end_date===date&&event_start_time&&event_end_time&&event_end_time<event_start_time)
+  throw bad("举办结束时间不能早于开始时间");
+}
 function validate(body, partial = false) {
   const need = { name: "会议名称", assoc: "所属协会", form: "会议形式", date: "会议日期", budget: "预算", owner: "项目负责人", agenda: "初版议程要点" };
   for (const [k, label] of Object.entries(need)) {
@@ -77,6 +100,7 @@ function validate(body, partial = false) {
   if ("assoc" in body && !require("../lib/associations").has(body.assoc)) throw bad("所属协会不在可选范围");
   if ("form" in body && !FORMS.includes(body.form)) throw bad("会议形式不合法");
   if ("dept" in body && body.dept && !DEPTS.includes(body.dept)) throw bad("承办部门不合法");
+  validatePeriod(body);
   if ("date" in body) {
     const s = String(body.date);
     if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) throw bad("会议日期格式应为 YYYY-MM-DD");
@@ -275,6 +299,11 @@ function register(router) {
       summary:r.summary?{budget:budgetVisible?r.summary.budget:null,paid:null}:null};
   });
 
+  router.post("/api/projects/agenda-ocr", async (ctx) => {
+    assertCan(ctx.user, "project:create", "当前账号无权上传立项议程");
+    return require("./public-event-proposals").recognizeAgenda(ctx.body,ctx.ip);
+  });
+
   router.post("/api/projects", async (ctx) => {
     assertCan(ctx.user, "project:create", "只有协会管理员 / 会务执行可以发起立项");
     const b = ctx.body || {};
@@ -290,10 +319,10 @@ function register(router) {
     const id = nextId(db, "projects", "id", "MP");
     const ownerId = member ? member.id : resolveOwnerId(b.owner, ctx.user);
     db.prepare(
-      `INSERT INTO projects (id,name,assoc,form,date,days,budget,tax_fee_rate,people,owner,owner_id,phone,dept,agenda,status,status_at,created_by,created_at,updated_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+      `INSERT INTO projects (id,name,assoc,form,date,days,budget,tax_fee_rate,people,owner,owner_id,phone,dept,agenda,event_end_date,event_start_time,event_end_time,status,status_at,created_by,created_at,updated_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
     ).run(id, b.name, b.assoc, b.form, b.date, Number(b.days) || 1, Number(b.budget), parseTaxFeeRate(b.tax_fee_rate), Number(b.people) || 0,
-      b.owner, ownerId, b.phone || "", b.dept || "", b.agenda, "草稿", at, ctx.user.id, at, at);
+      b.owner, ownerId, b.phone || "", b.dept || "", b.agenda, b.event_end_date||null,b.event_start_time||null,b.event_end_time||null, "草稿", at, ctx.user.id, at, at);
     db.prepare("INSERT OR IGNORE INTO project_members (project_id,user_id,role) VALUES (?,?,?)").run(id, ctx.user.id, "创建人");
     // 注意：不要在这里把负责人自动写进 project_members。
     // 数据范围同时认 owner_id 和成员表，一旦入库，换负责人时旧负责人仍能靠成员关系看到项目
