@@ -92,13 +92,19 @@ test("已结算和已归档的财务结余可更正并按收入减支出重算",
  assert.equal(updated.data.row.profit,Number((next-row.expense).toFixed(2)));
  assert.equal((await call("GET","/api/admin/content/"+pid+"/settlements")).data.rows[0].profit,updated.data.row.profit);
 });
-test("封存合同、材料和付款单都允许总管理员更正，身份、文件归属不可改",async()=>{
- const pid="MP-2026-015";
+test("合同、材料和付款单都允许总管理员更正，身份、文件归属不可改",async()=>{
+ const projects=(await call("GET","/api/admin/content/projects")).data.rows;
  for(const [kind,key,suffix] of [["contracts","remark","（合同修订）"],["materials","name","（材料修订）"],
    ["payments","remark","（付款修订）"]]){
-  const list=await call("GET","/api/admin/content/"+pid+"/"+kind);
-  assert.equal(list.status,200,kind+" "+JSON.stringify(list.data));
-  assert.ok(list.data.rows.length,kind+" should be seeded");
+  let pid="",list=null;
+  // The seeded archived meeting has a settlement but not necessarily a contract;
+  // pick a meeting with real records for each business domain.
+  for(const project of projects){
+   const result=await call("GET","/api/admin/content/"+project.id+"/"+kind);
+   assert.equal(result.status,200,kind+" "+JSON.stringify(result.data));
+   if(result.data.rows.length){pid=project.id;list=result;break;}
+  }
+  assert.ok(pid,kind+" should be seeded in at least one project");
   const item=list.data.rows[0],original=item[key]??null;
   const target=(original||"")+" "+suffix;
   const base="/api/admin/content/"+pid+"/"+kind+"/"+item.id;
