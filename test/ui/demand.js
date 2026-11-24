@@ -143,6 +143,7 @@ async function seedArchivedDemand() {
     check("没有「附件」列", !heads.includes("附件"), JSON.stringify(heads));
     check("没有「执行状态」列", !heads.includes("执行状态"), JSON.stringify(heads));
     check("没有「预算归属」列", !heads.includes("预算归属"), JSON.stringify(heads));
+    check("需求登记表已移除「负责人」列", !heads.includes("负责人") && !(await page.$('[data-f="owner"]')), JSON.stringify(heads));
     const stat0 = await page.textContent("#dstat");
     check("页头显示总价合计", /总价合计\s*¥/.test(stat0), stat0);
     check("种子数据合计 90,900", /90,900/.test(stat0), stat0);
@@ -158,8 +159,7 @@ async function seedArchivedDemand() {
     const last = rows[rows.length - 1];
     check("新行条目名可编辑", !!(await last.$('[data-f="item"]')), "");
     await (await last.$('[data-f="item"]')).fill("临时加：指引牌");
-    await (await last.$('[data-f="owner"]')).fill("外部协作负责人小张");
-    check("负责人可自定义键入姓名", (await (await last.$('[data-f="owner"]')).inputValue()) === "外部协作负责人小张", "");
+    check("新增需求不再要求负责人字段",!(await last.$('[data-f="owner"]')), "");
     check("新行默认不需要", (await (await last.$('[data-f="need"]')).inputValue()) === "不需要", "");
     await (await last.$('[data-f="need"]')).selectOption("需要");
     await (await last.$('[data-f="quantity"]')).fill("-2");
@@ -192,7 +192,7 @@ async function seedArchivedDemand() {
     check("后端总价合计 91160", Number(saved.data.budgetTotal) === 91160, String(saved.data.budgetTotal));
     const newRow=saved.data.items["其他"].find(x=>x.item==="临时加：指引牌");
     check("保存数量/单价/总价",newRow.quantity==="2" && newRow.unit_price==="130" && newRow.budget==="260.00",JSON.stringify(newRow));
-    check("自定义负责人成功持久化",newRow.owner==="外部协作负责人小张",JSON.stringify(newRow));
+    check("新增需求无需负责人即可保存",newRow.owner==="" && !newRow.owner_id,JSON.stringify(newRow));
 
     console.log("\n[5] 确认并归档：整单锁定");
     await page.click("#confirm");
@@ -252,13 +252,14 @@ async function seedArchivedDemand() {
       await demandTab.click();
       await page.waitForTimeout(850);
       const heads=await page.$$eval("#tabbody th",els=>els.map(el=>el.textContent.trim()));
-      check("项目需求清单包含详细字段",["项目 / 业务提示","规格","数量","单价","总价","负责人","交付时间"].every(h=>heads.includes(h)),JSON.stringify(heads));
+      check("项目需求清单包含详细字段",["项目 / 业务提示","规格","数量","单价","总价","交付时间"].every(h=>heads.includes(h)),JSON.stringify(heads));
       const items=await page.$$eval("#tabbody tbody tr",els=>els.map(el=>el.textContent));
       check("只展示需要项，隐藏不需要的酒水",items.length===2 && items.some(t=>t.includes("串场")) &&
         items.some(t=>t.includes("横幅")) && !items.some(t=>t.includes("代购酒水")),JSON.stringify(items));
       const full=await page.textContent("#tabbody");
-      check("详情保留业务提示、规格、负责人和交付日期",
-        ["签到处布置要点","主视觉","8m","王敏","李强","2026-12-10","2026-12-11"].every(t=>full.includes(t)),full.slice(0,400));
+      check("项目详情移除负责人，仅保留业务提示、规格和交付日期",
+        ["签到处布置要点","主视觉","8m","2026-12-10","2026-12-11"].every(t=>full.includes(t)) &&
+        !heads.includes("负责人") && !full.includes("王敏") && !full.includes("李强"),full.slice(0,400));
       check("项目清单金额仍按需要项合计 8000",full.includes("8,000"),full.slice(0,160));
     }
     const vtab = await page.$('button[data-tab="verify"]');
