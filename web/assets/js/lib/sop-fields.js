@@ -43,7 +43,7 @@ export function sopEvidenceForm(no,p,rightsData=null){
        +area("courseTopics","已上传课件的主题（逗号或换行）","主题甲")
        +`<div class="hint">只核对课件或串场演示课件封面第一页（PPTX第一张幻灯片）的完整主题是否出现在当前终版议程；支持跨行标题及图片封面OCR。终版议程可以有其他主题，不扫描后续页；普通串场稿、Logo及赞助商展示页面不参与。</div>`,
     5:area("collectionRecords","劳务表（每行：姓名|时间|角色|金额|银行账号|开户行（可选））","张老师|2026-11-01|讲者|1000|6222...")
-       +`<div class="hint">第5项只关联劳务登记表（含劳务表、劳务收集表）和劳务专家合同。每位专家须有一份姓名对应的劳务专家合同；会务合同、赞助合同及其他总合同不得参与核验。银行账号不写入核销证据。</div><div data-labor-contract-preview></div>`,
+       +`<div class="hint">第5项只关联劳务表（兼容历史类别的已上传原件）和劳务专家合同。每位专家须有一份姓名对应的劳务专家合同；会务合同、赞助合同及其他总合同不得参与核验。银行账号不写入核销证据。</div><div data-labor-contract-preview></div>`,
     6: `<div class="hint">有已建立的会务需求表即必核。“会务协议”和“会务合同”是同一类合同原件，支持已签署且能关联原件的历史会务协议。可对会务协议/合同及发票 PDF 做文字识别，扫描件需开启 RapidOCR；OCR仅供人工核对，不要求发票金额相同。仍需确认合同已签、需求预算等于已签合同总额、会务发票已关联。</div>`
        +ck("demandReviewed","已检查本项目已归档的会务需求表")
        +ck("meetingContractReviewed","已逐份检查对应会务需求合同原件")
