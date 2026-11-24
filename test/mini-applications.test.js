@@ -54,7 +54,7 @@ test("mobile participant application: own-association draft, edit, submit and ma
  const alice=await auth("13900139000"),bob=await auth("13700137000");
  const base={name:"移动端真实立项申请",assoc:ASSOCS[0],form:"线下",date:"2027-08-10",days:2,
   event_end_date:"2027-08-11",event_start_time:"09:00",event_end_time:"18:00",
-  budget:20000,people:120,agenda:"09:00开场；09:30专题发言；10:30交流"};
+  budget:20000,tax_fee_rate:8.5,people:120,agenda:"09:00开场；09:30专题发言；10:30交流"};
  assert.equal((await req("POST","/api/projects",{...base,owner_id:a.body.user.id},alice)).status,403,
   "ordinary user cannot bypass the dedicated application API");
  assert.equal((await req("POST","/api/mini/applications",{...base,assoc:ASSOCS[1]},alice)).status,403,
@@ -73,6 +73,17 @@ test("mobile participant application: own-association draft, edit, submit and ma
  assert.match(importAgenda.body.agenda,/专题报告/);
  const invalidPeriod=await req("POST","/api/mini/applications",{...base,event_end_date:"2027-08-12"},alice);
  assert.equal(invalidPeriod.status,400,"会期必须与举办时间段一致");
+ for(const raw of [undefined,"",null]){
+  const input={...base};
+  if(raw===undefined)delete input.tax_fee_rate;
+  else input.tax_fee_rate=raw;
+  const bad=await req("POST","/api/mini/applications",input,alice);
+  assert.equal(bad.status,400,"微信内部立项税费率缺失或空值必须被拦截："+JSON.stringify(bad.body));
+ }
+ const explicitZero=await req("POST","/api/mini/applications",{...base,name:"显式零费率",tax_fee_rate:0},alice);
+ assert.equal(explicitZero.status,200,JSON.stringify(explicitZero.body));
+ const zeroDetail=await req("GET","/api/mini/applications/"+explicitZero.body.project.id,undefined,alice);
+ assert.equal(zeroDetail.body.project.tax_fee_rate,0,"用户主动填0应可保存，且详情可回显");
  const created=await req("POST","/api/mini/applications",base,alice);
  assert.equal(created.status,200,JSON.stringify(created.body));
  const id=created.body.project.id;
@@ -81,6 +92,7 @@ test("mobile participant application: own-association draft, edit, submit and ma
  assert.equal(period.event_end_date,"2027-08-11");
  assert.equal(period.event_start_time,"09:00");
  assert.equal(period.event_end_time,"18:00");
+ assert.equal(period.tax_fee_rate,8.5,"小程序详情需回显主动填写的协会费税率");
  const mine=await req("GET","/api/mini/applications",undefined,alice);
  assert.equal(mine.status,200);
  assert.ok(mine.body.rows.some(x=>x.id===id&&x.status==="草稿"));
@@ -91,6 +103,15 @@ test("mobile participant application: own-association draft, edit, submit and ma
  assert.equal((await req("POST","/api/mini/applications/"+id+"/submit",{},bob)).status,403);
  const edited=await req("PATCH","/api/mini/applications/"+id,{...base,name:"正式提交立项"},alice);
  assert.equal(edited.status,200,JSON.stringify(edited.body));
+ const afterEdit=await req("GET","/api/mini/applications/"+id,undefined,alice);
+ assert.equal(afterEdit.body.project.tax_fee_rate,8.5,"编辑草稿后保留费率");
+ const changed=await req("PATCH","/api/mini/applications/"+id,{...base,tax_fee_rate:12.75},alice);
+ assert.equal(changed.status,200,JSON.stringify(changed.body));
+ const afterChanged=await req("GET","/api/mini/applications/"+id,undefined,alice);
+ assert.equal(afterChanged.body.project.tax_fee_rate,12.75,"编辑草稿须持久化新费率而非丢失");
+ const missingRate=await req("PATCH","/api/mini/applications/"+id,
+   Object.fromEntries(Object.entries(base).filter(([k])=>k!=="tax_fee_rate")),alice);
+ assert.equal(missingRate.status,400,"微信草稿修改不能通过遗漏费率把它偷偷回退到0");
  const submitted=await req("POST","/api/mini/applications/"+id+"/submit",{},alice);
  assert.equal(submitted.status,200,JSON.stringify(submitted.body));
  assert.equal(submitted.body.project.status,"待审批");
