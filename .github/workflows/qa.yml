@@ -63,6 +63,10 @@ jobs:
           node --check miniprogram/pages/materials/index.js
           node --check miniprogram/pages/account/index.js
           node --check server/api/finance.js
+          node --check test/payment-direct.test.js
+          node --check test/ui/payment-direct.js
+          node --input-type=module --check < web/assets/js/lib/payment-voucher.js
+          node --input-type=module --check < web/assets/js/lib/payment-execution.js
           node --check server/lib/db.js
           node --check test/payment-duplicate.test.js
           node --input-type=module --check < web/assets/js/lib/contract-detail.js
@@ -187,6 +191,8 @@ jobs:
         run: ERP_DEMO_MODE=1 node test/ui/labor-step5-scope.js
       - name: "Black-box multi-meeting payment export: search, selection, CSV and isolation"
         run: ERP_DEMO_MODE=1 node test/ui/payment-export-multi.js
+      - name: "Black-box finance direct paid form, voucher upload and non-finance isolation"
+        run: ERP_DEMO_MODE=1 node test/ui/payment-direct.js
       - name: "Black-box project material batch: concurrent uploads, original filenames, per-file retry"
         run: ERP_DEMO_MODE=1 node test/ui/material-batch-upload.js
       - name: "Black-box legacy XLS upload from material register"
