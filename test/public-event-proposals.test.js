@@ -172,7 +172,7 @@ test("public proposal processing is superadmin-only and appears in the admin wor
 });
 
 test("superadmin converts an archived public proposal into exactly one editable internal draft",async()=>{
- const src=db.prepare("SELECT * FROM public_event_proposals WHERE status='已归档' ORDER BY received_at DESC LIMIT 1").get();
+ const src=db.prepare("SELECT * FROM public_event_proposals WHERE status='已归档' AND handling_note='已电话联系，等待补充材料' ORDER BY received_at DESC LIMIT 1").get();
  assert.ok(src,"expected a prior archived public proposal");
  const assocResponse=await req("/api/associations","GET",undefined,adminCookie);
  assert.equal(assocResponse.status,200);
