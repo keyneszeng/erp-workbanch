@@ -188,7 +188,7 @@ test("superadmin converts an archived public proposal into exactly one editable 
  const converted=await req(route,"POST",{assoc},adminCookie);
  assert.equal(converted.status,200,JSON.stringify(converted.data));
  assert.equal(converted.data.project.status,"草稿");
- assert.match(converted.data.project.id,/^MP-\d{4}-\d+$/);
+ assert.match(converted.data.project.id,/^[A-Z]{2,10}-2027-\d{2}$/);
  const p=db.prepare("SELECT * FROM projects WHERE id=?").get(converted.data.project.id);
  assert.equal(p.name,src.topic);
  assert.equal(p.assoc,assoc);
@@ -240,4 +240,20 @@ test("unhandled public intake conversion clears only its own superadmin todo, ne
  const after=await req("/api/dashboard","GET",undefined,adminCookie);
  assert.equal(after.data.todos.some(t=>t.kind==="公众申请"&&t.pid===pending.id),false);
  assert.equal(db.prepare("SELECT COUNT(*) n FROM approvals").get().n,approvalsBefore);
+});
+
+test("系统配置协会简写 API 仅总管理员可用；重复简写与非法字符拒绝",async()=>{
+ const name="临床研究协会";
+ assert.equal((await req("/api/associations","POST",{name,code:"LCYJ"})).status,401);
+ assert.equal((await req("/api/associations","POST",{name,code:"LCYJ"},guestCookie)).status,403);
+ const created=await req("/api/associations","POST",{name,code:"lcyj"},adminCookie);
+ assert.equal(created.status,200,JSON.stringify(created.data));
+ assert.equal(created.data.code,"LCYJ");
+ assert.ok(created.data.details.some(a=>a.name===name&&a.code==="LCYJ"));
+ assert.equal((await req("/api/associations","POST",{name:"重复简写协会",code:"LCYJ"},adminCookie)).status,409);
+ assert.equal((await req("/api/associations","POST",{name:"非法简写协会",code:"A1"},adminCookie)).status,400);
+ assert.equal((await req("/api/associations/"+encodeURIComponent(name),"PATCH",{code:"LCYX"},guestCookie)).status,403);
+ const updated=await req("/api/associations/"+encodeURIComponent(name),"PATCH",{code:"LCYX"},adminCookie);
+ assert.equal(updated.status,200,JSON.stringify(updated.data));
+ assert.equal(updated.data.code,"LCYX");
 });

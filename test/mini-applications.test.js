@@ -76,6 +76,7 @@ test("mobile participant application: own-association draft, edit, submit and ma
  const created=await req("POST","/api/mini/applications",base,alice);
  assert.equal(created.status,200,JSON.stringify(created.body));
  const id=created.body.project.id;
+ assert.match(id,/^HDYX-2027-\d{2}$/,"小程序立项编号使用协会简写和举办年份");
  const period=(await req("GET","/api/mini/applications/"+id,undefined,alice)).body.project;
  assert.equal(period.event_end_date,"2027-08-11");
  assert.equal(period.event_start_time,"09:00");

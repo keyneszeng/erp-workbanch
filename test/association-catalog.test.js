@@ -13,12 +13,16 @@ test("associations: seed and admin catalog changes preserve linked project/user 
  const baseline=catalog.list();
  assert.ok(baseline.length>1);
  const name="新增业务协会甲";
- assert.equal(catalog.add(name),name);
+ assert.equal(catalog.add(name,"XYWXH"),name);
+ assert.equal(catalog.getCode(name),"XYWXH");
+ assert.ok(catalog.details().some(a=>a.name===name&&a.code==="XYWXH"));
  assert.equal(catalog.has(name),true);
- assert.throws(()=>catalog.add(name),e=>e.code==="ASSOCIATION_EXISTS");
+ assert.throws(()=>catalog.add(name,"XYWXH"),e=>e.code==="ASSOCIATION_EXISTS");
+ assert.throws(()=>catalog.add("新增业务协会乙","XYWXH"),e=>e.code==="ASSOCIATION_CODE_EXISTS");
+ assert.throws(()=>catalog.add("新增业务协会乙","A1"),/字母简写/);
  catalog.remove(name);
  assert.equal(catalog.has(name),false);
- catalog.add(name);
+ catalog.add(name,"XYWXH");
  db.prepare("INSERT INTO users(username,name,role,assoc,pass_salt,pass_hash,active,created_at) VALUES (?,?,?,?,?,?,1,?)")
   .run("associationlinked","关联人员","assoc",name,"unused-salt","unused-hash",new Date().toISOString());
  assert.throws(()=>catalog.remove(name),e=>e.code==="ASSOCIATION_IN_USE");
@@ -45,4 +49,12 @@ test("department choices retire meeting department and include supplier / non-su
  const {validate}=require("../server/api/projects");
  assert.doesNotThrow(()=>validate({dept:"秘书处"},true));
  assert.throws(()=>validate({dept:"会务部"},true),/承办部门不合法/);
+});
+
+test("简称需唯一且须大写英文字母；有会议编号以后不可更换",()=>{
+ assert.equal(catalog.updateCode("新增业务协会甲","xyw").code,"XYW");
+ assert.throws(()=>catalog.updateCode("新增业务协会甲","HDYX"),e=>e.code==="ASSOCIATION_CODE_EXISTS");
+ assert.throws(()=>catalog.updateCode("新增业务协会甲","A1"),e=>e.code==="BAD_REQUEST");
+ db.prepare("INSERT INTO meeting_code_sequences(code,year,last_seq) VALUES (?,?,?)").run("XYW",2027,1);
+ assert.throws(()=>catalog.updateCode("新增业务协会甲","XYZ"),e=>e.code==="ASSOCIATION_CODE_LOCKED");
 });

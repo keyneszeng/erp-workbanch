@@ -29,6 +29,7 @@ function departmentOptions(current = "") {
 
 export async function render(root) {
   const d = await api.get("/api/users");
+  const assocDirectory=state.super?await api.get("/api/associations"):{details:[]};
   const roles = state.meta.roles;
   const manage = can("user:manage");
 
@@ -54,8 +55,8 @@ export async function render(root) {
 
     ${state.super ? `<div class="panel mt" id="assocManager">
        <div class="panel-h"><h2>协会分类管理</h2><button id="addAssoc" class="btn btn-p btn-sm">+ 增加协会</button></div>
-       <p class="hint">仅总管理员可维护。已关联用户或项目的协会不可直接删除，以免丢失历史业务归属。</p>
-       <div class="chips mt">${(state.meta.assocs||[]).map(n=>`<span class="chip"><b>${esc(n)}</b><button class="link danger" data-remove-assoc="${esc(n)}">停用</button></span>`).join("")}</div>
+       <p class="hint">会议编号规则：协会字母简写-举办年份-两位顺序号（例 HDYX-2027-01）。已使用的协会简写不能再修改，以免历史会议编号失真。</p>
+       <div class="chips mt">${(assocDirectory.details||[]).map(a=>`<span class="chip"><b>${esc(a.name)}</b> <span class="mono">${esc(a.code||"未配置")}</span> <button class="link" data-assoc-code="${esc(a.name)}">${a.code?"修改简写":"设置简写"}</button> <button class="link danger" data-remove-assoc="${esc(a.name)}">停用</button></span>`).join("")}</div>
      </div>` : ""}
     <div class="panel"><div class="panel-h"><h2>按账号分配权限</h2></div><p class="hint" style="padding:12px 16px">除总管理员外，所有角色默认无内置功能权限。角色只表示身份和数据范围；总管理员在用户列表点击「分配权限」，独立授权模块与具体操作。</p></div>
 
@@ -73,12 +74,44 @@ export async function render(root) {
   const ra = root.querySelector("#resetAll");
   if (ra) ra.onclick = () => openReset(root);
 
-  root.querySelector("#addAssoc")?.addEventListener("click",async()=>{
-    const name=await import("../lib/ui.js").then(m=>m.promptBox({title:"增加协会分类",label:"协会名称",ok:"增加"}));
-    if(!name)return;
-    try{await api.post("/api/associations",{name});state.meta.assocs=(await api.get("/api/associations")).rows;toast("协会已增加","ok");await render(root);}
-    catch(e){toast(e.message,"warn");}
+  root.querySelector("#addAssoc")?.addEventListener("click",()=>{
+    const m=modal({title:"新增协会分类",width:"520px",
+      body:'<div class="fld"><label>协会名称 <span class="req">*</span></label><input name="name" maxlength="40" placeholder="例如：医学教育协会"></div>'+
+        '<div class="fld"><label>协会字母简写 <span class="req">*</span></label><input name="code" maxlength="10" placeholder="例如：YXYJXH" style="text-transform:uppercase"></div>'+
+        '<p class="hint">新会议自动编号，例如 YXYJXH-2027-01。简写须为2–10位英文字母，同平台不得重复。</p>',
+      footer:'<button class="btn btn-o" data-cancel>取消</button><button class="btn btn-p" data-save>增加协会</button>'});
+    m.querySelector("[data-cancel]").onclick=()=>m.classList.remove("open");
+    m.querySelector("[data-save]").onclick=async()=>{
+      const name=m.querySelector('[name="name"]').value.trim();
+      const code=m.querySelector('[name="code"]').value.trim().toUpperCase();
+      if(!name||!/^[A-Z]{2,10}$/.test(code)){toast("请输入协会名称及2–10位英文简写","warn");return;}
+      const save=m.querySelector("[data-save]");save.disabled=true;
+      try{
+        await api.post("/api/associations",{name,code});
+        state.meta.assocs=(await api.get("/api/associations")).rows;
+        m.classList.remove("open");toast("协会已增加","ok");await render(root);
+      }catch(e){toast(e.message,"warn");save.disabled=false;}
+    };
   });
+  root.querySelectorAll("[data-assoc-code]").forEach(btn=>btn.addEventListener("click",()=>{
+    const record=(assocDirectory.details||[]).find(a=>a.name===btn.dataset.assocCode);
+    if(!record)return;
+    const m=modal({title:"设置协会字母简写 · "+esc(record.name),width:"520px",
+      body:'<div class="fld"><label>协会名称</label><div>'+esc(record.name)+'</div></div>'+
+        '<div class="fld"><label>字母简写 <span class="req">*</span></label><input name="code" maxlength="10" value="'+esc(record.code||"")+'" placeholder="2–10位大写字母" style="text-transform:uppercase"></div>'+
+        '<p class="hint">已生成会议编号的简写不可变更；历史项目编号不修改。</p>',
+      footer:'<button class="btn btn-o" data-cancel>取消</button><button class="btn btn-p" data-save>保存简写</button>'});
+    m.querySelector("[data-cancel]").onclick=()=>m.classList.remove("open");
+    m.querySelector("[data-save]").onclick=async()=>{
+      const code=m.querySelector('[name="code"]').value.trim().toUpperCase();
+      if(!/^[A-Z]{2,10}$/.test(code)){toast("请输入2–10位英文简写","warn");return;}
+      const save=m.querySelector("[data-save]");save.disabled=true;
+      try{
+        await api.patch("/api/associations/"+encodeURIComponent(record.name),{code});
+        m.classList.remove("open");toast("协会简写已保存","ok");await render(root);
+      }catch(e){toast(e.message,"warn");save.disabled=false;}
+    };
+  }));
   root.querySelectorAll("[data-remove-assoc]").forEach(btn=>btn.addEventListener("click",async()=>{
     const name=btn.dataset.removeAssoc;
     const ok=await import("../lib/ui.js").then(m=>m.confirmBox("确认停用 "+esc(name)+"？关联项目或账号的协会无法停用。",{title:"停用协会",ok:"确认停用"}));

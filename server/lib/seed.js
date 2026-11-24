@@ -13,7 +13,7 @@ const PASS = "123456";
 const RESET_DATA_TABLES = ["project_notices", "project_initiation_letters", "project_notice_templates", "meeting_sponsor_invoices", "meeting_sponsor_receipts", "sponsor_rights", "meeting_sponsor_contracts", "uploaded_files", "sessions", "audit_logs", "exports", "settlements",
   "verified_labor_payees", "exceptions", "verify_steps", "payments", "contracts", "approvals", "materials",
   "guests", "tasks", "issues", "material_ocr_results", "meeting_material_tasks", "meeting_material_modules", "demand_revisions", "demand_items", "demand_sheets",
-  "project_members", "projects", "sms_challenges", "mini_bindings", "user_module_grants", "user_permission_grants", "user_associations", "users", "associations", "settings"];
+  "project_members", "projects", "meeting_code_sequences", "sms_challenges", "mini_bindings", "user_module_grants", "user_permission_grants", "user_associations", "users", "associations", "settings"];
 
 const USERS = [
   { username: "admin",   name: "李静", role: "admin",   assoc: null,        dept: "秘书处", phone: "13800000001", title: "总管理员" },

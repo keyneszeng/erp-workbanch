@@ -1,6 +1,7 @@
 "use strict";
 /** 微信端立项入口：普通用户仅能在本人协会以本人身份申请，进入原有审批工作流。 */
-const {db}=require("../lib/db");
+const {db,transaction}=require("../lib/db");
+const {nextMeetingId}=require("../lib/meeting-codes");
 const {now,nextId,bad,forbidden,conflict}=require("../lib/util");
 const {isDemoMode}=require("../lib/runtime");
 const {getProject,transition}=require("../lib/workflow");
@@ -55,10 +56,14 @@ function register(router){
     const v=formFor(ctx,ctx.body||{});
     const pending=db.prepare("SELECT COUNT(*) AS n FROM projects WHERE created_by=? AND status IN ('草稿','待审批')").get(ctx.user.id).n;
     if(pending>=5)throw conflict("你已有 5 份未审批的申请，请先处理现有申请","APPLICATION_LIMIT");
-    const id=nextId(db,"projects","id","MP"),at=now();
+    const at=now();
+    const id=transaction(()=>{
+      const meetingId=nextMeetingId(db,v.assoc,v.date);
     db.prepare("INSERT INTO projects (id,name,assoc,form,date,days,event_end_date,event_start_time,event_end_time,budget,people,owner,owner_id,phone,dept,agenda,status,status_at,created_by,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
-      .run(id,v.name,v.assoc,v.form,v.date,Number(v.days),v.event_end_date||null,v.event_start_time||null,v.event_end_time||null,Number(v.budget),Number(v.people),v.owner,v.owner_id,v.phone,v.dept,v.agenda,"草稿",at,ctx.user.id,at,at);
-    db.prepare("INSERT OR IGNORE INTO project_members (project_id,user_id,role) VALUES (?,?,?)").run(id,ctx.user.id,"创建人");
+      .run(meetingId,v.name,v.assoc,v.form,v.date,Number(v.days),v.event_end_date||null,v.event_start_time||null,v.event_end_time||null,Number(v.budget),Number(v.people),v.owner,v.owner_id,v.phone,v.dept,v.agenda,"草稿",at,ctx.user.id,at,at);
+      db.prepare("INSERT OR IGNORE INTO project_members (project_id,user_id,role) VALUES (?,?,?)").run(meetingId,ctx.user.id,"创建人");
+      return meetingId;
+    });
     logAudit({user:ctx.user,module:"项目管理",action:"微信立项申请草稿",target:id,detail:"按本人协会创建申请草稿",ip:ctx.ip});
     return {project:{id,status:"草稿"},message:"草稿已保存，尚未提交审批"};
   });

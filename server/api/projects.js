@@ -1,5 +1,6 @@
 "use strict";
-const { db } = require("../lib/db");
+const {db,transaction}=require("../lib/db");
+const {nextMeetingId}=require("../lib/meeting-codes");
 const { now, nextId, bad, notFound, conflict, forbidden, cents, yuan } = require("../lib/util");
 const { assertCan, assertModule, assertProjectVisible, can, isSuper, hasModule, scopeFilter, ROLES, canReadProjects } = require("../lib/rbac");
 const { logAudit } = require("../lib/audit");
@@ -317,14 +318,18 @@ function register(router) {
       throw forbidden("只能为本人所属协会发起立项");
     }
     const at = now();
-    const id = nextId(db, "projects", "id", "MP");
     const ownerId = member ? member.id : resolveOwnerId(b.owner, ctx.user);
+    // Reserve the association/year/sequence and create the draft atomically.
+    const id=transaction(()=>{
+      const meetingId=nextMeetingId(db,b.assoc,b.date);
     db.prepare(
       `INSERT INTO projects (id,name,assoc,form,date,days,budget,tax_fee_rate,people,owner,owner_id,phone,dept,agenda,event_end_date,event_start_time,event_end_time,status,status_at,created_by,created_at,updated_at)
        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
-    ).run(id, b.name, b.assoc, b.form, b.date, Number(b.days) || 1, Number(b.budget), parseTaxFeeRate(b.tax_fee_rate), Number(b.people) || 0,
+    ).run(meetingId, b.name, b.assoc, b.form, b.date, Number(b.days) || 1, Number(b.budget), parseTaxFeeRate(b.tax_fee_rate), Number(b.people) || 0,
       b.owner, ownerId, b.phone || "", b.dept || "", b.agenda, b.event_end_date||null,b.event_start_time||null,b.event_end_time||null, "草稿", at, ctx.user.id, at, at);
-    db.prepare("INSERT OR IGNORE INTO project_members (project_id,user_id,role) VALUES (?,?,?)").run(id, ctx.user.id, "创建人");
+    db.prepare("INSERT OR IGNORE INTO project_members (project_id,user_id,role) VALUES (?,?,?)").run(meetingId, ctx.user.id, "创建人");
+      return meetingId;
+    });
     // 注意：不要在这里把负责人自动写进 project_members。
     // 数据范围同时认 owner_id 和成员表，一旦入库，换负责人时旧负责人仍能靠成员关系看到项目
     // （test/scope-owner.test.js 覆盖此场景）。工作台待办本来就走 owner_id，不需要成员行。
