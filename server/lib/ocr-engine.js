@@ -214,6 +214,15 @@ function parseAgendaRows(raw){
     .filter(x=>!/^(注\s*[，,:：]|备注|最终日程|第\s*\d+\s*页)/.test(x))
     // 会议时间/地点/主办/联系人这类抬头信息不是场次内容
     .filter(x=>!/^(会议时间|会议地点|会议形式|主办|承办|协办|联系人|联系电话|邮箱|地址)\s*[:：]?/.test(x))
+    // 落款日期（2026年06月11日）、地址/网址/电话页脚、公众号二维码说明。
+    // 这些常排在议程表后面，若不在这里挡掉，会被当成最后一场的课题或讲者。
+    .filter(x=>!/^\d{4}\s*年\s*\d{1,2}\s*月\s*\d{1,2}\s*日\s*$/.test(x))
+    .filter(x=>!/^(地址|网址|电话|地址：|网址：|电话：)/.test(x))
+    .filter(x=>!/https?:\/\//.test(x))
+    .filter(x=>!/公众号|二维码/.test(x))
+    // 议程表上方的说明行：「五、会议议程如下（具体议程以实际举办为准）：」
+    // 它不是任何场次的课题，之前会被 orphan 收下再拼进第一场。
+    .filter(x=>!/议程如下|日程如下|以实际(举办|发生)为准|具体议程|议程安排/.test(x))
     .filter(x=>!/^[A-Za-z\s|·.,-]{1,12}$/.test(x));
   const TIME=/^(\d{1,2}[:：]\d{2})\s*[-–—~至]?\s*(\d{1,2}[:：]\d{2})?/;
   const rows=[];let cur=null,orphan="";
@@ -238,7 +247,7 @@ function parseAgendaRows(raw){
   }
   if(cur)rows.push(cur);
 
-  const ORG=/(医院|大学|学院|学会|协会|中心|公司|研究所|卫生院|保健院|门诊部)/;
+  const ORG=/(医院|大学|学院|学会|协会|中心|公司|研究所|研究院|科学院|基金会|卫生院|保健院|门诊部)/;
   const TITLE=/(教授|主任|医师|医生|博士|老师|院长|护士长|Dr\.?)/i;
   // 议程环节词：它们出现在「讲者」列的位置，但不是人
   const STEP=/^(讨论|总结|主持|致辞|签到|茶歇|开幕|闭幕|合影|午餐|晚宴|会议|日程|备注|提问|交流|答疑|休息|签到入场)$/;
@@ -297,11 +306,25 @@ function parseAgendaRows(raw){
     }else{
       speaker=usable.find(x=>TITLE.test(x)&&x.length<=20)||"";
     }
-    // 课题：讲者/单位之外最长的一条，且像内容（≥4 字、含中文、不是环节词或机构名）
+    // 「李启英 教授」「金梦迪 教授」这类是讨论环节里的其他讲者/嘉宾，不是课题。
+    // 讨论场里它们常比真正的环节词（讨论、病例分享）更长，若不过滤会被按长度选成课题。
+    // 判定：以「2~4 字姓名 + 职称」为主体的单元格（允许末尾多个人名），当成讲者而非课题。
+    const isPersonCell=x=>{
+      const stripped=x.replace(/(?:教授|主任|医师|医生|博士|老师|院长|护士长|Dr\.?)/gi,"")
+        .replace(/[\s,，、·]+/g,"").trim();
+      return TITLE.test(x) && stripped.length>=2 && stripped.length<=12 && /^[\u4e00-\u9fa5]+$/.test(stripped);
+    };
+    // 课题：讲者/单位之外最长的一条，且像内容（≥4 字、含中文、不是环节词/机构名/人名）
     const topicPool=usable.filter(x=>x!==speaker&&x!==org&&x.length>=4
-      &&/[\u4e00-\u9fa5]{2,}/.test(x)&&!isStep(x)&&!ORG.test(x)&&!HEADER.test(x));
+      &&/[\u4e00-\u9fa5]{2,}/.test(x)&&!isStep(x)&&!ORG.test(x)&&!HEADER.test(x)&&!isPersonCell(x));
     topicPool.sort((a,b)=>b.length-a.length);
     let topic=topicPool[0]||"";
+    // 环节词（讨论/病例分享/开局致辞等）本身也是合法课题：当候选池被讲者名占满时，
+    // 从原始 cells 里找回被 isStep 排除的环节词，避免讨论场出现空课题或人名课题。
+    if(!topic){
+      const stepCell=usable.find(x=>isStep(x)&&!/^(主持|签到|茶歇|答疑)$/.test(x));
+      if(stepCell)topic=stepCell;
+    }
     if(!speaker){
       const hit=topic.match(/([\u4e00-\u9fa5]{2,4}(?:教授|主任|医师|医生|博士))/);
       if(hit)speaker=hit[1];
@@ -397,7 +420,13 @@ function parseAgenda(raw){
     const clean=(s)=>String(s||"").replace(/^[，,。;；:：、“”"'‘’\s]+/,"").replace(/[，,。;；:：]+$/,"").trim();
     const speaker=clean(String(a||"").replace(/^(?:讲者|讲师|演讲人|授课人)\s*[:：]?/,""));
     const topic=clean(String(b||"").replace(/^(?:课题|主题|演讲题目|报告题目|讲题)\s*[:：]?/,""));
-    if(speaker.length<2||speaker.length>45||topic.length<3||topic.length>160||/^(会议|时间|地点|主题|开场|结束|签到|议程|姓名|职务|主持)/.test(speaker))return;
+    // topic 允许 2 字：议程表里的「讨论」「总结」「致辞」是合法环节/课题，
+    // 之前统一要求 ≥3 字会把这些真实场次整段丢掉。2 字时限定为已知环节词，
+    // 避免 OCR 碎片（如「我」「的」）混进来。
+    const shortStep=topic.length===2&&/^(讨论|总结|致辞|交流|答疑|提问|分享|报告|讲座|培训|开场)$/.test(topic);
+    if(speaker.length<2||speaker.length>45||topic.length>160
+      ||(topic.length<3&&!shortStep)
+      ||/^(会议|时间|地点|主题|开场|结束|签到|议程|姓名|职务|主持)/.test(speaker))return;
     const key=(speaker+"|"+topic).replace(/\s+/g,"").toLowerCase();
     if(!seen.has(key)){seen.add(key);out.push({speaker,topic});}
   }
