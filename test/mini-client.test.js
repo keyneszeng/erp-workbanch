@@ -256,3 +256,69 @@ test("微信小程序全部类别10文件上限，终版议程按原选择顺序
  await over.page.addFile();
  assert.match(over.page.data.error,/10/);
 });
+
+
+test("小程序材料类别与录入合并：切换类别显示历史文件名并在上传后立即刷新",async()=>{
+ const projectId="HDYX-2027-01";
+ const rows=[
+  {id:13,kind:"课件",filename:"心脏专题课件.pptx",version:"v1"},
+  {id:12,kind:"签到表",filename:"第一天签到.pdf",version:"v1"},
+  {id:11,kind:"工作总结",filename:"总结材料.docx",version:"v1"}
+ ];
+ const files=[{name:"第二天签到.pdf",path:"/tmp/signin.pdf",size:120}];
+ let listRequests=0,uploads=0;
+ const {page}=mockMaterialsPage(files,async(url,method,body)=>{
+  if(url==="/projects?page=1&size=100"){
+   return {rows:[{id:projectId,name:"2027年专题会议",status:"筹备中"}]};
+  }
+  if(url==="/projects/"+encodeURIComponent(projectId)+"/material-workbench"){
+   listRequests++;
+   return {modules:[],materials:rows.map(x=>({...x}))};
+  }
+  if(url.startsWith("/uploads?pid=")){
+   uploads++;
+   return {key:"a".repeat(32)+".pdf",name:files[0].name,size:120,mime:"application/pdf"};
+  }
+  if(url.endsWith("/materials")&&method==="POST"){
+   rows.unshift({id:20,kind:body.kind,filename:body.file_name,version:"v1"});
+   return {message:"已登记"};
+  }
+  throw Error("Unexpected API "+url);
+ });
+ page.data.pid=projectId;
+ await page.onShow();
+ assert.equal(page.data.pid,projectId);
+ assert.deepEqual(Array.from(page.data.visibleFiles.map(r=>r.filename)),["心脏专题课件.pptx"]);
+ assert.deepEqual(Array.from(page.data.historyKinds),["工作总结"]);
+ page.chooseKind({currentTarget:{dataset:{kind:"签到表"}}});
+ assert.deepEqual(Array.from(page.data.visibleFiles.map(r=>r.filename)),["第一天签到.pdf"]);
+ await page.addFile();
+ assert.equal(uploads,1);
+ assert.ok(listRequests>=2,"材料保存后应重新读取服务器上的已录入清单");
+ assert.deepEqual(Array.from(page.data.visibleFiles.map(r=>r.filename)),
+  ["第二天签到.pdf","第一天签到.pdf"],"成功上传后显示已录文件名");
+ page.chooseKind({currentTarget:{dataset:{kind:"课件"}}});
+ assert.deepEqual(Array.from(page.data.visibleFiles.map(r=>r.filename)),["心脏专题课件.pptx"]);
+ page.chooseKind({currentTarget:{dataset:{kind:"工作总结"}}});
+ assert.deepEqual(Array.from(page.data.visibleFiles.map(r=>r.filename)),["总结材料.docx"]);
+ page.chooseCustom();
+ page.input({currentTarget:{dataset:{key:"customKind"}},detail:{value:"工作总结"}});
+ assert.deepEqual(Array.from(page.data.visibleFiles.map(r=>r.filename)),["总结材料.docx"]);
+ await page.onShow();
+ assert.equal(page.data.pid,projectId);
+ assert.deepEqual(Array.from(page.data.visibleFiles.map(r=>r.filename)),["总结材料.docx"],
+  "重新进入小程序材料页仍从服务端读取该类别历史文件名");
+});
+test("小程序材料工作台同一个表单显示类别、上传与已录入文件名，后台只回已保存附件",()=>{
+ const xml=fs.readFileSync(path.join(__dirname,"../miniprogram/pages/materials/index.wxml"),"utf8");
+ const js=fs.readFileSync(path.join(__dirname,"../miniprogram/pages/materials/index.js"),"utf8");
+ const backend=fs.readFileSync(path.join(__dirname,"../server/api/material-workbench.js"),"utf8");
+ assert.equal((xml.match(/class="form-section"/g)||[]).length,1,"不应再拆成选类别和填材料两块表单");
+ assert.match(xml,/按类别直接录入材料/);
+ assert.doesNotMatch(xml,/填写材料信息/);
+ assert.match(xml,/已录入文件/);
+ assert.match(xml,/visibleFiles/);
+ assert.match(js,/await this\.loadKinds\(pid,\{preserveError:true\}\)/,"批量上传成功或部分成功后要刷新文件名");
+ assert.match(backend,/deleted_at IS NULL AND file_key IS NOT NULL/,"不能显示已删除或未上传的材料");
+ assert.match(backend,/COALESCE\(NULLIF\(file_name,''\),name\) AS filename/);
+});
