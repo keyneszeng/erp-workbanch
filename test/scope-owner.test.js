@@ -105,7 +105,7 @@ test("新建同名账号看不到同名负责人名下的项目", async () => {
 
 test("重名时新建项目的负责人绑定到操作者本人", async () => {
   // 系统里现在有两个「张伟」：exec（id 3）与 zhangwei2（id 9）
-  const mk = await exec("POST", "/api/projects", {
+  const mk = await exec("POST", "/api/projects", {tax_fee_rate:0,
     name: "张伟自己建的会", assoc: "华东医学会", form: "线下", date: "2027-03-03",
     budget: 1000, owner: "张伟", agenda: "探测", people: 10
   });
@@ -118,7 +118,7 @@ test("重名时新建项目的负责人绑定到操作者本人", async () => {
 });
 
 test("负责人填了系统里不存在的名字也不报错，创建人仍可见", async () => {
-  const mk = await admin("POST", "/api/projects", {
+  const mk = await admin("POST", "/api/projects", {tax_fee_rate:0,
     name: "负责人待定", assoc: "华东医学会", form: "线下", date: "2027-04-04",
     budget: 1000, owner: "待定", agenda: "探测", people: 10
   });
@@ -130,7 +130,7 @@ test("负责人填了系统里不存在的名字也不报错，创建人仍可�
 });
 
 test("改负责人会同步改 owner_id：原负责人失去可见、新负责人获得可见", async () => {
-  const mk = await admin("POST", "/api/projects", {
+  const mk = await admin("POST", "/api/projects", {tax_fee_rate:0,
     name: "换负责人", assoc: "华东医学会", form: "线下", date: "2027-05-05",
     budget: 1000, owner: "张伟", agenda: "探测", people: 10
   });
@@ -147,7 +147,7 @@ test("改负责人会同步改 owner_id：原负责人失去可见、新负责�
 
 test("负责人改名后，仅靠负责人关系可见的项目仍在视野里", async () => {
   // 造一个「只靠负责人可见」的项目：owner=张伟，创建人是 admin，张伟不是成员
-  const mk = await admin("POST", "/api/projects", {
+  const mk = await admin("POST", "/api/projects", {tax_fee_rate:0,
     name: "只靠负责人可见", assoc: "华东医学会", form: "线下", date: "2027-02-02",
     budget: 1000, owner: "张伟", agenda: "探测", people: 10
   });
