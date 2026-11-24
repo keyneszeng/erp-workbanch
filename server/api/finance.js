@@ -743,8 +743,26 @@ function register(router) {
       );
     }
     if (!PAYABLE_STATUS.includes(p.status)) throw conflict("项目核销状态异常，付款已拦截", "VERIFY_GATE");
-    db.prepare("UPDATE payments SET status = '已付款', paid_at = ? WHERE id = ?").run(now(), y.id);
-    logAudit({ user: ctx.user, module: "财务结算", action: "付款", target: p.id, detail: `${y.id} ${y.type} ¥${Number(y.amount).toLocaleString("zh-CN")} 已提交银行`, ip: ctx.ip });
+    // Existing approved applications remain payable; the new UI attaches a real
+    // voucher in the same request, while legacy API clients can be migrated safely.
+    let key=null,name=null;
+    if(ctx.body?.receipt_file_key){
+      key=String(ctx.body.receipt_file_key);
+      if(!FILE_KEY_RE.test(key))throw bad("付款回单格式不合法");
+      assertUploadAttachable(key,p.id,ctx.user);
+      const obj=await storage().get(key);
+      if(!obj?.buffer?.length||obj.buffer.length>20*1024*1024)throw bad("付款凭证不存在或超过20MB");
+      const mime=sniffMime(obj.buffer,key);
+      if(!mime||ALLOWED_MIME[mime]!==key.split(".").pop())throw bad("付款凭证文件类型不符");
+      name=safeName(ctx.body.receipt_file_name||key);
+    }
+    const paidAt=now();
+    transaction(()=>{
+      if(key)assertUploadAttachable(key,p.id,ctx.user);
+      db.prepare("UPDATE payments SET status='已付款',paid_at=?,receipt_file_key=?,receipt_file_name=?,receipt_uploaded_at=? WHERE id=? AND status='已审批'")
+        .run(paidAt,key,name,key?paidAt:null,y.id);
+    });
+    logAudit({ user: ctx.user, module: "财务结算", action: "付款", target: p.id, detail: `${y.id} ${y.type} ¥${Number(y.amount).toLocaleString("zh-CN")} 已执行线下付款${key?"（凭证已存档）":""}`, ip: ctx.ip });
     return { payment: db.prepare("SELECT * FROM payments WHERE id = ?").get(y.id), message: `${y.id} 已付款` };
   });
 
