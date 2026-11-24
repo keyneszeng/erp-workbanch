@@ -76,7 +76,7 @@ export async function render(root) {
  */
 export const MAX_MATERIAL_FILES_PER_BATCH=10;
 
-export function openMaterialRegistration(root, projects, kinds, defaultPid="", onSaved=null) {
+export function openMaterialRegistration(root, projects, kinds, defaultPid="", onSaved=null, defaultKind="") {
   if(!projects.length){
     toast("当前没有可登记材料的项目（已结算、已归档项目不允许新增材料）","warn");
     return;
@@ -84,10 +84,10 @@ export function openMaterialRegistration(root, projects, kinds, defaultPid="", o
   const fields=[
     {k:"pid",l:"所属项目",t:"select",req:1,v:defaultPid,
       opts:projects.map(p=>({v:p.id,l:p.id+" "+p.name}))},
-    {k:"kind",l:"材料类别",t:"select",req:1,custom:1,
+    {k:"kind",l:"材料类别",t:"select",req:1,custom:1,v:defaultKind,
       ph:"如：盖章会议通知 / 招商函 / 终版议程 / 讲者照片",
-      opts:[...kinds,"会议通知","招商函","终版议程","课件","串场","劳务表","劳务收集表","讲者照片","权益照片"]
-        .filter((v,i,a)=>a.indexOf(v)===i),
+      opts:[...kinds,"会议通知","招商函","终版议程","课件","串场","劳务表","劳务收集表","讲者照片","权益照片",defaultKind]
+        .filter((v,i,a)=>v&&a.indexOf(v)===i),
       tip:"可任选或自定义类别。多份文件将分别登记到当前项目与材料类别。"},
     {k:"sponsor_right_id",l:"权益照片 · 二级类目（从赞助合同自动生成，可自定义）",
       t:"select",opts:[],tip:"先选择项目及赞助合同权益，再上传对应照片。"},
