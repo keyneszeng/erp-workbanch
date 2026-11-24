@@ -79,16 +79,13 @@ function ocrGuard(ip){
 const fingerprint=ip=>crypto.createHash("sha256").update(
  String(process.env.ERP_PUBLIC_PROPOSAL_HASH_SALT||"erp-proposal")+"|"+String(ip||"unknown")
 ).digest("hex");
-function register(router){
- router.post("/api/public/event-proposals/agenda-ocr",async ctx=>{
-  if(process.env.ERP_PUBLIC_PROPOSALS_ENABLED==="0")
-   throw Object.assign(new Error("公众活动申请入口暂未开放"),{status:503,code:"PUBLIC_PROPOSALS_DISABLED"});
-  if(ctx.body?.website)throw bad("提交内容无效");
-  const filename=str(ctx.body?.filename||"",120,"议程文件名");
+async function recognizeAgenda(body,ip,{publicAccess=false}={}){
+  if(body?.website)throw bad("提交内容无效");
+  const filename=str(body?.filename||"",120,"议程文件名");
   const ext=filename.split(".").pop().toLowerCase();
   const accepted=new Set(["pdf","png","jpg","jpeg","docx","pptx","xlsx","txt"]);
   if(!accepted.has(ext))throw bad("议程识别支持 PDF、JPG、PNG、DOCX、PPTX、XLSX、TXT");
-  const encoded=String(ctx.body?.content_base64||"");
+  const encoded=String(body?.content_base64||"");
   if(!encoded||encoded.length>2.8*1024*1024||!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(encoded))
    throw bad("议程文件编码无效或超过2MB");
   const buffer=Buffer.from(encoded,"base64");
@@ -102,7 +99,7 @@ function register(router){
    txt:"text/plain"
   };
   if(!mime||mime!==expected[ext])throw bad("文件内容与格式不符，拒绝识别");
-  ocrGuard(ctx.ip);
+  if(publicAccess)ocrGuard(ip);
   let result;
   if(ext==="pdf"){
    result=await ocr.extractPdfText(buffer,{maxPages:10});
@@ -119,6 +116,12 @@ function register(router){
   return {agenda:text,engine:result.engine||"",pages:result.pages||1,
    totalPages:result.totalPages||1,truncated:!!result.truncated,
    message:"已识别议程，请核对并修改后提交"};
+}
+function register(router){
+ router.post("/api/public/event-proposals/agenda-ocr",async ctx=>{
+  if(process.env.ERP_PUBLIC_PROPOSALS_ENABLED==="0")
+   throw Object.assign(new Error("公众活动申请入口暂未开放"),{status:503,code:"PUBLIC_PROPOSALS_DISABLED"});
+  return recognizeAgenda(ctx.body,ctx.ip,{publicAccess:true});
  });
  router.post("/api/public/event-proposals",async ctx=>{
   if(process.env.ERP_PUBLIC_PROPOSALS_ENABLED==="0")
@@ -204,4 +207,4 @@ function register(router){
     message:output.alreadyConverted?"该公众申请已有内部项目，已返回原项目":"已转入内部立项并保存为草稿（未提交审批）"};
  });
 }
-module.exports={register,validate};
+module.exports={register,validate,recognizeAgenda};
