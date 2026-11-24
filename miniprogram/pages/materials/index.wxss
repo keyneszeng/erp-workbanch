@@ -100,3 +100,19 @@
   font-size: 21rpx;
   color: #1c7394;
 }
+
+/* 已上传误传文件可纠错删除；仅移至废件箱，不允许在前端物理清除原件。 */
+.uploaded-file-delete {
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 0 12rpx;
+  min-width: 92rpx;
+  border: 1rpx solid #f0d2cd;
+  border-radius: 10rpx;
+  background: #fff6f5;
+  color: #bb3028;
+  font-size: 22rpx;
+  line-height: 55rpx;
+}
+.uploaded-file-delete::after { border: none; }
+.uploaded-file-delete[disabled] { opacity: .5; }

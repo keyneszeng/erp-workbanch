@@ -158,12 +158,14 @@ test("WeChat silent login sends no old employee token and resumes the linked rol
 
 function mockMaterialsPage(files,api){
  let page;
- const seen={chooseCount:0,mediaCount:0,toast:0};
+ const seen={chooseCount:0,mediaCount:0,toast:0,modalCount:0,confirmDelete:true,lastModal:null};
  const wx={
   chooseMessageFile:opts=>{seen.chooseCount=opts.count;opts.success({tempFiles:files});},
   chooseMedia:opts=>{seen.mediaCount=opts.count;opts.success({tempFiles:files});},
   getFileSystemManager:()=>({readFile:opts=>opts.success({data:new Uint8Array([1,2,3])})}),
   showToast:()=>{seen.toast++;},
+  showModal:opts=>{seen.modalCount++;seen.lastModal=opts;
+   opts.success({confirm:seen.confirmDelete,cancel:!seen.confirmDelete});},
  };
  const app={api};
  vm.runInNewContext(fs.readFileSync(path.join(__dirname,"../miniprogram/pages/materials/index.js"),"utf8"),
@@ -333,6 +335,80 @@ test("小程序退役劳务收集表：旧服务端类别与历史文件统一�
  assert.deepEqual(Array.from(page.data.visibleFiles.map(x=>x.filename)),
   ["旧劳务收集表.xlsx","新劳务表.xlsx"],"两种历史存储类别都能在劳务表页面查看");
 });
+test("小程序材料误传：已归档文件可逐份确认删除，调用服务端软删并立即刷新列表",async()=>{
+ const pid="MP-2026-001";
+ const files=[
+  {id:71,kind:"课件",filename:"误上传的课件.pptx",version:"v1"},
+  {id:72,kind:"课件",filename:"正确课件.pptx",version:"v1"},
+  {id:73,kind:"签到表",filename:"签到.pdf",version:"v1"}
+ ];
+ const deleted=[];
+ const {page,seen}=mockMaterialsPage([],async(url,method)=>{
+  if(url==="/projects?page=1&size=100")
+   return {rows:[{id:pid,name:"会议材料",status:"筹备中"}]};
+  if(url==="/projects/"+pid+"/material-workbench")
+   return {kinds:["课件","签到表"],modules:[],materials:files.map(x=>({...x}))};
+  if(url==="/materials/71"&&method==="DELETE"){
+   deleted.push(71);
+   files.splice(files.findIndex(x=>x.id===71),1);
+   return {message:"已软删并保留历史记录"};
+  }
+  if(url==="/materials/72"&&method==="DELETE"){
+   deleted.push(72);
+   throw new Error("合同已锁定或材料已冻结，不可删除");
+  }
+  throw Error("Unexpected API "+method+" "+url);
+ });
+ await page.onShow();
+ assert.deepEqual(Array.from(page.data.visibleFiles.map(x=>x.filename)),
+  ["误上传的课件.pptx","正确课件.pptx"]);
+ await page.removeUploaded({currentTarget:{dataset:{id:71}}});
+ assert.deepEqual(deleted,[71],"只能删除点击的那一条真实已归档材料");
+ assert.equal(seen.modalCount,1);
+ assert.match(seen.lastModal.content,/误上传的课件/);
+ assert.match(seen.lastModal.content,/废件箱/);
+ assert.equal(seen.lastModal.confirmText,"删除");
+ assert.deepEqual(Array.from(page.data.visibleFiles.map(x=>x.filename)),["正确课件.pptx"]);
+ assert.match(page.data.uploaded,/已删除/);
+ assert.equal(page.data.busy,false);
+ assert.equal(page.data.deletingId,0);
+ assert.equal(seen.toast,1);
+ page.chooseKind({currentTarget:{dataset:{kind:"签到表"}}});
+ assert.deepEqual(Array.from(page.data.visibleFiles.map(x=>x.filename)),["签到.pdf"],
+  "删除当前课件不得影响其他材料类别");
+ page.chooseKind({currentTarget:{dataset:{kind:"课件"}}});
+ seen.confirmDelete=false;
+ await page.removeUploaded({currentTarget:{dataset:{id:72}}});
+ assert.deepEqual(deleted,[71],"用户取消删除后不得发送 DELETE");
+ assert.equal(page.data.busy,false);
+ assert.equal(page.data.deletingId,0);
+ assert.equal(page.data.visibleFiles.length,1);
+ seen.confirmDelete=true;
+ await page.removeUploaded({currentTarget:{dataset:{id:72}}});
+ assert.deepEqual(deleted,[71,72]);
+ assert.match(page.data.error,/删除失败.*冻结/);
+ assert.equal(page.data.visibleFiles.length,1,"后端拒绝删除时必须保留文件");
+ assert.equal(page.data.deletingId,0);
+ page.setData({locked:true});
+ await page.removeUploaded({currentTarget:{dataset:{id:72}}});
+ assert.equal(deleted.length,2,"结算或归档锁定时前端不应请求删除");
+ page.setData({locked:false,busy:true});
+ await page.removeUploaded({currentTarget:{dataset:{id:72}}});
+ assert.equal(deleted.length,2,"上传进行中不得删除并发修改材料");
+});
+
+test("小程序已录入材料必须有逐项删除按钮，锁定时隐藏并提供人工确认",()=>{
+ const xml=fs.readFileSync(path.join(__dirname,"../miniprogram/pages/materials/index.wxml"),"utf8");
+ const js=fs.readFileSync(path.join(__dirname,"../miniprogram/pages/materials/index.js"),"utf8");
+ assert.match(xml,/catchtap="removeUploaded"/);
+ assert.match(xml,/data-id="{{item.id}}"/);
+ assert.match(xml,/wx:if="{{!locked}}"/);
+ assert.match(xml,/disabled="{{busy}}"/);
+ assert.match(js,/showModal\(/);
+ assert.match(js,/app\.api\("\/materials\/"\+id,"DELETE"\)/);
+ assert.match(js,/await this\.loadKinds\(pid,\{preserveError:true\}\)/);
+});
+
 test("小程序材料工作台同一个表单显示类别、上传与已录入文件名，后台只回已保存附件",()=>{
  const xml=fs.readFileSync(path.join(__dirname,"../miniprogram/pages/materials/index.wxml"),"utf8");
  const js=fs.readFileSync(path.join(__dirname,"../miniprogram/pages/materials/index.js"),"utf8");
