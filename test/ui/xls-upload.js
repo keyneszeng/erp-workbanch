@@ -49,7 +49,10 @@ async function waitReady() {
   });
   if(!pid)throw Error("no accessible project");
   await page.selectOption('#modal [name="pid"]',pid);
-  await page.selectOption('#modal [name="kind"]',"劳务收集表");
+  const availableKinds=await page.locator('#modal [name="kind"] option').allTextContents();
+  if(!availableKinds.includes("劳务表")||availableKinds.includes("劳务收集表"))
+    throw Error("材料类别必须只保留劳务表，不可再显示劳务收集表: "+availableKinds.join(","));
+  await page.selectOption('#modal [name="kind"]',"劳务表");
   await input.setInputFiles({name:"测试旧版.xls",mimeType:"application/vnd.ms-excel",buffer:BYTES});
   await page.locator('[data-material-name]').getByText("测试旧版.xls").waitFor();
   if(await page.locator('#modal [name="name"]').count())throw Error("materials must not have a manual title field");
