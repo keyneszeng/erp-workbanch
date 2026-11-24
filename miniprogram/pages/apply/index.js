@@ -1,7 +1,7 @@
 const app=getApp();
 Page({
  data:{id:"",status:"草稿",name:"",assoc:"",assocs:[],assocIndex:0,
-  form:"线下",formIndex:0,forms:["线下","线上","混合"],date:"",event_end_date:"",event_start_time:"09:00",event_end_time:"18:00",days:"1",budget:"",people:"",phone:"",dept:"",depts:[],deptIndex:0,deptLegacy:false,agenda:"",ocrBusy:false,ocrNotice:"",agendaFile:"",
+  form:"线下",formIndex:0,forms:["线下","线上","混合"],date:"",event_end_date:"",event_start_time:"09:00",event_end_time:"18:00",days:"1",budget:"",tax_fee_rate:"",availableBudget:"",people:"",phone:"",dept:"",depts:[],deptIndex:0,deptLegacy:false,agenda:"",ocrBusy:false,ocrNotice:"",agendaFile:"",
   busy:false,error:"",isAdmin:false},
  async onLoad(q){
   const id=q.id||"";
@@ -20,10 +20,11 @@ Page({
       form:p.form,formIndex:Math.max(0,this.data.forms.indexOf(p.form)),date:p.date,
       event_end_date:p.event_end_date||this.dateAfter(p.date,Number(p.days||1)-1),
       event_start_time:p.event_start_time||"09:00",event_end_time:p.event_end_time||"18:00",days:String(p.days),
-      budget:String(p.budget),people:String(p.people),phone:p.phone||"",
+      budget:String(p.budget),tax_fee_rate:String(p.tax_fee_rate??""),people:String(p.people),phone:p.phone||"",
       dept:depts.includes(p.dept)?p.dept:"",
       deptIndex:Math.max(0,depts.indexOf(p.dept)),deptLegacy:!!p.dept&&!depts.includes(p.dept),
       agenda:p.agenda||"",status:p.status});
+    this.refreshAvailableBudget();
    }
   }catch(e){this.setData({error:e.message});}
  },
@@ -40,7 +41,21 @@ Page({
   if(diff>=0&&diff<60)this.setData({days:String(1+diff),error:""});
   else this.setData({days:"",error:"请选择有效举办时间段，最长60天"});
  },
- input(e){this.setData({[e.currentTarget.dataset.key]:e.detail.value});},
+ input(e){
+  const key=e.currentTarget.dataset.key,value=e.detail.value;
+  this.setData({[key]:value});
+  if(key==="budget"||key==="tax_fee_rate")this.refreshAvailableBudget();
+ },
+ refreshAvailableBudget(){
+  const b=Number(this.data.budget),raw=String(this.data.tax_fee_rate).trim();
+  const r=Number(raw),cents=n=>Math.abs(n*100-Math.round(n*100))<1e-7;
+  if(!String(this.data.budget).trim()||!raw||!Number.isFinite(b)||b<=0||b>1e9||!cents(b)||
+    !Number.isFinite(r)||r<0||r>100||!cents(r)){
+   this.setData({availableBudget:""});return;
+  }
+  const net=Math.round(Math.round(b*100)*(10000-Math.round(r*100))/10000)/100;
+  this.setData({availableBudget:net.toFixed(2)});
+ },
  pickDate(e){
   const date=e.detail.value,end=this.data.event_end_date||date;
   const validEnd=end<date?date:end;
@@ -86,9 +101,14 @@ Page({
  async save(e){
   if(this.data.busy || this.data.ocrBusy || this.data.status!=="草稿")return;
   const submit=e.currentTarget.dataset.submit==="yes";
-  const {name,assoc,form,date,event_end_date,event_start_time,event_end_time,days,budget,people,phone,dept,agenda}=this.data;
-  if(!name.trim()||!date||!event_end_date||!days||!String(budget).trim()||!dept||!agenda.trim()){
-   this.setData({error:"请填写会议名称、日期、预算、承办部门及议程要点"});return;
+  const {name,assoc,form,date,event_end_date,event_start_time,event_end_time,days,budget,tax_fee_rate,people,phone,dept,agenda}=this.data;
+  if(!name.trim()||!date||!event_end_date||!days||!String(budget).trim()||!String(tax_fee_rate).trim()||!dept||!agenda.trim()){
+   this.setData({error:"请填写会议名称、日期、预算、协会管理费及税费率、承办部门及议程要点（无税费请填0）"});return;
+  }
+  const rate=Number(tax_fee_rate);
+  if(!Number.isFinite(rate)||rate<0||rate>100||
+    Math.abs(rate*100-Math.round(rate*100))>1e-7){
+    this.setData({error:"协会管理费及税费率须为0～100%，最多两位小数"});return;
   }
   if(date===event_end_date&&event_end_time&&event_start_time&&event_end_time<event_start_time){
     this.setData({error:"结束时间不能早于开始时间"});return;
@@ -96,7 +116,7 @@ Page({
   this.setData({busy:true,error:""});
   try{
    const body={name,assoc,form,date,event_end_date,event_start_time,event_end_time,
-     days:Number(days),budget:Number(budget),people:Number(people||0),phone,dept,agenda};
+     days:Number(days),budget:Number(budget),tax_fee_rate:rate,people:Number(people||0),phone,dept,agenda};
    const p=this.data.id
     ? (await app.api("/mini/applications/"+encodeURIComponent(this.data.id),"PATCH",body)).project
     : (await app.api("/mini/applications","POST",body)).project;
