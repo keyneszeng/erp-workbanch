@@ -124,8 +124,11 @@ async function openCreate(root) {
     { k: "name", l: "会议名称", req: 1, ph: "如：京津冀论坛 2027", full: 1 },
     { k: "assoc", l: "所属协会", t: "select", req: 1, opts: state.meta.assocs },
     { k: "form", l: "会议形式", t: "select", req: 1, opts: state.meta.forms },
-    { k: "date", l: "会议日期", t: "date", req: 1 },
-    { k: "days", l: "会期（天）", t: "number", v: "1" },
+    { k: "date", l: "举办开始日期", t: "date", req: 1 },
+    { k: "event_end_date", l: "举办结束日期", t: "date", req: 1 },
+    { k: "event_start_time", l: "开始时间", t: "time", v: "09:00" },
+    { k: "event_end_time", l: "结束时间", t: "time", v: "18:00" },
+    { k: "days", l: "会期（按日期自动计算）", t: "number", v: "1" },
     { k: "budget", l: "预算（元）", t: "number", req: 1, ph: "如：240000", full: 1 },
     { k: "tax_fee_rate", l: "税费管理费率（%）", t: "number", v: "0", full: 1,
       ph: "如：10 表示 10%",tip:"自定义输入 0～100，最多两位小数。按税费管理费率从立项预算扣减。" },
@@ -139,7 +142,12 @@ async function openCreate(root) {
     title: "新建立项申请",
     width: "640px",
     body: `<div class="hint" style="margin-bottom:12px">保存为「草稿」后，可在项目详情页提交审批；提交后进入「待审批」，协会管理员审批通过才进入筹备。</div>
-      ${formHtml(fields)}`,
+      ${formHtml(fields)}
+      <div class="fld full" style="grid-column:1/-1">
+        <label>上传初版议程文件 · OCR 识别录入</label>
+        <input id="agendaImportFile" type="file" accept=".pdf,.png,.jpg,.jpeg,.docx,.pptx,.xlsx,.txt">
+        <div class="tip" id="agendaImportStatus">PDF / 图片 / DOCX / PPTX / XLSX / TXT；最多 2MB。识别内容可编辑。</div>
+      </div>`,
     footer: `<button class="btn btn-o" data-a="cancel">取消</button>
              <button class="btn btn-o" data-a="draft">保存草稿</button>
              <button class="btn btn-p" data-a="submit">保存并提交</button>`
