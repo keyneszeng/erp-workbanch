@@ -64,7 +64,7 @@ function client(cookie) {
 /** 建项目并推进到指定阶段；materials=true 时补齐 8 类材料（核销前置） */
 async function makeProject(name, target, { materials = false } = {}) {
   const c = admin;
-  const mk = await c("POST", "/api/projects", {
+  const mk = await c("POST", "/api/projects", {tax_fee_rate:0,
     name: `${name}-${Date.now()}`, assoc: "华东医学会", form: "线下",
     date: "2027-12-12", budget: 50000, people: 30, owner: "王敏", agenda: "09:00 开幕"
   });
