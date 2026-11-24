@@ -211,7 +211,7 @@ test("业务单据已有结论时，点通过不报错，而是同步关闭审�
   const pid = await (async () => {
     const r = await e("POST", "/api/projects", {
       name: `V1.2.15 幽灵单用例 ${Date.now()}-${++seq}`,
-      assoc: "华东医学会", form: "线下", date: "2027-08-08", budget: 60000, people: 60,
+      assoc: "华东医学会", form: "线下", date: "2027-08-08", tax_fee_rate:0, budget: 60000, people: 60,
       owner: "陈静", agenda: "09:00 开幕"
     });
     assert.equal(r.status, 200, JSON.stringify(r.data));
