@@ -267,7 +267,7 @@ function register(router){
     }
     const status=approve?"已签署":"已驳回";
     const ledger=s.ledger_contract_id
-      ? db.prepare("SELECT id,pid,status,category FROM contracts WHERE id=? AND pid=?").get(s.ledger_contract_id,p.id)
+      ? db.prepare("SELECT id,pid,status,category FROM contracts WHERE id=? AND pid=? AND deleted_at IS NULL").get(s.ledger_contract_id,p.id)
       : null;
     if(s.ledger_contract_id&&(!ledger||ledger.category!=="企业赞助"))
       throw conflict("关联合同台账记录缺失，请联系管理员修复","SPONSOR_LEDGER_MISSING");
