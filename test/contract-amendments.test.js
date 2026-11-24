@@ -67,9 +67,9 @@ before(async()=>{
  // 模拟已核销且尚未请付款项目：核销前四项已有结论，但第6项针对这份合同需要重核。
  sql(db=>{
   db.prepare("UPDATE projects SET status='已核销' WHERE id=?").run(pid);
-  db.prepare("INSERT INTO verify_steps(pid,step_no,name,result,remark,checked_by,checked_at) VALUES (?,?,?,?,?,?,?)")
+  db.prepare("INSERT OR REPLACE INTO verify_steps(pid,step_no,name,result,remark,checked_by,checked_at) VALUES (?,?,?,?,?,?,?)")
     .run(pid,5,"劳务与专家费核对","通过","旧材料已核对","复核员","2026-11-20");
-  db.prepare("INSERT INTO verify_steps(pid,step_no,name,result,remark,checked_by,checked_at) VALUES (?,?,?,?,?,?,?)")
+  db.prepare("INSERT OR REPLACE INTO verify_steps(pid,step_no,name,result,remark,checked_by,checked_at) VALUES (?,?,?,?,?,?,?)")
     .run(pid,6,"会务合同与发票关联核对","通过","旧版金额核验","复核员","2026-11-20");
  });
 });
