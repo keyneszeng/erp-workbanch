@@ -49,10 +49,19 @@ async function ready(){
   const pid=project.id;
   await page.goto(origin+"/#/projects/"+encodeURIComponent(pid),{waitUntil:"domcontentloaded"});
   await page.locator('.tabs [data-tab="materials"]').click();
+  const chips=page.locator("#tabbody [data-material-kind]");
+  assert.ok(await chips.count()>=12,"material panel shows selectable recommended categories, like mini");
+  assert.equal(await page.locator("#tabbody .material-kind-selected").innerText(),"当前录入：课件已录入 0 份");
+  await page.locator('#tabbody [data-material-kind="签到表"]').click();
+  await page.waitForFunction(()=>document.querySelector(".material-kind-selected")?.textContent?.includes("签到表"),null,{timeout:10000});
+  assert.equal(await page.locator("#addMat").count(),1,"switching category retains direct upload action");
+  await page.locator('#tabbody [data-material-kind="课件"]').click();
+  await page.waitForFunction(()=>document.querySelector(".material-kind-selected")?.textContent?.includes("课件"),null,{timeout:10000});
   const add=page.locator("#addMat");
   await add.waitFor({timeout:15000});
   await add.click();
   const modal=page.locator("#modal.open");
+  assert.equal(await modal.locator('[name="kind"]').inputValue(),"课件","upload form preselects chosen panel category");
   assert.equal(await modal.locator('[name="name"]').count(),0,
     "manual material-name input must be removed");
   assert.equal(await modal.locator('[name="version"]').count(),0);
@@ -95,6 +104,15 @@ async function ready(){
   }
   for(const name of names)
     assert.ok((await page.locator("#content").innerText()).includes(name),"meeting materials list displays "+name);
+  assert.match(await page.locator("#tabbody .material-kind-selected").innerText(),/已录入 10 份/);
+  await page.locator('#tabbody [data-material-kind="签到表"]').click();
+  await page.waitForFunction(()=>document.querySelector(".material-kind-selected")?.textContent?.includes("签到表"),null,{timeout:10000});
+  assert.ok(!(await page.locator("#tabbody").innerText()).includes(names[0]),
+    "switching categories hides unrelated uploaded filenames");
+  await page.locator('#tabbody [data-material-kind="课件"]').click();
+  await page.waitForFunction(()=>document.querySelector(".material-kind-selected")?.textContent?.includes("课件"),null,{timeout:10000});
+  assert.ok((await page.locator("#tabbody").innerText()).includes(names[0]),
+    "switching back displays already-uploaded filenames without re-uploading");
 
   // Speaker photo filenames are the ONLY association key for verification.
   await page.locator("#addMat").click();
