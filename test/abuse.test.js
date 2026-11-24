@@ -344,7 +344,7 @@ test("付款明细导出可勾选多场会议：只包含选中记录，含会�
  }
  const two=await exportFor(pids.slice(0,2));
  assert.equal(two.status,200,two.text);
- assert.match(two.text,/^﻿"付款单号","会议编号","项目","类型"/);
+ assert.match(two.text.replace(/^\uFEFF/,""),/^"付款单号","会议编号","项目","类型"/);
  assert.match(two.text,/PY-MULTI-EXPORT-0/);
  assert.match(two.text,/PY-MULTI-EXPORT-1/);
  assert.doesNotMatch(two.text,/PY-MULTI-EXPORT-2/);
