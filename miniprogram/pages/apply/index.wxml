@@ -77,6 +77,11 @@
       <input class="field-control" type="digit" value="{{budget}}" data-key="budget" bindinput="input" placeholder="请输入预算金额" disabled="{{status!=='草稿'}}"/>
     </view>
     <view class="field">
+      <view class="field-label"><text class="required">*</text>税费管理费率（%）</view>
+      <input class="field-control" type="digit" value="{{tax_fee_rate}}" data-key="tax_fee_rate" bindinput="input" placeholder="必填，0～100；如 10 表示 10%" disabled="{{status!=='草稿'}}"/>
+      <view class="field-hint">可以填写 0，最多保留两位小数；将从预算中扣减</view>
+    </view>
+    <view class="field">
       <view class="field-label">预计参会人数</view>
       <input class="field-control" type="number" value="{{people}}" data-key="people" bindinput="input" placeholder="例如 200" disabled="{{status!=='草稿'}}"/>
     </view>
