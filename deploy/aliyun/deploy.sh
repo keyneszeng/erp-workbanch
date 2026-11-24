@@ -76,7 +76,7 @@ done
 # 保留 ERP_REF / --ref 兼容旧命令，但禁止指定其他分支。
 if [ -z "$REF" ]; then REF="main"; fi
 if [ "$REF" != "main" ]; then
-  die "测试和生产部署只允许统一的 main 分支（实际：$REF）；历史测试分支只供查阅"
+  die "测试和生产部署只允许统一的 main 分支（实际：${REF}）；历史测试分支只供查阅"
 fi
 
 # ---------- 模式派生 ----------
@@ -133,13 +133,13 @@ case "$SMS_PROVIDER" in
   aliyun)
     for v in ERP_ALIYUN_SMS_ACCESS_KEY_ID ERP_ALIYUN_SMS_ACCESS_KEY_SECRET \
              ERP_ALIYUN_SMS_SIGN_NAME ERP_ALIYUN_SMS_TEMPLATE_CODE; do
-      [ -n "${!v:-}" ] || die "缺少环境变量 $v（阿里云短信，必填）"
+      [ -n "${!v:-}" ] || die "缺少环境变量 ${v}（阿里云短信，必填）"
     done
     ;;
   tencent)
     for v in ERP_TENCENT_SECRET_ID ERP_TENCENT_SECRET_KEY ERP_TENCENT_SMS_APP_ID \
              ERP_TENCENT_SMS_SIGN ERP_TENCENT_SMS_TEMPLATE_ID; do
-      [ -n "${!v:-}" ] || die "缺少环境变量 $v（腾讯云短信，必填）"
+      [ -n "${!v:-}" ] || die "缺少环境变量 ${v}（腾讯云短信，必填）"
     done
     ;;
   *) die "ERP_SMS_PROVIDER 只能是 console / aliyun / tencent，当前：$SMS_PROVIDER" ;;
@@ -157,7 +157,7 @@ if [ "$MODE" = "prod" ] && [ "$SKIP_TLS" = "0" ]; then
 fi
 
 # ---------- 系统依赖 ----------
-log "检查操作系统与软件源（模式：$MODE）"
+log "检查操作系统与软件源（模式：${MODE}）"
 . /etc/os-release 2>/dev/null || die "无法读取 /etc/os-release"
 case "${ID:-}" in
   ubuntu|debian) ;;
@@ -231,7 +231,7 @@ if ! id -u "$SERVICE_USER" >/dev/null 2>&1; then
   run useradd --system --home-dir "$APP_ROOT" --shell /usr/sbin/nologin "$SERVICE_USER"
 fi
 
-log "准备目录（$DATA_ROOT）"
+log "准备目录（${DATA_ROOT}）"
 run install -d -m 0755 "$APP_ROOT" "$APP_ROOT/releases"
 run install -d -m 0700 -o "$SERVICE_USER" -g "$SERVICE_USER" "$DATA_ROOT"
 run install -d -m 0700 -o "$SERVICE_USER" -g "$SERVICE_USER" "$DATA_ROOT/uploads"
@@ -278,7 +278,7 @@ fi
 
 # ---------- 环境变量 ----------
 if [ -f "$ENV_FILE" ]; then
-  log "保留已有 $ENV_FILE（不覆盖密钥与短信配置）"
+  log "保留已有 ${ENV_FILE}（不覆盖密钥与短信配置）"
 else
   log "生成 $ENV_FILE"
   GEN_SECRET="$(openssl rand -base64 48 | tr -d '\n')"
@@ -361,7 +361,7 @@ if [ "$DRY_RUN" = "0" ]; then
 fi
 
 # ---------- 环境预检 ----------
-log "执行环境预检（$GATE，fail closed）"
+log "执行环境预检（${GATE}，fail closed）"
 if [ "$DRY_RUN" = "0" ]; then
   set -a; . "$ENV_FILE"; set +a
   if ! "$NODE_BIN" "$APP_ROOT/current/scripts/$GATE"; then
@@ -370,7 +370,7 @@ if [ "$DRY_RUN" = "0" ]; then
 fi
 
 # ---------- systemd ----------
-log "安装 systemd 单元（$UNIT_FILE）"
+log "安装 systemd 单元（${UNIT_FILE}）"
 UNIT_SRC="$APP_ROOT/current/deploy/aliyun/$UNIT_FILE"
 [ "$DRY_RUN" = "1" ] || [ -f "$UNIT_SRC" ] || die "缺少 $UNIT_SRC"
 if [ "$DRY_RUN" = "0" ]; then
@@ -385,7 +385,7 @@ SITE_ENABLED="/etc/nginx/sites-enabled/${SITE_NAME}.conf"
 
 if [ "$MODE" = "test" ]; then
   # 测试环境：纯 HTTP + 8080，直接吃 IP 访问，不碰 80/443（未备案会被拦）
-  log "配置 Nginx（$NGINX_PORT，纯 HTTP，无需备案）"
+  log "配置 Nginx（${NGINX_PORT}，纯 HTTP，无需备案）"
   if [ "$DRY_RUN" = "0" ]; then
     install -m 0644 "$APP_ROOT/current/deploy/aliyun/nginx-erp-test.conf.example" "$SITE_AVAIL"
     ln -sfn "$SITE_AVAIL" "$SITE_ENABLED"
@@ -397,7 +397,7 @@ if [ "$MODE" = "test" ]; then
 else
   # 生产：证书不存在时先起纯 HTTP，交给 certbot 签发并改写，避免 nginx -t 失败
   CERT_DIR="/etc/letsencrypt/live/${DOMAIN}"
-  log "配置 Nginx（$DOMAIN）"
+  log "配置 Nginx（${DOMAIN}）"
   if [ "$DRY_RUN" = "0" ]; then
     if [ -f "$CERT_DIR/fullchain.pem" ]; then
       install -m 0644 "$APP_ROOT/current/deploy/aliyun/nginx-erp.conf.example" "$SITE_AVAIL"
@@ -511,7 +511,7 @@ PUBLIC_HINT="https://${DOMAIN}"
 cat <<EOF
 
 ────────────────────────────────────────────────────────
- 部署完成（$MODE）
+ 部署完成（${MODE}）
 ────────────────────────────────────────────────────────
  访问        ${PUBLIC_HINT}
  服务        systemctl status ${SERVICE}
