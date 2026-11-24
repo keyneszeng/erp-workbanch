@@ -219,7 +219,7 @@ function register(router) {
 
     // 合同总额超预算是要预警的业务事实（不是错误，可能确需超支）。
     // 硬拦会让人没法录真实合同，所以只回一个 warning 让前端提示，不阻断。
-    const contractSum = Number(db.prepare("SELECT COALESCE(SUM(amount),0) AS s FROM contracts WHERE pid = ? AND deleted_at IS NULL AND COALESCE(category,'')<>'企业赞助'").get(p.id).s) || 0;
+    const contractSum = Number(db.prepare("SELECT COALESCE(SUM(amount),0) AS s FROM contracts WHERE pid = ? AND deleted_at IS NULL AND status<>'已终止' AND COALESCE(category,'')<>'企业赞助'").get(p.id).s) || 0;
     const budget = Number(p.budget) || 0;
     let warning = "";
     if (budget > 0 && contractSum > budget) {
@@ -755,7 +755,8 @@ function register(router) {
     "变更审批": ["project:approve", "只有协会管理员（或总管理员）可以审批变更"],
     "例外单审批": ["verify:exception_approve", "只有财务与核销（或总管理员）可以审批例外单"],
     "付款审批": ["payment:approve", "只有协会管理员（或总管理员）可以审批付款"],
-    "合同审批": ["contract:approve", "只有协会管理员（或总管理员）可以审批合同签署"]
+    "合同审批": ["contract:approve", "只有协会管理员（或总管理员）可以审批合同签署"],
+    "合同更正审批": ["contract:approve", "只有协会管理员（或总管理员）可以审批合同更正"]
   };
 
   /** 统一审批入口：按 type 分派 */
@@ -825,6 +826,9 @@ function register(router) {
           ctx.user.name, at, ex.pid, ex.step_no);
       logAudit({ user: ctx.user, module: "会后核销", action: approve ? "例外通过" : "例外驳回", target: ex.pid, detail: `${ex.id} 第 ${ex.step_no} 步：${ex.reason}`, ip: ctx.ip });
       return { message: `例外单 ${ex.id} ${approve ? "已通过" : "已驳回"}`, verification: verification(ex.pid) };
+    }
+    if (a.type === "合同更正审批") {
+      return require("./contract-amendments").decide(ctx,a,approve,comment);
     }
     if (a.type === "合同审批") {
       const c = db.prepare("SELECT * FROM contracts WHERE id=? AND pid=? AND deleted_at IS NULL").get(a.ref_id,p.id);

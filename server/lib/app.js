@@ -80,6 +80,7 @@ function buildRouter() {
     require("../api/project-notice"),
     require("../api/verify"),
     require("../api/finance"),
+    require("../api/contract-amendments"),
     require("../api/income"),
     require("../api/system"),
     require("../api/user-access"),

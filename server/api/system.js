@@ -352,7 +352,7 @@ function toFlag(v) {
  */
 const RESET_TABLES = RESET_DATA_TABLES;
 const RESET_LABEL = {
-  projects: "项目", users: "账号", payments: "付款单", contracts: "合同",
+  projects: "项目", users: "账号", payments: "付款单", contracts: "合同", contract_amendments: "合同更正版本",
   settlements: "结算单", materials: "材料", audit_logs: "审计记录",
   uploaded_files: "上传文件归属", sessions: "登录会话", exports: "导出记录", sms_challenges: "短信验证码挑战", mini_bindings: "微信账号绑定",
   exceptions: "例外单", verify_steps: "核销判定", approvals: "审批记录",

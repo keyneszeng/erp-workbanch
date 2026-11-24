@@ -86,6 +86,12 @@ export function openContractDetail(c, opt = {}) {
   const pname = opt.pname || c.pname || c.pid || "—";
   const flow = opt.locked ? null : flowOf(c);
   const hint = opt.locked ? "" : flowHint(c);
+  // 已核销可以走独立更正申请；已结算/归档只能先走财务更正。
+  const amendmentPerm = can("contract:write") || can("contract:approve");
+  const lockedStatus = String(c.pstatus || "");
+  const mayAmend = c.status === "已签署" && can("contract:write") && !opt.locked &&
+    !["已结算","已归档"].includes(lockedStatus);
+
 
   const body = `
     <div class="cdtop">
@@ -102,6 +108,7 @@ export function openContractDetail(c, opt = {}) {
       ${cell("备注", esc(c.remark || "—"))}
     </div>
     ${fileBlock(c)}
+    ${amendmentPerm ? '<div class="cdfile" style="margin-top:12px"><div class="cdfile-h"><b>合同更正及版本历史</b><button class="link" data-amend-history="1">查看记录</button></div><div data-amend-history-list class="hint">旧合同原件和审批意见将永久留痕，不会被新版本覆盖。</div></div>' : ""}
     ${opt.locked ? `<div class="cdgate">项目已封存（${esc(opt.locked === true ? "已结算 / 已归档" : opt.locked)}），合同状态不可再流转。</div>` : ""}
     ${!flow && hint && !opt.locked ? `<div class="cdgate">${esc(hint)}</div>` : ""}`;
 
@@ -110,6 +117,7 @@ export function openContractDetail(c, opt = {}) {
     width: "860px",
     body,
     footer: `<button class="btn btn-o" data-x="0">关闭</button>
+      ${mayAmend ? '<button class="btn btn-p" data-amend="1">申请合同更正</button>' : ""}
       ${flow ? `<button class="btn btn-p" data-x="1">${flow.label}</button>` : ""}`
   });
 
@@ -126,6 +134,31 @@ export function openContractDetail(c, opt = {}) {
     };
   });
 
+  const amendButton=m.querySelector('[data-amend="1"]');
+  if(amendButton)amendButton.onclick=()=>openContractAmendment(c,opt);
+  const historyButton=m.querySelector('[data-amend-history="1"]');
+  if(historyButton)historyButton.onclick=async()=>{
+    const list=m.querySelector("[data-amend-history-list]");
+    if(!list)return;
+    list.textContent="正在查询审批与版本记录…";
+    try{
+      const {rows}=await api.get("/api/contracts/"+encodeURIComponent(c.id)+"/amendments");
+      if(!rows.length){list.textContent="暂无更正记录";return;}
+      list.innerHTML=rows.map(a=>{
+        const oldFile=a.old_file_key
+          ? `<a class="link" target="_blank" rel="noopener" href="${esc(fileUrl(a.old_file_key))}">旧版原件</a>` : "原版无附件";
+        const newFile=a.new_file_key
+          ? `<a class="link" target="_blank" rel="noopener" href="${esc(fileUrl(a.new_file_key))}">更正附件</a>` : "未上传";
+        return `<div style="border-top:1px solid var(--line);padding:10px 0">
+          <b>${esc(a.id)}</b> · ${esc(a.status)} · ${esc(a.kind)}<br>
+          <span>${esc(a.reason)}</span><br>
+          <span>原金额 ¥${money(a.old_amount)} · 新金额 ¥${money(a.new_amount==null?a.old_amount:a.new_amount)} · ${oldFile} · ${newFile}</span><br>
+          <span>${esc(a.requested_by||"")} 于 ${esc(a.created_at||"")} 申请${a.decided_at?"；"+esc(a.decided_by||"")+" 于 "+esc(a.decided_at)+" 审批":""}</span>
+          ${a.decision_note?`<br><span>审批意见：${esc(a.decision_note)}</span>`:""}
+        </div>`;
+      }).join("");
+    }catch(e){list.textContent="加载更正记录失败："+e.message;}
+  };
   const act = m.querySelector('[data-x="1"]');
   if (!act) return;
 
@@ -167,6 +200,68 @@ export function openContractDetail(c, opt = {}) {
 
   act.onclick = (e) => (flow.action === "sign" ? askSign() : run(e.currentTarget));
   if(opt.startConfirm && flow.action==="sign")askSign();
+}
+
+/** 已签署合同更正：提交候选协议，正式合同只在独立审批通过后变更。 */
+function openContractAmendment(c,opt={}){
+  const m=modal({
+    title:"合同更正申请 · "+esc(c.id),width:"640px",
+    body:`<div class="gate" style="margin-bottom:14px">
+      <b>不会立即改动合同和核销记录</b>。审批通过后保留原版，更新新证据，
+      仅将相关核销项设为待重新核验。已有付款或结算的项目需先办理财务调整。
+      补充协议应为已签署原件，解除应有正式终止证明。</div>
+      <div class="fld"><label>更正类型</label>
+        <select data-amend-kind>
+          <option value="file_correction">合同原件纠错</option>
+          <option value="supplement">补充协议／合同变更</option>
+          <option value="terminate">合同解除／终止</option>
+        </select>
+      </div>
+      <div class="fld"><label>更正原因（8～500字）</label>
+        <textarea data-amend-reason rows="3" maxlength="500" placeholder="说明旧版问题、已签证明及财务影响"></textarea>
+      </div>
+      <div class="fld" data-amend-amount-row style="display:none"><label>更正后合同总额（元）</label>
+        <input data-amend-amount type="number" step="0.01" min="0.01" placeholder="留空则金额不变">
+        <div class="hint">当前 ¥${money(c.amount)}；若已有付款或结算，不允许直接修改。</div>
+      </div>
+      <div class="fld"><label>上传已签署的新原件／补充协议／终止证明</label>
+        <input data-amend-file type="file" accept="${UPLOAD_ACCEPT}">
+        <div class="hint">必须上传与原文件不同的正式证明；旧版原件保留可追溯。</div>
+      </div>
+      ${c.category==="企业赞助"?'<div class="hint">企业赞助解除需要额外权益清算，本入口暂不处理终止。</div>':""}`,
+    footer:'<button class="btn btn-o" data-x="0">返回合同详情</button>'+
+      '<button class="btn btn-p" data-x="1">提交合同更正审批</button>'
+  });
+  const kind=m.querySelector("[data-amend-kind]");
+  const amountRow=m.querySelector("[data-amend-amount-row]");
+  kind.onchange=()=>{amountRow.style.display=kind.value==="supplement"?"":"none";};
+  m.querySelector('[data-x="0"]').onclick=()=>openContractDetail(c,opt);
+  const btn=m.querySelector('[data-x="1"]');
+  btn.onclick=async()=>{
+    const reason=String(m.querySelector("[data-amend-reason]").value||"").trim();
+    const file=m.querySelector("[data-amend-file]").files?.[0];
+    if(reason.length<8){toast("请填写至少8字更正原因","warn");return;}
+    if(!file){toast("请上传签署后的合同更正证明","warn");return;}
+    const err=checkFile(file);if(err){toast(err,"warn");return;}
+    btn.disabled=true;
+    try{
+      const compressed=await compressImage(file);
+      btn.textContent="上传更正证明…";
+      const up=await api.upload(compressed,{pid:c.pid});
+      const amount=String(m.querySelector("[data-amend-amount]").value||"").trim();
+      btn.textContent="提交审批…";
+      const request={kind:kind.value,reason,file_key:up.key,file_name:up.name};
+      if(kind.value==="supplement"&&amount!=="")request.new_amount=amount;
+      const r=await api.post("/api/contracts/"+encodeURIComponent(c.id)+"/amendments",request);
+      toast(r.message,"ok");
+      closeModal();
+      if(typeof opt.onDone==="function")await opt.onDone();
+    }catch(e){
+      toast(e.message,"warn");
+      btn.disabled=false;
+      btn.textContent="提交合同更正审批";
+    }
+  };
 }
 
 /** 待签署合同的原件更新；旧附件会从合同与归档材料中解除并按引用安全删除。 */
