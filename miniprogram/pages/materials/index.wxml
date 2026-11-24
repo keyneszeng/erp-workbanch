@@ -14,7 +14,7 @@
 
   <view class="form-section">
     <view class="section-head"><view class="row"><view class="section-index">01</view><view class="section-caption">按类别直接录入材料</view></view></view>
-    <view class="muted">点选材料类别后，直接在下方上传文件；文件名自动作为材料名称，无需单独填写。</view>
+    <view class="muted">下方列出推荐收集的材料类别，便于知道可上传哪些文件。点选类别后直接上传，下方显示已录入文件名。推荐类别不是必须逐项上传，核销要求按具体步骤判定。</view>
     <view class="chip-list">
       <view wx:for="{{activeKinds}}" wx:key="*this" data-kind="{{item}}" bindtap="chooseKind" class="select-chip {{!custom&&kind===item?'chip-selected':''}}">{{item}}</view>
       <view bindtap="chooseCustom" class="select-chip {{custom?'chip-selected':''}}">＋ 自定义</view>
