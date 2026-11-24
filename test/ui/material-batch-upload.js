@@ -155,15 +155,15 @@ async function ready(){
   const guide=page.locator("[data-guide-kind]");
   await guide.first().waitFor({timeout:12000});
   assert.ok(await guide.count()>=12,"central material panel lists the same recommended categories as mini");
-  await page.locator('[data-guide-kind="劳务收集表"]').click();
+  await page.locator('[data-guide-kind="劳务表"]').click();
   const guidedModal=page.locator("#modal.open");
-  assert.equal(await guidedModal.locator('[name="kind"]').inputValue(),"劳务收集表",
+  assert.equal(await guidedModal.locator('[name="kind"]').inputValue(),"劳务表",
     "category chip should directly open uploader with selected kind");
   await guidedModal.locator('[data-x="0"]').click();
   await page.locator("#add").click();
   const second=page.locator("#modal.open");
   await second.locator('[name="pid"]').selectOption(pid);
-  await second.locator('[name="kind"]').selectOption("劳务收集表");
+  await second.locator('[name="kind"]').selectOption("劳务表");
   const nextNames=["报名资料A.pdf","报名资料B.pdf"];
   await second.locator('[name="file"]').setInputFiles(nextNames.map(makePdf));
   let failOnce=false,attempts=0;

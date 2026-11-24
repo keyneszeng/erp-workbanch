@@ -49,7 +49,7 @@ export async function render(root) {
       ${table([{ t: "项目", w: "170px" }, { t: "类别", w: "92px" }, { t: "名称" }, { t: "附件", w: "86px" },
         { t: "版本", w: "56px" }, { t: "上传人", w: "76px" }, { t: "时间", w: "130px" }, { t:"操作",w:"78px" }],
         d.rows.map((m) => ({
-          c: [`<a class="link" data-go="projects/${m.pid}">${esc(m.pname)}</a>`, esc(m.kind)+(m.kind==="权益照片"?`<div class="hint">${esc(m.sponsor_enterprise||"未关联赞助合同")} · ${esc(m.sponsor_right_category||"未关联权益类目")}</div>`:""),
+          c: [`<a class="link" data-go="projects/${m.pid}">${esc(m.pname)}</a>`, esc(m.kind==="劳务收集表"?"劳务表":m.kind)+(m.kind==="权益照片"?`<div class="hint">${esc(m.sponsor_enterprise||"未关联赞助合同")} · ${esc(m.sponsor_right_category||"未关联权益类目")}</div>`:""),
             esc(m.name),
             m.file_key
               ? (m.file_mime === "application/pdf" || /\.(doc|docx|ppt|pptx|xls|xlsx|csv|txt)$/i.test(m.file_key)
@@ -101,7 +101,7 @@ export function openMaterialRegistration(root, projects, kinds, defaultPid="", o
       opts:projects.map(p=>({v:p.id,l:p.id+" "+p.name}))},
     {k:"kind",l:"材料类别",t:"select",req:1,custom:1,v:defaultKind,
       ph:"如：盖章会议通知 / 招商函 / 终版议程 / 讲者照片",
-      opts:[...kinds,"会议通知","招商函","终版议程","课件","串场","劳务表","劳务收集表","讲者照片","权益照片",defaultKind]
+      opts:[...kinds,"会议通知","招商函","终版议程","课件","串场","劳务表","讲者照片","权益照片",defaultKind]
         .filter((v,i,a)=>v&&a.indexOf(v)===i),
       tip:"可任选或自定义类别。多份文件将分别登记到当前项目与材料类别。"},
     {k:"sponsor_right_id",l:"权益照片 · 二级类目（从赞助合同自动生成，可自定义）",

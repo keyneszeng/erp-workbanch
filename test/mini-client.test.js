@@ -310,6 +310,29 @@ test("小程序材料类别与录入合并：切换类别显示历史文件名�
  assert.deepEqual(Array.from(page.data.visibleFiles.map(r=>r.filename)),["总结材料.docx"],
   "重新进入小程序材料页仍从服务端读取该类别历史文件名");
 });
+test("小程序退役劳务收集表：旧服务端类别与历史文件统一归入劳务表",async()=>{
+ const pid="HISTORY-LABOR";
+ const rows=[
+  {id:72,kind:"劳务收集表",filename:"旧劳务收集表.xlsx",version:"v1"},
+  {id:73,kind:"劳务表",filename:"新劳务表.xlsx",version:"v1"}
+ ];
+ const {page}=mockMaterialsPage([],async(url)=>{
+  if(url==="/projects?page=1&size=100")
+    return {rows:[{id:pid,name:"测试劳务会议",status:"筹备中"}]};
+  if(url==="/projects/"+pid+"/material-workbench")
+    return {kinds:["劳务收集表","劳务表","课件"],
+      modules:[],materials:rows.map(x=>({...x}))};
+  throw Error("unexpected API "+url);
+ });
+ page.data.pid=pid;
+ await page.onShow();
+ assert.ok(page.data.activeKinds.includes("劳务表"));
+ assert.ok(!page.data.activeKinds.includes("劳务收集表"));
+ assert.ok(!page.data.historyKinds.includes("劳务收集表"));
+ page.chooseKind({currentTarget:{dataset:{kind:"劳务表"}}});
+ assert.deepEqual(Array.from(page.data.visibleFiles.map(x=>x.filename)),
+  ["旧劳务收集表.xlsx","新劳务表.xlsx"],"两种历史存储类别都能在劳务表页面查看");
+});
 test("小程序材料工作台同一个表单显示类别、上传与已录入文件名，后台只回已保存附件",()=>{
  const xml=fs.readFileSync(path.join(__dirname,"../miniprogram/pages/materials/index.wxml"),"utf8");
  const js=fs.readFileSync(path.join(__dirname,"../miniprogram/pages/materials/index.js"),"utf8");

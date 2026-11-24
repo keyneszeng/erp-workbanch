@@ -24,13 +24,13 @@ const VERIFY_STEPS = [
 ];
 
 /** 材料中心固定模块；按项目启停，永远保留历史材料 */
-const MATERIAL_MODULE_KINDS = ["课件", "串场", "劳务收集表"];
+const MATERIAL_MODULE_KINDS = ["课件", "串场", "劳务表"];
 
 /** 建议材料类别（不是归档前置条件）；支持自定义其他类别。 */
 const MATERIAL_KINDS = [
   "立项文件", "会议通知", "招商函", "合同", "会务协议", "劳务协议",
   "议程", "终版议程", "课件", "串场", "签到表", "劳务表",
-  "劳务收集表", "讲者照片", "现场照片", "会议截图", "在线记录",
+  "讲者照片", "现场照片", "会议截图", "在线记录",
   "发票", "会务发票", "权益照片"
 ];
 
@@ -130,4 +130,8 @@ const DEMAND_NEED_OPTIONS = ["需要", "不需要"];
  */
 const DEMAND_STATUSES = ["筹备中", "执行中"];
 
-module.exports = { ASSOCS, FORMS, DEPTS, USER_DEPTS, PAYMENT_TYPES, VERIFY_STEPS, MATERIAL_KINDS, MATERIAL_MODULE_KINDS, CONTRACT_CATEGORIES, guessContractCategory, FLOW, STATUS_DESC, DEMAND_GROUPS, DEMAND_TEMPLATE, DEMAND_NEED_OPTIONS, DEMAND_STATUSES };
+/** 历史材料保留原始类别；新界面和新写入统一以「劳务表」归类。 */
+function canonicalMaterialKind(kind) {
+  return kind === "劳务收集表" ? "劳务表" : kind;
+}
+module.exports = { ASSOCS, FORMS, DEPTS, USER_DEPTS, PAYMENT_TYPES, VERIFY_STEPS, MATERIAL_KINDS, MATERIAL_MODULE_KINDS, canonicalMaterialKind, CONTRACT_CATEGORIES, guessContractCategory, FLOW, STATUS_DESC, DEMAND_GROUPS, DEMAND_TEMPLATE, DEMAND_NEED_OPTIONS, DEMAND_STATUSES };

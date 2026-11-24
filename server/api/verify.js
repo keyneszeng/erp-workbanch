@@ -5,7 +5,7 @@ const { isDemoMode } = require("../lib/runtime");
 const { assertCan, assertModule, assertProjectVisible, isSuper } = require("../lib/rbac");
 const { logAudit } = require("../lib/audit");
 const { getProject, verification, materialsStatus, settlementOf, demandSummary } = require("../lib/workflow");
-const { MATERIAL_KINDS, MATERIAL_MODULE_KINDS } = require("../lib/constants");
+const { MATERIAL_KINDS, MATERIAL_MODULE_KINDS, canonicalMaterialKind } = require("../lib/constants");
 const { readPaging, countOf } = require("../lib/paginate");
 const { storage } = require("../lib/storage");
 const { sniffMime, safeName, ALLOWED_MIME, MAX_BYTES } = require("../lib/storage");
@@ -399,7 +399,7 @@ function register(router) {
     for(const row of db.prepare(`SELECT m.pid,m.kind,m.file_key ${base}`).all(...params)) {
       if(!statsByPid.has(row.pid))statsByPid.set(row.pid,{kinds:new Set(),count:0,uploadedCount:0});
       const stats=statsByPid.get(row.pid);
-      stats.kinds.add(row.kind);
+      stats.kinds.add(canonicalMaterialKind(row.kind));
       stats.count++;
       if(row.file_key)stats.uploadedCount++;
     }
@@ -434,12 +434,16 @@ function register(router) {
     if (settlementOf(p.id)) throw conflict("结算单已生成，材料证据已冻结，不可追加或修改", "FROZEN");
     const { kind: rawKind, name, version, file_key, file_name, file_size, file_mime, sponsor_right_id } = ctx.body || {};
     // 材料类别全部自选；推荐类目仅供快速选择，不影响推进权限。
-    const kind = String(rawKind || "").trim();
+    const kind = canonicalMaterialKind(String(rawKind || "").trim());
     if (!kind) throw bad("请选择或填写材料类别");
     if (kind.length > 20) throw bad(`材料类别不能超过 20 字（当前 ${kind.length} 字）`);
     // 页面开关不能仅在客户端隐藏：停用的固定模块必须在 API 层拒绝继续采集。
     if (MATERIAL_MODULE_KINDS.includes(kind)) {
-      const module=db.prepare("SELECT enabled FROM meeting_material_modules WHERE pid=? AND kind=?").get(p.id,kind);
+      // Earlier meetings may have a disabled old-name module: honor it unless the
+      // newly named 劳务表 module has an explicit override.
+      let module=db.prepare("SELECT enabled FROM meeting_material_modules WHERE pid=? AND kind=?").get(p.id,kind);
+      if(!module&&kind==="劳务表")
+        module=db.prepare("SELECT enabled FROM meeting_material_modules WHERE pid=? AND kind='劳务收集表'").get(p.id);
       if (module && module.enabled===0) throw conflict("当前材料模块已停用，不可继续上传；历史资料保留","MODULE_DISABLED");
     }
     // 「终版议程」只由原件上传确认，名称直接使用文件名，版本统一标记「终版」。

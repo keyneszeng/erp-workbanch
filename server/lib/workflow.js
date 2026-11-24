@@ -9,7 +9,7 @@ const {withBudgetFee}=require("./budget-fee");
 const { now, nextId, conflict, forbidden, notFound, bad, cents, yuan } = require("./util");
 const { can, isSuper, ROLES } = require("./rbac");
 const { logAudit } = require("./audit");
-const { FLOW, VERIFY_STEPS } = require("./constants");
+const { FLOW, VERIFY_STEPS, canonicalMaterialKind } = require("./constants");
 const { isDemoMode } = require("./runtime");
 const verifyOcr=require("./verify-ocr-compare");
 
@@ -72,13 +72,17 @@ function materialsStatus(pid) {
   const rows = db.prepare(
     "SELECT kind,file_key FROM materials WHERE pid=? AND (deleted_at IS NULL OR deleted_at='')"
   ).all(pid);
-  const have=[...new Set(rows.map(r=>r.kind))];
+  const have=[...new Set(rows.map(r=>canonicalMaterialKind(r.kind)))];
   const uploaded=rows.filter(r=>r.file_key && String(r.file_key).trim()).length;
   // 仅演示环境兼容早期测试数据：旧测试用无附件的材料登记记录模拟整套清单。
   // 生产/阿里云真实环境仍严格要求至少一份已上传附件，不能仅凭名称推进。
   const hasEvidence=uploaded>0 || (isDemoMode() && rows.length>0);
   const toggles=db.prepare("SELECT kind,enabled FROM meeting_material_modules WHERE pid=?").all(pid);
-  const disabled=new Set(toggles.filter(m=>m.enabled===0).map(m=>m.kind));
+  // The old toggle is a fallback only; an explicitly saved 劳务表 toggle wins.
+  const explicitLabor=toggles.find(m=>m.kind==="劳务表");
+  const disabled=new Set(toggles.filter(m=>m.enabled===0&&m.kind!=="劳务收集表").map(m=>m.kind));
+  if(!explicitLabor&&toggles.some(m=>m.kind==="劳务收集表"&&m.enabled===0))
+    disabled.add("劳务表");
   return { have, missing: hasEvidence ? [] : ["至少上传1份材料附件"],
     ok: hasEvidence, required: [], count:rows.length, uploadedCount:uploaded,
     disabled:[...disabled] };
