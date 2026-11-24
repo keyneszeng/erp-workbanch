@@ -38,7 +38,7 @@ let server,browser;
  assert.equal(await page.locator("#newPay").count(),0,"finance should not use payment application");
  await form.locator('[name="pid"]').selectOption(pid);
  const payee=form.locator('[name="payee_option_id"]');
- await payee.locator('option[value=""]').waitFor({timeout:15000});
+ await page.waitForFunction(()=>document.querySelector('#financeDirect select[name="payee_option_id"]')?.options?.[0]?.textContent?.includes("手动填写"),null,{timeout:15000});
  await payee.selectOption("");
  await form.locator('[name="type"]').selectOption("学会公付");
  await form.locator('[name="payee"]').fill("财务直付浏览器回单测试");
