@@ -154,6 +154,44 @@ async function openCreate(root) {
   });
   const validateFee=bindBudgetFeePreview(m);
   const box = m.querySelector(".mbox");
+  const dateInput=box.querySelector('[name="date"]');
+  const endInput=box.querySelector('[name="event_end_date"]');
+  const daysInput=box.querySelector('[name="days"]');
+  daysInput.readOnly=true;
+  const syncDates=()=>{
+    if(dateInput.value&&!endInput.value)endInput.value=dateInput.value;
+    if(!dateInput.value||!endInput.value)return;
+    const delta=(Date.parse(endInput.value+"T00:00:00Z")-Date.parse(dateInput.value+"T00:00:00Z"))/86400000;
+    daysInput.value=delta>=0&&delta<=59?String(1+delta):"";
+  };
+  dateInput.addEventListener("change",syncDates);
+  endInput.addEventListener("change",syncDates);
+  const agendaFile=box.querySelector("#agendaImportFile");
+  agendaFile?.addEventListener("change",async()=>{
+    const file=agendaFile.files?.[0];
+    if(!file)return;
+    const notice=box.querySelector("#agendaImportStatus");
+    if(file.size>2*1024*1024){
+      toast("议程文件不能超过2MB，请先压缩后导入","warn");
+      agendaFile.value="";return;
+    }
+    agendaFile.disabled=true;notice.textContent="正在读取议程文件并识别…";
+    try{
+      const encoded=await new Promise((resolve,reject)=>{
+        const reader=new FileReader();
+        reader.onerror=()=>reject(new Error("读取议程文件失败"));
+        reader.onload=()=>resolve(String(reader.result||"").split(",")[1]||"");
+        reader.readAsDataURL(file);
+      });
+      const result=await api.post("/api/projects/agenda-ocr",{filename:file.name,content_base64:encoded});
+      box.querySelector('[name="agenda"]').value=result.agenda;
+      notice.textContent=(result.truncated?"仅识别了部分页，请检查补齐。":"")+"已回填初版议程，可继续编辑";
+      toast("初版议程已识别并回填","ok");
+    }catch(err){
+      notice.textContent="识别失败，请手动录入或更换文件";
+      toast(err.message||"议程识别失败","warn");
+    }finally{agendaFile.disabled=false;}
+  });
   const assocSelect = box.querySelector('[name="assoc"]');
   const ownerSelect = box.querySelector('[name="owner_id"]');
   if (assocSelect && ownerSelect) {
@@ -168,6 +206,13 @@ async function openCreate(root) {
   box.querySelectorAll("[data-a]").forEach((btn) => {
     if (btn.dataset.a === "cancel") return;
     btn.addEventListener("click", async () => {
+      syncDates();
+      if(!daysInput.value){toast("举办时间段不正确（最多60天）","warn");return;}
+      const start=box.querySelector('[name="event_start_time"]')?.value||"";
+      const end=box.querySelector('[name="event_end_time"]')?.value||"";
+      if(dateInput.value===endInput.value&&start&&end&&end<start){
+        toast("结束时间不能早于开始时间","warn");return;
+      }
       if (!validate(box, fields) || !validateFee()) return;
       const v = readForm(box);
       btn.disabled = true;
