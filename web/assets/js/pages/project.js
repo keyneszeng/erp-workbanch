@@ -458,7 +458,7 @@ function tabMaterials(d, p) {
   const otherKinds=[...new Set(validMaterials.map(m=>m.kind))]
     .filter(k=>!recommended.includes(k));
   const allKinds=[...recommended,...otherKinds];
-  const selected=selectedMaterialKinds.get(p.id)||recommended[0]||otherKinds[0]||"课件";
+  const selected=selectedMaterialKinds.get(p.id)||(recommended.includes("课件")?"课件":recommended[0]||otherKinds[0]||"课件");
   const current=validMaterials.filter(m=>m.kind===selected);
   const writable=can("material:write")&&!d.settlement&&!["已结算","已归档"].includes(p.status)&&
     !unavailable.has(selected);
@@ -610,7 +610,7 @@ function wire(root, pid, d, body) {
     if(e.key==="Enter"){e.preventDefault();body.querySelector("[data-material-custom-apply]")?.click();}
   });
   const am = body.querySelector("#addMat"); if (am) am.onclick = () =>
-    openMaterial(root, pid, selectedMaterialKinds.get(pid)||state.meta?.materialKinds?.[0]||"课件");
+    openMaterial(root, pid, selectedMaterialKinds.get(pid)||"课件");
   const amm = body.querySelector("#addMem"); if (amm) amm.onclick = () => openMember(root, pid, d);
 }
 
