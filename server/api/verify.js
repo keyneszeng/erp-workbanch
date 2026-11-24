@@ -410,9 +410,9 @@ function register(router) {
       if(row.file_key)stats.uploadedCount++;
     }
 
-    // 已归档项目卷宗封存，不再出现在可登记列表
+    // 目录包含所有可见项目；已归档项目仅展示历史附件，上传仍由写入接口禁止。
     const projects = db.prepare(
-      `SELECT p.id, p.name, p.status FROM projects p WHERE ${sql} ORDER BY p.date DESC,p.id DESC`
+      `SELECT p.id, p.name, p.status, p.assoc FROM projects p WHERE ${sql} ORDER BY p.date DESC,p.id DESC`
     ).all(...params).map((p) => {
       const stats=statsByPid.get(p.id)||{kinds:new Set(),count:0,uploadedCount:0};
       return { ...p, have:[...stats.kinds],required:[],missing:stats.uploadedCount?[]:["至少上传1份材料附件"],

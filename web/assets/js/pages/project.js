@@ -26,7 +26,7 @@ const PAYABLE = ["已核销"];
  */
 const TABS = [
   ["overview", "概览"], ["demand", "会务需求"], ["contracts", "合同"],
-  ["materials", "材料"], ["verify", "核销"], ["payments", "付款"],
+  ["materials", "材料收集"], ["verify", "核销"], ["payments", "付款"],
   ["team", "成员与授权"], ["timeline", "操作留痕"]
 ];
 let tab = "overview";
@@ -71,7 +71,7 @@ export async function render(root, [pid]) {
     <div class="ux-progress"><span style="width:${Math.max(0,ORDER.indexOf(p.status))/8*100}%"></span></div>
     ${!participant ? `<div class="ux-checkpoints">
        ${sections.demand? `<button type="button" data-tab="demand"><strong>${d.demand?.archived?"已确认":"待确认"}</strong><span>会务需求</span></button>`:""}
-       ${sections.materials? `<button type="button" data-tab="materials"><strong>${d.materialsStatus.uploadedCount || 0} 份</strong><span>归档材料</span></button>`:""}
+       ${sections.materials? `<button type="button" data-tab="materials"><strong>${d.materialsStatus.uploadedCount || 0} 份</strong><span>材料收集</span></button>`:""}
        ${sections.verify? `<button type="button" data-tab="verify"><strong>${d.verification.passed}/${d.verification.total}</strong><span>七项核销（按需）</span></button>`:""}
        ${sections.finance? `<button type="button" data-tab="payments"><strong>${d.settlement?"已生成":"未生成"}</strong><span>财务结算</span></button>`:""}
      </div>` : '<p class="ux-public-hint">会议审批与执行状态公开给有权查看本项目的成员；财务明细仅限授权角色。</p>'}
@@ -471,7 +471,7 @@ function tabMaterials(d, p) {
   }).join("");
   const rightById=new Map((d.sponsorRights?.rights||[]).map(r=>[Number(r.id),r]));
   const sponsorsById=new Map((d.sponsorRights?.contracts||[]).map(c=>[c.id,c]));
-  return panel("归档材料",
+  return panel("材料收集",
     `已上传 ${ms.uploadedCount || 0} 份附件 · ${ms.have.length} 类 · ${ms.ok ? "可进入后续流程" : "请先上传至少一份附件"}`, `
     <div class="hint" style="padding:8px 14px">按类别直接录入：点击下面的类别，查看已上传文件名或上传新材料。类别用于引导，不代表每类均必交；实际核销仍按对应步骤检查。</div>
     <div class="material-kind-panel" aria-label="材料类别选择">

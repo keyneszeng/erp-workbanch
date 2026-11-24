@@ -110,6 +110,28 @@ test("exec 可登记并删除材料", async () => {
   assert.equal(repeated.data.error.code, "ALREADY_DELETED");
 });
 
+test("材料收集项目目录包含归档项目，按项目编号筛选详情且分页不会串会议",async()=>{
+ const admin=client(await login("admin"));
+ const all=await admin("GET","/api/materials");
+ assert.equal(all.status,200);
+ assert.ok(all.data.projects.some(p=>p.status==="已归档"),"归档项目必须保留在目录内供只读查阅");
+ const target=all.data.projects.find(p=>p.count>0)||all.data.projects[0];
+ assert.ok(target,"项目目录不应为空");
+ const subset=all.data.rows.filter(m=>m.pid===target.id);
+ const pid=encodeURIComponent(target.id);
+ const filtered=await admin("GET","/api/materials?pid="+pid+"&page=1&size=1");
+ assert.equal(filtered.status,200);
+ assert.equal(filtered.data.total,subset.length,"只计当前项目的材料记录");
+ assert.equal(filtered.data.projects.length,all.data.projects.length,"打开目录不应丢失其他项目");
+ assert.ok(filtered.data.rows.every(m=>m.pid===target.id),"不得混入其他项目的材料");
+ assert.equal(filtered.data.rows.length,Math.min(1,subset.length));
+ const allForProject=await admin("GET","/api/materials?pid="+pid);
+ assert.equal(allForProject.status,200);
+ assert.equal(allForProject.data.rows.length,subset.length);
+ assert.ok(allForProject.data.rows.every(m=>m.pid===target.id));
+ assert.equal((await admin("GET","/api/materials?pid="+"x".repeat(81))).status,400);
+});
+
 test("guest 登记材料返回 403", async () => {
   const guest = client(await login("guest"));
   const list = await guest("GET", "/api/projects");
