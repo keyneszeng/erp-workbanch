@@ -105,7 +105,7 @@ test("guest dashboard redacts budget, paid amounts, and activity logs", async ()
 });
 
 test("association manager cannot create a project under another association", async () => {
-  const r = await assoc("POST", "/api/projects", {
+  const r = await assoc("POST", "/api/projects", {tax_fee_rate:0,
     name: "跨协会越权QA", assoc: "肿瘤分会", form: "线下",
     date: "2027-09-20", budget: 1234, owner: "王敏", agenda: "QA测试议程安排"
   });
