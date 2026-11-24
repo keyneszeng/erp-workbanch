@@ -62,7 +62,7 @@ function client(cookie) {
 /** 造一个「已核销」项目 —— 只有这个状态能付款 */
 async function verifiedProject(name) {
   const c = admin;
-  const mk = await c("POST", "/api/projects", {
+  const mk = await c("POST", "/api/projects", {tax_fee_rate:0,
     name: `${name}-${Date.now()}`, assoc: "华东医学会", form: "线下",
     date: "2027-11-11", budget: 50000, people: 30, owner: "王敏", agenda: "09:00 开幕"
   });
