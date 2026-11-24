@@ -49,7 +49,7 @@ async function run(){
  await form.locator('select[name="owner_id"]').selectOption({index:1});
  await form.locator('select[name="dept"]').selectOption("秘书处");
  await form.locator('[data-a="draft"]').click();
- await page.waitForURL(/#\/projects\/MP-/, {timeout:20000});
+ await page.waitForURL(/#\/projects\/HDYX-2027-\d{2}$/, {timeout:20000});
  const id=page.url().split("/").pop();
  const r=await page.request.get(base+"/api/projects/"+id);
  if(!r.ok())throw Error("获取立项详情失败 "+r.status());
