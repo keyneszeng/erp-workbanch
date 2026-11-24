@@ -3,7 +3,7 @@ const { db } = require("../lib/db");
 const { now, bad, notFound, conflict } = require("../lib/util");
 const { getProject, assertNotFrozen } = require("../lib/workflow");
 const { assertProjectVisible, assertCan, assertModule } = require("../lib/rbac");
-const { MATERIAL_MODULE_KINDS, MATERIAL_KINDS } = require("../lib/constants");
+const { MATERIAL_MODULE_KINDS, MATERIAL_KINDS, canonicalMaterialKind } = require("../lib/constants");
 const { logAudit } = require("../lib/audit");
 const { storage } = require("../lib/storage");
 const { isDemoMode } = require("../lib/runtime");
@@ -35,7 +35,12 @@ const allowedStates = ["未提交","已提交","比对通过","不一致","待�
 const normalize = v=>String(v ?? "").trim().replace(/\s+/g,"").toLowerCase();
 function moduleRows(pid) {
   const rows=db.prepare("SELECT kind,enabled,updated_at,updated_by FROM meeting_material_modules WHERE pid=?").all(pid);
-  return MATERIAL_MODULE_KINDS.filter(kind=>kind!=="串场").map(kind=>rows.find(r=>r.kind===kind)||{kind,enabled:1});
+  return MATERIAL_MODULE_KINDS.filter(kind=>kind!=="串场").map(kind=>{
+    const exact=rows.find(r=>r.kind===kind);
+    const legacy=kind==="劳务表"?rows.find(r=>r.kind==="劳务收集表"):null;
+    const current=exact||legacy;
+    return current?{...current,kind}:{kind,enabled:1};
+  });
 }
 function taskRows(pid) {
   return db.prepare("SELECT t.*,m.name AS material_name,m.file_key FROM meeting_material_tasks t LEFT JOIN materials m ON m.id=t.material_id AND m.deleted_at IS NULL WHERE t.pid=? AND t.kind<>\'串场\' ORDER BY t.id DESC").all(pid);
@@ -54,7 +59,8 @@ function register(router) {
       // not just the mini-program's latest upload batch. Return no file keys or
       // finance data; the existing materials-module and project-scope ACL applies.
       materials:db.prepare("SELECT id,kind,COALESCE(NULLIF(file_name,''),name) AS filename,version,created_at "+
-        "FROM materials WHERE pid=? AND deleted_at IS NULL AND file_key IS NOT NULL ORDER BY id DESC").all(p.id),
+        "FROM materials WHERE pid=? AND deleted_at IS NULL AND file_key IS NOT NULL ORDER BY id DESC").all(p.id)
+        .map(m=>({...m,kind:canonicalMaterialKind(m.kind)})),
       ocrAvailable:ocr.enabled() && !isDemoMode() && storage().name==="fs",
       note:"上传的中文/英文图片与 PDF 可由本地 OCR 识别；建议项须人工确认后才生成待办"};
   });
