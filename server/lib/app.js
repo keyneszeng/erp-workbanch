@@ -63,6 +63,7 @@ function isSecureRequest(req, url) {
  */
 const UPLOAD_PATH = "/api/uploads";
 const PUBLIC_AGENDA_OCR_PATH = "/api/public/event-proposals/agenda-ocr";
+const INTERNAL_AGENDA_OCR_PATH = "/api/projects/agenda-ocr";
 const { MAX_BYTES } = require("./storage");
 const UPLOAD_LIMIT = MAX_BYTES + 1 * 1024 * 1024; // 50 MB file plus a small allowance; /api/uploads still enforces the exact cap
 
@@ -157,7 +158,7 @@ async function handle(req, res) {
     let body;
     if (req.method === "POST" && pathname === UPLOAD_PATH) {
       body = await readBody(req, UPLOAD_LIMIT, { raw: true });
-    } else if (req.method === "POST" && pathname === PUBLIC_AGENDA_OCR_PATH) {
+    } else if (req.method === "POST" && (pathname === PUBLIC_AGENDA_OCR_PATH || pathname === INTERNAL_AGENDA_OCR_PATH)) {
       // Public OCR uses bounded base64 JSON; 2 MiB raw max, 3 MiB request cap.
       body = await readBody(req, 3 * 1024 * 1024);
     } else if (["POST", "PATCH", "PUT", "DELETE"].includes(req.method)) {
