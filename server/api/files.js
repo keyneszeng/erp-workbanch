@@ -105,13 +105,32 @@ function register(router) {
     // 已关联业务单据的文件，按单据所属项目校验数据范围。
     // 一个 key 理论上只属于一处，但材料与合同分表存，两处都要查。
     // 尚未关联的（刚上传、还没提交单据）只要求登录，key 本身是 32 位随机串。
-    const m = db.prepare("SELECT pid, file_name FROM materials WHERE file_key = ?").get(key);
-    const c = m ? null : db.prepare("SELECT pid, file_name FROM contracts WHERE file_key = ?").get(key);
+    // 优先有效原件，避免同一个 key 被历史记录与当前业务共同引用时误封。
+    const m = db.prepare(
+      "SELECT pid,file_name,deleted_at,deleted_by FROM materials WHERE file_key = ? "+
+      "ORDER BY CASE WHEN deleted_at IS NULL THEN 0 ELSE 1 END,id DESC LIMIT 1"
+    ).get(key);
+    const c = m ? null : db.prepare(
+      "SELECT pid,file_name,deleted_at FROM contracts WHERE file_key = ? "+
+      "ORDER BY CASE WHEN deleted_at IS NULL THEN 0 ELSE 1 END,id DESC LIMIT 1"
+    ).get(key);
     const sponsor=c||m?null:db.prepare("SELECT pid,file_name FROM meeting_sponsor_contracts WHERE file_key=?").get(key);
     const receipt=c||m||sponsor?null:db.prepare("SELECT pid,file_name FROM meeting_sponsor_receipts WHERE file_key=?").get(key);
     const invoice=c||m||sponsor||receipt?null:db.prepare("SELECT pid,file_name FROM meeting_sponsor_invoices WHERE file_key=?").get(key);
     const owner = m || c || sponsor || receipt || invoice;
     if (owner) {
+      // 仅留存在废件箱的删除原件不能通过已知的 file_key 绕过管理员权限。
+      // 合同更正产生的历史版本属正式签署证据，其权限仍按合同归属处理。
+      const deletedOnly=((m?.deleted_at && m.deleted_by!=="合同更正版本归档") || (!m && c?.deleted_at));
+      if(deletedOnly){
+        const liveMaterial=db.prepare("SELECT 1 FROM materials WHERE file_key=? AND deleted_at IS NULL").get(key);
+        const liveContract=db.prepare("SELECT 1 FROM contracts WHERE file_key=? AND deleted_at IS NULL").get(key);
+        const liveSponsor=db.prepare("SELECT 1 FROM meeting_sponsor_contracts WHERE file_key=?").get(key);
+        const liveReceipt=db.prepare("SELECT 1 FROM meeting_sponsor_receipts WHERE file_key=?").get(key);
+        const liveInvoice=db.prepare("SELECT 1 FROM meeting_sponsor_invoices WHERE file_key=?").get(key);
+        if(!liveMaterial&&!liveContract&&!liveSponsor&&!liveReceipt&&!liveInvoice&&!require("../lib/rbac").isSuper(ctx.user))
+          throw forbidden("已删除原件只能由总管理员从废件箱查看和恢复");
+      }
       assertProjectVisible(ctx.user, getProject(owner.pid));
       // 单纯是项目成员的嘉宾并不自动获得合同和财务凭证的读取权限。
       if (!can(ctx.user, "material:write") && !can(ctx.user, "contract:write") &&
