@@ -67,7 +67,7 @@ const dec = (n) => (String(n).split(".")[1] || "").length;
 
 /** 建项目 → 推到「待核销」→ 6 步全通过 → 核销通过 */
 async function projectReadyToPay(name, budget) {
-  const mk = await admin("POST", "/api/projects", {
+  const mk = await admin("POST", "/api/projects", {tax_fee_rate:0,
     name, assoc: "华东医学会", form: "线下", date: "2026-12-20",
     budget, owner: "王敏", agenda: "金额精度回归", people: 20
   });
