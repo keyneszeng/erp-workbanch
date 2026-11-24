@@ -59,7 +59,7 @@ function client(cookie) {
 /** 建一个 exec 与 assoc 都看得见的「已立项」项目（合同录入不受状态限制，除已结算/已归档） */
 async function freshProject() {
   const c = client(exec);
-  const r = await c("POST", "/api/projects", {
+  const r = await c("POST", "/api/projects", {tax_fee_rate:0,
     name: `合同流转用例项目 ${Date.now()}-${++seq}`,
     assoc: "华东医学会", form: "线下", date: "2027-07-01",
     budget: 200000, people: 80, owner: "陈静", agenda: "09:00 开幕致辞 / 13:30 分论坛"
