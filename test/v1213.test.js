@@ -62,7 +62,7 @@ function client(cookie) {
 /** 造一个四人都看得见、已到「已立项」的项目 */
 async function freshProject({ budget = 80000 } = {}) {
   const c = client(exec);
-  const r = await c("POST", "/api/projects", {
+  const r = await c("POST", "/api/projects", {tax_fee_rate:0,
     name: `V1.2.13 用例项目 ${Date.now()}-${++seq}`,
     assoc: "华东医学会", form: "线下", date: "2027-07-01",
     budget, people: 80, owner: "陈静", agenda: "09:00 开幕 / 13:30 分论坛"
