@@ -33,7 +33,7 @@ function register(router) {
     const p = getProject(ctx.params.id);
     assertProjectVisible(ctx.user, p);
     const materials = db.prepare("SELECT * FROM materials WHERE pid = ? AND deleted_at IS NULL ORDER BY kind, id").all(p.id);
-    const contracts = db.prepare("SELECT * FROM contracts WHERE pid = ? ORDER BY id").all(p.id);
+    const contracts = db.prepare("SELECT * FROM contracts WHERE pid = ? AND deleted_at IS NULL ORDER BY id").all(p.id);
     const payments = db.prepare("SELECT * FROM payments WHERE pid = ? ORDER BY created_at DESC, id DESC").all(p.id);
     return {
       project: p,
@@ -544,7 +544,7 @@ function register(router) {
       if(settlementOf(p.id)||["已核销","已结算","已归档"].includes(getProject(p.id).status))
         throw conflict("项目状态发生变化，合同材料不可替换","FROZEN");
       assertUploadAttachable(newKey,p.id,ctx.user);
-      const linked=m.kind==="合同"?db.prepare("SELECT id,status FROM contracts WHERE pid=? AND file_key=?").all(p.id,oldKey):[];
+      const linked=m.kind==="合同"?db.prepare("SELECT id,status FROM contracts WHERE pid=? AND file_key=? AND deleted_at IS NULL").all(p.id,oldKey):[];
       if(linked.length>1)throw conflict("旧原件关联多个合同，必须由管理员人工处理","SHARED_CONTRACT_FILE");
       db.prepare("UPDATE materials SET file_key=?,file_name=?,file_size=?,file_mime=? WHERE id=?")
         .run(newKey,filename,fileSize,mime,id);
@@ -619,13 +619,43 @@ function register(router) {
       throw conflict("结算单已生成，材料作为核销凭证已冻结，不可删除", "FROZEN", { status: p.status });
     }
 
-    // 只做软删；原件、版本与审计记录保留，避免销毁历史证据。
+    // 关联台账合同与材料必须同生共退。禁止通过删除合同原件绕过签署、赞助和核销流程。
     if (m.deleted_at) throw conflict("材料已处于历史冻结状态，不能重复删除", "ALREADY_DELETED");
-    db.prepare("UPDATE materials SET deleted_at=?, deleted_by=? WHERE id=?")
-      .run(now(),ctx.user.name,m.id);
-
-    logAudit({ user: ctx.user, module: "材料中心", action: "软删冻结", target: p.id, detail: `历史保留 ${m.kind}：${m.name}`, ip: ctx.ip });
-    return { materialsStatus: materialsStatus(p.id), message: "已软删并保留历史记录" };
+    const linked=m.kind==="合同"&&m.file_key
+      ? db.prepare("SELECT id,status,category FROM contracts WHERE pid=? AND file_key=? AND deleted_at IS NULL").all(p.id,m.file_key)
+      : [];
+    if(linked.length>1)throw conflict("多份合同共用同一原件，需先由管理员核对关联关系","SHARED_CONTRACT_FILE");
+    const c=linked[0];
+    if(c){
+      assertCan(ctx.user,"contract:write","该材料已关联正式合同，需要合同录入权限才能同步删除");
+      if(c.status==="已签署")
+        throw conflict("已签署合同不能通过删除原件撤销；请先办理合同终止或更正","SIGNED_CONTRACT_LOCKED");
+      if(c.category==="企业赞助"||
+        db.prepare("SELECT 1 FROM meeting_sponsor_contracts WHERE ledger_contract_id=?").get(c.id))
+        throw conflict("合同已关联赞助收入及权益，请在合同管理流程中处理，不能单独删除原件","SPONSOR_CONTRACT_LINKED");
+      if(["已核销","已结算"].includes(p.status)||
+         db.prepare("SELECT 1 FROM verify_steps WHERE pid=? AND step_no=6 AND result='通过'").get(p.id))
+        throw conflict("合同已进入核票或核销，需先办理核销更正","CONTRACT_VERIFIED");
+      if(db.prepare("SELECT 1 FROM materials WHERE pid=? AND kind='合同' AND file_key=? AND id<>? AND deleted_at IS NULL")
+        .get(p.id,m.file_key,m.id))
+        throw conflict("合同原件仍被其他归档材料引用，请先核对后处理","SHARED_CONTRACT_FILE");
+    }
+    const at=now();
+    transaction(()=>{
+      db.prepare("UPDATE materials SET deleted_at=?, deleted_by=? WHERE id=? AND deleted_at IS NULL")
+        .run(at,ctx.user.name,m.id);
+      if(c){
+        db.prepare("UPDATE contracts SET deleted_at=?,deleted_by=? WHERE id=? AND deleted_at IS NULL")
+          .run(at,ctx.user.name,c.id);
+        db.prepare("UPDATE approvals SET status='已撤销',decided_by=?,decided_at=?,comment='关联合同已删除，原签署申请失效' "+
+          "WHERE type='合同审批' AND ref_id=? AND status='待审批'")
+          .run(ctx.user.name,at,c.id);
+      }
+    });
+    logAudit({user:ctx.user,module:"材料中心",action:c?"软删合同及关联材料":"软删冻结",
+      target:p.id,detail:`历史保留 ${m.kind}：${m.name}`+(c?"；同步退出合同看板："+c.id:""),ip:ctx.ip});
+    return {materialsStatus:materialsStatus(p.id),linkedContract:c?.id||null,
+      message:c?"合同及关联材料已删除，审计历史保留":"已软删并保留历史记录"};
   });
 
   /** 已生成结算单的四项汇总和四类已付款明细，必须先财务授权再校验项目范围。 */
