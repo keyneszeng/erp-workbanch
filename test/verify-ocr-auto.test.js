@@ -159,7 +159,7 @@ test("第4项真实上传8张PPTX，只扫描封面第一页且不沿用旧5页�
    assert.match(cmp.detail,/前1页\/张/);
    assert.ok(!first.data.report.checks.some(x=>x.name==="超出扫描页数：主持串场演示课件"),
     "single-slide preview is intentional and must not veto a matching theme");
-   const cache=db.prepare("SELECT engine,pages,total_pages FROM material_ocr_results WHERE material_id=?").get(material.id);
+   const cache=db.prepare("SELECT engine,pages,total_pages FROM material_ocr_cover_results WHERE material_id=?").get(material.id);
    assert.equal(cache.engine,require("../server/lib/verify-office-text").COURSE_PREVIEW_ENGINE);
    assert.equal(cache.pages,1);
    const second=await call("admin","POST",pathStep(4)+"/scan",{});
@@ -210,6 +210,79 @@ test("OCR自动失败可以不填理由直接生成人工不通过记录和待�
  assert.match(ex.reason,/OCR比对异常/);
  assert.equal(ex.status,"待审批");
 });
+test("第1/4项共用串场PPTX时分别保存全文与首页OCR，重复判定不会死循环",async()=>{
+ const p=db.prepare("SELECT name,assoc,date FROM projects WHERE id=?").get(pid);
+ const letterId=addDoc("会议通知","跨步骤函件",[
+  p.name,p.assoc,p.date.replaceAll("-","年")+"日"
+ ].join("\n"),"15e16bfa33a14c79b4a138a91b50fab3.pdf");
+ const ppt=new PizZip();
+ ppt.file("[Content_Types].xml","<Types/>");
+ ppt.file("_rels/.rels","<Relationships/>");
+ ppt.file("ppt/presentation.xml","<p:presentation/>");
+ ppt.file("ppt/slides/slide1.xml","<p:sld><a:p><a:t>精准诊疗技术新进展</a:t></a:p></p:sld>");
+ ppt.file("ppt/slides/slide2.xml","<p:sld><a:p><a:t>会议主持串场稿</a:t></a:p></p:sld>");
+ const file=ppt.generate({type:"nodebuffer",compression:"DEFLATE"});
+ const res=await fetch(base+"/api/uploads?pid="+pid,{method:"POST",headers:{
+  cookie:cookies.admin,
+  "content-type":"application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  "x-file-name":encodeURIComponent("共用主持串场.pptx")
+ },body:file});
+ const uploaded=await res.json();
+ assert.equal(res.status,200,JSON.stringify(uploaded));
+ const created=await call("admin","POST","/api/projects/"+pid+"/materials",{
+  kind:"串场",name:"共用主持串场",
+  file_key:uploaded.key,file_name:uploaded.name,file_size:uploaded.size,file_mime:uploaded.mime
+ });
+ assert.equal(created.status,200,JSON.stringify(created.data));
+ const host=db.prepare("SELECT id FROM materials WHERE pid=? AND file_key=?").get(pid,uploaded.key);
+ assert.ok(host);
+ try{
+  const first=await call("admin","POST",pathStep(1)+"/scan",{});
+  assert.equal(first.status,200,JSON.stringify(first.data));
+  const full=db.prepare("SELECT engine,recognized_text,pages FROM material_ocr_results WHERE material_id=?").get(host.id);
+  assert.ok(full?.recognized_text.includes("会议主持串场稿"));
+  assert.ok(full.pages>=2);
+  const judged=await call("admin","POST",pathStep(1),{
+   result:"通过",auto:true,scanToken:first.data.report.token
+  });
+  assert.equal(judged.status,200,JSON.stringify(judged.data));
+  assert.equal(judged.data.verification.steps.find(x=>x.no===1).result,"通过");
+
+  const fourth=await call("admin","POST",pathStep(4)+"/scan",{});
+  assert.equal(fourth.status,200,JSON.stringify(fourth.data));
+  const cover=db.prepare("SELECT engine,recognized_text,pages FROM material_ocr_cover_results WHERE material_id=?").get(host.id);
+  assert.equal(cover?.pages,1);
+  assert.ok(cover.recognized_text.includes("精准诊疗技术新进展"));
+  assert.ok(!cover.recognized_text.includes("会议主持串场稿"));
+  assert.deepEqual(db.prepare("SELECT engine,recognized_text,pages FROM material_ocr_results WHERE material_id=?").get(host.id),full,
+    "第4项首页OCR不能覆盖第1项原始全文OCR");
+  let state=await call("admin","GET","/api/projects/"+pid+"/verify");
+  assert.equal(state.data.verification.steps.find(x=>x.no===1).result,"通过",
+   "扫描第4项以后，第1项不得要求重新判定");
+  const step4=await call("admin","POST",pathStep(4),{
+   result:"通过",auto:true,scanToken:fourth.data.report.token
+  });
+  assert.equal(step4.status,200,JSON.stringify(step4.data));
+  for(let i=0;i<3;i++){
+   const scan1=await call("admin","POST",pathStep(1)+"/scan",{});
+   assert.equal(scan1.status,200);
+   assert.equal(scan1.data.report.token,first.data.report.token,
+    "其他项目核销不应改变第一项证据令牌");
+   assert.equal(scan1.data.report.processed,0,"第一项全文扫描必须使用缓存");
+   const scan4=await call("admin","POST",pathStep(4)+"/scan",{});
+   assert.equal(scan4.status,200);
+   assert.equal(scan4.data.report.token,fourth.data.report.token,
+    "第一项扫描不应使第四项首页核销凭证失效");
+   assert.equal(scan4.data.report.processed,0,"第四项首页扫描必须使用独立缓存");
+   state=await call("admin","GET","/api/projects/"+pid+"/verify");
+   assert.equal(state.data.verification.steps.find(x=>x.no===1).result,"通过");
+   assert.equal(state.data.verification.steps.find(x=>x.no===4).result,"通过");
+  }
+ }finally{
+  db.prepare("UPDATE materials SET deleted_at='2026-11-24' WHERE id IN (?,?)").run(letterId,host.id);
+ }
+});
+
 test("现代Office可直接提取原生文字，旧式XLS不冒充OCR成功",()=>{
  const zip=(extra)=>{
   const z=new PizZip();
