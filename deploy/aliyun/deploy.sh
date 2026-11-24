@@ -71,20 +71,12 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-# 业务功能以 ECS 测试分支为准：测试拉测试分支，正式发布拉已验收并同步的 main。
-# --ref / ERP_REF 可以显式传入，但不能跨环境误用分支。
-if [ -z "$REF" ]; then
-  if [ "$MODE" = "test" ]; then
-    REF="云服务器测试版本"
-  else
-    REF="main"
-  fi
-fi
-if [ "$MODE" = "test" ] && [ "$REF" != "云服务器测试版本" ]; then
-  die "测试部署只允许 云服务器测试版本 分支（实际：$REF）"
-fi
-if [ "$MODE" = "prod" ] && [ "$REF" != "main" ]; then
-  die "生产部署只允许已同步测试版功能的 main 分支（实际：$REF）"
+# 代码统一：测试、生产一律从同一个 main 提交发布；差异仅在环境配置与数据。
+# 不再引用已分叉的“云服务器测试版本”分支，防止旧分支覆盖已合并功能。
+# 保留 ERP_REF / --ref 兼容旧命令，但禁止指定其他分支。
+if [ -z "$REF" ]; then REF="main"; fi
+if [ "$REF" != "main" ]; then
+  die "测试和生产部署只允许统一的 main 分支（实际：$REF）；历史测试分支只供查阅"
 fi
 
 # ---------- 模式派生 ----------
@@ -254,20 +246,21 @@ STAMP="$(date +%Y%m%d%H%M%S)"
 RELEASE_DIR="$APP_ROOT/releases/$STAMP"
 log "拉取代码：$REPO_URL @ $REF → $RELEASE_DIR"
 run git clone --quiet --depth 1 --branch "$REF" "$REPO_URL" "$RELEASE_DIR"
-# 正式部署必须与当前测试基线的业务源码一致；绕过 CI 的独立旧主线不能上线。
-if [ "$DRY_RUN" = "0" ] && [ "$MODE" = "prod" ]; then
-  log "核对生产代码与云服务器测试版本的主要业务功能"
-  git -C "$RELEASE_DIR" fetch --quiet --no-tags --depth 1 origin \
-    'refs/heads/云服务器测试版本:refs/remotes/origin/erp-test-baseline' \
-    || die "无法获取云服务器测试基准分支，已拒绝生产部署"
-  if ! git -C "$RELEASE_DIR" diff --quiet refs/remotes/origin/erp-test-baseline HEAD -- \
-      server web miniprogram worker api package.json wrangler.jsonc; then
-    die "生产源码与云服务器测试版功能不一致，先完成测试版→main 代码同步，再部署"
-  fi
-fi
+# 发布精确 SHA：GitHub main 的同一提交覆盖 Web、API、微信小程序及部署源码。
+# 先在 ECS 测试验证这个 SHA，再批准生产；不以两个分支的文本 diff 代替版本一致性。
 if [ "$DRY_RUN" = "0" ]; then
-  git -C "$RELEASE_DIR" rev-parse --short HEAD > "$RELEASE_DIR/.revision"
-  log "代码版本：$(cat "$RELEASE_DIR/.revision")"
+  SOURCE_SHA="$(git -C "$RELEASE_DIR" rev-parse HEAD)"
+  if [ "$MODE" = "prod" ]; then
+    TEST_REV="/opt/erp-test/current/.revision"
+    APPROVED_SHA="${ERP_APPROVED_SHA:-}"
+    if [ -z "$APPROVED_SHA" ] && [ -f "$TEST_REV" ]; then
+      APPROVED_SHA="$(tr -d '\\r\\n' < "$TEST_REV")"
+    fi
+    [ -n "$APPROVED_SHA" ] || die "生产发布缺少已验收的版本：请先部署并验收同机测试版，或提供 ERP_APPROVED_SHA（40 位 main 提交 SHA）"
+    [ "$APPROVED_SHA" = "$SOURCE_SHA" ] || die "生产提交 $SOURCE_SHA 与已验收的测试提交 $APPROVED_SHA 不一致；禁止跨版本发布"
+  fi
+  printf '%s\\n' "$SOURCE_SHA" > "$RELEASE_DIR/.revision"
+  log "统一代码版本：$SOURCE_SHA"
 fi
 
 log "安装生产依赖"
