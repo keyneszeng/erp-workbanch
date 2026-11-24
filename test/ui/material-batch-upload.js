@@ -50,6 +50,7 @@ async function ready(){
   await page.goto(origin+"/#/projects/"+encodeURIComponent(pid),{waitUntil:"domcontentloaded"});
   await page.locator('.tabs [data-tab="materials"]').click();
   const chips=page.locator("#tabbody [data-material-kind]");
+  await chips.first().waitFor({timeout:12000});
   assert.ok(await chips.count()>=12,"material panel shows selectable recommended categories, like mini");
   assert.match((await page.locator("#tabbody .material-kind-selected").innerText()).replace(/\s+/g,""),/当前录入：课件已录入\d+份/);
   await page.locator('#tabbody [data-material-kind="签到表"]').click();
