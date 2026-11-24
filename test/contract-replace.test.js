@@ -253,6 +253,10 @@ test("自定义会务协议材料删除时联动所有同源合同材料，核�
  assert.ok(!verify.data.contracts.some(c=>c.id===cid));
  assert.ok(!verify.data.materials.some(m=>m.file_key===uploaded.data.key),
   "核销项目中不应再关联任何被删除合同的原件");
+ assert.ok(!verify.data.verification.sourceMaterialIds.meetingAgreements.includes(originalId));
+ assert.ok(!verify.data.verification.sourceMaterialIds.meetingAgreements.includes(aliasId));
+ assert.ok(!verify.data.verification.sourceMaterialIds.laborContracts.includes(originalId));
+ assert.ok(!verify.data.verification.sourceMaterialIds.laborContracts.includes(aliasId));
  const bin=await req("admin","GET","/api/recycle-bin/materials?size=100");
  assert.equal(bin.status,200);
  assert.ok(bin.data.rows.some(m=>m.id===originalId));
