@@ -133,12 +133,13 @@ function validateSopEvidence(no, evidence, project, db, invoiceAmount) {
       // 第5项只关联劳务专家合同原件；会务合同、赞助合同均不得替代。
       const linked=linkLaborContracts(db,pid,rows.map(r=>r.name));
       if(linked.missing.length)
-        fail("材料库缺少以下人员的同名合同原件："+linked.missing.join("、"),"SOP_PERSON_CONTRACT_MISSING");
+        fail("合同台账缺少以下人员的劳务协议原件："+linked.missing.join("、"),"SOP_PERSON_CONTRACT_MISSING");
       if(linked.ambiguous.length)
         fail("以下人员存在多份同名合同，请消除歧义："+linked.ambiguous.join("、"),"SOP_PERSON_CONTRACT_AMBIGUOUS");
       return {matchedLaborRecords:rows.length,matchedFields:keys.length,
         laborSourceSignature:source.signature,
-        matchedContractMaterialIds:linked.linked.map(x=>Number(x.id)),
+        matchedContractMaterialIds:linked.linked.filter(x=>Number.isSafeInteger(Number(x.id))).map(x=>Number(x.id)),
+         matchedContractLedgerIds:linked.linked.filter(x=>String(x.id).startsWith("ledger:")).map(x=>x.ledgerContractId),
         contractPoolSignature:linked.contractPoolSignature,
         matchedContracts:linked.linked.length,accountDataStored:false};
     }
