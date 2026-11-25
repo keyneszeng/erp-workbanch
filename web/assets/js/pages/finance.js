@@ -122,12 +122,12 @@ export async function render(root, params = []) {
     <div class="panel" id="fin-settlements" ${settlementReadable?"":"hidden"}>
       <div class="panel-h"><h2>结算单</h2><div><span class="hint">${st.total ?? st.rows.length} 张 · 生成即冻结核销结论</span></div></div>
       ${table(
-        [{ t: "结算单号", w: "112px" }, { t: "项目" }, { t: "项目预算", w: "96px", cls: "num" },
+        [{ t: "结算单号", w: "112px" }, { t: "项目" }, { t: "项目预算", w: "96px", cls: "num" }, { t: "可用预算", w: "96px", cls: "num" },
          { t: "已付支出", w: "96px", cls: "num" }, { t: "结余", w: "96px", cls: "num" },
          { t: "生成人", w: "70px" }, { t: "时间", w: "120px" },{ t:"操作",w:"100px" }],
         st.rows.map((x) => ({
           c: [`<span class="mono">${x.id}</span>`, `<a class="link" data-go="projects/${x.pid}">${esc(x.name)}</a>`,
-            `¥${money(x.income)}`, `¥${money(x.expense)}`,
+            `¥${money(x.income)}`, `¥${money(x.available_budget)}`, `¥${money(x.expense)}`,
             `<span class="${x.profit >= 0 ? "pos" : "neg"}">¥${money(x.profit)}</span>`,
             esc(x.created_by || ""), `<span class="mono">${esc(x.created_at)}</span>`,
             `<button type="button" class="link" aria-expanded="false" data-settlement-detail="${esc(x.id)}">查看结算单</button>`]
