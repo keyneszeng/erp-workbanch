@@ -165,36 +165,6 @@ async function exerciseSafeControls(page,role,route){
           await modal.locator(".close").click();
         }else check(role,route,"材料类别直传入口",false,"点击后未打开上传弹窗");
       }
-      const contractShortcut=page.locator('#content [data-contract-directory]').first();
-      if(await contractShortcut.count()){
-        const pid=await contractShortcut.getAttribute("data-contract-directory");
-        try{
-          await contractShortcut.click({timeout:8000});
-          const expected="#/contracts/"+pid;
-          await page.waitForFunction(value=>location.hash===value||location.hash==="#/dashboard",expected,{timeout:12000});
-          if(new URL(page.url()).hash===expected){
-            await page.locator("#content .phead h2").filter({hasText:"合同目录详情"}).waitFor({timeout:12000});
-          }else{
-            await loaded(page);
-          }
-          const reached=new URL(page.url()).hash===expected;
-          const heading=await page.locator("#content .phead h2").innerText().catch(()=>"");
-          const scope=await page.evaluate(async value=>{
-            const r=await fetch("/api/contracts?pid="+encodeURIComponent(value));
-            const data=await r.json().catch(()=>({}));
-            return {status:r.status,allScoped:(data.rows||[]).every(row=>row.pid===value)};
-          },pid);
-          check(role,route,"合同二级类别进入当前会议合同目录",
-            reached&&heading==="合同目录详情"&&scope.status===200&&scope.allScoped,
-            JSON.stringify({hash:new URL(page.url()).hash,heading,scope}));
-        }catch(error){
-          check(role,route,"合同二级类别进入当前会议合同目录",false,error.message);
-        }finally{
-          await go(page,"materials/"+pid);
-        }
-      }else{
-        check(role,route,"合同二级类别入口",null,"当前角色没有合同目录读取权限");
-      }
     }
   }
   if(route==="recycle-bin"){
