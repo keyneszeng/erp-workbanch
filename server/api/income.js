@@ -53,12 +53,28 @@ function incomeSummary(pid,budget) {
     contractedMatchesBudget:cents(budget)===cents(contracted),
     receiptsMatchBudget:cents(budget)===cents(received)};
 }
+// 专项权限：协会财务只获得赞助收入管理权，不授予普通支出合同审批权。
+const sponsorManager=user=>isSuper(user)||user?.role==="finance";
+const incomeFrozen=p=>["已结算","已归档"].includes(p.status)||!!db.prepare("SELECT 1 FROM settlements WHERE pid=?").get(p.id);
 function writable(ctx,p,perm){
   assertProjectVisible(ctx.user,p);
-  assertCan(ctx.user,perm);
+  if(!(sponsorManager(ctx.user)&&["contract:write","payment:pay"].includes(perm)))assertCan(ctx.user,perm);
   assertNotFrozen(p,"会议赞助收入");
-  if(p.status==="已核销")throw conflict("项目已核销，收入凭证冻结，须先办理核销更正","INCOME_FROZEN");
+  if(incomeFrozen(p))throw conflict("会议已结算，赞助收入已冻结","FROZEN");
+  if(p.status==="已核销"&&!sponsorManager(ctx.user))throw conflict("项目已核销，仅总管理员和协会财务可维护赞助收入","INCOME_FROZEN");
 }
+function assertSponsorManager(ctx,p){
+  assertProjectVisible(ctx.user,p);
+  if(!sponsorManager(ctx.user))throw require("../lib/util").forbidden("仅总管理员和协会财务可修改已登记的赞助合同及收入凭证");
+  writable(ctx,p,"contract:write");
+}
+function resetSponsorVerification(p,reason){
+  const at=now();
+  const changed=db.prepare("UPDATE verify_steps SET result='待判定',remark=?,evidence_json=NULL,invoice_amount=NULL,checked_by=NULL,checked_at=NULL WHERE pid=? AND step_no=7 AND result<>'待判定'").run(reason,p.id);
+  if(p.status==="已核销"&&changed.changes)
+    db.prepare("UPDATE projects SET status='待核销',updated_at=? WHERE id=?").run(at,p.id);
+}
+
 /** 预览时只产生候选字段，不写入合同，不触发审批或权益确认。 */
 async function scanContract(fileKey,ledger=false,category=""){
   const ext=String(fileKey||"").split(".").pop().toLowerCase();
@@ -159,10 +175,15 @@ function register(router){
   router.get("/api/projects/:id/income",async ctx=>{
     const p=getProject(ctx.params.id);
     assertProjectVisible(ctx.user,p);
-    if(!can(ctx.user,"contract:write")&&!can(ctx.user,"contract:approve")&&
+    if(!sponsorManager(ctx.user)&&!can(ctx.user,"contract:write")&&!can(ctx.user,"contract:approve")&&
        !can(ctx.user,"payment:pay")&&!can(ctx.user,"payment:approve"))
       throw require("../lib/util").forbidden("无权查看赞助合同与财务回款");
-    return {pid:p.id,summary:incomeSummary(p.id,p.budget),
+    const frozen=incomeFrozen(p),unlocked=!frozen&&(p.status!=="已核销"||sponsorManager(ctx.user));
+    return {pid:p.id,summary:incomeSummary(p.id,p.budget),permissions:{
+      editContracts:unlocked&&(sponsorManager(ctx.user)||can(ctx.user,"contract:write")),
+      correctContracts:!frozen&&sponsorManager(ctx.user),
+      approveContracts:unlocked&&can(ctx.user,"contract:approve"),
+      recordFinance:unlocked&&(sponsorManager(ctx.user)||can(ctx.user,"payment:pay")),frozen},
       rights:sponsorRights(db,p.id).rights,
       contracts:db.prepare("SELECT * FROM meeting_sponsor_contracts WHERE pid=? ORDER BY created_at DESC").all(p.id),
       receipts:db.prepare("SELECT * FROM meeting_sponsor_receipts WHERE pid=? ORDER BY created_at DESC").all(p.id),
@@ -202,6 +223,7 @@ function register(router){
     const manual=b.rightsCategories==null?null:normalizedCategories(b.rightsCategories);
     const extracted=manual!==null?{status:"待确认",note:"权益内容已预填，须对照合同原件逐项确认",categories:manual}:
       await scanRights(key);
+    writable(ctx,getProject(p.id),"contract:write"); // OCR 期间可能已结算
     const id=nextId(db,"meeting_sponsor_contracts","id","SC");
     const contractNo=id; // 唯一业务编号由系统生成，不接受客户端提供的合同号。
     db.prepare("INSERT INTO meeting_sponsor_contracts(id,pid,enterprise,contract_no,amount,status,file_key,file_name,created_by,created_at,rights_scan_status,rights_scan_note) VALUES (?,?,?,?,?,'待确认',?,?,?,?,?,?)")
@@ -213,10 +235,50 @@ function register(router){
     return {id,contractNo,status:"待确认",summary:incomeSummary(p.id,p.budget),
       rightsScanStatus:extracted.status,rightsScanNote:extracted.note,rightsCategories:extracted.categories};
   });
+  // 修改已登记赞助合同；原编号、签署状态及已有财务流水保持不变。
+  router.patch("/api/projects/:id/income/contracts/:cid",async ctx=>{
+    const p=getProject(ctx.params.id);assertSponsorManager(ctx,p);
+    const s=sponsor(p.id,ctx.params.cid),b=ctx.body||{};
+    if(s.status==="已驳回")throw conflict("已驳回合同请重新登记","SPONSOR_CONTRACT_REJECTED");
+    const enterprise="enterprise" in b?String(b.enterprise||"").trim():s.enterprise;
+    if(enterprise.length<2||enterprise.length>100)throw bad("请填写有效的赞助企业名称（2～100 字）");
+    const total="amount" in b?amount(b.amount):s.amount;
+    const received=db.prepare("SELECT COALESCE(SUM(amount),0) AS n FROM meeting_sponsor_receipts WHERE sponsor_id=?").get(s.id).n;
+    const invoiced=db.prepare("SELECT COALESCE(SUM(amount),0) AS n FROM meeting_sponsor_invoices WHERE sponsor_id=?").get(s.id).n;
+    if(cents(total)<Math.max(cents(received),cents(invoiced)))
+      throw conflict("修改后合同金额不能低于已到账或已开票金额，请先核对收入凭证","SPONSOR_AMOUNT_BELOW_EVIDENCE");
+    const replacement=!!b.file_key&&b.file_key!==s.file_key;
+    const key=replacement?evidence(ctx,p,b.file_key):s.file_key;
+    const name=replacement?String(b.file_name||"").slice(0,120):s.file_name;
+    const ledger=s.ledger_contract_id?db.prepare("SELECT * FROM contracts WHERE id=? AND pid=? AND category='企业赞助' AND deleted_at IS NULL").get(s.ledger_contract_id,p.id):null;
+    if(s.ledger_contract_id&&!ledger)throw conflict("关联合同台账记录缺失","SPONSOR_LEDGER_MISSING");
+    transaction(()=>{
+      assertSponsorManager(ctx,getProject(p.id));
+      db.prepare("UPDATE meeting_sponsor_contracts SET enterprise=?,amount=?,file_key=?,file_name=? WHERE id=?").run(enterprise,total,key,name,s.id);
+      if(ledger){
+        db.prepare("UPDATE contracts SET vendor=?,amount=?,file_key=?,file_name=? WHERE id=?").run(enterprise,total,key,name,ledger.id);
+        db.prepare("UPDATE approvals SET amount=? WHERE type='合同审批' AND ref_id=? AND status='待审批'").run(total,ledger.id);
+      }
+      if(replacement){
+        // 原件保留为历史版，绝不删除旧证据。
+        db.prepare("UPDATE materials SET version='历史版' WHERE pid=? AND file_key=? AND kind='合同' AND deleted_at IS NULL").run(p.id,s.file_key);
+        const old=db.prepare("SELECT 1 FROM materials WHERE pid=? AND file_key=? AND deleted_at IS NULL").get(p.id,s.file_key);
+        const ins=db.prepare("INSERT INTO materials(pid,kind,name,version,uploader,created_at,file_key,file_name) VALUES(?,?,?,?,?,?,?,?)");
+        if(!old&&s.file_key)ins.run(p.id,"合同",s.contract_no+" · 原赞助合同","历史版",ctx.user.name,now(),s.file_key,s.file_name);
+        ins.run(p.id,"合同",s.contract_no+" · 企业赞助合同","v1",ctx.user.name,now(),key,name);
+        db.prepare("UPDATE meeting_sponsor_contracts SET rights_scan_status='需重新核对',rights_scan_note='合同原件已更换，须重新核对权益' WHERE id=?").run(s.id);
+        db.prepare("UPDATE sponsor_rights SET confirmed=0 WHERE sponsor_id=?").run(s.id);
+        resetSponsorVerification(p,"赞助合同原件已更换，须重新核对权益");
+      }
+    });
+    logAudit({user:ctx.user,module:"会议收入",action:"修改赞助合同",target:p.id,
+      detail:s.id+"；企业："+s.enterprise+" → "+enterprise+"；金额："+s.amount+" → "+total+(replacement?"；原件已替换并保留历史版":""),ip:ctx.ip});
+    return {id:s.id,contractNo:s.contract_no,summary:incomeSummary(p.id,p.budget)};
+  });
   // Available to meeting-material operators: populate "权益照片" second-level dropdown.
   router.get("/api/projects/:id/sponsor-rights",async ctx=>{
     const p=getProject(ctx.params.id);assertProjectVisible(ctx.user,p);
-    if(!can(ctx.user,"material:write")&&!can(ctx.user,"verify:check")&&
+    if(!sponsorManager(ctx.user)&&!can(ctx.user,"material:write")&&!can(ctx.user,"verify:check")&&
        !can(ctx.user,"contract:write")&&!can(ctx.user,"contract:approve"))
       throw require("../lib/util").forbidden("无权查看该项目赞助权益");
     const data=sponsorRights(db,p.id);
@@ -247,6 +309,7 @@ function register(router){
       db.prepare("DELETE FROM sponsor_rights WHERE id=?").run(item.id);
     db.prepare("UPDATE meeting_sponsor_contracts SET rights_scan_status=?,rights_scan_note=? WHERE id=?")
       .run(categories.length?"已确认":"确认无权益","人工核对赞助合同权益条目后确认",contract.id);
+    resetSponsorVerification(p,"赞助权益内容已更新，须重新核验");
     logAudit({user:ctx.user,module:"会议收入",action:"确认赞助权益类目",target:p.id,
       detail:contract.id+"；权益类目 "+categories.length+" 项",ip:ctx.ip});
     return {contractId:contract.id,rights:db.prepare("SELECT * FROM sponsor_rights WHERE sponsor_id=? ORDER BY id").all(contract.id)};
@@ -276,6 +339,7 @@ function register(router){
     transaction(()=>{
       db.prepare("UPDATE meeting_sponsor_contracts SET status=?,approved_by=?,approved_at=? WHERE id=?")
         .run(status,ctx.user.id,now(),s.id);
+      if(approve)resetSponsorVerification(p,"新增已签署赞助合同，须重新核对权益");
       if(ledger){
         db.prepare("UPDATE contracts SET status=?,sign_date=? WHERE id=?")
           .run(approve?"已签署":"草稿",approve?today():"",ledger.id);
