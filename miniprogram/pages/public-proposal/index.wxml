@@ -11,7 +11,7 @@
     <view class="heading" style="text-align:center">申请已提交</view>
     <view class="subtitle" style="text-align:center">总管理员已收到您的活动意向</view>
     <view class="notice space">
-      <view class="grow"><view class="micro">申请编号</view><view class="title space-sm">{{reference}}</view></view>
+      <view class="grow"><view class="micro">申请编号（P＋提交年月日＋当日序号）</view><view class="title space-sm">{{reference}}</view></view>
     </view>
     <view class="muted" style="text-align:center">请保存编号用于后续沟通。平台如需了解详情，将通过您填写的联系方式联系。</view>
     <button class="btn ghost" bindtap="again">填写另一份申请</button>
