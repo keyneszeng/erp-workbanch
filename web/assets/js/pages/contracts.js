@@ -6,6 +6,7 @@ import { openContractMaterialReplace } from "../lib/contract-material-replace.js
 import {canEditContractCategory,openContractCategoryEdit} from "../lib/contract-category-edit.js";
 
 let q = "";
+let lastPid = "";
 let renderSeq = 0;
 
 /**
@@ -37,6 +38,7 @@ function fileCell(c) {
 
 export async function render(root, params = []) {
   const pid = String(params[0] || "");
+  if (pid !== lastPid) { q = ""; lastPid = pid; }
   const seq = ++renderSeq;
   const [c, proj] = await Promise.all([
     api.get("/api/contracts" + (pid ? "?pid=" + encodeURIComponent(pid) : "")),
@@ -56,9 +58,9 @@ export async function render(root, params = []) {
   const withFile = rows.filter((r) => r.file_key).length;
 
   root.innerHTML = `<div class="phead">
-      <div><h2>合同台账</h2><p>企业赞助合同、会务协议、劳务协议均在此统一上传与归档；会务费用关联核销第6项，劳务合同关联第5项。</p></div>
+      <div>${pid ? '<button type="button" class="btn btn-o btn-sm" data-go="materials/' + esc(pid) + '">← 返回材料收集</button>' : ""}<h2>${pid ? "合同目录详情" : "合同台账"}</h2><p>${pid ? esc(project.name) + " · " + esc(pid) + " · 当前会议合同清单" : "企业赞助合同、会务协议、劳务协议均在此统一上传与归档；会务费用关联核销第6项，劳务合同关联第5项。"}</p></div>
       <div class="acts">
-        ${can("export:any") ? '<button class="btn btn-o" id="exp">导出 CSV</button>' : ""}
+        ${!pid && can("export:any") ? '<button class="btn btn-o" id="exp">导出 CSV</button>' : ""}
         ${can("contract:write") ? '<button class="btn btn-p" id="newC">+ 录入合同</button>' : ""}
       </div>
     </div>
@@ -139,7 +141,7 @@ async function contractFlow(root, id, action, params = []) {
   try {
     const r = await api.post(`/api/contracts/${id}/transition`, { action, ...(action==="reject"?{reason}:{}) });
     toast(r.message, "ok");
-    await render(root);
+    await render(root, params);
   } catch (e) { toast(e.message, "warn"); }
 }
 
