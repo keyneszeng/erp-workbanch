@@ -60,15 +60,16 @@ test("三单一致：仅会务需求表、会务需求类别合同原件和会�
  assert.equal(result.demandBudget,8000);
  db.close();
 });
-test("缺会务合同原件或会务发票不得通过；删终版议程不影响第6项",()=>{
- for(const kind of ["合同","会务发票"]){
-  const {db,addMaterial,addContract}=setup();addDemand(db);
-  addThreeSources(db,addMaterial,addContract);
-  db.prepare("DELETE FROM materials WHERE pid=? AND kind=?").run(project.id,kind);
-  assert.throws(()=>validateSopEvidence(6,reviewed,project,db,8000),
-   e=>e.code==="SOP_MATERIAL_MISSING");
-  db.close();
- }
+test("合同台账原件不再依赖材料镜像，缺少会务发票仍拦截第6项",()=>{
+ const {db,addMaterial,addContract}=setup();addDemand(db);
+ addThreeSources(db,addMaterial,addContract);
+ db.prepare("DELETE FROM materials WHERE pid=? AND kind='合同'").run(project.id);
+ assert.deepEqual(demandSopState(db,project.id).agreements.map(m=>m.file_key),["meeting.pdf"]);
+ assert.doesNotThrow(()=>validateSopEvidence(6,reviewed,project,db,8000));
+ db.prepare("DELETE FROM materials WHERE pid=? AND kind='会务发票'").run(project.id);
+ assert.throws(()=>validateSopEvidence(6,reviewed,project,db,8000),
+  e=>e.code==="SOP_MATERIAL_MISSING");
+ db.close();
 });
 test("三方原件须人工检查；不能用原来的议程七字段冒充核验",()=>{
  const {db,addMaterial,addContract}=setup();addDemand(db);
