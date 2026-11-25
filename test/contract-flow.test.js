@@ -308,7 +308,7 @@ test("待签署或已签署合同可以受控改类别，旧签署审批撤销�
 
 test("会务协议与企业赞助合同改类须同步建立/撤销会议收入关联",async()=>{
  const pid=await freshProject();
- const pdf=Buffer.from("%PDF-1.4\\n1 0 obj\\n<<>>\\nendobj\\n%%EOF");
+ const pdf=Buffer.from("%PDF-1.4\n1 0 obj\n<<>>\nendobj\n%%EOF");
  const upload=await fetch(BASE+"/api/uploads?pid="+pid,{
   method:"POST",headers:{Cookie:exec,"Content-Type":"application/octet-stream","X-File-Name":"分类更正合同.pdf"},body:pdf
  });
@@ -338,7 +338,7 @@ test("会务协议与企业赞助合同改类须同步建立/撤销会议收入�
 
 test("已有赞助权益确认的合同不得直接变更类别",async()=>{
  const pid=await freshProject();
- const pdf=Buffer.from("%PDF-1.4\\n1 0 obj\\n<<>>\\nendobj\\n%%EOF");
+ const pdf=Buffer.from("%PDF-1.4\n1 0 obj\n<<>>\nendobj\n%%EOF");
  const upload=await fetch(BASE+"/api/uploads?pid="+pid,{
   method:"POST",headers:{Cookie:exec,"Content-Type":"application/octet-stream","X-File-Name":"权益类合同.pdf"},body:pdf
  });
