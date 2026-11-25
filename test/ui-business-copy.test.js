@@ -63,7 +63,7 @@ test("逐页 UI 文字与操作入口符合测试版实际行为", () => {
   assert.match(materials,/esc\(p\.status\)/);
 });
 
-test("付款申请可查看已关联收款方资料，合同与劳务均只显示脱敏账户",()=>{
+test("财务直接付款可查看已关联收款方资料，合同与劳务均只显示脱敏账户",()=>{
  const picker=src("web/assets/js/lib/payee-picker.js");
  const project=src("web/assets/js/pages/project.js");
  const finance=src("web/assets/js/pages/finance.js");
@@ -77,8 +77,8 @@ test("付款申请可查看已关联收款方资料，合同与劳务均只显�
  assert.match(picker,/bank\.value=""/);
  assert.match(picker,/changeChoice\(\)/);
  assert.match(picker,/seq/);
- assert.match(project,/await bindPayeePicker\(m,pid,false\)/);
- assert.match(finance,/await bindPayeePicker\(m,projects\[0\]\.id,true\)/);
+ assert.doesNotMatch(project,/#addPay|async function openPay\(/);
+ assert.match(finance,/bindPayeePicker\(form,select\.value,true\)/);
  assert.match(src("server/lib/verified-payees.js"),/maskedAccount:"尾号 "\+account\.slice\(-4\)/);
 });
 
