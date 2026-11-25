@@ -174,8 +174,8 @@ test("删除普通材料后清除核销步骤、待办和例外证据，原件�
     "VALUES (?,?,?,?,'比对通过',?,?,?)")
     .run(PID,"课件","删除证据测试-"+m.id,"证据隔离",m.id,"2026-11-25","测试");
   db.prepare("INSERT INTO exceptions(id,pid,step_no,reason,status,created_by,created_at,evidence_material_id,resolution,resolved_at,resolved_by) "+
-    "VALUES (?,1,1,'测试删除证据关联','待复核','测试','2026-11-25',?,'已提供原件','2026-11-25','测试')")
-    .run(exId,m.id);
+    "VALUES (?,?,1,'测试删除证据关联','待复核','测试','2026-11-25',?,'已提供原件','2026-11-25','测试')")
+    .run(exId,PID,m.id);
  });
  const del=await req("exec","DELETE","/api/materials/"+m.id);
  assert.equal(del.status,200,JSON.stringify(del.body));
