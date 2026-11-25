@@ -374,7 +374,7 @@ function contractFileCell(c) {
 
 /* ---------------- 付款 ---------------- */
 function tabPayments(d, p) {
-  const financeDirect=can("payment:pay")&&(state.super||state.user?.role==="finance");
+  const financeDirect=can("payment:pay");
   const payable=PAYABLE.includes(p.status), archived=p.status==="已归档";
   const gate=archived
     ? '<div class="gate" style="margin-bottom:12px"><b>卷宗已封存</b>历史付款及凭证仅供查阅。</div>'
