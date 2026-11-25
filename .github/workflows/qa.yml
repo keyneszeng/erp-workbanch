@@ -4,13 +4,15 @@ on:
   push:
     branches:
       - main
+      - '云服务器测试版本'
+      - 'production-ready-20261030'
       - 'fix/**'
       - 'feat/**'
   pull_request:
     branches:
       - main
       - '云服务器测试版本'
-      - '云服务器测试版本'
+      - 'production-ready-20261030'
 
 permissions:
   contents: read
