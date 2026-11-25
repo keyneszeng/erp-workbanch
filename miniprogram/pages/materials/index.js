@@ -7,7 +7,7 @@ let speakerSeq=0;
 Page({
  data:{projects:[],index:0,pid:"",kind:"课件",name:"",error:"",busy:false,uploaded:"",
   // 兼容未升级的 API；正常情况下以后端共享 MATERIAL_KINDS 为唯一材料类别来源。
-  standardKinds:["立项文件","会议通知","招商函","劳务协议","议程","终版议程","课件","串场","签到表","劳务表","讲者照片","现场照片","会议截图","在线记录","发票","会务发票","权益照片"],
+  standardKinds:["立项文件","会议通知","招商函","议程","终版议程","课件","串场","签到表","劳务表","讲者照片","现场照片","会议截图","在线记录","发票","会务发票","权益照片"],
   activeKinds:[],historyKinds:[],materialRows:[],visibleFiles:[],filesLoading:false,
   custom:false,customKind:"",locked:false,batchResults:[],speakerFiles:[],deletingId:0,
   sponsorRights:[{id:"",label:"请选择赞助权益类目"}],rightIndex:0,rightId:""},
@@ -45,13 +45,13 @@ Page({
    // 兼容旧部署/历史档案：「劳务收集表」只作为数据别名，绝不重新进入可选类别。
    const normalizedKind=k=>k==="劳务收集表"?"劳务表":k;
    const catalog=Array.isArray(data.kinds)&&data.kinds.length?data.kinds:this.data.standardKinds;
-   const retired=new Set(["合同","会务协议"]);
+   const retired=new Set(["合同","会务协议","劳务协议","企业赞助合同","赞助合同","劳务专家合同","专家劳务协议","劳务合同","会务合同"]);
    const kinds=[...new Set(catalog.map(normalizedKind))]
      .filter(k=>!retired.has(k)&&!data.modules?.some(m=>normalizedKind(m.kind)===k&&m.enabled===0));
    const rows=(data.materials||[]).filter(row=>row&&row.filename&&row.kind)
      .map(row=>({...row,kind:normalizedKind(row.kind)}));
    const history=[...new Set(rows.map(row=>row.kind))].filter(k=>!kinds.includes(k)&&!retired.has(k));
-   // 历史合同及会务协议仍保存在服务端，不进入材料收集的可选类别。
+   // 历史合同及劳务协议、会务协议仍保存在服务端，不进入材料收集的可选类别。
    const chosen=this.data.kind;
    const kind=kinds.includes(chosen)||history.includes(chosen)?chosen:(kinds[0]||"现场照片");
    this.setData({activeKinds:kinds,historyKinds:history,materialRows:rows.filter(row=>!retired.has(row.kind)),kind,
@@ -228,8 +228,8 @@ Page({
  async uploadBatch(files){
   if(this.data.busy)return;
   const kind=this.data.custom?this.data.customKind.trim():this.data.kind.trim();
-  if(["合同","会务协议"].includes(kind)){
-   this.setData({error:"合同和会务协议请在合同管理模块上传，不再提供材料收集入口"});return;
+  if(["合同","会务协议","劳务协议","企业赞助合同","赞助合同","劳务专家合同","专家劳务协议","劳务合同","会务合同"].includes(kind)){
+   this.setData({error:"企业赞助合同、会务协议和劳务协议请在合同管理模块统一上传，不再提供材料收集入口"});return;
   }
   const final=kind==="终版议程";
   const pid=this.data.pid;
