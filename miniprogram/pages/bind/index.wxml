@@ -1,12 +1,13 @@
 <view class="wrap">
   <view class="card card-accent">
-    <image class="identity-brand-logo" src="/assets/brand-logo.jpg" mode="aspectFit" aria-label="企业 LOGO"/>
-    <view class="heading" style="text-align:center">微信身份绑定</view>
-    <view class="subtitle" style="text-align:center">首次进入时完成一次验证，后续可通过微信身份安全登录</view>
+    <image class="identity-brand-logo" src="/assets/brand-logo.jpg" mode="aspectFit" aria-label="会规智云品牌标识"/>
+    <view class="page-kicker" style="text-align:center">会规智云</view>
+    <view class="heading" style="text-align:center">手机号快捷登录</view>
+    <view class="subtitle" style="text-align:center">验证手机号后进入会规智云，后续可通过已绑定账号快捷登录。</view>
 
     <view class="notice">
       <text class="notice-icon">i</text>
-      <text>系统将通过微信验证手机号，并自动匹配已有账号权限；非白名单手机号将建立普通用户账号。</text>
+      <text>本系统将验证手机号并匹配已有账号权限；未匹配到已有账号的手机号将创建普通用户账号。</text>
     </view>
 
     <view class="consent-box">
@@ -20,15 +21,15 @@
 
     <view wx:if="{{error}}" class="error"><text class="feedback-icon">!</text><text>{{error}}</text></view>
     <button class="btn primary" open-type="getPhoneNumber" bindgetphonenumber="getPhoneNumber" loading="{{busy}}" disabled="{{busy||!consent}}">
-      微信手机号一键绑定
+      手机号快捷登录
     </button>
-    <view class="privacy-note">绑定信息仅用于本系统登录与数据授权，业务权限由服务器统一管理。</view>
+    <view class="privacy-note">手机号仅用于会规智云账号识别、登录及权限匹配。</view>
   </view>
 
   <view class="card entry-card" bindtap="publicApply">
     <view class="entry-icon public">公众</view>
     <view class="grow">
-      <view class="entry-title">不绑定，直接申请活动</view>
+      <view class="entry-title">无需登录，直接申请活动</view>
       <view class="entry-sub">社会公众活动意向申请无需登录</view>
     </view>
     <view class="chevron">›</view>
