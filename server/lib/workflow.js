@@ -4,7 +4,7 @@ const {contractPool}=require("./labor-contracts");
 const {demandSopState}=require("./meeting-demand-sop");
 const {sponsorRights}=require("./sponsor-rights");
 const { db } = require("./db");
-const {parseTaxFeeRate}=require("./budget-fee");
+const {parseTaxFeeRate,availableBudget,settlementTotals}=require("./budget-fee");
 const {withBudgetFee}=require("./budget-fee");
 const { now, nextId, conflict, forbidden, notFound, bad, cents, yuan } = require("./util");
 const { can, isSuper, ROLES } = require("./rbac");
@@ -101,7 +101,10 @@ function materialsStatus(pid) {
 }
 
 function settlementOf(pid) {
-  return db.prepare("SELECT * FROM settlements WHERE pid = ?").get(pid) || null;
+  const row=db.prepare("SELECT s.*,p.tax_fee_rate AS project_rate FROM settlements s JOIN projects p ON p.id=s.pid WHERE s.pid=?").get(pid);
+  if(!row)return null;
+  const {project_rate,...s}=row;
+  return settlementTotals(s,project_rate);
 }
 
 /**
@@ -337,7 +340,7 @@ function transition(projectId, action, user, payload = {}, ip = "") {
     case "settle": {
       const at = now();
       /**
-       * 结算单只汇总「项目预算 / 已付支出 / 结余」并冻结账目。
+       * 结算单汇总「项目预算 / 可用预算 / 已付支出 / 结余」并冻结账目。
        *
        * 早期版本要求填收款方与银行账户（V1.2.18），但实际资金已在
        * 付款单里逐笔付给各收款方，结算阶段没有新的转账动作；
@@ -352,7 +355,7 @@ function transition(projectId, action, user, payload = {}, ip = "") {
         db.prepare("SELECT COALESCE(ROUND(SUM(amount),2),0) AS s FROM payments WHERE pid = ? AND status = '已付款'")
           .get(p.id).s
       );
-      const profit = yuan(income - expense);
+      const profit = (cents(availableBudget(income,p.tax_fee_rate))-cents(expense))/100;
       const id = nextId(db, "settlements", "id", "ST");
       db.prepare(
         "INSERT INTO settlements (id,pid,income,expense,profit,tax_fee_rate,payee,payee_bank,payee_account,status,created_by,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)"
