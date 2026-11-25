@@ -49,7 +49,8 @@ const assert=require("node:assert/strict");
   await page.locator('.ux-checkpoints [data-tab="materials"]').click();
   await page.locator('.tabs [data-tab="materials"].on').waitFor();
   await page.goto(origin+"/#/materials");
-  await page.locator("#add").waitFor({timeout:12000});
+  await page.locator("#materialFolderGrid").waitFor({timeout:12000});
+  assert.equal(await page.locator("#add").count(),0,"材料收集首页不再显示登记材料按钮");
   assert.equal(await page.locator("#materialWorkbench").count(),0,
     "deprecated final-agenda module and task panel must be removed");
   assert.doesNotMatch(await page.locator("body").innerText(),
@@ -63,9 +64,13 @@ const assert=require("node:assert/strict");
   await page.getByText("已收集材料详情",{exact:true}).waitFor({timeout:12000});
   await page.locator('#content [data-go="materials"]').click();
   await page.locator("#materialFolderGrid").waitFor({timeout:12000});
-  await page.locator("#add").click();
+  const writable=projects.find(p=>["筹备中","执行中","待核销","已核销"].includes(p.status));
+  assert.ok(writable,"demo must have a writable meeting");
+  await page.locator('[data-material-project="'+writable.id+'"]').click();
+  await page.locator('[data-guide-kind="终版议程"]').click();
+  await page.locator('#modal.open [name="kind"]').waitFor({timeout:12000});
   assert.equal(await page.locator('#modal [name="version"]').count(),0,
-    "登记材料表单应彻底移除版本输入框");
+    "类别直传表单应彻底移除版本输入框");
   const sizeBoundary=await page.evaluate(async()=>{
     const {MAX_UPLOAD_BYTES,checkFile}=await import("/assets/js/lib/upload.js");
     return {max:MAX_UPLOAD_BYTES,exact:checkFile({name:"large.pdf",size:50*1024*1024}),
@@ -76,7 +81,9 @@ const assert=require("node:assert/strict");
   assert.match(sizeBoundary.over,/50(?:\.0)? MB/,"超出 50MB 须明确拦截并提示上限");
   const options=await page.locator('#modal [name="kind"] option').allTextContents();
   assert.ok(options.some(x=>x.includes("权益照片")),"rights photos must be available in material category options");
-  assert.ok(options.some(x=>x.includes("终版议程")),"final agenda must be a material registration category");
+  assert.ok(options.some(x=>x.includes("终版议程")),"final agenda must be a material upload category");
+  assert.ok(!options.includes("合同")&&!options.includes("会务协议"),
+    "retired contract and service-agreement categories cannot be uploaded");
   assert.doesNotMatch((await page.locator("#modal").innerText()),/必备.?8|8.?类.*必备/,
     "material form must not claim eight categories are mandatory");
   await page.locator('#modal [name="kind"]').selectOption("终版议程");
