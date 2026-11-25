@@ -63,15 +63,6 @@
     </view>
   </view>
 
-  <view wx:if="{{!loading}}" class="card space-sm entry-card" bindtap="publicApply">
-    <view class="entry-icon public">公众</view>
-    <view class="grow">
-      <view class="entry-title">社会公众活动申请</view>
-      <view class="entry-sub">免登录提交意向，不进入内部立项审批</view>
-    </view>
-    <view class="chevron">›</view>
-  </view>
-
   <view wx:if="{{!loading && isExecutor}}" class="notice">
     <text class="notice-icon">i</text>
     <text>材料、审批和项目进度来自同一 ERP；付款与核销操作仍由服务器按角色授权。</text>
