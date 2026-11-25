@@ -50,7 +50,8 @@ function detachDeletedMaterialEvidence(db,pid,deletedRows,stamp,operator){
     "WHERE pid=? AND material_id IN ("+placeholders+")"
   ).run(stamp,operator,pid,...params);
   const exceptionResult=db.prepare(
-    "UPDATE exceptions SET evidence_material_id=NULL,resolution=NULL,resolved_at=NULL,resolved_by=NULL "+
+    "UPDATE exceptions SET evidence_material_id=NULL,resolution=NULL,resolved_at=NULL,resolved_by=NULL, "+
+    "status=CASE WHEN status='已闭环' THEN '待复核' ELSE status END "+
     "WHERE pid=? AND evidence_material_id IN ("+placeholders+")"
   ).run(pid,...params);
 
