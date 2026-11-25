@@ -248,7 +248,7 @@ function openCreate(root, projects, defaultPid = "") {
       const base=(r.message||"合同已登记")+(r.sponsorId?"；已关联会议收入 "+r.sponsorId:"");
       toast(r.warning?base+"；"+r.warning:base,r.warning?"warn":"ok");
       m.classList.remove("open");
-      await render(root);
+      await render(root, defaultPid ? [defaultPid] : []);
     }catch(e){toast(e.message,"warn");btn.disabled=false;btn.textContent="保存";}
   };
 }
