@@ -104,14 +104,14 @@ async function testExports(page, role, route) {
           page.waitForEvent("download",{timeout:12000}),
           confirm.click({timeout:8000})
         ]);
-        check(role,route,"实际导出多会议付款明细",/\\.csv$/i.test(item.suggestedFilename()),item.suggestedFilename());
+        check(role,route,"实际导出多会议付款明细",/\.csv$/i.test(item.suggestedFilename()),item.suggestedFilename());
         continue;
       }
       const [item]=await Promise.all([
         page.waitForEvent("download",{timeout:12000}),
         el.click({timeout:8000})
       ]);
-      check(role, route, "实际导出 " + sel, /\\.(csv|xlsx|pdf|zip)$/i.test(item.suggestedFilename()), item.suggestedFilename());
+      check(role, route, "实际导出 " + sel, /\.(csv|xlsx|pdf|zip)$/i.test(item.suggestedFilename()), item.suggestedFilename());
     } catch (err) {
       check(role, route, "实际导出 " + sel, false, err.message);
     } finally {
@@ -170,7 +170,7 @@ async function inspectRoute(page, role, route) {
     }
     await testExports(page, role, route);
     if (route === "users") {
-      check(role, route, "权限矩阵显示", /角色权限矩阵/.test(await page.locator("#content").innerText()));
+      check(role, route, "按账号分配权限界面", /按账号分配权限/.test(await page.locator("#content").innerText()));
       check(role, route, "重置危险操作入口符合环境边界", (await page.locator("#resetAll").count()) === (ALIYUN_TEST ? 0 : 1));
     }
   } catch (err) {
@@ -206,7 +206,7 @@ async function inspectDetail(page, role) {
     }
     for (const tab of tabs) {
       try {
-        await page.locator('#content button[data-tab="' + tab + '"]').click({ timeout: 10000 });
+        await page.locator('#content .tabs button[data-tab="' + tab + '"]').click({ timeout: 10000 });
         await page.waitForTimeout(180);
         const t = await page.locator("#tabbody").innerText({ timeout: 10000 });
         check(role, "project-detail", "业务页签 " + tab, t.length > 0 && !/页面加载失败/.test(t), t.slice(0, 90));
