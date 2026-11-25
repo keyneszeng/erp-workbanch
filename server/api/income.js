@@ -55,13 +55,17 @@ function incomeSummary(pid,budget) {
 }
 // 专项权限：协会财务只获得赞助收入管理权，不授予普通支出合同审批权。
 const sponsorManager=user=>isSuper(user)||user?.role==="finance";
+// 回款及开票登记不改变核销结论；已有付款执行授权可登记至结算前。
+const canRecordIncome=user=>sponsorManager(user)||can(user,"payment:pay");
 const incomeFrozen=p=>["已结算","已归档"].includes(p.status)||!!db.prepare("SELECT 1 FROM settlements WHERE pid=?").get(p.id);
 function writable(ctx,p,perm){
   assertProjectVisible(ctx.user,p);
-  if(!(sponsorManager(ctx.user)&&["contract:write","payment:pay"].includes(perm)))assertCan(ctx.user,perm);
+  if(perm==="payment:pay"){
+    if(!canRecordIncome(ctx.user))assertCan(ctx.user,perm,"需要付款执行权限才能登记赞助回款及开票");
+  }else if(!(sponsorManager(ctx.user)&&perm==="contract:write"))assertCan(ctx.user,perm);
   assertNotFrozen(p,"会议赞助收入");
   if(incomeFrozen(p))throw conflict("会议已结算，赞助收入已冻结","FROZEN");
-  if(p.status==="已核销"&&!sponsorManager(ctx.user))throw conflict("项目已核销，仅总管理员和协会财务可维护赞助收入","INCOME_FROZEN");
+  if(p.status==="已核销"&&perm!=="payment:pay"&&!sponsorManager(ctx.user))throw conflict("项目已核销，仅总管理员和协会财务可维护赞助合同","INCOME_FROZEN");
 }
 function assertSponsorManager(ctx,p){
   assertProjectVisible(ctx.user,p);
@@ -183,7 +187,7 @@ function register(router){
       editContracts:unlocked&&(sponsorManager(ctx.user)||can(ctx.user,"contract:write")),
       correctContracts:!frozen&&sponsorManager(ctx.user),
       approveContracts:unlocked&&can(ctx.user,"contract:approve"),
-      recordFinance:unlocked&&(sponsorManager(ctx.user)||can(ctx.user,"payment:pay")),frozen},
+      recordFinance:!frozen&&canRecordIncome(ctx.user),frozen},
       rights:sponsorRights(db,p.id).rights,
       contracts:db.prepare("SELECT * FROM meeting_sponsor_contracts WHERE pid=? ORDER BY created_at DESC").all(p.id),
       receipts:db.prepare("SELECT * FROM meeting_sponsor_receipts WHERE pid=? ORDER BY created_at DESC").all(p.id),
