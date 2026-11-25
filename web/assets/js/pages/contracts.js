@@ -35,10 +35,19 @@ function fileCell(c) {
     title="${esc(c.file_key ? c.file_name || "查看合同原件" : "查看合同详情")}">详情<span class="ftag${c.file_key ? "" : " off"}">${tag}</span></button>`;
 }
 
-export async function render(root) {
+export async function render(root, params = []) {
+  const pid = String(params[0] || "");
   const seq = ++renderSeq;
-  const [c, proj] = await Promise.all([api.get("/api/contracts"), api.get("/api/projects")]);
+  const [c, proj] = await Promise.all([
+    api.get("/api/contracts" + (pid ? "?pid=" + encodeURIComponent(pid) : "")),
+    api.get("/api/projects")
+  ]);
   if (seq !== renderSeq) return;
+  const project = pid ? (proj.rows || []).find(p => p.id === pid) : null;
+  if (pid && !project) {
+    root.innerHTML = '<div class="panel">会议项目不存在或不在当前账号的合同查看范围内。<button type="button" class="btn btn-o" data-go="materials">返回材料收集</button></div>';
+    return;
+  }
   const rows = c.rows.filter((r) => !q || (r.name + r.vendor + r.pname + r.id).includes(q));
   const expenseRows=rows.filter(r=>r.category!=="企业赞助"&&r.status!=="已终止");
   const total = expenseRows.reduce((s, r) => s + Number(r.amount || 0), 0);
@@ -79,42 +88,42 @@ export async function render(root) {
         })), { empty: "暂无合同" })}
     </div>`;
 
-  bindSearchRefresh(root, "#q", value => { q = value; }, () => render(root));
+  bindSearchRefresh(root, "#q", value => { q = value; }, () => render(root, params));
   const expBtn = root.querySelector("#exp");
   if (expBtn) expBtn.onclick = async () => {
     try { const r = await api.download("/api/export/contracts"); toast(`已导出 ${r.name}`, "ok"); }
     catch (e) { toast(e.message, "warn"); }
   };
   const nb = root.querySelector("#newC");
-  if (nb) nb.onclick = () => openCreate(root, proj.rows);
+  if (nb) nb.onclick = () => openCreate(root, pid ? [project] : proj.rows, pid);
   root.querySelectorAll("[data-cflow]").forEach((b) => b.onclick = () => {
     if(b.dataset.caction==="sign") {
       const row=rows.find(c=>c.id===b.dataset.cflow);
-      if(row){openContractDetail(row,{startConfirm:true,onDone:()=>render(root)});return;}
+      if(row){openContractDetail(row,{startConfirm:true,onDone:()=>render(root,params)});return;}
     }
-    return contractFlow(root,b.dataset.cflow,b.dataset.caction);
+    return contractFlow(root,b.dataset.cflow,b.dataset.caction,params);
   });
   // 详情弹窗：从当前过滤后的 rows 里取，避免为了看一眼原件再打一次接口
   root.querySelectorAll("[data-edit-contract-category]").forEach(b=>b.onclick=()=>{
     const row=rows.find(r=>r.id===b.dataset.editContractCategory);
-    if(row)openContractCategoryEdit(row,()=>render(root));
+    if(row)openContractCategoryEdit(row,()=>render(root,params));
   });
   root.querySelectorAll("[data-replace-ledger-file]").forEach(b=>b.onclick=()=>{
     const row=rows.find(r=>Number(r.material_id)===Number(b.dataset.replaceLedgerFile));
     if(!row)return;
     openContractMaterialReplace({id:row.material_id,pid:row.pid,kind:"合同",
-      name:row.name,file_key:row.file_key,file_name:row.file_name},()=>render(root));
+      name:row.name,file_key:row.file_key,file_name:row.file_name},()=>render(root,params));
   });
   root.querySelectorAll("[data-cdet]").forEach((b) => {
     b.onclick = () => {
       const row = rows.find((r) => r.id === b.dataset.cdet);
-      if (row) openContractDetail(row, { onDone: () => render(root) });
+      if (row) openContractDetail(row, { onDone: () => render(root, params) });
     };
   });
 }
 
 /** 合同两步流转：提交签署 → 确认签署（确认时签署日期记为今天，可在台账核对） */
-async function contractFlow(root, id, action) {
+async function contractFlow(root, id, action, params = []) {
   let reason="";
   if(action==="reject"){
     reason=await promptBox({title:"驳回合同签署",label:"驳回理由（4～500 字）",ok:"确认驳回"});
@@ -134,9 +143,9 @@ async function contractFlow(root, id, action) {
   } catch (e) { toast(e.message, "warn"); }
 }
 
-function openCreate(root, projects) {
+function openCreate(root, projects, defaultPid = "") {
   const fields=[
-    { k:"pid",l:"所属项目",t:"select",req:1,opts:projects.map(p=>({v:p.id,l:p.id+" "+p.name})) },
+    { k:"pid",l:"所属项目",t:"select",req:1,v:defaultPid,opts:projects.map(p=>({v:p.id,l:p.id+" "+p.name})) },
     { k:"name",l:"合同名称",req:1,full:1 },
     { k:"vendor",l:"签约方",req:1 },
     { k:"amount",l:"合同金额（元）",t:"number",req:1,
