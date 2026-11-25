@@ -15,6 +15,26 @@ const office=require("../lib/verify-office-text");
 const ocr=require("../lib/ocr-engine");
 const {parseTaxFeeRate}=require("../lib/budget-fee");
 const FORMS=new Set(["线下","线上","混合"]);
+// 公众申请按中国标准时间的实际提交日编号，不使用活动举办日或机器本地时区。
+// 例如 P20261125001；每天重新从 001 开始，超 999 时自然扩展位数。
+function proposalSubmissionDay(date=new Date()){
+ const parts=new Intl.DateTimeFormat("en-GB",{
+  timeZone:"Asia/Shanghai",year:"numeric",month:"2-digit",day:"2-digit"
+ }).formatToParts(date);
+ const part=type=>parts.find(x=>x.type===type)?.value||"";
+ return part("year")+part("month")+part("day");
+}
+/** 同一个 transaction() 中先分配流水、再检查限流并保存申请。 */
+function nextPublicProposalId(database,day){
+ if(!/^\d{8}$/.test(day))throw bad("公众申请编号日期无效");
+ // 首次写入即占用写锁，同日并发分配不会读取到相同的 last_seq。
+ database.prepare("INSERT INTO public_proposal_sequences(day,last_seq) VALUES (?,1) "+
+  "ON CONFLICT(day) DO UPDATE SET last_seq=last_seq+1").run(day);
+ const seq=Number(database.prepare("SELECT last_seq FROM public_proposal_sequences WHERE day=?").get(day)?.last_seq);
+ if(!Number.isSafeInteger(seq)||seq<1)throw bad("公众申请编号生成失败");
+ return "P"+day+String(seq).padStart(3,"0");
+}
+
 function str(v,max,label,{required=true}={}){
  if(typeof v!=="string")throw bad(label+"格式不正确");
  const s=v.trim();
@@ -134,18 +154,23 @@ function register(router){
   if(process.env.ERP_PUBLIC_PROPOSALS_ENABLED==="0")
    throw Object.assign(new Error("公众活动申请入口暂未开放"),{status:503,code:"PUBLIC_PROPOSALS_DISABLED"});
   const v=validate(ctx.body);
-  const hash=fingerprint(publicSourceIp(ctx)),at=new Date().toISOString();
-  const since=new Date(Date.now()-60*60*1000).toISOString();
-  const recent=db.prepare("SELECT COUNT(*) AS n FROM public_event_proposals WHERE submitter_fingerprint=? AND received_at>=?").get(hash,since);
-  if(Number(recent?.n)>=8)
-   throw Object.assign(new Error("提交过于频繁，请稍后再试"),{status:429,code:"PUBLIC_PROPOSAL_RATE_LIMIT"});
-  const id="PP-"+crypto.randomBytes(12).toString("hex");
-  db.prepare("INSERT INTO public_event_proposals "+
-   "(id,topic,event_date,event_time,form,budget,agenda,contact_name,contact_phone,contact_info,consent_at,received_at,submitter_fingerprint,status,"+
-   "event_end_date,event_end_time,requested_assoc,dept,people,tax_fee_rate) "+
-   "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
-   .run(id,v.topic,v.event_date,v.event_time,v.form,v.budget,v.agenda,v.contact_name,v.contact_phone,v.contact_info,at,at,hash,"已接收",
-     v.event_end_date,v.event_end_time,v.requested_assoc,v.dept,v.people,v.tax_fee_rate);
+  const received=new Date(),at=received.toISOString();
+  const day=proposalSubmissionDay(received),hash=fingerprint(publicSourceIp(ctx));
+  const since=new Date(received.getTime()-60*60*1000).toISOString();
+  // 流水分配、限流和写入在同一事务；提交失败回滚流水，避免重复与虚假占号。
+  const id=transaction(()=>{
+   const allocated=nextPublicProposalId(db,day);
+   const recent=db.prepare("SELECT COUNT(*) AS n FROM public_event_proposals WHERE submitter_fingerprint=? AND received_at>=?").get(hash,since);
+   if(Number(recent?.n)>=8)
+    throw Object.assign(new Error("提交过于频繁，请稍后再试"),{status:429,code:"PUBLIC_PROPOSAL_RATE_LIMIT"});
+   db.prepare("INSERT INTO public_event_proposals "+
+    "(id,topic,event_date,event_time,form,budget,agenda,contact_name,contact_phone,contact_info,consent_at,received_at,submitter_fingerprint,status,"+
+    "event_end_date,event_end_time,requested_assoc,dept,people,tax_fee_rate) "+
+    "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
+    .run(allocated,v.topic,v.event_date,v.event_time,v.form,v.budget,v.agenda,v.contact_name,v.contact_phone,v.contact_info,at,at,hash,"已接收",
+      v.event_end_date,v.event_end_time,v.requested_assoc,v.dept,v.people,v.tax_fee_rate);
+   return allocated;
+  });
   return {reference:id,status:"已接收",message:"活动申请已送达总管理员收件箱，此提交不进入内部立项审批流程"};
  });
  router.get("/api/admin/public-event-proposals",async ctx=>{
@@ -208,4 +233,4 @@ function register(router){
     message:output.alreadyConverted?"该公众申请已有内部项目，已返回原项目":"已转入内部立项并保存为草稿（未提交审批）"};
  });
 }
-module.exports={register,validate,recognizeAgenda};
+module.exports={register,validate,recognizeAgenda,proposalSubmissionDay,nextPublicProposalId};
