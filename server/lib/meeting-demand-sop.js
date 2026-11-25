@@ -59,6 +59,19 @@ function demandSopState(db,pid){
   "AND (deleted_at IS NULL OR deleted_at='') AND file_key IS NOT NULL AND file_key<>'' ORDER BY id"
  ).all(pid);
  const agreements=materials.filter(m=>isMeetingAgreement(m,byKey));
+ // Newly uploaded 会务协议 originals live in the contract ledger, not the
+ // materials upload catalogue. Expose signed ledger originals once, without
+ // resurrecting any deleted material mirror or accepting labor/sponsor files.
+ const historicalKeys=new Set(db.prepare(
+  "SELECT DISTINCT file_key FROM materials WHERE pid=? AND file_key IS NOT NULL AND file_key<>''"
+ ).all(pid).map(row=>String(row.file_key)));
+ for(const contract of allLedger){
+  if(contract.deleted_at||contract.status!=="已签署"||contract.category!==MEETING||
+     historicalKeys.has(String(contract.file_key)))continue;
+  if((byKey.get(contract.file_key)||[]).length!==1)continue;
+  agreements.push({id:"ledger:"+contract.id,kind:"会务协议",name:contract.name,
+   file_name:contract.name+".pdf",file_key:contract.file_key,version:"合同台账原件"});
+ }
  const agreementKeys=new Set(agreements.map(x=>x.file_key));
  const contracts=db.prepare(
   "SELECT id,name,category,amount,status,file_key FROM contracts WHERE pid=? AND deleted_at IS NULL AND status='已签署' ORDER BY id"
