@@ -17,7 +17,7 @@ export const NAV = [
   { k: "projects", n: "项目管理", items: [
     { k: "projects", n: "会议项目" },
     { k: "approvals", n: "审批中心", need: () => can("project:approve") || can("verify:exception_approve") || can("payment:approve") || can("contract:approve") },
-    { k: "contracts", n: "合同台账", need: () => can("contract:write") || can("contract:approve") },
+    { k: "contracts", n: "合同台账", need: () => state.role?.modules?.includes("prep") || can("contract:write") || can("contract:approve") },
     { k: "prep-invitations", n: "企业邀请（招商）/嘉宾邀请", need: () => can("invite:manage") }
   ] },
   { k: "demand", n: "会务需求", items: [{ k: "demand", n: "需求确认" }] },
@@ -46,7 +46,7 @@ export function canVisit(nav) {
      "verify:check","verify:exception","verify:exception_approve","verify:conclude","archive:write",
      "archive:download","ledger:read"].some(can)))return true;
   // 合同录入/审批权独立于其他筹备模块；可用合同权限访问合同台账与审批中心。
-  if(nav==="contracts"&&(can("contract:write")||can("contract:approve")))return true;
+  if(nav==="contracts"&&(mods.includes("prep")||can("contract:write")||can("contract:approve")))return true;
   if(nav==="approvals"&&["project:approve","verify:exception_approve","payment:approve","contract:approve"].some(can))return true;
   if(nav==="dashboard"&&!mods.includes("dashboard"))return true; // 无功能授权时展示安全待授权提示
   for (const g of NAV) {
