@@ -215,6 +215,16 @@ jobs:
         run: ERP_DEMO_MODE=1 node test/ui/demand.js
       - name: "Black-box Web UI smoke: workbench, project, materials and finance"
         run: node test/ui/prototype-visual-smoke.js
+      - name: "Black-box five-role button, navigation, tabs, permissions and exports"
+        run: ERP_DEMO_MODE=1 node test/ui/role-button-blackbox.js
+      - name: Upload five-role Chrome black-box coverage evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: five-role-button-coverage
+          path: artifacts/live-regression/
+          if-no-files-found: ignore
+          retention-days: 7
       - name: Assert Cloudflare demo-only config and blocked production deploy
         run: |
           node scripts/check-cloudflare-demo.cjs
