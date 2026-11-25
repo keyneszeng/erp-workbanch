@@ -33,16 +33,17 @@
       <view class="field-hint">权益类目需先在 Web 端确认，照片才能关联到对应赞助合同。</view>
     </view>
     <view class="category-upload-caption">当前类别：{{custom?(customKind||'请填写自定义类别'):kind}}</view>
+    <view wx:if="{{categoryDisabled}}" class="field-hint">当前材料类别已停用，仅可查看历史附件。</view>
     <view class="notice"><text class="notice-icon">i</text><text>每份材料自动采用对应文件名，无须逐份手工填写名称。单批最多10份。</text></view>
     <view wx:if="{{!custom&&kind==='讲者照片'}}" class="field-hint">讲者照片：可直接用下方「拍照或从相册选择」批量选图，选完逐张填写讲者姓名（姓名即材料名称）；也可从微信会话选择已用姓名命名的图片（如张三.jpg），系统按文件名关联。</view>
     <view wx:if="{{!custom&&kind==='终版议程'}}" class="field-hint">可同时选择最多10份议程，按选择顺序登记，最后一份作为唯一当前终版，其余为历史版。</view>
     <view wx:if="{{error}}" class="error"><text class="feedback-icon">!</text><text>{{error}}</text></view>
     <view wx:if="{{uploaded}}" class="success-note"><text class="feedback-icon">✓</text><text>{{uploaded}}</text></view>
 
-    <button class="upload-panel" loading="{{busy}}" disabled="{{busy||locked||!pid||(custom&&!customKind)||(!custom&&kind==='权益照片'&&!rightId)}}" bindtap="addPhoto">
+    <button class="upload-panel" loading="{{busy}}" disabled="{{busy||locked||filesLoading||categoryDisabled||!pid||(custom&&!customKind)||(!custom&&kind==='权益照片'&&!rightId)}}" bindtap="addPhoto">
       <view class="upload-icon">照</view><view class="upload-title">拍照或从相册选择</view><view class="upload-sub">{{!custom&&kind==='讲者照片'?'相册批量选图，选完逐张填写讲者姓名':'相册可批量选择照片，每批最多10份'}}</view>
     </button>
-    <button class="upload-panel" loading="{{busy}}" disabled="{{busy||locked||!pid||(custom&&!customKind)||(!custom&&kind==='权益照片'&&!rightId)}}" bindtap="addFile">
+    <button class="upload-panel" loading="{{busy}}" disabled="{{busy||locked||filesLoading||categoryDisabled||!pid||(custom&&!customKind)||(!custom&&kind==='权益照片'&&!rightId)}}" bindtap="addFile">
       <view class="upload-icon" style="background:#1f5f8b">档</view><view class="upload-title">从微信会话选择文件</view><view class="upload-sub">一次最多选择10份 Office、PDF、CSV、TXT 或图片</view>
     </button>
     <view wx:if="{{!custom&&kind==='讲者照片'&&speakerFiles.length}}" class="speaker-block">
@@ -59,7 +60,7 @@
         </view>
         <view wx:if="{{!busy}}" class="speaker-del" data-index="{{index}}" bindtap="removeSpeaker">移除</view>
       </view>
-      <button class="btn primary speaker-submit" loading="{{busy}}" disabled="{{busy||locked||!pid}}" bindtap="uploadSpeakers">上传并归档（{{speakerFiles.length}} 张）</button>
+      <button class="btn primary speaker-submit" loading="{{busy}}" disabled="{{busy||locked||filesLoading||categoryDisabled||!pid}}" bindtap="uploadSpeakers">上传并归档（{{speakerFiles.length}} 张）</button>
     </view>
     <view wx:if="{{batchResults.length}}" class="card">
       <view class="section-caption">本批文件进度 · {{batchResults.length}}份</view>
