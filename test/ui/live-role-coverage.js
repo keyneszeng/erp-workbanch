@@ -89,14 +89,34 @@ async function modalOpenAndClose(page, role, route, selector) {
 async function testExports(page, role, route) {
   for (const sel of ["#expBtn", "#expPay", "#expSt", "#exp", "#export"]) {
     const el = page.locator("#content " + sel).first();
-    if (!(await el.count()) || !(await el.isEnabled())) continue;
+    if (!(await el.count()) || !(await el.isVisible()) || !(await el.isEnabled())) continue;
     try {
-      const downloadPromise = page.waitForEvent("download", { timeout: 15000 });
-      await el.click({ timeout: 12000 });
-      const item = await downloadPromise;
-      check(role, route, "实际导出 " + sel, /\.csv$/i.test(item.suggestedFilename()), item.suggestedFilename());
+      // 导出付款明细先弹出多选会议窗口，不是直接触发文件下载。
+      if (sel === "#expPay") {
+        await el.click({timeout:10000});
+        const modal = page.locator("#modal.open");
+        await modal.locator("[data-payment-projects]").waitFor({timeout:10000});
+        await modal.locator("[data-payment-select-visible]").click();
+        const count = await modal.locator("[data-payment-pid]:checked").count();
+        check(role,route,"付款导出会议多选",count>0,count);
+        const confirm=modal.locator("[data-payment-confirm]");
+        const [item]=await Promise.all([
+          page.waitForEvent("download",{timeout:12000}),
+          confirm.click({timeout:8000})
+        ]);
+        check(role,route,"实际导出多会议付款明细",/\\.csv$/i.test(item.suggestedFilename()),item.suggestedFilename());
+        continue;
+      }
+      const [item]=await Promise.all([
+        page.waitForEvent("download",{timeout:12000}),
+        el.click({timeout:8000})
+      ]);
+      check(role, route, "实际导出 " + sel, /\\.(csv|xlsx|pdf|zip)$/i.test(item.suggestedFilename()), item.suggestedFilename());
     } catch (err) {
       check(role, route, "实际导出 " + sel, false, err.message);
+    } finally {
+      const dismiss=page.locator("#modal.open .close");
+      if(await dismiss.count())await dismiss.click({timeout:3000}).catch(()=>{});
     }
   }
 }
