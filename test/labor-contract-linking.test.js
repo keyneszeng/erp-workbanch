@@ -152,3 +152,21 @@ test("已软删除/终止的劳务台账合同不再进入第5项核销，也不
   "恢复为草稿需重新走签署流程，但不应在材料池造成幽灵引用");
  db.close();
 });
+
+test("仅在合同台账上传的劳务协议也可按完整姓名核对且不需要材料镜像",()=>{
+ const {db,ledger}=fixture();
+ ledger("expert-only.pdf","张三","劳务专家");
+ const pool=contractPool(db,project.id);
+ assert.equal(pool.rows.length,1);
+ assert.ok(String(pool.rows[0].id).startsWith("ledger:"));
+ assert.equal(linkLaborContracts(db,project.id,["张三"]).linked.length,1);
+ assert.deepEqual(linkLaborContracts(db,project.id,["李四"]).missing,["李四"]);
+ db.close();
+});
+test("曾被删除的材料合同镜像不被无材料后备索引重新纳入核销",()=>{
+ const {db,add,ledger}=fixture();
+ add(project.id,"劳务专家合同","张三劳务协议","张三.pdf","tombstone.pdf","2026-11-25");
+ ledger("tombstone.pdf","张三","劳务专家");
+ assert.equal(contractPool(db,project.id).rows.length,0);
+ db.close();
+});
