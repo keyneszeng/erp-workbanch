@@ -8,7 +8,7 @@ Page({
  data:{projects:[],index:0,pid:"",kind:"课件",name:"",error:"",busy:false,uploaded:"",
   // 兼容未升级的 API；正常情况下以后端共享 MATERIAL_KINDS 为唯一材料类别来源。
   standardKinds:["立项文件","会议通知","招商函","劳务协议","议程","终版议程","课件","串场","签到表","劳务表","讲者照片","现场照片","会议截图","在线记录","发票","会务发票","权益照片"],
-  activeKinds:[],historyKinds:[],legacyMaterials:[],materialRows:[],visibleFiles:[],filesLoading:false,
+  activeKinds:[],historyKinds:[],materialRows:[],visibleFiles:[],filesLoading:false,
   custom:false,customKind:"",locked:false,batchResults:[],speakerFiles:[],deletingId:0,
   sponsorRights:[{id:"",label:"请选择赞助权益类目"}],rightIndex:0,rightId:""},
  onLoad(q){if(q.pid)this.setData({pid:q.pid});},
@@ -27,7 +27,7 @@ Page({
    let index=projects.findIndex(x=>x.id===this.data.pid);if(index<0)index=0;
    const p=projects[index];
    this.setData({projects,index,pid:p?.id||"",locked:!p||["已结算","已归档"].includes(p.status),
-     materialRows:[],visibleFiles:[],historyKinds:[],legacyMaterials:[],filesLoading:!!p});
+     materialRows:[],visibleFiles:[],historyKinds:[],filesLoading:!!p});
    if(p){await this.loadKinds(p.id);if(this.data.kind==="权益照片")await this.loadRights(p.id);}
   }catch(e){this.setData({error:e.message});}
  },
@@ -51,10 +51,10 @@ Page({
    const rows=(data.materials||[]).filter(row=>row&&row.filename&&row.kind)
      .map(row=>({...row,kind:normalizedKind(row.kind)}));
    const history=[...new Set(rows.map(row=>row.kind))].filter(k=>!kinds.includes(k)&&!retired.has(k));
-   const legacyMaterials=rows.filter(row=>retired.has(row.kind));
+   // 历史合同及会务协议仍保存在服务端，不进入材料收集的可选类别。
    const chosen=this.data.kind;
    const kind=kinds.includes(chosen)||history.includes(chosen)?chosen:(kinds[0]||"现场照片");
-   this.setData({activeKinds:kinds,historyKinds:history,legacyMaterials,materialRows:rows,kind,
+   this.setData({activeKinds:kinds,historyKinds:history,materialRows:rows.filter(row=>!retired.has(row.kind)),kind,
      filesLoading:false,...(preserveError?{}:{error:""})});
    this.syncVisibleFiles();
   }catch(e){
