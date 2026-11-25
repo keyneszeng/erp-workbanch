@@ -17,7 +17,7 @@ test("核销 CSV 有七项结果，不让例外单错位",()=>{
 });
 test("财务直接付款单页与历史审批付款共存，必须勾选并上传付款凭证",()=>{
   const project="web/assets/js/pages/project.js",finance="web/assets/js/pages/finance.js";
-  has(project,'k: "period", l: "期次');
+  has(project,"y.period"); // 旧付款期次只读展示；新付款从财务单页直接登记
   has(finance,'期次（分期付款填）');
   for(const p of [project,finance]){
     has(p,'y.status==="已审批"&&can("payment:pay")');
@@ -80,7 +80,7 @@ test("财务 KPI 不随状态页签筛选清零且导出账户按权限脱敏",(
 });
 test("核销第6项及合同待办审批权限口径统一",()=>{
   has("web/assets/js/pages/demand.js","核销第6项");
-  has("web/assets/js/pages/project.js","例外单审批通过不等于核销通过");
+  has("server/lib/workflow.js","不接受缺少证据的旧结论或以例外审批代替核销");
   has("server/api/system.js",'a.type === "合同审批" ? can(user, "contract:approve")');
 });
 
