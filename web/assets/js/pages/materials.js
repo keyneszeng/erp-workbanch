@@ -163,7 +163,7 @@ export function openMaterialRegistration(root, projects, kinds, defaultPid="", o
       '<div data-material-file-list aria-live="polite" class="fld full" style="grid-column:1/-1;margin-top:10px">'+
       '<div class="hint">选择文件后，系统将在此列出每份文件的材料名称及上传状态。</div></div>'+
       '<div class="hint" data-material-batch-status role="status" aria-live="polite" style="margin:10px 0"></div>',
-    footer:'<button class="btn btn-o" data-x="0">取消</button><button class="btn btn-p" data-x="1">上传并登记</button>'
+    footer:'<button class="btn btn-o" data-x="0">取消</button><button class="btn btn-p" data-x="1">确认上传资料</button>'
   });
   const picker=m.querySelector('input[name="file"]');
   const kindSelect=m.querySelector('[name="kind"]');
@@ -235,7 +235,7 @@ export function openMaterialRegistration(root, projects, kinds, defaultPid="", o
     rightField.style.display=rightsPhoto?"":"none";
     picker.multiple=true;
     picker.accept=photo||rightsPhoto?".jpg,.jpeg,.png,.webp":UPLOAD_ACCEPT;
-    saveButton.textContent="上传并登记";
+    saveButton.textContent="确认上传资料";
     const tip=m.querySelector(".upload")?.closest(".fld")?.querySelector(".tip");
     if(tip)tip.textContent=final
       ?`终版议程一次可选择最多 ${MAX_MATERIAL_FILES_PER_BATCH} 份；按选择顺序登记，最后一份确认为当前终版，其余归为历史版。`
