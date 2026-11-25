@@ -60,6 +60,77 @@ function cover(project){
  assoc.slice(0,3).forEach((line,i)=>ops.push(textOp(line,70,390-i*29,16,"0.28 0.32 0.39")));
  return createCjkPage(ops);
 }
+/**
+ * Archive page 2 is a read-only snapshot of the *same* project-ledger
+ * reconciliation shown in 项目台账 (buildDetail), not a second set of totals.
+ * Payment categories include legacy pending / rejected records, but paid
+ * values count only status 已付款. The report never exposes bank accounts.
+ * If historical projects have many custom payment categories, the table
+ * continues on additional pages without truncating the accounting records.
+ */
+function ledgerPages(detail){
+ if(!detail)return [];
+ const pages=[];
+ let ops=[],y=0,continued=false;
+ const newPage=()=>{
+  ops=[
+   textOp(continued?"项目台账 · 分类付款对照（续页）":"项目台账 · 结算单＋分类付款对照",48,791,18,"0.10 0.23 0.38"),
+   textOp("会议编号："+sanitize(detail.meeting_no||""),48,754,11),
+   textOp("会议名称："+sanitize(detail.project_name||"").slice(0,38),48,733,11),
+   textOp("所属协会："+sanitize(detail.association||"").slice(0,38),48,712,10)
+  ];
+  y=672;continued=true;
+ };
+ const flush=()=>{pages.push(createCjkPage(ops));};
+ const line=(text,{size=11,step=24,color="0.16 0.25 0.36"}={})=>{
+  if(y<83){flush();newPage();}
+  ops.push(textOp(sanitize(text).slice(0,68),48,y,size,color));
+  y-=step;
+ };
+ newPage();
+ const settlement=detail.settlement;
+ line("一、项目台账结算单",{size:14,step:31,color:"0.04 0.27 0.48"});
+ if(settlement){
+  line("结算编号："+sanitize(settlement.id)+"　状态："+sanitize(settlement.status||"已生成"));
+  line("生成日期："+sanitize(settlement.created_at||""));
+  line("结算预算收入：¥"+Number(settlement.income||0).toFixed(2));
+  line("结算单原始支出：¥"+Number(settlement.expense||0).toFixed(2));
+  line("结算单结余：¥"+Number(settlement.profit||0).toFixed(2));
+ }else{
+  line("本项目尚未生成结算单，请核查归档状态");
+ }
+ const sums=detail.financial_summary||{};
+ line("项目台账已付金额：¥"+Number(sums.payment_paid||0).toFixed(2));
+ if(settlement&&Math.abs(Number(sums.settlement_vs_paid||0))>0.005)
+  line("注意：结算支出与实际已付差额 ¥"+Number(sums.settlement_vs_paid).toFixed(2),
+   {size:10,color:"0.62 0.17 0.16"});
+ y-=8;
+ line("二、项目台账分类付款对照",{size:14,step:32,color:"0.04 0.27 0.48"});
+ const columnHeader=()=>{
+  if(y<94){flush();newPage();}
+  ops.push(textOp("类别",48,y,11));
+  ops.push(textOp("笔数",258,y,11));
+  ops.push(textOp("有效登记金额",318,y,11));
+  ops.push(textOp("已付款金额",457,y,11));
+  y-=25;
+ };
+ columnHeader();
+ for(const group of detail.payment_types||[]){
+  if(y<108){flush();newPage();columnHeader();}
+  ops.push(textOp(sanitize(group.type||"未分类").slice(0,15),48,y,10));
+  ops.push(textOp(String(Number(group.count||0)),260,y,10));
+  ops.push(textOp("¥"+Number(group.applied||0).toFixed(2),313,y,10));
+  ops.push(textOp("¥"+Number(group.paid||0).toFixed(2),452,y,10));
+  y-=23;
+ }
+ y-=7;
+ line("合计：有效登记 ¥"+Number(sums.payment_effective||0).toFixed(2)+
+      "；已付款 ¥"+Number(sums.payment_paid||0).toFixed(2),{size:10});
+ line("核对来源：项目台账，按会议编号从原始合同、付款和结算记录读取。",{size:9});
+ line("历史待审批、已审批和驳回记录只作对照，不计入已付款金额。",{size:9});
+ flush();
+ return pages;
+}
 function notePage(material,reason){
  const ops=[textOp("材料类别："+sanitize(material.kind),48,740,15),
  textOp("材料名称："+sanitize(material.name),48,699,13),
@@ -86,12 +157,19 @@ const mb=n=>(n/1048576).toFixed(1)+"MB";
  * @param {object} opts
  * @param {Function} [opts.compressor] 测试可注入；默认按格式调用外部工具压缩。
  */
-async function buildSelectedMaterialsPdf({project,materials,watermark,compressor=compressOriginal},store){
+async function buildSelectedMaterialsPdf({project,materials,watermark,ledgerDetail=null,compressor=compressOriginal},store){
  if(!project||!Array.isArray(materials)||!materials.length)
   throw new HttpError(400,"MATERIALS_EMPTY","至少选择一个已上传的材料类别");
  if(materials.length>MAX_FILES)
   throw new HttpError(413,"MATERIAL_EXPORT_COUNT","文件超过120份，请减少勾选类别分批生成");
  const dest=await PDFDocument.load(cover(project),{updateMetadata:false});
+ // Page 2 is always the project's frozen settlement + payment category ledger.
+ // Every original source follows this report in the agreed 15-category order.
+ for(const summaryBytes of ledgerPages(ledgerDetail)){
+  const source=await PDFDocument.load(summaryBytes,{updateMetadata:false});
+  const copied=await dest.copyPages(source,source.getPageIndices());
+  copied.forEach(page=>dest.addPage(page));
+ }
  let byteTotal=0,pageCount=dest.getPageCount(),originalCount=0;
  const seenKeys=new Set(),seenContent=new Set();
  for(const [index,m] of materials.entries()){
@@ -227,4 +305,4 @@ async function buildSelectedMaterialsPdf({project,materials,watermark,compressor
  dest.setKeywords(["materials-export","watermark:"+(watermark?.mode||"default"),"source-count:"+originalCount]);
  return Buffer.from(await dest.save({useObjectStreams:false}));
 }
-module.exports={buildSelectedMaterialsPdf,createCjkPage,watermarkOverlay};
+module.exports={buildSelectedMaterialsPdf,createCjkPage,watermarkOverlay,ledgerPages};
