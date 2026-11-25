@@ -86,7 +86,9 @@ const assert=require("node:assert/strict");
     "retired contract and service-agreement categories cannot be uploaded");
   assert.doesNotMatch((await page.locator("#modal").innerText()),/必备.?8|8.?类.*必备/,
     "material form must not claim eight categories are mandatory");
-  await page.locator('#modal [name="kind"]').selectOption("终版议程");
+  assert.equal(await page.locator('#modal [name="kind"]').inputValue(),"终版议程");
+  assert.equal(await page.locator('#modal [name="kind"]').isDisabled(),true,
+    "点击类别后上传弹窗必须锁定当前类别，不能重复改类");
   assert.equal(await page.locator('#modal [name="name"]').isVisible(),false,
     "final agenda needs no manually typed material name");
   assert.equal(await page.locator('#modal [name="version"]').isVisible(),false,
