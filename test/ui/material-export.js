@@ -44,6 +44,7 @@ async function run(){
  assert.match(await contractShortcut.innerText(),/合同/);
  await contractShortcut.click();
  await page.waitForURL("**/#/contracts/MP-2026-015",{timeout:15000});
+ await page.locator(".phead h2").filter({hasText:"合同目录详情"}).waitFor({timeout:15000});
  assert.equal(await page.locator(".phead h2").innerText(),"合同目录详情");
  assert.match(await page.locator(".phead").innerText(),/MP-2026-015/);
  const scopedContracts=await page.evaluate(async()=>{
