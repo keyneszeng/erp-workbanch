@@ -1,4 +1,4 @@
-import { api, can, state } from "../lib/api.js";
+import { api, can } from "../lib/api.js";
 import {canDownloadArchivePdf,bindArchivePdfButtons} from "../lib/archive-pdf.js";
 import { bindPager, esc, formHtml, modal, pager, panel, readForm, table, toast, validate } from "../lib/ui.js";
 import { checkFile, fileUrl, formatBytes, UPLOAD_ACCEPT, UPLOAD_TIP } from "../lib/upload.js";
@@ -24,7 +24,6 @@ export async function render(root, params = []) {
   if (seq !== renderSeq || !root.isConnected) return;
   const project = pid ? d.projects.find(p => p.id === pid) : null;
   const canWrite = can("material:write");
-  const canReadContracts = can("contract:write") || can("contract:approve") || state.role?.modules?.includes("prep");
   if (pid && !project) {
     root.innerHTML = '<div class="panel">该项目不存在或不在当前账号的材料查看范围内。<button type="button" class="btn btn-o" data-go="materials">返回项目目录</button></div>';
     return;
@@ -90,11 +89,10 @@ export async function render(root, params = []) {
       '<div class="kpi k4"><div class="t">材料类别</div><div class="v">' + (project.have?.length || 0) + '<span class="u">类</span></div></div>' +
     '</div>' +
     '<div class="panel mt"><div class="panel-h"><h2>材料收集类别</h2><span class="hint">' +
-      (writable ? "点击类别可上传材料；合同类别进入当前会议合同目录" : "该项目仅可查看已录入材料；合同类别进入合同目录") +
+      (writable ? "点击类别可直接上传，自动归入当前项目" : "该项目仅可查看已录入材料") +
     '</span></div><div class="material-kind-panel">' +
-      '<p class="hint">点击材料类别可上传文件并自动归入当前会议；点击“合同”进入本会议合同目录。企业赞助合同、会务协议和劳务协议须在合同模块统一上传。</p>' +
+      '<p class="hint">点击下方材料类别即可上传文件，自动归入当前会议。企业赞助合同、会务协议和劳务协议均须在合同模块统一上传；旧资料仍在下方列表中保留。</p>' +
       '<div class="material-kind-chips">' +
-      (canReadContracts ? '<button type="button" class="material-kind-chip" data-contract-directory="' + esc(pid) + '" aria-label="查看当前会议合同目录">合同 <span class="hint">查看合同目录</span></button>' : "") +
       kinds.map(kind =>
         '<button type="button" class="material-kind-chip" data-guide-kind="' + esc(kind) + '"' + (writable ? "" : " disabled") + '>' +
           esc(kind) + (project.have?.includes(kind) ? ' <span class="hint">已收集</span>' : "") + '</button>'
@@ -119,10 +117,6 @@ export async function render(root, params = []) {
 
   bindPager(root, n => { curPage = n; refresh(); });
   bindArchivePdfButtons(root);
-  const contractDirectory = root.querySelector("[data-contract-directory]");
-  if (contractDirectory) contractDirectory.onclick = () => {
-    location.hash = "#/contracts/" + encodeURIComponent(pid);
-  };
   root.querySelectorAll("[data-guide-kind]").forEach(btn => {
     btn.onclick = () => openMaterialRegistration(root, [project], d.kinds, pid, refresh, btn.dataset.guideKind);
   });
