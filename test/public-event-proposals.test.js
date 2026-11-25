@@ -49,7 +49,7 @@ test("public submits without login and no internal project or approval is create
  const beforeApprovals=db.prepare("SELECT COUNT(*) n FROM approvals").get().n;
  const result=await req("/api/public/event-proposals","POST",sample);
  assert.equal(result.status,200,JSON.stringify(result.data));
- assert.match(result.data.reference,/^P\\d{11,}$/);
+ assert.match(result.data.reference,/^P\d{11,}$/);
  assert.equal(result.data.reference.slice(1,9),proposalSubmissionDay(new Date()),
   "申请编号前8位必须是中国标准时间的提交年月日");
  assert.equal(result.data.status,"已接收");
