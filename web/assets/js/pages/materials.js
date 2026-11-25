@@ -75,8 +75,9 @@ export async function render(root, params = []) {
 
   const refresh = () => render(root, [pid]);
   const writable = canWrite && canUploadAtStatus(project.status);
-  const kinds=[...new Set([...(d.kinds||[]),...(project.have||[])])]
+  const kinds=project.categoryCatalog?.all||[...new Set([...(d.kinds||[]),...(project.have||[])])]
     .filter(kind=>kind&&!RETIRED_KINDS.has(kind));
+  const disabledKinds=new Set(project.categoryCatalog?.disabled||[]);
   root.innerHTML = '<div class="phead"><div><button type="button" class="btn btn-o btn-sm" data-go="materials">← 返回项目目录</button>' +
       '<h2 style="margin-top:12px">' + esc(project.name) + '</h2>' +
       '<p>材料收集 / ' + esc(project.id) + ' · ' + esc(project.status) + '</p></div>' +
@@ -94,8 +95,8 @@ export async function render(root, params = []) {
       '<p class="hint">点击下方材料类别即可上传文件，自动归入当前会议。企业赞助合同、会务协议和劳务协议均须在合同模块统一上传；旧资料仍在下方列表中保留。</p>' +
       '<div class="material-kind-chips">' +
       kinds.map(kind =>
-        '<button type="button" class="material-kind-chip" data-guide-kind="' + esc(kind) + '"' + (writable ? "" : " disabled") + '>' +
-          esc(kind) + (project.have?.includes(kind) ? ' <span class="hint">已收集</span>' : "") + '</button>'
+        '<button type="button" class="material-kind-chip" data-guide-kind="' + esc(kind) + '"' + (writable&&!disabledKinds.has(kind) ? "" : " disabled") + '>' +
+          esc(kind) + (disabledKinds.has(kind)?' <span class="hint">已停用</span>':project.have?.includes(kind) ? ' <span class="hint">已收集</span>' : "") + '</button>'
       ).join("") + '</div></div></div>' +
     '<div class="panel mt"><div class="panel-h"><h2>已收集材料详情</h2><span class="hint">共 ' + d.total + ' 条 · 仅本项目</span></div>' +
       table([{t:"类别",w:"110px"},{t:"材料名称"},{t:"附件",w:"120px"},
