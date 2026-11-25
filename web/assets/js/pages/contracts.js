@@ -46,7 +46,7 @@ export async function render(root) {
   const withFile = rows.filter((r) => r.file_key).length;
 
   root.innerHTML = `<div class="phead">
-      <div><h2>合同台账</h2><p>合同按类别归集；会务费用在核销第6项与需求预算、发票比对；劳务个人合同在材料库按姓名核验</p></div>
+      <div><h2>合同台账</h2><p>企业赞助合同、会务协议、劳务协议均在此统一上传与归档；会务费用关联核销第6项，劳务合同关联第5项。</p></div>
       <div class="acts">
         ${can("export:any") ? '<button class="btn btn-o" id="exp">导出 CSV</button>' : ""}
         ${can("contract:write") ? '<button class="btn btn-p" id="newC">+ 录入合同</button>' : ""}
@@ -134,7 +134,7 @@ function openCreate(root, projects) {
     { k:"vendor",l:"签约方",req:1 },
     { k:"amount",l:"合同金额（元）",t:"number",req:1,
       tip:"劳务专家类合同优先识别原件中的劳动报酬／劳务报酬，OCR 仅预填，请人工核对。" },
-    { k:"category",l:"合同类别",t:"select",req:1,opts:["会务需求","劳务专家","企业赞助"],
+    { k:"category",l:"合同类别",t:"select",req:1,opts:[{v:"会务需求",l:"会务协议"},{v:"劳务专家",l:"劳务协议"},{v:"企业赞助",l:"企业赞助合同"}],
       tip:"企业赞助属于会议收入，不计入会务支出、付款或核销第6项合同金额。" },
     { k:"rightsCategories",l:"权益内容（每行一项）",t:"textarea",rows:4,full:1,
       ph:"主会场背景板 LOGO 露出\n企业展位展示" },
