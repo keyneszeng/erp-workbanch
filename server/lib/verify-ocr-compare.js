@@ -302,8 +302,9 @@ function report(pid,no){
   // 完整账号只在服务端内存中使用，对外一律只给尾号。
   laborExtract=laborSheet.extractLaborRecords(labor.map(x=>x.text).filter(Boolean).join("\n"));
   const pool=contractPool(db,pid);
-  const contractIds=new Set(pool.rows.map(x=>Number(x.id)));
+  const contractIds=new Set(pool.rows.map(x=>Number(x.id)).filter(Number.isSafeInteger));
   const contracts=docs.filter(x=>contractIds.has(Number(x.materialId)));
+  const ledgerContracts=pool.rows.filter(x=>String(x.id).startsWith("ledger:"));
   const names=[...new Set(labor.flatMap(x=>{
     const text=String(x.text||"");
     const labeled=[...text.matchAll(/(?:^|\n)[ \t]*(?:姓名|讲者姓名|专家姓名|讲者|专家)[ \t]*[:：][ \t]*([\u4e00-\u9fa5]{2,5})/g)].map(m=>m[1]);
@@ -323,8 +324,9 @@ function report(pid,no){
   const linked=names.length?linkLaborContracts(db,pid,names):null;
   add("劳务登记表原件",labor.some(x=>x.text)?true:null,
     "已关联"+labor.length+"份劳务登记表；银行账号仅显示尾号，原件供人工核对",ids(labor));
-  add("劳务专家合同原件",contracts.length?true:null,
-    "仅关联劳务专家类别或明确标注专家劳务的合同，共"+contracts.length+"份",ids(contracts));
+  add("劳务专家合同原件",contracts.length+ledgerContracts.length?true:null,
+    "劳务专家合同共"+(contracts.length+ledgerContracts.length)+"份（合同台账直传"+
+     ledgerContracts.length+"份）；历史材料库原件经OCR识别",ids(contracts));
   add("劳务姓名与专家合同",names.length?linked.missing.length===0&&linked.ambiguous.length===0:null,
     names.length?"提取"+names.length+"位人员，匹配"+linked.linked.length+"份专家合同；缺失"+
       linked.missing.length+"位，歧义"+linked.ambiguous.length+"位":"未可靠提取劳务名单，需人工核查",
@@ -344,6 +346,7 @@ function report(pid,no){
   const contractIds=new Set(d.agreements.map(x=>Number(x.id)));
   const invoiceIds=new Set(d.invoices.map(x=>Number(x.id)));
   const agreements=docs.filter(x=>contractIds.has(Number(x.materialId)));
+  const ledgerAgreements=d.agreements.filter(x=>String(x.id).startsWith("ledger:"));
   const invoices=docs.filter(x=>invoiceIds.has(Number(x.materialId)));
   // Both "会务协议" and "会务合同" are contract originals. PDF OCR is
   // advisory: missing text or mismatched invoice amount cannot replace the
@@ -351,9 +354,10 @@ function report(pid,no){
   invoiceAmount=null;
   add("会务需求表",d.required?d.confirmed:null,
     d.required?"已登记需求表，确认归档："+(d.confirmed?"是":"否")+"；预算"+d.budgetTotal+"元":"未建立会务需求表");
-  add("已签会务合同/会务协议原件",d.contractCount&&agreements.length?true:null,
-    "已签会务合同（含会务协议）"+d.contractCount+"份，关联原件"+agreements.length+"份；PDF文字已识别"+
-    agreements.filter(x=>x.state==="recognized").length+"份",ids(agreements));
+  add("已签会务合同/会务协议原件",d.contractCount&&(agreements.length+ledgerAgreements.length)?true:null,
+    "已签会务合同（含会务协议）"+d.contractCount+"份，关联原件"+
+    (agreements.length+ledgerAgreements.length)+"份（合同台账直传"+ledgerAgreements.length+
+    "份）；历史材料PDF已识别"+agreements.filter(x=>x.state==="recognized").length+"份",ids(agreements));
   add("会务需求表与会务合同金额一致",d.contractCount?
     Math.round(d.budgetTotal*100)===Math.round(d.contractTotal*100):null,
     "需求表"+d.budgetTotal+"元，会务合同"+d.contractTotal+"元",ids(agreements));
