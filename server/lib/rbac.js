@@ -124,6 +124,9 @@ function canVisitNav(user, nav) {
   if (!need) return false;
   if (nav === "dashboard" && !hasModule(user,"dashboard")) return true; // 安全待授权页
   if (nav === "projects" && canReadProjects(user)) return true;
+  if (nav === "contracts" && (can(user,"contract:write")||can(user,"contract:approve"))) return true;
+  if (nav === "approvals" && (can(user,"contract:approve")||can(user,"project:approve")||
+    can(user,"verify:exception_approve")||can(user,"payment:approve"))) return true;
   if (need === "system" && !isSuper(user)) return false;
   if (!hasModule(user,need)) return false;
   if (nav === "project-ledger") return can(user,"ledger:read");
@@ -167,9 +170,10 @@ const isSuper = (user) => !!(user && ROLES[user.role] && ROLES[user.role].super)
 function can(user, perm) {
   if (!user || !ROLES[user.role] || !Object.prototype.hasOwnProperty.call(PERMS,perm))return false;
   if (isSuper(user))return true;
-  // 合同签署/审批为角色专属权限：协会管理员在本协会可自行录入并签署；
-  // 会务执行、财务、普通成员即使留有旧版显式授权，也不可审批合同。
+  // 合同录入及确认签署：协会管理员自动获得本协会的录入和签署权限。
+  // 其他成员的录入权限仍由总管理员分配；签署审批不能通过旧授权绕过角色限制。
   if (perm === "contract:approve") return user.role === "assoc";
+  if (perm === "contract:write" && user.role === "assoc") return true;
   if (SUPER_ONLY_PERMS.has(perm))return false;
   // 后端实时查询，不能通过旧登录状态或直接访问API绕过新授权。
   return !!require("./db").db.prepare(
