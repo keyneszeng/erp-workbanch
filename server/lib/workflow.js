@@ -12,6 +12,7 @@ const { logAudit } = require("./audit");
 const { FLOW, VERIFY_STEPS, canonicalMaterialKind } = require("./constants");
 const { isDemoMode } = require("./runtime");
 const verifyOcr=require("./verify-ocr-compare");
+const {evidenceReferencesDeleted}=require("./deleted-material-cleanup");
 
 function getProject(id) {
   const p = db.prepare("SELECT * FROM projects WHERE id = ?").get(id);
@@ -27,12 +28,23 @@ function verification(pid) {
   const laborContracts=contractPool(db,pid);
   const demand=demandSopState(db,pid);
   const sponsor=sponsorRights(db,pid);
+  // 旧部署留下的核销 evidence_json 可能仍显式引用废件箱原件。
+  // 只读取已经删除的材料 ID 和无存活引用的文件 key，旧结论立刻失效；
+  // 不影响后来重新上传、重新核验后的有效原件。
+  const deletedRows=db.prepare("SELECT id,file_key FROM materials WHERE pid=? AND deleted_at IS NOT NULL AND deleted_at<>''").all(pid);
+  const deletedIds=new Set(deletedRows.map(x=>Number(x.id)));
+  const deletedKeys=new Set(deletedRows.map(x=>String(x.file_key||"")).filter(Boolean));
+  if(deletedKeys.size){
+    const current=db.prepare("SELECT DISTINCT file_key FROM materials WHERE pid=? AND (deleted_at IS NULL OR deleted_at='') AND file_key IS NOT NULL").all(pid);
+    for(const row of current)deletedKeys.delete(String(row.file_key));
+  }
   const steps=VERIFY_STEPS.map(def=>{
     const r=map.get(def.no);
     const required=(def.no!==5 || labor.required) && (def.no!==6 || demand.required) &&
       (def.no!==7 || sponsor.required);
     const evidence=r?.evidence_json?JSON.parse(r.evidence_json):null;
     const stale=required && r?.result==="通过" && (
+      (evidence && evidenceReferencesDeleted(evidence,deletedIds,deletedKeys)) ||
       (evidence?.origin==="ocr-assisted-human-review" && evidence.scanToken!==verifyOcr.report(pid,def.no).token) ||
       (def.no===5 && (evidence?.laborSourceSignature!==labor.signature ||
         !evidence?.contractPoolSignature || evidence.contractPoolSignature!==laborContracts.signature)) ||
