@@ -120,6 +120,75 @@ async function testExports(page, role, route) {
     }
   }
 }
+/** Click non-destructive functional controls, not merely inventory their labels. */
+async function exerciseSafeControls(page,role,route){
+  if(route==="finance"){
+    const switches=page.locator('#content button[data-finance-jump]');
+    const values=await switches.evaluateAll(xs=>xs.map(x=>x.dataset.financeJump));
+    for(const value of values){
+      const button=page.locator('#content [data-finance-jump="'+value+'"]');
+      await button.click({timeout:8000});
+      check(role,route,"财务分区切换 "+value,
+        await button.evaluate(x=>x.classList.contains("active")));
+    }
+    const detail=page.locator('#content [data-settlement-detail]').first();
+    if(await detail.count()){
+      await detail.click({timeout:8000});
+      await page.waitForTimeout(200);
+      const expanded=await detail.getAttribute("aria-expanded");
+      const body=await page.locator("#settlementDetail").innerText();
+      check(role,route,"结算单展开",expanded==="true"&&body.length>0,body.slice(0,90));
+      await detail.click({timeout:8000});
+      check(role,route,"结算单收起",await detail.getAttribute("aria-expanded")==="false");
+    }
+    const pay=page.locator("#goDirectPay");
+    if(await pay.count()){
+      await pay.click({timeout:8000});
+      check(role,route,"财务直接付款入口定位",await page.locator("#financeDirect").count()===1);
+    }
+  }
+  if(route==="materials"){
+    const folder=page.locator('#content [data-material-project]').first();
+    if(await folder.count()){
+      await folder.click({timeout:8000});
+      await page.waitForTimeout(200);
+      const text=await page.locator("#content").innerText();
+      check(role,route,"项目材料文件夹可进入",text.includes("已收集材料详情"),text.slice(0,80));
+      const kind=page.locator('#content [data-guide-kind]').first();
+      if(await kind.count()&&await kind.isEnabled()){
+        const value=await kind.getAttribute("data-guide-kind");
+        await kind.click({timeout:8000});
+        const modal=page.locator("#modal.open");
+        if(await modal.count()){
+          const picker=modal.locator('[name="kind"]');
+          check(role,route,"材料类别直传入口",await picker.inputValue()===value && await picker.isDisabled(),value);
+          await modal.locator(".close").click();
+        }else check(role,route,"材料类别直传入口",false,"点击后未打开上传弹窗");
+      }
+    }
+  }
+  if(route==="recycle-bin"){
+    const refresh=page.locator("#recycle-refresh");
+    if(await refresh.count()){
+      await refresh.click({timeout:8000});
+      await page.waitForTimeout(150);
+      check(role,route,"废件箱刷新",!/页面加载失败/.test(await page.locator("#content").innerText()));
+    }
+  }
+  // Every navigation action in the rendered content uses the same router as the sidebar.
+  const target=page.locator('#content [data-go]:visible').first();
+  if(await target.count()&&await target.isEnabled()){
+    const link=await target.getAttribute("data-go");
+    if(link&&!link.startsWith("#")){
+      try{
+        await target.click({timeout:8000});
+        await page.waitForTimeout(125);
+        check(role,route,"页面内跳转 "+link,
+          new URL(page.url()).hash.startsWith("#/"+link),new URL(page.url()).hash);
+      }catch(error){check(role,route,"页面内跳转 "+link,false,error.message);}
+    }
+  }
+}
 async function inspectRoute(page, role, route) {
   try {
     await go(page, route);
@@ -169,6 +238,7 @@ async function inspectRoute(page, role, route) {
       await modalOpenAndClose(page, role, route, sel);
     }
     await testExports(page, role, route);
+    await exerciseSafeControls(page,role,route);
     if (route === "users") {
       check(role, route, "按账号分配权限界面", /按账号分配权限/.test(await page.locator("#content").innerText()));
       check(role, route, "重置危险操作入口符合环境边界", (await page.locator("#resetAll").count()) === (ALIYUN_TEST ? 0 : 1));
@@ -210,6 +280,37 @@ async function inspectDetail(page, role) {
         await page.waitForTimeout(180);
         const t = await page.locator("#tabbody").innerText({ timeout: 10000 });
         check(role, "project-detail", "业务页签 " + tab, t.length > 0 && !/页面加载失败/.test(t), t.slice(0, 90));
+        if(tab==="contracts"){
+          const view=page.locator("#tabbody [data-cdet]").first();
+          if(await view.count()){
+            await view.click({timeout:8000});
+            const modal=page.locator("#modal.open");
+            check(role,"project-detail","合同详情功能键",await modal.isVisible());
+            if(await modal.count())await modal.locator(".close").click();
+          }
+        }
+        if(tab==="verify"){
+          const detail=page.locator("#tabbody [data-detail]").first();
+          if(await detail.count()){
+            await detail.click({timeout:8000});
+            const modal=page.locator("#modal.open");
+            check(role,"project-detail","核销步骤详情功能键",await modal.isVisible());
+            if(await modal.count())await modal.locator(".close").click();
+          }
+        }
+        if(tab==="materials"){
+          const category=page.locator("#tabbody [data-material-kind]").first();
+          if(await category.count()&&await category.isEnabled()){
+            const kind=await category.getAttribute("data-material-kind");
+            await category.click({timeout:8000});
+            const modal=page.locator("#modal.open");
+            if(await modal.count()){
+              check(role,"project-detail","材料类别快捷上传",await modal.locator('[name="kind"]').inputValue()===kind,kind);
+              await modal.locator(".close").click();
+            }else check(role,"project-detail","材料类别快捷上传",null,"当前状态无写入权限");
+          }
+        }
+        if(tab==="team")await modalOpenAndClose(page,role,"project-detail","#addMem");
       } catch (e) {
         check(role, "project-detail", "业务页签 " + tab, false, e.message);
       }
