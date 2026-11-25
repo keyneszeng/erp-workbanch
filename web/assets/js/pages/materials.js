@@ -167,6 +167,10 @@ export function openMaterialRegistration(root, projects, kinds, defaultPid="", o
   });
   const picker=m.querySelector('input[name="file"]');
   const kindSelect=m.querySelector('[name="kind"]');
+  // 类别入口已确定材料归属：弹窗可查看类别，但不能再改成另一个类别。
+  // 自定义类别同样由点击入口指定；批次重试期间也不应解锁。
+  kindSelect.disabled=!!defaultKind;
+  if(defaultKind)kindSelect.title="已通过材料类别入口选择，请返回类别列表切换";
   const saveButton=m.querySelector('[data-x="1"]');
   const cancelButton=m.querySelector('[data-x="0"]');
   const rightSelect=m.querySelector('[name="sponsor_right_id"]');
@@ -214,7 +218,8 @@ export function openMaterialRegistration(root, projects, kinds, defaultPid="", o
     try{
       const data=await api.get("/api/projects/"+encodeURIComponent(pid)+"/sponsor-rights");
       if(requestId!==rightsRequestId||pidSelect.value!==pid)return;
-      const sponsors=new Map((data.contracts||[]).filter(c=>c.status!=="已驳回").map(c=>[c.id,c]));
+      // 与小程序一致：仅允许已签署的赞助合同关联权益照片。
+      const sponsors=new Map((data.contracts||[]).filter(c=>c.status==="已签署").map(c=>[c.id,c]));
       availableRights=(data.rights||[]).filter(x=>sponsors.has(x.sponsor_id))
         .map(x=>({...x,enterprise:sponsors.get(x.sponsor_id).enterprise}));
     }catch(err){
@@ -324,7 +329,7 @@ export function openMaterialRegistration(root, projects, kinds, defaultPid="", o
     // agenda must remain current even after a failed file is retried.
     await Promise.all(Array.from({length:final?1:Math.min(3,queue.length)},()=>worker()));
     busy=false;saveButton.disabled=false;cancelButton.disabled=false;
-    picker.disabled=false;pidSelect.disabled=false;kindSelect.disabled=false;
+    picker.disabled=false;pidSelect.disabled=false;kindSelect.disabled=!!defaultKind;
     if(custom)custom.disabled=false;
     rightSelect.disabled=false;
     const done=picked.filter(x=>x.status==="done").length;
