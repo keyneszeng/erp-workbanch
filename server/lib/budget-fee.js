@@ -19,4 +19,10 @@ function availableBudget(projectOrBudget,rate) {
 function withBudgetFee(p){
   return {...p,tax_fee_rate:Number(p.tax_fee_rate)||0,available_budget:availableBudget(p)};
 }
-module.exports={parseTaxFeeRate,availableBudget,withBudgetFee};
+/** 结算按冻结预算、费率与已付支出计算；历史未存费率兼容项目费率。 */
+function settlementTotals(s,projectRate=0){
+  const rate=Number(s.tax_fee_rate??projectRate)||0;
+  const usable=availableBudget(s.income,rate);
+  return {...s,tax_fee_rate:rate,available_budget:usable,profit:(cents(usable)-cents(s.expense))/100};
+}
+module.exports={parseTaxFeeRate,availableBudget,withBudgetFee,settlementTotals};
