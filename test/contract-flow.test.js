@@ -259,3 +259,103 @@ test("合同台账企业赞助自动编号并关联会议收入；签署只算�
  assert.ok(!payees.data.rows.some(x=>x.payee==="深圳市睿康医疗科技有限公司"),
    "赞助收入方不可进入财务付款候选");
 });
+
+test("合同台账修改类别：草稿允许选择，非法类别和越权拒绝，并保留合同号",async()=>{
+ const pid=await freshProject(),id=await draftContract(pid,{category:"会务需求"});
+ const url="/api/contracts/"+id+"/category";
+ assert.equal((await client(finance)("PATCH",url,{category:"劳务专家"})).status,403);
+ assert.equal((await client(exec)("PATCH",url,{category:"自定义非法类别"})).status,400);
+ const changed=await client(exec)("PATCH",url,{
+  category:"劳务专家",expected_category:"会务需求",expected_status:"草稿"
+ });
+ assert.equal(changed.status,200,JSON.stringify(changed.data));
+ assert.equal(changed.data.contract.id,id);
+ assert.equal(changed.data.contract.category,"劳务专家");
+ assert.equal(changed.data.contract.status,"草稿");
+ assert.equal((await client(exec)("PATCH",url,{category:"企业赞助"})).status,400,
+  "企业赞助类别必须有原件");
+ assert.equal((await client(exec)("PATCH",url,{category:"会务需求",expected_category:"会务需求"})).status,409,
+  "过期页面不得覆盖新分类");
+ const audit=await client(admin)("GET","/api/audit?q="+encodeURIComponent(pid));
+ assert.ok(audit.data.rows.some(x=>x.action==="修改合同类别"&&x.detail.includes(id)),
+  "合同类别改变必须写入审计");
+});
+
+test("待签署或已签署合同可以受控改类别，旧签署审批撤销并重新提交",async()=>{
+ const pid=await freshProject(),id=await draftContract(pid,{category:"会务需求"});
+ const url="/api/contracts/"+id+"/category";
+ assert.equal((await client(exec)("POST","/api/contracts/"+id+"/transition",{action:"submit"})).status,200);
+ const changed=await client(exec)("PATCH",url,{
+  category:"劳务专家",expected_category:"会务需求",expected_status:"待签署"
+ });
+ assert.equal(changed.status,200,JSON.stringify(changed.data));
+ assert.equal(changed.data.contract.status,"草稿");
+ const approvals=await client(admin)("GET","/api/approvals?type="+encodeURIComponent("合同审批"));
+ assert.ok(!approvals.data.rows.some(x=>x.ref_id===id&&x.status==="待审批"),
+  "类别修改应撤销原待签署审批");
+ assert.equal((await client(exec)("POST","/api/contracts/"+id+"/transition",{action:"submit"})).status,200);
+ assert.equal((await client(assoc)("POST","/api/contracts/"+id+"/transition",{action:"sign"})).status,200);
+ const denied=await client(exec)("PATCH",url,{category:"会务需求"});
+ assert.equal(denied.status,403,"已签署合同只能由协会审批人员重分类");
+ const signedChange=await client(assoc)("PATCH",url,{
+  category:"会务需求",expected_category:"劳务专家",expected_status:"已签署"
+ });
+ assert.equal(signedChange.status,200,JSON.stringify(signedChange.data));
+ assert.equal(signedChange.data.contract.status,"草稿");
+ assert.equal(signedChange.data.contract.sign_date,"");
+ assert.deepEqual(signedChange.data.reverifySteps,[5,6]);
+});
+
+test("会务协议与企业赞助合同改类须同步建立/撤销会议收入关联",async()=>{
+ const pid=await freshProject();
+ const pdf=Buffer.from("%PDF-1.4\\n1 0 obj\\n<<>>\\nendobj\\n%%EOF");
+ const upload=await fetch(BASE+"/api/uploads?pid="+pid,{
+  method:"POST",headers:{Cookie:exec,"Content-Type":"application/octet-stream","X-File-Name":"分类更正合同.pdf"},body:pdf
+ });
+ const file=await upload.json();
+ assert.equal(upload.status,200,JSON.stringify(file));
+ const id=await draftContract(pid,{category:"会务需求",file_key:file.key,file_name:file.name,
+  file_size:file.size,file_mime:file.mime});
+ const change=await client(exec)("PATCH","/api/contracts/"+id+"/category",{
+  category:"企业赞助",expected_category:"会务需求"
+ });
+ assert.equal(change.status,200,JSON.stringify(change.data));
+ assert.ok(change.data.sponsorId,"必须同步建立企业赞助收入关联");
+ const income=await client(admin)("GET","/api/projects/"+pid+"/income");
+ assert.ok(income.data.contracts.some(x=>x.id===change.data.sponsorId&&x.ledger_contract_id===id));
+ const back=await client(exec)("PATCH","/api/contracts/"+id+"/category",{
+  category:"劳务专家",expected_category:"企业赞助"
+ });
+ assert.equal(back.status,200,JSON.stringify(back.data));
+ const after=await client(admin)("GET","/api/projects/"+pid+"/income");
+ assert.ok(!after.data.contracts.some(x=>x.ledger_contract_id===id),
+  "撤销空白赞助关联后不能继续算作会议收入");
+ const list=await client(admin)("GET","/api/contracts?pid="+pid);
+ assert.equal(list.data.rows.find(x=>x.id===id).category,"劳务专家");
+ assert.equal(list.data.rows.find(x=>x.id===id).file_key,file.key,
+  "只改合同类别不能误删或替换原件");
+});
+
+test("已有赞助权益确认的合同不得直接变更类别",async()=>{
+ const pid=await freshProject();
+ const pdf=Buffer.from("%PDF-1.4\\n1 0 obj\\n<<>>\\nendobj\\n%%EOF");
+ const upload=await fetch(BASE+"/api/uploads?pid="+pid,{
+  method:"POST",headers:{Cookie:exec,"Content-Type":"application/octet-stream","X-File-Name":"权益类合同.pdf"},body:pdf
+ });
+ const file=await upload.json();
+ assert.equal(upload.status,200,JSON.stringify(file));
+ const id=await draftContract(pid,{category:"企业赞助",file_key:file.key,file_name:file.name,
+  file_size:file.size,file_mime:file.mime,rightsCategories:["背景板LOGO"]});
+ const income=(await client(admin)("GET","/api/projects/"+pid+"/income")).data;
+ const sponsor=income.contracts.find(x=>x.ledger_contract_id===id);
+ assert.ok(sponsor);
+ const confirm=await client(exec)("PATCH","/api/projects/"+pid+"/income/contracts/"+sponsor.id+"/rights",{
+  categories:["背景板LOGO"]
+ });
+ assert.equal(confirm.status,200,JSON.stringify(confirm.data));
+ const denied=await client(exec)("PATCH","/api/contracts/"+id+"/category",{category:"会务需求"});
+ assert.equal(denied.status,409,JSON.stringify(denied.data));
+ assert.equal(denied.data.error.code,"SPONSOR_RECONCILIATION_REQUIRED");
+ const still=(await client(admin)("GET","/api/contracts?pid="+pid)).data.rows.find(x=>x.id===id);
+ assert.equal(still.category,"企业赞助");
+});
