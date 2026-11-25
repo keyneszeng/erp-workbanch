@@ -161,3 +161,93 @@ test("合同更正的历史原件不进入废件箱，不能擅自恢复；缺�
  assert.equal(denied.body.error.code,"RECYCLE_FILE_MISSING");
  assert.ok((await list()).rows.some(x=>x.id===lost.id));
 });
+
+test("删除普通材料后清除核销步骤、待办和例外证据，原件只在废件箱",async()=>{
+ const {m,up}=await material("待解绑的会议通知.pdf","会议通知");
+ const exId="EX-DELETE-"+m.id;
+ sql(db=>{
+  db.prepare("INSERT INTO verify_steps(pid,step_no,name,result,remark,evidence_json) "+
+    "VALUES (?,1,'盖章函件与串场核验','通过','旧人工核验',?) "+
+    "ON CONFLICT(pid,step_no) DO UPDATE SET result='通过',remark=excluded.remark,evidence_json=excluded.evidence_json")
+    .run(PID,JSON.stringify({sources:[{materialId:m.id,fileKey:up.key}]}));
+  db.prepare("INSERT INTO meeting_material_tasks(pid,kind,speaker,topic,status,material_id,updated_at,updated_by) "+
+    "VALUES (?,?,?,?,'比对通过',?,?,?)")
+    .run(PID,"课件","删除证据测试-"+m.id,"证据隔离",m.id,"2026-11-25","测试");
+  db.prepare("INSERT INTO exceptions(id,pid,step_no,reason,status,created_by,created_at,evidence_material_id,resolution,resolved_at,resolved_by) "+
+    "VALUES (?,1,1,'测试删除证据关联','待复核','测试','2026-11-25',?,'已提供原件','2026-11-25','测试')")
+    .run(exId,m.id);
+ });
+ const del=await req("exec","DELETE","/api/materials/"+m.id);
+ assert.equal(del.status,200,JSON.stringify(del.body));
+ assert.ok(del.body.resetSteps.includes(1),"原核销通过步骤失效");
+ const detail=await req("admin","GET","/api/projects/"+PID);
+ assert.ok(!detail.body.materials.some(x=>x.id===m.id),"项目材料清单立即移除已删记录");
+ const catalog=await req("admin","GET","/api/materials?pid="+PID);
+ assert.ok(!catalog.body.rows.some(x=>x.id===m.id),"材料目录不再呈现已删除附件");
+ const verify=await req("admin","GET","/api/projects/"+PID+"/verify");
+ assert.ok(!verify.body.materials.some(x=>x.id===m.id),"核销有效材料池不再包含已删除原件");
+ const step=verify.body.verification.steps.find(x=>x.no===1);
+ assert.equal(step.result,"待判定");
+ sql(db=>{
+  const saved=db.prepare("SELECT result,evidence_json FROM verify_steps WHERE pid=? AND step_no=1").get(PID);
+  assert.equal(saved.result,"待判定");
+  assert.equal(saved.evidence_json,null);
+  const task=db.prepare("SELECT material_id,status FROM meeting_material_tasks WHERE pid=? AND speaker=?")
+    .get(PID,"删除证据测试-"+m.id);
+  assert.equal(task.material_id,null);
+  assert.equal(task.status,"未提交");
+  const exception=db.prepare("SELECT evidence_material_id,resolved_at FROM exceptions WHERE id=?").get(exId);
+  assert.equal(exception.evidence_material_id,null);
+  assert.equal(exception.resolved_at,null);
+ });
+ assert.ok((await list("待解绑的会议通知")).rows.some(x=>x.id===m.id),"原件只在废件箱管理");
+});
+
+test("删除未签署合同同步软删所有同原件合同材料并撤销第5/6步核销证据",async()=>{
+ const up=await upload("已删除合同不应继续核销.pdf");
+ const created=await req("exec","POST","/api/contracts",{
+  pid:PID,name:"删除关联核销的会务合同",vendor:"供应商测试",amount:1500,
+  category:"会务需求",status:"草稿",file_key:up.key,file_name:up.name,
+  file_size:up.size,file_mime:up.mime
+ });
+ assert.equal(created.status,200,JSON.stringify(created.body));
+ const cid=created.body.contract.id;
+ const detail=await req("admin","GET","/api/projects/"+PID);
+ const original=detail.body.materials.find(x=>x.file_key===up.key&&x.kind==="合同");
+ assert.ok(original);
+ const companion=sql(db=>{
+  const extra=db.prepare("INSERT INTO materials(pid,kind,name,version,uploader,created_at,file_key,file_name) "+
+    "VALUES (?,?,'同合同历史扫描件','v1','历史','2026-11-25',?,?)")
+    .run(PID,"会务协议",up.key,up.name);
+  for(const no of [5,6]){
+   db.prepare("INSERT INTO verify_steps(pid,step_no,name,result,remark,evidence_json) VALUES (?,?,?,'通过','旧原件已匹配',?) "+
+     "ON CONFLICT(pid,step_no) DO UPDATE SET result='通过',remark=excluded.remark,evidence_json=excluded.evidence_json")
+    .run(PID,no,"历史核销-"+no,JSON.stringify({sources:[{materialId:original.id,fileKey:up.key}]}));
+  }
+  return Number(extra.lastInsertRowid);
+ });
+ const deleted=await req("exec","DELETE","/api/materials/"+original.id);
+ assert.equal(deleted.status,200,JSON.stringify(deleted.body));
+ assert.equal(deleted.body.linkedContract,cid);
+ assert.deepEqual(deleted.body.resetSteps.filter(x=>[5,6].includes(x)),[5,6]);
+ assert.ok(deleted.body.removedMaterialIds.includes(companion));
+ const contracts=await req("admin","GET","/api/contracts?pid="+PID);
+ assert.ok(!contracts.body.rows.some(x=>x.id===cid),"合同台账不再出现已删除合同");
+ for(const endpoint of ["/api/projects/"+PID,"/api/projects/"+PID+"/verify","/api/materials?pid="+PID]){
+  const response=await req("admin","GET",endpoint);
+  assert.equal(response.status,200,endpoint+" "+JSON.stringify(response.body));
+  const materials=response.body.materials||response.body.rows||[];
+  assert.ok(!materials.some(x=>x.file_key===up.key),"有效列表必须移除同文件合同附件："+endpoint);
+ }
+ const box=await list("已删除合同");
+ assert.ok(box.rows.some(x=>x.id===original.id),"原合同材料在废件箱");
+ assert.ok((await list("同合同历史扫描件")).rows.some(x=>x.id===companion),"关联历史扫描件同样进入废件箱");
+ const verify=await req("admin","GET","/api/projects/"+PID+"/verify");
+ for(const no of [5,6]){
+  const row=sql(db=>db.prepare("SELECT result,evidence_json FROM verify_steps WHERE pid=? AND step_no=?").get(PID,no));
+  assert.equal(row.result,"待判定","核销第"+no+"项不得沿用已删合同结论");
+  assert.equal(row.evidence_json,null);
+  assert.ok(!verify.body.verification.sourceMaterialIds?.laborContracts.includes(original.id));
+  assert.ok(!verify.body.verification.sourceMaterialIds?.meetingAgreements.includes(companion));
+ }
+});
