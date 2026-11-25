@@ -21,7 +21,7 @@ function enabled() {
   return !isDemoMode() && process.env.ERP_MINIPROGRAM_ENABLED === "1";
 }
 function requireEnabled() {
-  if (!enabled()) throw new HttpError(404, "MINI_DISABLED", "微信小程序员工入口尚未启用");
+  if (!enabled()) throw new HttpError(404, "MINI_DISABLED", "小程序员工入口尚未启用");
 }
 function credentials() {
   const appid = process.env.ERP_WECHAT_APP_ID || "";
@@ -29,15 +29,15 @@ function credentials() {
   if (process.env.NODE_ENV === "test" && process.env.ERP_WECHAT_TEST_MODE === "1")
     return { test: true };
   if (!/^wx[0-9a-f]{16}$/i.test(appid) || !secret)
-    throw new HttpError(503, "WECHAT_NOT_CONFIGURED", "微信小程序尚未配置有效 AppID 与 AppSecret");
+    throw new HttpError(503, "WECHAT_NOT_CONFIGURED", "快捷登录服务尚未配置，请联系系统管理员");
   return { appid, secret };
 }
 async function exchangeCode(value) {
   const code = String(value || "");
-  if (!/^[a-zA-Z0-9_-]{6,128}$/.test(code)) throw bad("微信登录凭证无效，请重新登录");
+  if (!/^[a-zA-Z0-9_-]{6,128}$/.test(code)) throw bad("登录凭证无效，请重新登录");
   const c = credentials();
   if (c.test) {
-    if (!/^test_[a-z0-9_-]{5,60}$/.test(code)) throw new HttpError(401, "WECHAT_CODE_INVALID", "微信登录凭证无效");
+    if (!/^test_[a-z0-9_-]{5,60}$/.test(code)) throw new HttpError(401, "WECHAT_CODE_INVALID", "登录凭证无效");
     return "test-openid-" + code.slice(5);
   }
   const url = new URL("https://api.weixin.qq.com/sns/jscode2session");
@@ -51,11 +51,11 @@ async function exchangeCode(value) {
     if (!response.ok) throw new Error("HTTP " + response.status);
     data = await response.json();
   } catch {
-    throw new HttpError(503, "WECHAT_UNAVAILABLE", "微信身份服务暂不可用，请稍后重试");
+    throw new HttpError(503, "WECHAT_UNAVAILABLE", "身份验证服务暂不可用，请稍后重试");
   }
   // Never log or expose the sensitive session_key, even on provider errors.
   if (data.errcode || typeof data.openid !== "string" || !data.openid || data.openid.length > 128)
-    throw new HttpError(401, "WECHAT_CODE_INVALID", "微信登录已过期，请重新授权");
+    throw new HttpError(401, "WECHAT_CODE_INVALID", "登录凭证已过期，请重新验证");
   return data.openid;
 }
 // WeChat phone authorization uses a separate, short-lived code from getPhoneNumber.
@@ -73,15 +73,15 @@ async function wechatAccessToken(){
   const response=await fetch(url,{signal:AbortSignal.timeout(7000)});
   if(!response.ok)throw new Error("access token unavailable");
   data=await response.json();
- }catch{throw new HttpError(503,"WECHAT_UNAVAILABLE","微信手机号服务暂不可用");}
- if(data.errcode||!data.access_token)throw new HttpError(503,"WECHAT_UNAVAILABLE","微信手机号服务未正确配置");
+ }catch{throw new HttpError(503,"WECHAT_UNAVAILABLE","手机号验证服务暂不可用");}
+ if(data.errcode||!data.access_token)throw new HttpError(503,"WECHAT_UNAVAILABLE","手机号验证服务尚未正确配置");
  cachedAccessToken=data.access_token;
  accessTokenExpires=Date.now()+Math.max(60,(Number(data.expires_in)||7200)-300)*1000;
  return cachedAccessToken;
 }
 async function exchangePhoneCode(value){
  const code=String(value||"");
- if(!/^[a-zA-Z0-9_-]{6,128}$/.test(code))throw bad("微信手机号授权凭证无效");
+ if(!/^[a-zA-Z0-9_-]{6,128}$/.test(code))throw bad("手机号验证凭证无效");
  const c=credentials();
  if(c.test){
   if(!/^phone_test_1[3-9]\d{9}$/.test(code))throw new HttpError(401,"WECHAT_PHONE_INVALID","手机号授权失效");
@@ -96,9 +96,9 @@ async function exchangePhoneCode(value){
   });
   if(!response.ok)throw new Error("phone unavailable");
   data=await response.json();
- }catch{throw new HttpError(503,"WECHAT_UNAVAILABLE","微信手机号核验暂不可用");}
+ }catch{throw new HttpError(503,"WECHAT_UNAVAILABLE","手机号核验暂不可用");}
  if(data.errcode!==0||!data.phone_info?.purePhoneNumber)
-  throw new HttpError(401,"WECHAT_PHONE_INVALID","微信手机号授权已失效，请重新授权");
+  throw new HttpError(401,"WECHAT_PHONE_INVALID","手机号验证已失效，请重新授权");
  if(String(data.phone_info.countryCode)!=="86")
   throw bad("当前仅支持绑定中国大陆手机号");
  return normalizePhone(data.phone_info.purePhoneNumber);
@@ -144,7 +144,7 @@ function register(router) {
     const phone=await exchangePhoneCode(phoneCode);
     const existing=boundUser(openid);
     if(existing){
-      if(existing.phone!==phone)throw new HttpError(409,"WECHAT_ALREADY_BOUND","微信已绑定其他手机号，请联系管理员");
+      if(existing.phone!==phone)throw new HttpError(409,"WECHAT_ALREADY_BOUND","当前登录身份已绑定其他手机号，请联系管理员");
       return session(existing,ctx.ip);
     }
     const at=new Date().toISOString();
@@ -162,7 +162,7 @@ function register(router) {
         }
         const owned=db.prepare("SELECT openid FROM mini_bindings WHERE user_id=?").get(user.id);
         if(owned&&owned.openid!==openid)
-          throw new HttpError(409,"WECHAT_ALREADY_BOUND","该系统手机号已绑定其他微信账号，请联系管理员");
+          throw new HttpError(409,"WECHAT_ALREADY_BOUND","该手机号已绑定其他登录身份，请联系管理员");
         db.prepare("INSERT INTO mini_bindings(openid,user_id,bound_at) VALUES (?,?,?)").run(openid,user.id,at);
         db.prepare("UPDATE users SET phone_verified_at=? WHERE id=?").run(at,user.id);
       });
@@ -184,7 +184,7 @@ function register(router) {
     const existing = db.prepare("SELECT user_id FROM mini_bindings WHERE openid = ?").get(openid);
     const owned = db.prepare("SELECT openid FROM mini_bindings WHERE user_id = ?").get(user.id);
     if ((existing && existing.user_id !== user.id) || (owned && owned.openid !== openid))
-      throw new HttpError(409, "WECHAT_ALREADY_BOUND", "微信账号或手机号已经绑定，如需更换请联系管理员");
+      throw new HttpError(409, "WECHAT_ALREADY_BOUND", "登录身份或手机号已经绑定，如需更换请联系管理员");
     const next = user.must_change_password
       ? validatePassword(newPassword, { oldPassword: password, label: "新密码" })
       : null;
@@ -215,7 +215,7 @@ function register(router) {
     const user = db.prepare(
       "SELECT u.* FROM mini_bindings b JOIN users u ON b.user_id=u.id WHERE b.openid=? AND u.active=1"
     ).get(openid);
-    if (!user) throw new HttpError(401, "WECHAT_UNBOUND", "首次登录请授权手机号，系统将自动匹配账号权限");
+    if (!user) throw new HttpError(401, "WECHAT_UNBOUND", "首次登录请使用手机号快捷登录，系统将匹配账号权限");
     logAudit({ user, module: "系统配置", action: "小程序登录", target: String(user.id),
       detail: "微信已绑定身份登录", ip: ctx.ip });
     return session(user, ctx.ip);
