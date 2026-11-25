@@ -204,14 +204,12 @@ function register(router) {
           .run("合同 "+c.id+" 类别从 "+c.category+" 调整为 "+next+"，需重新核验",p.id,no);
       }
       if(p.status==="已核销")db.prepare("UPDATE projects SET status='待核销',updated_at=? WHERE id=?").run(at,p.id);
-      // 合同归档保留原件字节，签署状态改为待重新提交，不删除旧文件。
-      db.prepare("UPDATE materials SET version='草稿' WHERE pid=? AND kind='合同' AND file_key=? AND (deleted_at IS NULL OR deleted_at='')")
-        .run(p.id,c.file_key);
+      // 修改类别仅调整合同台账和业务引用，不重写可能共享同一文件key的归档材料。
       return {contract:db.prepare("SELECT * FROM contracts WHERE id=?").get(c.id),sponsorId};
     });
     logAudit({user:ctx.user,module:"合同台账",action:"修改合同类别",target:p.id,
       detail:c.id+"："+c.category+" → "+next+"；原状态："+c.status+" → 草稿；受影响核销步骤："+steps.join("、")+
-        (result.sponsorId?"；已建立企业赞助收入 "+result.sponsorId:"；已撤销旧签署审批并保留原件"),ip:ctx.ip});
+        (result.sponsorId?"；已建立企业赞助收入 "+result.sponsorId:"")+(sponsor?"；原赞助收入 "+sponsor.id+" 已撤销关联":"")+"；已撤销旧签署审批并保留原件",ip:ctx.ip});
     return {...result,changed:true,reverifySteps:steps,
       message:"合同类别已修改为「"+next+"」，合同已退回草稿，请重新提交签署"+
         (result.sponsorId?"，并到会议收入确认赞助权益":"")+
