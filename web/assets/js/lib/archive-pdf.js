@@ -43,7 +43,7 @@ export async function downloadArchivePdf(pid,button){
     '<div class="material-export-tools" style="margin-top:14px"><b>自动关联的文件与系统摘要</b>'+
       '<span class="hint">已关联 '+sources.length+' 项；仅支持同一类别内调整顺序，合并时自动去重</span></div>'+
     '<div data-material-file-list class="material-export-options" style="max-height:340px;overflow:auto"></div>'+
-    '<p class="hint" style="margin:12px 0">下载 PDF 时严格按预设15类优先级合并，类别内部沿用当前顺序；相同原件只合并一次。下载 PPT 独立生成，'+
+    '<p class="hint" style="margin:12px 0">PDF 第1页为会议封面，第2页为项目台账结算单＋分类付款对照；随后严格按预设15类优先级合并原件，类别内部沿用当前顺序，相同原件只合并一次。下载 PPT 独立生成，'+
        '第一页为会议信息、第二页为唯一的付款明细对照表；从第三页起，按当前勾选和排序逐项展示原件内容。无法渲染的文件将标注原因并保留原件。</p>'+
     wmHtml,
    footer:'<button class="btn btn-o" data-cancel>取消</button>'+
