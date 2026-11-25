@@ -1,5 +1,6 @@
 "use strict";
 const { db } = require("../lib/db");
+const {settlementTotals}=require("../lib/budget-fee");
 const { now, today, nextId, toCsv, bad, notFound, conflict, forbidden } = require("../lib/util");
 const { assertCan, scopeFilter, isSuper, hasModule, ROLES, can, canVisitNav, STATUSES } = require("../lib/rbac");
 const { logAudit } = require("../lib/audit");
@@ -299,15 +300,15 @@ const EXPORTS = {
   settlements: {
     module: "财务结算", file: "结算汇总",
     // 结算单只汇总预算/支出/结余；收款方与银行账户在付款单里，不重复导出。
-    headers: ["结算单号", "项目编号", "项目", "项目预算", "已付支出", "预算结余", "状态", "生成时间"],
+    headers: ["结算单号", "项目编号", "项目", "项目预算", "可用预算", "已付支出", "预算结余", "生成人", "状态", "生成时间"],
     sql: (u) => {
       const { sql, params } = scopeFilter(u);
       return {
-        sql: `SELECT s.*, p.name AS pname FROM settlements s JOIN projects p ON p.id=s.pid WHERE ${sql} ORDER BY s.created_at DESC`,
+        sql: `SELECT s.*, p.name AS pname,p.tax_fee_rate AS project_rate FROM settlements s JOIN projects p ON p.id=s.pid WHERE ${sql} ORDER BY s.created_at DESC`,
         params
       };
     },
-    map: (r) => [r.id, r.pid, r.pname, r.income, r.expense, r.profit, r.status, r.created_at]
+    map: (r) => {const s=settlementTotals(r,r.project_rate);return [s.id,s.pid,s.pname,s.income,s.available_budget,s.expense,s.profit,s.created_by,s.status,s.created_at];}
   },
   audit: {
     module: "审计日志", file: "审计日志",
