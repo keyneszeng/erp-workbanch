@@ -39,6 +39,7 @@ const ROUTES = [
   { re: /^finance\/([\w-]+)$/, page: finance, nav: "finance", title: "付款与结算", sub: "已定位到指定项目" },
   { re: /^project-ledger$/, page: projectLedger, nav: "project-ledger", title: "项目台账", sub: "仅总管理员 · 按会议编号对照财务资料" },
   { re: /^project-ledger\/([\w-]+)$/, page: projectLedger, nav: "project-ledger", title: "会议项目台账", sub: "按会议唯一编号对照" },
+  { re: /^contracts\\/([\\w-]+)$/, page: contracts, nav: "contracts", title: "合同目录详情", sub: "当前会议合同清单与签署记录" },
   { re: /^contracts$/, page: contracts, nav: "contracts", title: "合同台账", sub: "合同金额与签署状态" },
   { re: /^prep-invitations$/, page: prepInvitations, nav: "prep-invitations", title: "筹备管理 · 邀请函", sub: "内置模板匹配、PDF、邮件与微信小程序分享" },
   { re: /^demand$/, page: demand, nav: "demand", title: "会务需求确认", sub: "四组清单：设计 / 制作 / 现场执行 / 其他" },
@@ -62,7 +63,7 @@ function parseHash() {
 
 function navHtml(active) {
   const mods = state.role?.modules || [];
-  return NAV.filter((g) => (mods.includes(g.k)||g.k==="dashboard"||(g.k==="projects"&&(can("contract:write")||can("contract:approve")))) && (g.k!=="system"||state.super)).map((g) => {
+  return NAV.filter((g) => (mods.includes(g.k)||g.k==="dashboard"||(g.k==="projects"&&(mods.includes("prep")||can("contract:write")||can("contract:approve")))) && (g.k!=="system"||state.super)).map((g) => {
     const items = g.items.filter((it) => !it.need || it.need());
     if (!items.length) return "";
     if (items.length === 1) {
