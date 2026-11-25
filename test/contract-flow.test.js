@@ -362,15 +362,17 @@ test("已有赞助权益确认的合同不得直接变更类别",async()=>{
 
 test("协会管理员可本人录入、提交、确认签署；总管理员同样可自签",async()=>{
  const pid=await freshProject();
+ // 前序安全测试会主动撤销登录态；测试独立重新签入，避免共用旧cookie。
+ const fresh={assoc:await login("assoc"),admin:await login("admin")};
  for(const [role,label] of [["assoc","协会管理员"],["admin","总管理员"]]){
-  const created=await client(role)("POST","/api/contracts",{
+  const created=await client(fresh[role])("POST","/api/contracts",{
    pid,name:label+"自签合同",vendor:"会务供应商",amount:2468,category:"会务需求",status:"草稿"
   });
   assert.equal(created.status,200,label+"录入合同："+JSON.stringify(created.data));
   const id=created.data.contract.id;
-  const submit=await client(role)("POST","/api/contracts/"+id+"/transition",{action:"submit"});
+  const submit=await client(fresh[role])("POST","/api/contracts/"+id+"/transition",{action:"submit"});
   assert.equal(submit.status,200,label+"提交签署："+JSON.stringify(submit.data));
-  const sign=await client(role)("POST","/api/contracts/"+id+"/transition",{action:"sign"});
+  const sign=await client(fresh[role])("POST","/api/contracts/"+id+"/transition",{action:"sign"});
   assert.equal(sign.status,200,label+"自签："+JSON.stringify(sign.data));
   assert.equal(sign.data.contract.status,"已签署");
   const list=await client(admin)("GET","/api/contracts?pid="+pid);
