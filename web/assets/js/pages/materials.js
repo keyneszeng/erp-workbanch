@@ -278,6 +278,9 @@ export function openMaterialRegistration(root, projects, kinds, defaultPid="", o
       toast("请先选择与当前赞助合同对应的权益内容","warn");return;
     }
     const data=readForm(m);
+    if(RETIRED_KINDS.has(String(data.kind||"").trim())){
+      toast("合同和会务协议属于合同模块，请选择其他材料类别","warn");return;
+    }
     delete data.name;delete data.version;
     data.version=final?"终版":"v1";
     if(kindSelect.value==="权益照片")data.sponsor_right_id=Number(rightSelect.value);
