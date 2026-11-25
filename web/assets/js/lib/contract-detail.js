@@ -1,4 +1,4 @@
-import { api, can } from "./api.js";
+import { api, can, state } from "./api.js";
 import { badge, closeModal, esc, modal, money, toast } from "./ui.js";
 import { fileUrl, formatBytes, checkFile, compressImage, UPLOAD_ACCEPT } from "./upload.js";
 
@@ -22,7 +22,7 @@ export function flowOf(c) {
   if (c.status === "草稿" && can("contract:write")) {
     return { action: "submit", label: "提交签署", perm: "contract:write" };
   }
-  if (c.status === "待签署" && can("contract:approve")) {
+  if (c.status === "待签署" && can("contract:approve") && (state.super || state.role === "assoc")) {
     return { action: "sign", label: "确认签署", perm: "contract:approve" };
   }
   return null;
@@ -31,7 +31,7 @@ export function flowOf(c) {
 /** 为什么这一步点不了 —— 让置灰的按钮自己说明原因，而不是让人猜 */
 export function flowHint(c) {
   if (c.status === "草稿") return can("contract:write") ? "" : "需要合同录入权限";
-  if (c.status === "待签署") return can("contract:approve") ? "" : "待协会管理员确认签署";
+  if (c.status === "待签署") return can("contract:approve") && (state.super || state.role === "assoc") ? "" : "待协会管理员或总管理员确认签署";
   return "";
 }
 
