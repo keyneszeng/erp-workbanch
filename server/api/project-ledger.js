@@ -7,6 +7,7 @@
 const { db }=require("../lib/db");
 const { assertCan,scopeFilter,assertProjectVisible }=require("../lib/rbac");
 const { getProject }=require("../lib/workflow");
+const {settlementTotals}=require("../lib/budget-fee");
 const { bad, yuan, cents }=require("../lib/util");
 const { PAYMENT_TYPES }=require("../lib/constants");
 
@@ -45,8 +46,9 @@ const raw=(pid)=>{
   const payments=db.prepare(
     "SELECT id,pid,type,payee,amount,status,invoice_no,paid_at,created_at FROM payments WHERE pid=? ORDER BY created_at,id"
   ).all(pid);
-  const settlement=db.prepare(
-    "SELECT id,pid,income,expense,profit,status,created_at FROM settlements WHERE pid=?").get(pid)||null;
+  const saved=db.prepare(
+    "SELECT id,pid,income,expense,profit,tax_fee_rate,status,created_at FROM settlements WHERE pid=?").get(pid);
+  const settlement=saved?settlementTotals(saved,project.tax_fee_rate):null;
   const materials=db.prepare(
     "SELECT id,pid,kind,name,version,file_key,file_name,created_at FROM materials WHERE pid=? AND deleted_at IS NULL AND (kind LIKE '%发票%' OR kind LIKE '%付款%' OR kind LIKE '%财务%' OR kind LIKE '%结算%' OR kind LIKE '%劳务%' OR kind LIKE '%合同%') ORDER BY id"
   ).all(pid);
@@ -125,7 +127,7 @@ function exportCsv(detail){
   for(const m of detail.financial_materials) rows.push([n,"财务材料",String(m.id),m.name,m.kind,"","",m.file_name||"",m.version||""]);
   if(detail.settlement){
     const s=detail.settlement;
-    rows.push([n,"结算",s.id,detail.project_name,s.status,s.expense,"","","收入 "+s.income+"；利润 "+s.profit]);
+    rows.push([n,"结算",s.id,detail.project_name,s.status,s.expense,"","","项目预算 "+s.income+"；可用预算 "+s.available_budget+"；结余 "+s.profit]);
   }
   for(const group of detail.payment_types){
     rows.push([n,"分类付款对照","",detail.project_name,
