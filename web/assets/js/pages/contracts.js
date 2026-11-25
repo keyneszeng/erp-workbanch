@@ -3,6 +3,7 @@ import { badge, bindSearchRefresh, confirmBox, promptBox, esc, formHtml, modal, 
 import { bindFilePicker, UPLOAD_ACCEPT, UPLOAD_TIP } from "../lib/upload.js";
 import { flowHint, flowOf, openContractDetail } from "../lib/contract-detail.js";
 import { openContractMaterialReplace } from "../lib/contract-material-replace.js";
+import {canEditContractCategory,openContractCategoryEdit} from "../lib/contract-category-edit.js";
 
 let q = "";
 let renderSeq = 0;
@@ -70,9 +71,11 @@ export async function render(root) {
             `${esc(r.name)}<span class="cat">${esc(r.category || "未分类")}</span>`,
             esc(r.vendor), `¥${money(r.amount)}`, `<span class="mono">${esc(r.sign_date || "—")}</span>`,
             badge(r.status), fileCell(r), flowBtn(r)+(r.status==="待签署"&&can("contract:approve")?` <button class="link danger" data-cflow="${r.id}" data-caction="reject">驳回</button>`:"")+
-            (can("material:file:replace") && r.file_key && r.material_id &&
+            (canEditContractCategory(r)
+              ? ` <button class="link" data-edit-contract-category="${esc(r.id)}">修改</button>` : "")+
+             (can("material:file:replace") && r.file_key && r.material_id &&
               !["已核销","已结算","已归档"].includes(r.pstatus)
-              ? ` <button class="link" data-replace-ledger-file="${r.material_id}">修改</button>` : "")]
+              ? ` <button class="link" data-replace-ledger-file="${r.material_id}">更换原件</button>` : "")]
         })), { empty: "暂无合同" })}
     </div>`;
 
@@ -92,6 +95,10 @@ export async function render(root) {
     return contractFlow(root,b.dataset.cflow,b.dataset.caction);
   });
   // 详情弹窗：从当前过滤后的 rows 里取，避免为了看一眼原件再打一次接口
+  root.querySelectorAll("[data-edit-contract-category]").forEach(b=>b.onclick=()=>{
+    const row=rows.find(r=>r.id===b.dataset.editContractCategory);
+    if(row)openContractCategoryEdit(row,()=>render(root));
+  });
   root.querySelectorAll("[data-replace-ledger-file]").forEach(b=>b.onclick=()=>{
     const row=rows.find(r=>Number(r.material_id)===Number(b.dataset.replaceLedgerFile));
     if(!row)return;
