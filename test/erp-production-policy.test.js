@@ -140,7 +140,7 @@ test("production: association member IDs, approved contract signing and pay-afte
   const personalFile=await uploadPersonal.json();
   assert.equal(uploadPersonal.status,200,JSON.stringify(personalFile));
   const personalMaterial=await request("POST","/api/projects/"+pid+"/materials",{
-    kind:"劳务协议",name:"测试讲者",file_key:personalFile.key,
+    kind:"劳务专家合同",name:"测试讲者",file_key:personalFile.key,
     file_name:personalFile.name,file_size:personalFile.size,file_mime:personalFile.mime
   },cookie);
   assert.equal(personalMaterial.status,200,JSON.stringify(personalMaterial.body));
