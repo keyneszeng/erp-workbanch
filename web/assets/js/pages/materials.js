@@ -5,7 +5,7 @@ import { checkFile, fileUrl, formatBytes, UPLOAD_ACCEPT, UPLOAD_TIP } from "../l
 import { openContractMaterialReplace } from "../lib/contract-material-replace.js";
 
 const PAGE_SIZE = 50;
-const RETIRED_KINDS=new Set(["合同","会务协议"]);
+const RETIRED_KINDS=new Set(["合同","会务协议","劳务协议","企业赞助合同","赞助合同","劳务专家合同","专家劳务协议","劳务合同","会务合同"]);
 // 与项目详情页/小程序/后端一致：结算或归档后冻结；权限依然单独校验。
 const canUploadAtStatus=status=>!["已结算","已归档"].includes(status);
 let curPage = 1;
@@ -91,7 +91,7 @@ export async function render(root, params = []) {
     '<div class="panel mt"><div class="panel-h"><h2>材料收集类别</h2><span class="hint">' +
       (writable ? "点击类别可直接上传，自动归入当前项目" : "该项目仅可查看已录入材料") +
     '</span></div><div class="material-kind-panel">' +
-      '<p class="hint">点击下方材料类别即可上传文件，自动归入当前会议。合同和会务协议的新增资料请在合同模块管理；旧资料仍在下方列表中保留。</p>' +
+      '<p class="hint">点击下方材料类别即可上传文件，自动归入当前会议。企业赞助合同、会务协议和劳务协议均须在合同模块统一上传；旧资料仍在下方列表中保留。</p>' +
       '<div class="material-kind-chips">' + kinds.map(kind =>
         '<button type="button" class="material-kind-chip" data-guide-kind="' + esc(kind) + '"' + (writable ? "" : " disabled") + '>' +
           esc(kind) + (project.have?.includes(kind) ? ' <span class="hint">已收集</span>' : "") + '</button>'
@@ -136,7 +136,7 @@ export const MAX_MATERIAL_FILES_PER_BATCH=10;
 
 export function openMaterialRegistration(root, projects, kinds, defaultPid="", onSaved=null, defaultKind="") {
   if(defaultKind&&RETIRED_KINDS.has(defaultKind)){
-    toast("合同、会务协议请在合同模块录入，不能从材料收集新增","warn");return;
+    toast("企业赞助合同、会务协议和劳务协议请在合同模块录入，不能从材料收集新增","warn");return;
   }
   if(!projects.length){
     toast("当前没有可登记材料的项目（已结算、已归档项目不允许新增材料）","warn");
@@ -274,7 +274,7 @@ export function openMaterialRegistration(root, projects, kinds, defaultPid="", o
   saveButton.onclick=async()=>{
     if(busy)return;
     if(!validate(m,fields))return;
-    if(RETIRED_KINDS.has(kindSelect.value)){toast("合同及会务协议请到合同模块管理","warn");return;}
+    if(RETIRED_KINDS.has(kindSelect.value)){toast("企业赞助合同、会务协议和劳务协议请到合同模块管理","warn");return;}
     if(!picked.length){toast("请先选择至少一份材料文件","warn");return;}
     if(picked.length>MAX_MATERIAL_FILES_PER_BATCH){toast(`单次最多登记 ${MAX_MATERIAL_FILES_PER_BATCH} 份材料附件`,"warn");return;}
     const final=kindSelect.value==="终版议程";
@@ -283,7 +283,7 @@ export function openMaterialRegistration(root, projects, kinds, defaultPid="", o
     }
     const data=readForm(m);
     if(RETIRED_KINDS.has(String(data.kind||"").trim())){
-      toast("合同和会务协议属于合同模块，请选择其他材料类别","warn");return;
+      toast("企业赞助合同、会务协议和劳务协议属于合同模块，请选择其他材料类别","warn");return;
     }
     delete data.name;delete data.version;
     data.version=final?"终版":"v1";
