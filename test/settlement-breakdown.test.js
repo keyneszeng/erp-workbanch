@@ -5,6 +5,7 @@ const assert=require("node:assert/strict");
 const {spawn}=require("node:child_process");
 const fs=require("node:fs"),os=require("node:os"),path=require("node:path");
 const {buildSettlementBreakdown,groupForType}=require("../server/lib/settlement-breakdown");
+const {settlementTotals}=require("../server/lib/budget-fee");
 const dir=fs.mkdtempSync(path.join(os.tmpdir(),"erp-settle-detail-"));
 const port=8985,base="http://127.0.0.1:"+port;
 let proc,adminCookie,guestCookie;
@@ -81,6 +82,10 @@ test("结算列表点击详情的API四项汇总必须与该项目已付款记�
  const all=await req(adminCookie,"GET","/api/settlements");
  assert.equal(all.status,200,JSON.stringify(all.data));
  assert.ok(all.data.rows.length>0);
+ for(const row of all.data.rows){
+  assert.equal(row.profit,(Math.round(row.available_budget*100)-Math.round(row.expense*100))/100);
+  assert.equal(typeof row.available_budget,"number");
+ }
  const st=all.data.rows[0];
  const r=await req(adminCookie,"GET","/api/settlements/"+encodeURIComponent(st.id)+"/breakdown");
  assert.equal(r.status,200,JSON.stringify(r.data));
@@ -122,4 +127,16 @@ test("四分类付款明细在结算单小板块默认展开，零记录板块�
  assert.deepEqual(groups.map(x=>x.label),["劳务","会务","协会报销","其他"]);
  assert.equal(groups[0].items[0].amount,50);
  assert.ok(groups.slice(1).every(x=>x.items.length===0));
+});
+
+test("结算总览使用冻结费率、支持负结余并兼容历史费率",()=>{
+ const row=settlementTotals({income:100000,expense:95000,tax_fee_rate:10,profit:5000},80);
+ assert.equal(row.available_budget,90000);
+ assert.equal(row.profit,-5000);
+ const old=settlementTotals({income:1000,expense:800,tax_fee_rate:null},10);
+ assert.equal(old.available_budget,900);
+ assert.equal(old.profit,100);
+ const source=fs.readFileSync(path.join(__dirname,"../web/assets/js/pages/finance.js"),"utf8");
+ const header=source.slice(source.indexOf('{ t: "结算单号"'),source.indexOf("st.rows.map"));
+ assert.deepEqual([...header.matchAll(/t:\s*"([^"]+)"/g)].map(x=>x[1]),["结算单号","项目","项目预算","可用预算","已付支出","结余","生成人","时间","操作"]);
 });
