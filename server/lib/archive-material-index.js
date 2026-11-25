@@ -178,7 +178,7 @@ async function pdfMaterials(project,selected,store){
   return {...s,file_key:syntheticKey,file_name:s.file_name||s.kind+".pdf",
    file_mime:"application/pdf"};
  });
- return {materials:mapped,store:{get:key=>cache.has(key)?
+ return {materials:mapped,store:{name:store.name,get:key=>cache.has(key)?
   Promise.resolve({buffer:cache.get(key),mime:"application/pdf"}):store.get(key)}};
 }
-module.exports={GROUPS,OTHER,classifyMaterial,listArchiveSources,publicSource,categorySummary,pdfMaterials,buildVirtualPdf};
+module.exports={GROUPS,OTHER,classifyMaterial,listArchiveSources,publicSource,categorySummary,pdfMaterials,buildVirtualPdf,toPdfLines};

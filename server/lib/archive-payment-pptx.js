@@ -37,7 +37,7 @@ function textBox(text,x,y,w,h,size=1650,opts={}){
  const id=shapeId++;
  const color=opts.color||COLORS.ink,align=opts.align||"l",anchor=opts.anchor||"ctr";
  const font=opts.font||"Microsoft YaHei",bold=opts.bold?' b="1"':"";
- const paras=String(text??"").split("\n").slice(0,6).map(line=>
+ const paras=String(text??"").split("\n").slice(0,16).map(line=>
   '<a:p><a:pPr algn="'+align+'"/><a:r><a:rPr lang="zh-CN" sz="'+size+'"'+bold+' dirty="0">'+
   '<a:solidFill><a:srgbClr val="'+color+'"/></a:solidFill>'+
   '<a:latin typeface="Aptos"/><a:ea typeface="'+xml(font)+'"/></a:rPr><a:t>'+xml(line)+'</a:t>'+
