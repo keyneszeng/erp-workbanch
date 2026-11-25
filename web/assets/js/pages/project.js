@@ -11,6 +11,7 @@ import { bindFilePicker, fileUrl, UPLOAD_ACCEPT, UPLOAD_TIP } from "../lib/uploa
 import { exStepLabel, openStepDetail } from "../lib/verify-detail.js";
 import {openOcrJudge} from "../lib/verify-ocr-judge.js";
 import { openContractMaterialReplace } from "../lib/contract-material-replace.js";
+import {canEditContractCategory,openContractCategoryEdit} from "../lib/contract-category-edit.js";
 import { flowHint, flowOf, openContractDetail } from "../lib/contract-detail.js";
 import { reachable } from "../lib/nav.js";
 import {renderSettlementBreakdown} from "../lib/settlement-breakdown.js";
@@ -349,10 +350,12 @@ function tabContracts(d, p) {
         `<span class="mono">${esc(c.sign_date || "—")}</span>`, badge(c.status),
         contractFileCell(c),
         contractFlowBtn(c, locked)+
+          (canEditContractCategory(c,p.status) && !d.settlement
+            ? ` <button class="link" data-edit-contract-category="${esc(c.id)}">修改</button>` : "")+
           (can("material:file:replace") && c.file_key && !d.settlement &&
             !["已核销","已结算","已归档"].includes(p.status) &&
             d.materials.some(m=>m.kind==="合同" && !m.deleted_at && m.file_key===c.file_key)
-            ? ` <button class="link" data-replace-material="${d.materials.find(m=>m.kind==="合同" && !m.deleted_at && m.file_key===c.file_key).id}">修改</button>` : "")]
+            ? ` <button class="link" data-replace-material="${d.materials.find(m=>m.kind==="合同" && !m.deleted_at && m.file_key===c.file_key).id}">更换原件</button>` : "")]
     })),
     { empty: "暂无合同" }),
     locked ? `<span class="foot-note">项目${p.status === "已归档" ? "已归档，卷宗封存" : "已结算，台账封账"}，不可再录入合同</span>`
@@ -569,6 +572,10 @@ function wire(root, pid, d, body) {
   body.querySelectorAll("[data-del-mat]").forEach((b) => b.onclick = () => {
     const m=d.materials.find(x=>Number(x.id)===Number(b.dataset.delMat));
     delMaterial(root,pid,b.dataset.delMat,m?.kind);
+  });
+  body.querySelectorAll("[data-edit-contract-category]").forEach(b=>b.onclick=()=>{
+    const contract=d.contracts.find(x=>x.id===b.dataset.editContractCategory);
+    if(contract)openContractCategoryEdit({...contract,pstatus:d.project.status},()=>refresh(root,pid));
   });
   body.querySelectorAll("[data-replace-material]").forEach(b=>b.onclick=()=>{
     const m=d.materials.find(x=>Number(x.id)===Number(b.dataset.replaceMaterial));
