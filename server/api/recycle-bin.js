@@ -73,7 +73,7 @@ function register(router){
 
     // 已删材料中的合同原件可能同步软删了合同台账。必须同事务恢复，
     // 但恢复为「草稿」，不恢复已撤销的待签署审批，不能绕过审批直接进入签署。
-    const linked=m.kind==="合同"&&m.file_key
+    const linked=/(?:合同|协议)/u.test(String(m.kind||""))&&m.file_key
       ?db.prepare("SELECT id,status,category FROM contracts WHERE pid=? AND file_key=? AND deleted_at IS NOT NULL").all(p.id,m.file_key)
       :[];
     if(linked.length>1)throw conflict("多份已删除合同引用同一文件，请先核对","RECYCLE_CONTRACT_AMBIGUOUS");
@@ -88,27 +88,45 @@ function register(router){
          db.prepare("SELECT 1 FROM meeting_sponsor_contracts WHERE ledger_contract_id=?").get(c.id))
         throw conflict("赞助合同与收入权益已关联，须先办理收入及权益更正","RECYCLE_SPONSOR_CONTRACT");
     }
+    // 同一次合同删除会将所有同文件的合同/协议类别材料放入废件箱；
+    // 从任意一条恢复时应原子恢复该次删除的整组关联记录，否则留下一半“幽灵”引用。
+    const companions=c?db.prepare(
+      "SELECT id,pid,kind,file_key,deleted_at,deleted_by FROM materials WHERE pid=? AND file_key=? "+
+      "AND deleted_at=? AND COALESCE(deleted_by,'')=? "+
+      "AND (kind LIKE '%合同%' OR kind LIKE '%协议%') ORDER BY id"
+    ).all(p.id,m.file_key,m.deleted_at,m.deleted_by||""):[m];
+    if(!companions.some(x=>x.id===m.id))
+      throw conflict("关联删除批次已变化，请刷新废件箱","RECYCLE_CHANGED");
     const stamp=now();
     const result=transaction(()=>{
-      // 并发恢复保护：恢复同一行只允许成功一次。
+      // 并发恢复保护：原记录、关联合同和同批材料必须一次提交或一起回滚。
       const current=row(m.id);
       if(current.deleted_at!==m.deleted_at)throw conflict("删除状态已经变化，请刷新废件箱","RECYCLE_CHANGED");
-      if(m.file_key && db.prepare("SELECT id FROM materials WHERE pid=? AND kind=? AND file_key=? AND deleted_at IS NULL AND id<>?")
-        .get(p.id,m.kind,m.file_key,m.id))
-        throw conflict("已存在同类别附件，不能重复恢复","RECYCLE_DUPLICATE_FILE");
-      const changed=db.prepare("UPDATE materials SET deleted_at=NULL,deleted_by=NULL WHERE id=? AND deleted_at=?")
-        .run(m.id,m.deleted_at);
-      if(!changed.changes)throw conflict("该材料已恢复，请刷新","RECYCLE_ALREADY_RESTORED");
+      for(const item of companions){
+        const fresh=db.prepare("SELECT id,deleted_at,deleted_by FROM materials WHERE id=? AND pid=?").get(item.id,p.id);
+        if(!fresh||fresh.deleted_at!==item.deleted_at||fresh.deleted_by!==item.deleted_by)
+          throw conflict("关联材料已发生变化，请刷新废件箱","RECYCLE_CHANGED");
+        if(item.file_key&&db.prepare(
+          "SELECT id FROM materials WHERE pid=? AND kind=? AND file_key=? AND deleted_at IS NULL AND id<>?"
+        ).get(p.id,item.kind,item.file_key,item.id))
+          throw conflict("已存在同类别附件，不能重复恢复","RECYCLE_DUPLICATE_FILE");
+      }
+      for(const item of companions){
+        const changed=db.prepare("UPDATE materials SET deleted_at=NULL,deleted_by=NULL WHERE id=? AND deleted_at=?")
+          .run(item.id,item.deleted_at);
+        if(!changed.changes)throw conflict("材料已恢复，请刷新","RECYCLE_ALREADY_RESTORED");
+      }
       if(c){
         db.prepare("UPDATE contracts SET deleted_at=NULL,deleted_by=NULL,status='草稿' WHERE id=? AND deleted_at IS NOT NULL")
           .run(c.id);
       }
-      return {id:m.id,pid:m.pid,kind:m.kind,linkedContract:c?.id||null};
+      return {id:m.id,pid:m.pid,kind:m.kind,linkedContract:c?.id||null,
+        restoredMaterialIds:companions.map(x=>x.id)};
     });
     logAudit({user:ctx.user,module:"废件箱",action:"恢复材料",target:p.id,
       detail:"材料#"+m.id+"；"+m.kind+"："+m.name+"；原文件："+(m.file_name||"无")+
         "；原删除人："+(m.deleted_by||"历史记录")+
-        (c?"；关联合同 "+c.id+" 恢复为草稿，须重新审批签署":""),
+        (c?"；关联合同 "+c.id+" 恢复为草稿，须重新审批签署；关联材料 "+result.restoredMaterialIds.join("、")+" 同批恢复":""),
       ip:ctx.ip});
     return {...result,restored_at:stamp,message:c
       ?"材料和关联合同已恢复原项目，合同退回草稿等待重新签署"
