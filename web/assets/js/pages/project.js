@@ -494,7 +494,7 @@ function tabMaterials(d, p) {
       ${selected==="权益照片"?'<p class="hint">权益照片需关联已签赞助合同对应的权益二级类目。</p>':""}
       ${selected==="讲者照片"?'<p class="hint">讲者照片请用讲者姓名命名文件（例如：张三.jpg），以便核销识别。</p>':""}
       ${selected==="终版议程"?'<p class="hint">批量选择议程时，最后一份作为当前终版，其余保留为历史版。</p>':""}
-      <div class="material-kind-actions"><span class="hint">${unavailable.has(selected)?"当前材料类别已停用，仅可查看历史附件":writable?"点击类别即可上传文件（最多10份/批），无需“登记材料”按钮":"当前项目仅可查看已收集材料"}</span></div>
+      <div class="material-kind-actions"><span class="hint">${unavailable.has(selected)?"当前材料类别已停用，仅可查看历史附件":writable?"点击材料类别即可直接上传资料（每批最多10份）":"当前项目仅可查看已收集材料"}</span></div>
     </div>
     ${table([{ t: "类别", w: "104px" }, { t: "材料名称" }, { t: "附件", w: "84px" }, { t: "版本", w: "56px" },
       { t: "上传人", w: "76px" }, { t: "时间", w: "130px" }, { t: "操作", w: "120px" }],
