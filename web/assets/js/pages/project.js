@@ -458,38 +458,49 @@ function tabMaterials(d, p) {
   const ms = d.materialsStatus;
   const validMaterials=(d.materials||[]).filter(m=>!m.deleted_at)
     .map(m=>m.kind==="劳务收集表"?{...m,kind:"劳务表"}:m);
+  // Old "合同/会务协议" materials remain available as read-only historical evidence.
+  // New contract originals must be uploaded through the dedicated contract tab.
+  const retiredKinds=new Set(["合同","会务协议"]);
+  const historicMaterials=validMaterials.filter(m=>retiredKinds.has(m.kind));
   const unavailable=new Set(ms.disabled||[]);
-  const recommended=(state.meta?.materialKinds||[]).filter(k=>!unavailable.has(k));
+  const recommended=(state.meta?.materialKinds||[]).filter(k=>!unavailable.has(k)&&!retiredKinds.has(k));
   const otherKinds=[...new Set(validMaterials.map(m=>m.kind))]
-    .filter(k=>!recommended.includes(k));
-  const selected=selectedMaterialKinds.get(p.id)||(recommended.includes("课件")?"课件":recommended[0]||otherKinds[0]||"课件");
+    .filter(k=>!recommended.includes(k)&&!retiredKinds.has(k));
+  const remembered=selectedMaterialKinds.get(p.id);
+  const selected=remembered&&!retiredKinds.has(remembered)?remembered:
+    (recommended.includes("课件")?"课件":recommended[0]||otherKinds[0]||"课件");
   const allKinds=[...new Set([...recommended,...otherKinds,selected])];
   const current=validMaterials.filter(m=>m.kind===selected);
   const writable=can("material:write")&&!d.settlement&&!["已结算","已归档"].includes(p.status)&&
-    !unavailable.has(selected);
+    !unavailable.has(selected)&&!retiredKinds.has(selected);
   const kindButtons=allKinds.map(k=>{
     const count=validMaterials.filter(m=>m.kind===k).length;
     return '<button type="button" class="material-kind-chip'+(selected===k?' active':'')+
-      '" data-material-kind="'+esc(k)+'" aria-pressed="'+(selected===k?'true':'false')+'">'+
+      '" data-material-kind="'+esc(k)+'" aria-pressed="'+(selected===k?'true':'false')+'" aria-label="点击'+esc(k)+'上传资料">'+
       esc(k)+(count?' <span class="hint">'+count+' 份</span>':'')+'</button>';
   }).join("");
   const rightById=new Map((d.sponsorRights?.rights||[]).map(r=>[Number(r.id),r]));
   const sponsorsById=new Map((d.sponsorRights?.contracts||[]).map(c=>[c.id,c]));
+  const historicSection=historicMaterials.length?panel("历史合同与会务协议材料（只读）",
+    "这两个旧类别已从材料收集移除；原件仍保留在历史记录，新增合同请在“合同”页操作",
+    table([{t:"历史类别",w:"115px"},{t:"材料名称"},{t:"历史原件",w:"130px"},{t:"上传时间",w:"150px"}],
+      historicMaterials.map(m=>({c:[esc(m.kind),esc(m.name),
+        m.file_key?'<a class="link" href="'+fileUrl(m.file_key)+'" target="_blank" rel="noopener">查看原件</a>':"—",
+        esc(m.created_at||"")]})),{empty:"没有历史资料"}),""):"";
   return panel("材料收集",
     `已上传 ${ms.uploadedCount || 0} 份附件 · ${ms.have.length} 类 · ${ms.ok ? "可进入后续流程" : "请先上传至少一份附件"}`, `
-    <div class="hint" style="padding:8px 14px">按类别直接录入：点击下面的类别，查看已上传文件名或上传新材料。类别用于引导，不代表每类均必交；实际核销仍按对应步骤检查。</div>
+    <div class="hint" style="padding:8px 14px">点击下方材料类别，直接打开该类别的上传资料窗口；上传后可查看已收集文件。合同及会务协议的新增原件请通过“合同”模块管理。</div>
     <div class="material-kind-panel" aria-label="材料类别选择">
-      <div class="material-kind-heading">材料收集类别 · 点击选择</div>
+      <div class="material-kind-heading">材料收集类别 · 点击类别上传资料</div>
       <div class="material-kind-chips">${kindButtons}</div>
       ${can("material:write")&&!d.settlement&&!["已结算","已归档"].includes(p.status)?
         '<div class="material-custom"><input data-material-custom maxlength="20" placeholder="其他材料类别（可自定义，20 字以内）" aria-label="自定义材料类别">'+
         '<button class="btn btn-o btn-sm" data-material-custom-apply>选择自定义类别</button></div>':""}
-      <div class="material-kind-selected"><b>当前录入：${esc(selected)}</b><span>已录入 ${current.length} 份</span></div>
+      <div class="material-kind-selected"><b>当前类别：${esc(selected)}</b><span>已收集 ${current.length} 份</span></div>
       ${selected==="权益照片"?'<p class="hint">权益照片需关联已签赞助合同对应的权益二级类目。</p>':""}
       ${selected==="讲者照片"?'<p class="hint">讲者照片请用讲者姓名命名文件（例如：张三.jpg），以便核销识别。</p>':""}
       ${selected==="终版议程"?'<p class="hint">批量选择议程时，最后一份作为当前终版，其余保留为历史版。</p>':""}
-      <div class="material-kind-actions">${writable?'<button class="btn btn-p" id="addMat">+ 上传当前类别材料</button>':""}
-        <span class="hint">${unavailable.has(selected)?"该类别材料模块已停用，可查看历史附件但不能继续上传":"一次最多 10 份，上传后自动显示原始文件名"}</span></div>
+      <div class="material-kind-actions"><span class="hint">${unavailable.has(selected)?"当前材料类别已停用，仅可查看历史附件":writable?"点击类别即可上传文件（最多10份/批），无需“登记材料”按钮":"当前项目仅可查看已收集材料"}</span></div>
     </div>
     ${table([{ t: "类别", w: "104px" }, { t: "材料名称" }, { t: "附件", w: "84px" }, { t: "版本", w: "56px" },
       { t: "上传人", w: "76px" }, { t: "时间", w: "130px" }, { t: "操作", w: "120px" }],
@@ -510,7 +521,7 @@ function tabMaterials(d, p) {
         ]
       })),
       { empty: "该类别尚无已上传文件，请选择上方类别并上传" })}`,
-    "");
+    "") + historicSection;
 }
 
 /* ---------------- 成员 ---------------- */
@@ -604,19 +615,27 @@ function wire(root, pid, d, body) {
   const ae = body.querySelector("#addEx"); if (ae) ae.onclick = () => openException(root, pid, d);
   // 项目材料面板使用和小程序相同的「类别 → 上传 → 已录入文件」顺序。
   body.querySelectorAll("[data-material-kind]").forEach(btn=>{
-    btn.onclick=()=>{selectedMaterialKinds.set(pid,btn.dataset.materialKind);render(root,[pid]);};
+    btn.onclick=async()=>{
+      const kind=btn.dataset.materialKind;
+      selectedMaterialKinds.set(pid,kind);
+      await render(root,[pid]);
+      if(can("material:write")&&!d.settlement&&
+        !["已结算","已归档"].includes(d.project.status)&&
+        !(d.materialsStatus.disabled||[]).includes(kind)){
+        await openMaterial(root,pid,kind);
+      }
+    };
   });
   body.querySelector("[data-material-custom-apply]")?.addEventListener("click",()=>{
     const name=String(body.querySelector("[data-material-custom]")?.value||"").trim();
     if(!name||name.length>20)return toast("请输入 1～20 字的材料类别名称","warn");
+    if(["合同","会务协议"].includes(name))return toast("合同和会务协议请在合同模块上传，不能作为材料收集类别","warn");
     selectedMaterialKinds.set(pid,name);
-    render(root,[pid]);
+    render(root,[pid]).then(()=>openMaterial(root,pid,name));
   });
   body.querySelector("[data-material-custom]")?.addEventListener("keydown",e=>{
     if(e.key==="Enter"){e.preventDefault();body.querySelector("[data-material-custom-apply]")?.click();}
   });
-  const am = body.querySelector("#addMat"); if (am) am.onclick = () =>
-    openMaterial(root, pid, selectedMaterialKinds.get(pid)||"课件");
   const amm = body.querySelector("#addMem"); if (amm) amm.onclick = () => openMember(root, pid, d);
 }
 
