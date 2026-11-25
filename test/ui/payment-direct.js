@@ -30,13 +30,25 @@ let server,browser;
  await page.locator("#lbtn").click();
  await page.locator("#nav").waitFor({timeout:15000});
  await page.goto(origin+"/#/finance");
- const form=page.locator("#financeDirect");
- await form.waitFor({timeout:15000});
- const text=await page.locator("#fin-payments").innerText();
- for(const column of ["类目","金额","付款（勾选）","凭证详情"])
+ const projectList=page.locator("#paymentProjects");
+ await projectList.waitFor({timeout:15000});
+ assert.equal(await page.locator("#fin-payments [data-st]").count(),0,"付款状态筛选已移除");
+ assert.equal(await page.locator("#paymentDetails").count(),0,"点击会议前不加载付款明细");
+ const projects=await (await page.request.get(origin+"/api/projects")).json();
+ for(const p of projects.rows){
+  assert.equal(await projectList.locator('[data-go="finance/'+p.id+'"]').count(),p.status==="已核销"?1:0,"仅列出已核销项目");
+ }
+ await projectList.locator('[data-go="finance/'+pid+'"]').click();
+ const details=page.locator("#paymentDetails");
+ await details.waitFor({timeout:15000});
+ const text=await details.innerText();
+ for(const column of ["收款方","金额","付款按钮","凭证详情"])
   assert.ok(text.includes(column),"missing column: "+column);
  assert.equal(await page.locator("#newPay").count(),0,"finance should not use payment application");
- await form.locator('[name="pid"]').selectOption(pid);
+ await page.locator("#goDirectPay").click();
+ const form=page.locator("#financeDirect");
+ await form.waitFor({timeout:15000});
+ assert.equal(await form.locator('[name="pid"]').inputValue(),pid);
  const payee=form.locator('[name="payee_option_id"]');
  await page.waitForFunction(()=>document.querySelector('#financeDirect select[name="payee_option_id"]')?.options?.[0]?.textContent?.includes("手动填写"),null,{timeout:15000});
  await payee.selectOption("");
