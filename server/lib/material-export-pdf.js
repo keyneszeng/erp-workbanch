@@ -6,6 +6,7 @@
  * - 所有原件来源由服务端按项目/类目查询，不接受请求体指定文件key。
  */
 const {PDFDocument,degrees}=require("pdf-lib");
+const {createHash}=require("node:crypto");
 const {HttpError}=require("./util");
 const {compressOriginal}=require("./file-compress");
 const VISIBLE_OFFICE_EXT=new Set(["pptx","xlsx","docx"]);
@@ -93,7 +94,7 @@ async function buildSelectedMaterialsPdf({project,materials,watermark,compressor
   throw new HttpError(413,"MATERIAL_EXPORT_COUNT","文件超过120份，请减少勾选类别分批生成");
  const dest=await PDFDocument.load(cover(project),{updateMetadata:false});
  let byteTotal=0,pageCount=dest.getPageCount(),originalCount=0;
- const seenKeys=new Set();
+ const seenKeys=new Set(),seenContent=new Set();
  for(const [index,m] of materials.entries()){
   if(!m.file_key||seenKeys.has(m.file_key))continue;
   seenKeys.add(m.file_key);
@@ -105,6 +106,12 @@ async function buildSelectedMaterialsPdf({project,materials,watermark,compressor
   if(!object?.buffer)
    throw new HttpError(409,"MATERIAL_FILE_MISSING","材料库原件不存在："+sanitize(m.file_name||m.name));
   const original=Buffer.from(object.buffer);
+  // Mirrors and reuploads can point at different storage keys while containing
+  // byte-for-byte identical originals. Keep only the FIRST original in the
+  // canonical 15-category order (and its attachment / visible pages).
+  const fingerprint=createHash("sha256").update(original).digest("hex");
+  if(seenContent.has(fingerprint))continue;
+  seenContent.add(fingerprint);
   const originalFileName=m.file_name||m.name||m.file_key;
   const needsOfficePages=VISIBLE_OFFICE_EXT.has(extOfFile(originalFileName));
   let bytes=original,type=mime(original,m.file_mime),compressNote="";
@@ -215,7 +222,7 @@ async function buildSelectedMaterialsPdf({project,materials,watermark,compressor
   }
  }
  dest.setTitle(sanitize(project.name)+" - 会议材料");
- dest.setSubject("自选材料库类别 PDF 合集");
+ dest.setSubject("15类固定目录顺序 · 原始文件内容去重 · 会议材料PDF合集");
  dest.setCreator("会规智云");
  dest.setKeywords(["materials-export","watermark:"+(watermark?.mode||"default"),"source-count:"+originalCount]);
  return Buffer.from(await dest.save({useObjectStreams:false}));
