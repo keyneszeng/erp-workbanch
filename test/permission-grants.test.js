@@ -347,3 +347,37 @@ test("撤销后立即失效；重新登录也不能访问已经撤销的模块",
  assert.equal(audit.status,200);
  assert.ok(audit.body.rows.some(r=>r.action==="修改账号授权"));
 });
+
+test("合同签署权限仅归协会管理员和总管理员，协会管理员无需手动授权即可录入及签署",async()=>{
+ const created=await call("admin","POST","/api/users",{
+  username:"qa_contract_assoc",name:"合同授权协会管理员",role:"assoc",
+  assoc:"华东医学会",assocs:["华东医学会"],dept:"学术部",
+  phone:"13800008886",password:"SecureDemo2026!"
+ });
+ assert.equal(created.status,200,JSON.stringify(created.body));
+ const id=created.body.user.id;
+ const access=await call("admin","GET","/api/users/"+id+"/access");
+ assert.equal(access.status,200,JSON.stringify(access.body));
+ assert.ok(!access.body.available_permissions.includes("contract:approve"),
+  "签署审批是角色固定权限，不能在普通成员授权面板分配");
+ const illegal=await call("admin","PATCH","/api/users/"+userId+"/access",{
+  modules:["prep"],permissions:["contract:write","contract:approve"]
+ });
+ assert.equal(illegal.status,400,"任何非管理员成员不能获得合同签署审批授权");
+ const allowRecording=await call("admin","PATCH","/api/users/"+userId+"/access",{
+  modules:["prep"],permissions:["contract:write"]
+ });
+ assert.equal(allowRecording.status,200,JSON.stringify(allowRecording.body));
+ await login("qa_contract_assoc","SecureDemo2026!");
+ await login("newstaff","SecureDemo2026!");
+ const assocMe=await call("qa_contract_assoc","GET","/api/auth/me");
+ assert.equal(assocMe.status,200);
+ assert.ok(assocMe.body.perms.includes("contract:write"));
+ assert.ok(assocMe.body.perms.includes("contract:approve"));
+ assert.deepEqual(assocMe.body.role.modules,[],"不要求额外给协会管理员开筹备模块");
+ assert.equal((await call("qa_contract_assoc","GET","/api/contracts")).status,200);
+ assert.equal((await call("qa_contract_assoc","GET","/api/approvals")).status,200);
+ const execMe=await call("newstaff","GET","/api/auth/me");
+ assert.ok(execMe.body.perms.includes("contract:write"),"其他成员可获得录入/提交权限");
+ assert.ok(!execMe.body.perms.includes("contract:approve"),"其他成员不可审批签署");
+});
