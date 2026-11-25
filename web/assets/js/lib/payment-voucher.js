@@ -3,7 +3,7 @@ import {modal,toast,esc} from "./ui.js";
 
 /** Attach a missing receipt to a historically completed payment without altering money. */
 export function openPaymentVoucher(id,pid,onDone){
- if(!can("payment:pay"))return toast("仅财务人员可以管理付款凭证","warn");
+ if(!can("payment:pay"))return toast("需要付款执行权限才能管理付款凭证","warn");
  const m=modal({title:"补传付款凭证 · "+esc(id),
   body:'<div class="gate">付款凭证只允许补传缺失文件。已有凭证不可直接覆盖，以免破坏历史记录。</div>'+
    '<div class="fld"><label>实际转账回单 <span class="req">*</span></label>'+
