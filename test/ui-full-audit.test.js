@@ -98,3 +98,10 @@ test("生成结算单不再要求收款方/开户行/银行账号",()=>{
   assert.ok(!/parseBank/.test(settle),"结算不应再解析银行字段");
   assert.ok(/payee,payee_bank,payee_account,status/.test(settle),"插入语句保留列名但写 NULL");
 });
+
+test("数字卷宗导出按钮与真实CSV输出一致，不把核销明细误写成完整卷宗",()=>{
+  const p="web/assets/js/pages/archive.js";
+  has(p,"导出核销明细 CSV");
+  has(p,'api.download("/api/export/verify")');
+  no(p,"导出核销卷宗");
+});
