@@ -43,16 +43,17 @@ export async function renderIncomeWorkbench(root,projects,requested=""){
        ${x.status==="已签署"&&finance?`<button class="link" data-sponsor-receipt="${esc(x.id)}">登记回款</button>
         <button class="link" data-sponsor-invoice="${esc(x.id)}">登记开票</button>`:""}</td></tr>`).join(""):'<tr><td colspan="6">暂无企业赞助合同</td></tr>'}</tbody></table></div>
    <div class="panel-h"><h3>到账凭证</h3></div>
-   <div class="tw"><table><thead><tr><th>到账日期</th><th>关联合同</th><th>流水编号</th><th>到账金额</th><th>银行凭证</th></tr></thead><tbody>
+   <div class="tw"><table><thead><tr><th>到账日期</th><th>关联合同</th><th>流水编号</th><th>到账金额</th><th>银行凭证</th><th>操作</th></tr></thead><tbody>
    ${d.receipts.length?d.receipts.map(x=>`<tr><td>${esc(x.received_date)}</td><td>${esc(x.sponsor_id)}</td><td>${esc(x.payment_ref)}</td>
-     <td>${yuan(x.amount)}</td><td>${link(x.file_key)}</td></tr>`).join(""):'<tr><td colspan="5">暂无到账记录</td></tr>'}</tbody></table></div>
+     <td>${yuan(x.amount)}</td><td>${link(x.file_key)}</td><td>${correct?`<button class="link" data-income-edit="receipts" data-id="${esc(x.id)}">修改</button>`:"—"}</td></tr>`).join(""):'<tr><td colspan="6">暂无到账记录</td></tr>'}</tbody></table></div>
    <div class="panel-h"><h3>已开具发票</h3></div>
-   <div class="tw"><table><thead><tr><th>开票日期</th><th>关联合同</th><th>发票号码</th><th>开票金额</th><th>发票原件</th></tr></thead><tbody>
+   <div class="tw"><table><thead><tr><th>开票日期</th><th>关联合同</th><th>发票号码</th><th>开票金额</th><th>发票原件</th><th>操作</th></tr></thead><tbody>
    ${d.invoices.length?d.invoices.map(x=>`<tr><td>${esc(x.issued_date)}</td><td>${esc(x.sponsor_id)}</td><td>${esc(x.invoice_no)}</td>
-     <td>${yuan(x.amount)}</td><td>${link(x.file_key)}</td></tr>`).join(""):'<tr><td colspan="5">暂无开票记录</td></tr>'}</tbody></table></div>
+     <td>${yuan(x.amount)}</td><td>${link(x.file_key)}</td><td>${correct?`<button class="link" data-income-edit="invoices" data-id="${esc(x.id)}">修改</button>`:"—"}</td></tr>`).join(""):'<tr><td colspan="6">暂无开票记录</td></tr>'}</tbody></table></div>
  </section>`;
  root.querySelector("#income-project").onchange=e=>{chosen=e.target.value;renderIncomeWorkbench(root,projects).catch(err=>toast(err.message,"warn"));};
  root.querySelector("#income-add-contract")?.addEventListener("click",()=>formIncome(root,projects,"contract"));
+ root.querySelectorAll("[data-income-edit]").forEach(b=>b.onclick=()=>editIncomeEvidence(root,projects,chosen,b.dataset.incomeEdit,d[b.dataset.incomeEdit].find(x=>x.id===b.dataset.id)));
  root.querySelectorAll("[data-sponsor-edit]").forEach(b=>b.onclick=()=>editSponsorContract(root,projects,chosen,d.contracts.find(x=>x.id===b.dataset.sponsorEdit)));
  root.querySelectorAll("[data-rights-edit]").forEach(b=>b.onclick=()=>openSponsorRightsEditor(root,projects,chosen,d,b.dataset.rightsEdit,renderIncomeWorkbench));
  root.querySelectorAll("[data-sponsor-approve]").forEach(b=>b.onclick=async()=>{
@@ -213,5 +214,34 @@ function editSponsorContract(root,projects,pid,contract){
    await api.patch("/api/projects/"+encodeURIComponent(pid)+"/income/contracts/"+encodeURIComponent(contract.id),body);
    m.classList.remove("open");toast("赞助合同已修改","ok");await renderIncomeWorkbench(root,projects,pid);
   }catch(e){toast(e.message,"warn");save.disabled=false;}
+ };
+}
+
+function editIncomeEvidence(root,projects,pid,kind,row){
+ if(!row)return;
+ const receipt=kind==="receipts",ref=receipt?"paymentRef":"invoiceNo",date=receipt?"receivedDate":"issuedDate";
+ const fields=[
+  {k:"amount",l:"金额（元）",t:"number",req:1},
+  {k:ref,l:receipt?"银行回款流水号":"发票号码",req:1},
+  {k:date,l:receipt?"到账日期":"开票日期",t:"date",req:1},
+  {k:"file",l:"更换原件（可选）",t:"file",full:1,accept:UPLOAD_ACCEPT}
+ ];
+ const m=modal({title:receipt?"修改到账凭证":"修改开票记录",width:"640px",body:link(row.file_key)+formHtml(fields),
+  footer:'<button class="btn btn-o" data-cancel>取消</button><button class="btn btn-p" data-save>保存修改</button>'});
+ m.querySelector('[name="amount"]').value=row.amount;
+ m.querySelector('[name="'+ref+'"]').value=row[receipt?"payment_ref":"invoice_no"];
+ m.querySelector('[name="'+date+'"]').value=row[receipt?"received_date":"issued_date"];
+ let picked=null,invalid=false;
+ bindFilePicker(m,"file",(file,err)=>{picked=err?null:file;invalid=!!err;if(err)toast(err,"warn");});
+ m.querySelector("[data-cancel]").onclick=()=>m.classList.remove("open");
+ const btn=m.querySelector("[data-save]");
+ btn.onclick=async()=>{
+  if(invalid||!validate(m,fields))return;btn.disabled=true;
+  try{
+   const v=readForm(m),body={amount:Number(v.amount),[ref]:v[ref],[date]:v[date]};
+   if(picked){const f=await api.upload(picked,{pid});body.file_key=f.key;body.file_name=f.name;}
+   await api.patch("/api/projects/"+encodeURIComponent(pid)+"/income/"+kind+"/"+encodeURIComponent(row.id),body);
+   m.classList.remove("open");toast("收入凭证已修改","ok");await renderIncomeWorkbench(root,projects,pid);
+  }catch(e){toast(e.message,"warn");btn.disabled=false;}
  };
 }
