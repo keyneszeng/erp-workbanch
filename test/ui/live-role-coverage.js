@@ -303,10 +303,15 @@ async function inspectDetail(page, role) {
           if(await category.count()&&await category.isEnabled()){
             const kind=await category.getAttribute("data-material-kind");
             await category.click({timeout:8000});
+            // 点击会先异步重载项目，再动态 import 上传组件。立即 count()
+            // 会误判无弹窗，随后弹窗迟到盖住后面的核销、付款、成员等页签。
             const modal=page.locator("#modal.open");
-            if(await modal.count()){
-              check(role,"project-detail","材料类别快捷上传",await modal.locator('[name="kind"]').inputValue()===kind,kind);
-              await modal.locator(".close").click();
+            const opened=await modal.waitFor({state:"visible",timeout:4500}).then(()=>true).catch(()=>false);
+            if(opened){
+              check(role,"project-detail","材料类别快捷上传",
+                await modal.locator('[name="kind"]').inputValue()===kind,kind);
+              await modal.locator(".close").click({timeout:5000});
+              await modal.waitFor({state:"hidden",timeout:5000});
             }else check(role,"project-detail","材料类别快捷上传",null,"当前状态无写入权限");
           }
         }
