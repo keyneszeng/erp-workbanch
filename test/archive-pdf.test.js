@@ -176,7 +176,7 @@ test("旧卷宗构建器保留并仍可用于兼容历史报告，但新的材�
  assert.ok(doc.getPageCount()>0);
 });
 
-test("操作员可以逐份选择原件并自定义PDF次序，服务端不会按类别重新排序",async()=>{
+test("旧逐份选择接口即使提交合同在签到表之前，仍按15类固定优先级拼接",async()=>{
  const opts=await call("admin","GET",opt(pid));
  assert.equal(opts.status,200);
  const files=opts.data.materials;
@@ -188,9 +188,11 @@ test("操作员可以逐份选择原件并自定义PDF次序，服务端不会�
  });
  const doc=await pdfOf(r);
  assert.equal(doc.getPageCount(),5);
+ assert.deepEqual(doc.getPages().slice(1).map(p=>p.getWidth()),[320,320,321,321],
+  "签到表必须先于合同，不能按前端提交的跨类别顺序输出");
  const attachments=doc.catalog.lookup(PDFName.of("Names"))?.lookup(PDFName.of("EmbeddedFiles"));
  assert.ok(attachments,"PDF must retain each original as an attachment");
- // PDF page order is generated from ordered material IDs, not lexicographic kind sorting.
+ // The server enforces the preset 15-category order, not the client-provided cross-category ID sequence.
  assert.match(doc.getKeywords()||"",/source-count:2/);
 });
 test("逐份材料选择拒绝跨项目、重复、未勾选类别和非数字ID",async()=>{
