@@ -34,7 +34,7 @@ export async function render(root) {
   const manage = can("user:manage");
 
   root.innerHTML = `<div class="phead">
-      <div><h2>${state.demo ? "用户与权限" : "手机号白名单与权限"}</h2><p>${state.demo ? "总管理员默认拥有全部功能权限；其他账号由总管理员按需分配模块和操作权限" : "账号无角色默认权限；总管理员自行给每个账号授权"}</p></div>
+      <div><h2>${state.demo ? "用户与权限" : "手机号白名单与权限"}</h2><p>${state.demo ? "总管理员默认拥有全部功能权限；其他账号由总管理员按需分配模块和操作权限" : "协会管理员默认可录入及确认合同签署；其他岗位的合同录入由总管理员授权，签署只限协会管理员或总管理员"}</p></div>
       <div class="acts">${manage ? `<button type="button" class="btn btn-p" id="newU">+ ${state.demo ? "新建账号" : "录入手机号"}</button>` : ""}</div>
     </div>
 
@@ -58,7 +58,7 @@ export async function render(root) {
        <p class="hint">会议编号规则：协会字母简写-举办年份-两位顺序号（例 HDYX-2027-01）。已使用的协会简写不能再修改，以免历史会议编号失真。</p>
        <div class="chips mt">${(assocDirectory.details||[]).map(a=>`<span class="chip"><b>${esc(a.name)}</b> <span class="mono">${esc(a.code||"未配置")}</span> <button class="link" data-assoc-code="${esc(a.name)}">${a.code?"修改简写":"设置简写"}</button> <button class="link danger" data-remove-assoc="${esc(a.name)}">停用</button></span>`).join("")}</div>
      </div>` : ""}
-    <div class="panel"><div class="panel-h"><h2>按账号分配权限</h2></div><p class="hint" style="padding:12px 16px">除总管理员外，所有角色默认无内置功能权限。角色只表示身份和数据范围；总管理员在用户列表点击「分配权限」，独立授权模块与具体操作。</p></div>
+    <div class="panel"><div class="panel-h"><h2>按账号分配权限</h2></div><p class="hint" style="padding:12px 16px">协会管理员自动拥有合同录入及签署审批权限；其他岗位的合同录入由总管理员授权，不能授予合同签署审批。其他模块与操作仍按账号单独授权。</p></div>
 
     ${state.super && state.demo ? `<div class="panel danger-zone">
       <div class="panel-h"><h2>危险操作</h2><span class="hint">仅总管理员可见 · 不可恢复</span></div>
@@ -269,7 +269,7 @@ async function openAccessEditor(root,user){
  const moduleRows=d.available_modules.map(m=>cb(m.k,m.n,"module",mods.has(m.k))).join("");
  const permissionRows=d.available_permissions.map(k=>cb(k,names[k]||k,"permission",perms.has(k))).join("");
  const m=modal({title:"权限分配 · "+esc(user.name),width:"760px",
-  body:'<p class="hint">只修改当前账号的权限；不影响其他同角色账号。保存后此账号需重新登录。</p>'+
+  body:'<p class="hint">合同签署审批由协会管理员/总管理员岗位自动授予，不支持分配给其他成员。其他权限保存后账号需重新登录。</p>'+
   '<div class="material-export-tools" style="margin-top:14px"><b>模块访问权限</b> <button type="button" class="link" data-grant-all="module">全选</button><button type="button" class="link" data-grant-none="module">清空</button></div>'+
   '<div class="chips" style="max-height:190px;overflow:auto">'+moduleRows+'</div>'+
   '<div class="material-export-tools" style="margin-top:16px"><b>具体操作权限</b> <button type="button" class="link" data-grant-all="permission">全选</button><button type="button" class="link" data-grant-none="permission">清空</button></div>'+
