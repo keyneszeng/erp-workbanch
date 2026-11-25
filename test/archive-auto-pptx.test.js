@@ -1,0 +1,161 @@
+"use strict";
+/** Archive auto-index + PPTX verification against a real demo DB and HTTP API. */
+const {test,before,after}=require("node:test"),assert=require("node:assert/strict");
+const {spawn}=require("node:child_process"),{DatabaseSync}=require("node:sqlite");
+const fs=require("node:fs"),os=require("node:os"),path=require("node:path");
+const PizZip=require("pizzip"),{PDFDocument}=require("pdf-lib");
+const root=path.resolve(__dirname,".."),dir=fs.mkdtempSync(path.join(os.tmpdir(),"erp-archive-auto-"));
+const dbFile=path.join(dir,"db.sqlite"),uploadDir=path.join(dir,"uploads");
+const port=16813,origin="http://127.0.0.1:"+port,pid="MP-2026-015",other="MP-2026-007";
+let server,db,admin,assoc,execUser;
+const projectUrl="/api/projects/"+pid;
+async function auth(user){
+ const res=await fetch(origin+"/api/auth/login",{method:"POST",headers:{"content-type":"application/json"},
+  body:JSON.stringify({username:user,password:"123456"})});
+ assert.equal(res.status,200,user+" login");
+ return res.headers.get("set-cookie").split(";")[0];
+}
+async function req(cookie,method,url,body){
+ const res=await fetch(origin+url,{method,headers:{cookie,...(body===undefined?{}:{"content-type":"application/json"})},
+  body:body===undefined?undefined:JSON.stringify(body)});
+ const ct=res.headers.get("content-type")||"";
+ return {status:res.status,res,data:ct.includes("json")?await res.json():null};
+}
+async function pdf(){
+ const pdf=await PDFDocument.create();pdf.addPage([240,300]);return Buffer.from(await pdf.save());
+}
+function put(key,bytes){
+ const folder=path.join(uploadDir,key.slice(0,2));
+ fs.mkdirSync(folder,{recursive:true});fs.writeFileSync(path.join(folder,key),bytes);
+}
+before(async()=>{
+ server=spawn(process.execPath,["--experimental-sqlite","server/index.js"],{
+  cwd:root,env:{...process.env,ERP_DEMO_MODE:"1",ERP_PORT:String(port),
+   ERP_DB:dbFile,ERP_UPLOAD_DIR:uploadDir},stdio:["ignore","pipe","pipe"]});
+ let stderr="";server.stderr.on("data",b=>stderr+=String(b));
+ let ready=false;
+ for(let i=0;i<300;i++){
+  try{if((await fetch(origin+"/api/health")).ok){ready=true;break;}}catch{}
+  if(server.exitCode!==null)throw Error("server exited: "+stderr);
+  await new Promise(r=>setTimeout(r,110));
+ }
+ assert.ok(ready,"server started");
+ [admin,assoc,execUser]=await Promise.all(["admin","assoc","exec"].map(auth));
+ db=new DatabaseSync(dbFile);db.exec("PRAGMA busy_timeout=5000");
+ const content=await pdf();
+ const keys=[
+  "11111111111111111111111111111111.pdf",
+  "22222222222222222222222222222222.pdf",
+  "33333333333333333333333333333333.pdf",
+  "44444444444444444444444444444444.pdf",
+  "55555555555555555555555555555555.pdf"
+ ];
+ for(const key of keys)put(key,content);
+ db.prepare("INSERT INTO meeting_sponsor_contracts (id,pid,enterprise,contract_no,amount,status,file_key,file_name,created_at) VALUES (?,?,?,?,?,?,?,?,?)")
+   .run("SC-AUTO-001",pid,"甲赞助企业","ZZ-1001",20000,"已签署",keys[0],"赞助合同.pdf","2026-10-01");
+ db.prepare("INSERT INTO meeting_sponsor_receipts (id,pid,sponsor_id,amount,payment_ref,received_date,file_key,file_name,created_at) VALUES (?,?,?,?,?,?,?,?,?)")
+   .run("SR-AUTO-001",pid,"SC-AUTO-001",20000,"BANK-1001","2026-10-02",keys[1],"进款凭证.pdf","2026-10-02");
+ db.prepare("INSERT INTO meeting_sponsor_invoices (id,pid,sponsor_id,amount,invoice_no,issued_date,file_key,file_name,created_at) VALUES (?,?,?,?,?,?,?,?,?)")
+   .run("SI-AUTO-001",pid,"SC-AUTO-001",20000,"INV-AUTO-001","2026-10-03",keys[2],"赞助发票.pdf","2026-10-03");
+ db.prepare("INSERT INTO materials (pid,kind,name,version,uploader,created_at,file_key,file_name,file_size,file_mime) VALUES (?,?,?,?,?,?,?,?,?,?)")
+   .run(pid,"合同","被赞助库镜像的合同","v1","测试","2026-10-04",keys[0],"重复原件.pdf",content.length,"application/pdf");
+ db.prepare("INSERT INTO materials (pid,kind,name,version,uploader,created_at,file_key,file_name,file_size,file_mime) VALUES (?,?,?,?,?,?,?,?,?,?)")
+   .run(pid,"现场照片","现场照片原件","v1","测试","2026-10-04",keys[3],"现场照片.pdf",content.length,"application/pdf");
+ db.prepare("INSERT INTO materials (pid,kind,name,version,uploader,created_at,file_key,file_name,file_size,file_mime,deleted_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)")
+   .run(pid,"课件","废件课件","v1","测试","2026-10-04",keys[4],"已删除.pdf",content.length,"application/pdf","2026-10-05");
+ // Real payable records already exist in the seeded meeting. Test the archive
+ // never changes any paid amount or status while exporting.
+});
+after(()=>{db?.close();server?.kill("SIGTERM");fs.rmSync(dir,{recursive:true,force:true});});
+test("默认15类目录顺序严格一致；跨业务表自动关联并对同一原件去重",async()=>{
+ const {status,data}=await req(admin,"GET",projectUrl+"/archive-pdf/options");
+ assert.equal(status,200,JSON.stringify(data));
+ const expected=["立项通知","会议说明书","招商函","赞助企业合同","进款凭证",
+  "赞助企业合同关联发票","会议照片(现场照片和权益照片)","签到表",
+  "劳务收集表","专家劳务协议","串场文件","课件","会务协议","会务需求单","会务合同关联发票"];
+ assert.deepEqual(data.groups.slice(0,15).map(x=>x.kind),expected);
+ const rows=data.sources;
+ const ranks=new Map(data.groups.map((g,i)=>[g.kind,i]));
+ assert.deepEqual(rows.map(x=>ranks.get(x.kind)),rows.map(x=>ranks.get(x.kind)).sort((a,b)=>a-b));
+ for(const key of ["sponsor-contract:SC-AUTO-001","sponsor-receipt:SR-AUTO-001","sponsor-invoice:SI-AUTO-001"])
+  assert.ok(rows.some(s=>s.source_id===key),key);
+ assert.ok(rows.some(s=>s.kind==="会议照片(现场照片和权益照片)"&&s.source_type==="材料收集"));
+ assert.equal(rows.filter(s=>s.source_id==="sponsor-contract:SC-AUTO-001").length,1);
+ assert.ok(!rows.some(s=>s.name.includes("被赞助库镜像")), "duplicate original should be removed");
+ assert.ok(!rows.some(s=>s.name.includes("废件课件")), "deleted originals should not be exported");
+ assert.ok(rows.some(s=>s.kind==="立项通知"&&s.generated));
+ assert.ok(rows.some(s=>s.kind==="会议说明书"&&s.generated));
+ assert.ok(rows.every(s=>!("file_key" in s)&&!("token_hash" in s)), "no internal file keys exposed");
+ assert.equal(data.project.id,pid);
+});
+test("自动来源跨库PDF按预设顺序合并并可调整，水印与历史下载保持兼容",async()=>{
+ const opts=(await req(admin,"GET",projectUrl+"/archive-pdf/options")).data;
+ const ids=["auto:notice","auto:description",
+  "sponsor-contract:SC-AUTO-001","sponsor-receipt:SR-AUTO-001","sponsor-invoice:SI-AUTO-001"];
+ assert.ok(ids.every(id=>opts.sources.some(s=>s.source_id===id)));
+ const result=await req(admin,"POST",projectUrl+"/archive-pdf",{
+  source_ids:ids,watermark_mode:"none"
+ });
+ assert.equal(result.status,200,JSON.stringify(result.data));
+ assert.match(result.res.headers.get("content-type"),/application\/pdf/);
+ const document=await PDFDocument.load(await result.res.arrayBuffer());
+ assert.ok(document.getPageCount()>=6,"cover and five source pages");
+ assert.match(document.getKeywords()||"",/source-count:5/);
+ const body=await req(assoc,"POST",projectUrl+"/archive-pdf",{
+  source_ids:["sponsor-contract:SC-AUTO-001"],watermark_mode:"default"
+ });
+ assert.equal(body.status,200,"association administrator with archive permission can download own project");
+ const old=await req(admin,"POST",projectUrl+"/archive-pdf",{categories:["现场照片"]});
+ assert.equal(old.status,200,"legacy category API remains compatible");
+});
+test("仅能选择本会议来源；重复、伪造源ID和跨会议均拒绝",async()=>{
+ for(const badList of [[],["sponsor-contract:SC-AUTO-001","sponsor-contract:SC-AUTO-001"],
+  ["material:999999"],["sponsor-contract:OUTSIDE"],["auto:demand","other"]]){
+  const r=await req(admin,"POST",projectUrl+"/archive-pdf",{source_ids:badList});
+  assert.equal(r.status,400,JSON.stringify({badList,data:r.data}));
+ }
+ assert.equal((await req(execUser,"GET",projectUrl+"/archive-pdf/options")).status,403);
+ assert.equal((await req(execUser,"GET",projectUrl+"/archive-pptx")).status,403);
+ assert.equal((await req(admin,"GET","/api/projects/MP-2026-008/archive-pptx")).status,409);
+});
+test("生成有效 PPTX，首页有会议名称时间协会，第二页为真实付款对照；不泄露完整银行账户",async()=>{
+ const p=db.prepare("SELECT * FROM projects WHERE id=?").get(pid);
+ const payments=db.prepare("SELECT id,payee,amount FROM payments WHERE pid=?").all(pid);
+ const before=JSON.stringify(payments);
+ const response=await req(admin,"GET",projectUrl+"/archive-pptx");
+ assert.equal(response.status,200,JSON.stringify(response.data));
+ assert.match(response.res.headers.get("content-type"),/presentationml\.presentation/);
+ assert.match(response.res.headers.get("content-disposition")||"",/\.pptx/i);
+ assert.equal(response.res.headers.get("cache-control"),"no-store");
+ const bytes=Buffer.from(await response.res.arrayBuffer());
+ assert.equal(bytes.toString("ascii",0,2),"PK");
+ const zip=new PizZip(bytes);
+ for(const name of ["[Content_Types].xml","ppt/presentation.xml","ppt/theme/theme1.xml",
+   "ppt/slides/slide1.xml","ppt/slides/slide2.xml",
+   "ppt/slideMasters/slideMaster1.xml","ppt/slideLayouts/slideLayout1.xml"])
+  assert.ok(zip.file(name),name+" missing");
+ const cover=zip.file("ppt/slides/slide1.xml").asText();
+ assert.ok(cover.includes(p.name)&&cover.includes(p.date)&&cover.includes(p.assoc),
+  "cover contains real project name, date and association");
+ const slide2=zip.file("ppt/slides/slide2.xml").asText();
+ assert.match(slide2,/付款明细对照表/);
+ assert.match(slide2,/关联合同额/);
+ assert.match(slide2,/已存档|未附回单/);
+ if(payments.length)assert.ok(slide2.includes(payments[0].id),"payment id appears in comparison table");
+ assert.ok(!slide2.includes("3210987654321098"),"full bank account must not appear");
+ assert.equal(JSON.stringify(db.prepare("SELECT id,payee,amount FROM payments WHERE pid=?").all(pid)),before,
+  "downloading PPT must never modify financial records");
+});
+test("更多付款自动续页，第二页仍然是付款对照表",()=>{
+ const build=require("../server/lib/archive-payment-pptx").buildPaymentPptx;
+ const p=db.prepare("SELECT * FROM projects WHERE id=?").get(pid);
+ const many=Array.from({length:23},(_,i)=>({
+  id:"PY-LONG-"+i,type:"学会公付",payee:"外部供应商"+i,amount:200+i,
+  status:i%3===0?"已付款":"已审批"
+ }));
+ const zip=new PizZip(build(p,many,[]));
+ assert.ok(zip.file("ppt/slides/slide4.xml"),"3 payment pages + cover expected");
+ assert.match(zip.file("ppt/slides/slide2.xml").asText(),/付款明细对照表/);
+ assert.match(zip.file("ppt/slides/slide4.xml").asText(),/（续）/);
+ assert.ok(!zip.file("ppt/slides/slide5.xml"));
+});
