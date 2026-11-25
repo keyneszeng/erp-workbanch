@@ -70,7 +70,7 @@ test("未超限的原件不调用压缩器",async()=>{
 });
 
 test("小于20MB的 PPTX 与 XLSX 也必须转换为可见 PDF 页面，原始文件作为附件保存",async()=>{
- const original=Buffer.from("OOXML test bytes");
+ const originals=[Buffer.from("OOXML PPTX source bytes"),Buffer.from("OOXML XLSX source bytes")];
  const converted=await tinyPdf(2);
  const called=[];
  const names=["9.22东江痔道行.pptx","先进慈善26-4：劳务费发放汇总表（模板）.xlsx"];
@@ -83,16 +83,28 @@ test("小于20MB的 PPTX 与 XLSX 也必须转换为可见 PDF 页面，原始�
   project,materials,watermark:{mode:"none"},
   compressor:async(bytes,info)=>{
    called.push(info.fileName);
-   assert.deepEqual(bytes,original);
+   assert.deepEqual(bytes,originals[called.length-1]);
    return {bytes:converted,type:"application/pdf",note:"Office 已转换"};
   }
- },{get:async()=>({buffer:original})});
+ },{get:async key=>({buffer:originals[key.includes("office1")?1:0]})});
  const doc=await PDFDocument.load(out);
  assert.deepEqual(called,names);
  assert.equal(doc.getPageCount(),5,"封面1页，两份Office分别转换成2页");
  assert.match(doc.getKeywords(),/source-count:2/);
  const namesObject=doc.catalog.lookup(require("pdf-lib").PDFName.of("Names"));
  assert.ok(namesObject,"原件必须保留为可下载附件");
+});
+test("同一PDF以不同文件键重复上传时只拼接一次页面并只附件一份",async()=>{
+ const bytes=await tinyPdf(2);
+ const materials=[material("同一原件-第一次.pdf"),{...material("同一原件-再次上传.pdf"),file_key:"k2.pdf"}];
+ const doc=await PDFDocument.load(await buildSelectedMaterialsPdf({
+  project,materials,watermark:{mode:"none"}
+ },{get:async()=>({buffer:bytes})}));
+ assert.equal(doc.getPageCount(),3,"封面1页+同一原件2页，不能变成5页");
+ assert.match(doc.getKeywords()||"",/source-count:1/);
+ const embedded=doc.catalog.lookup(require("pdf-lib").PDFName.of("Names"))
+  ?.lookup(require("pdf-lib").PDFName.of("EmbeddedFiles"));
+ assert.ok(embedded);
 });
 test("Office 转换工具缺失或转换失败时明确报错，不能产生仅含提示的假归档",async()=>{
  await assert.rejects(
