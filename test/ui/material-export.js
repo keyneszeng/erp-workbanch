@@ -37,6 +37,24 @@ async function run(){
  await page.locator('input[name="password"]').fill("123456");
  await page.locator("#lbtn").click();
  await page.locator(".ux-kpi-grid").waitFor({timeout:15000});
+ // 从会议项目的材料收集二级类别进入当前会议合同目录，不得打开全局合同台账。
+ await page.goto(origin+"/#/materials/MP-2026-015");
+ const contractShortcut=page.locator('[data-contract-directory="MP-2026-015"]');
+ await contractShortcut.waitFor({timeout:15000});
+ assert.match(await contractShortcut.innerText(),/合同/);
+ await contractShortcut.click();
+ await page.waitForURL("**/#/contracts/MP-2026-015",{timeout:15000});
+ assert.equal(await page.locator(".phead h2").innerText(),"合同目录详情");
+ assert.match(await page.locator(".phead").innerText(),/MP-2026-015/);
+ const scopedContracts=await page.evaluate(async()=>{
+  const r=await fetch("/api/contracts?pid=MP-2026-015");
+  return {status:r.status,data:await r.json()};
+ });
+ assert.equal(scopedContracts.status,200);
+ assert.ok(scopedContracts.data.rows.every(x=>x.pid==="MP-2026-015"),
+  "合同目录详情必须只显示当前会议合同");
+ await page.locator('[data-go="materials/MP-2026-015"]').click();
+ await page.waitForURL("**/#/materials/MP-2026-015",{timeout:15000});
  await page.goto(origin+"/#/projects/MP-2026-015");
  const open=page.locator("#downloadArchivePdf");await open.waitFor({timeout:15000});
  assert.match(await open.innerText(),/材料下载/);
