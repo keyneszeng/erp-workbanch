@@ -475,3 +475,60 @@ test("材料收集合同类目使用正式合同目录，保留权限与原件�
  assert.match(xml,/bindtap="chooseContracts"[^>]*>合同<\/view>/);
  assert.match(xml,/bindtap="openContractOriginal"/);
 });
+
+test("小程序合同上传复用正式台账、OCR与签署流程，不重复登记普通材料",async()=>{
+ const pid="MP-CONTRACT-UPLOAD",key="b".repeat(32)+".pdf";
+ const source=fs.readFileSync(path.join(__dirname,"../miniprogram/pages/materials/index.js"),"utf8");
+ let page,allow=true,failOCR=false,stored=[],calls=[];
+ const app={globalData:{perms:["contract:write"]},api:async(url,method,body,headers)=>{
+  calls.push({url,method,body,headers});
+  if(url==="/projects/"+pid)return {project:{id:pid,status:"筹备中"},sectionAccess:{contracts:allow},contracts:stored};
+  if(url==="/uploads?pid="+pid)return {key,name:"合同.pdf",size:8,mime:"application/pdf"};
+  if(url==="/contracts/scan"){
+   if(failOCR)throw Error("OCR 暂不可用");
+   return {fields:{vendor:"签约公司",amount:1234.56},note:"识别完成"};
+  }
+  if(url==="/contracts"){
+   stored.push({id:"HT-"+stored.length,name:body.name,vendor:body.vendor,category:body.category,status:body.status,file_key:body.file_key,file_name:body.file_name});
+   return {message:"合同已保存"};
+  }
+  throw Error("unexpected "+url);
+ }};
+ const wx={chooseMessageFile:o=>o.success({tempFiles:[{name:"合同.pdf",path:"/tmp/contract.pdf",size:8}]}),
+  getFileSystemManager:()=>({readFile:o=>o.success({data:new ArrayBuffer(8)})}),showToast:()=>{}};
+ vm.runInNewContext(source,{getApp:()=>app,Page:x=>{page=x;},wx,ArrayBuffer});
+ page.setData=patch=>Object.assign(page.data,patch);
+ page.data.pid=pid;
+ await page.chooseContracts();
+ assert.equal(page.data.canUploadContract,true);
+ for(let i=0;i<3;i++){
+  page.contractCategoryChange({detail:{value:String(i)}});
+  failOCR=i===2;
+  await page.pickContractFile({currentTarget:{dataset:{source:"file"}}});
+  assert.equal(page.data.contractDraft.file.key,key);
+  if(failOCR){
+   assert.match(page.data.contractDraft.scanNote,/OCR 未完成/);
+   page.contractDraftInput({currentTarget:{dataset:{key:"vendor"}},detail:{value:"赞助企业"}});
+   page.contractDraftInput({currentTarget:{dataset:{key:"amount"}},detail:{value:"2000"}});
+  }else{
+   assert.equal(page.data.contractDraft.vendor,"签约公司");
+   assert.equal(page.data.contractDraft.amount,"1234.56");
+  }
+  page.contractStatusChange({detail:{value:"1"}});
+  await page.saveContract();
+  assert.equal(page.data.contractRows.length,i+1);
+ }
+ const saved=calls.filter(x=>x.url==="/contracts");
+ assert.deepEqual(saved.map(x=>x.body.category),["会务需求","劳务专家","企业赞助"]);
+ assert.ok(saved.every(x=>x.body.pid===pid&&x.body.status==="待签署"&&x.body.file_key===key));
+ assert.ok(!calls.some(x=>x.url.endsWith("/materials")&&x.method==="POST"));
+ app.globalData.perms=[];
+ await page.chooseContracts();
+ assert.equal(page.data.canUploadContract,false);
+ const n=calls.length;
+ await page.pickContractFile({currentTarget:{dataset:{source:"file"}}});
+ assert.equal(calls.length,n);
+ const xml=fs.readFileSync(path.join(__dirname,"../miniprogram/pages/materials/index.wxml"),"utf8");
+ assert.match(xml,/bindtap="pickContractFile"/);
+ assert.match(xml,/bindtap="saveContract"/);
+});
