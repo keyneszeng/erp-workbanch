@@ -8,7 +8,8 @@ const ALL_MODULES=MODULES.map(m=>m.k),ALL_PERMS=Object.keys(PERMS);
 // 总管理员保有全部权限，但“系统配置”及其管理动作不可分配给任何业务账号。
 const GRANTABLE_MODULES=MODULES.filter(m=>m.k!=="system");
 const GRANTABLE_MODULE_KEYS=GRANTABLE_MODULES.map(m=>m.k);
-const GRANTABLE_PERMS=ALL_PERMS.filter(k=>!["user:manage","setting:write"].includes(k));
+// 合同签署审批是“协会管理员/总管理员”岗位专属权限，不允许手动授予其他成员。
+const GRANTABLE_PERMS=ALL_PERMS.filter(k=>!["user:manage","setting:write","contract:approve"].includes(k));
 function granted(id){
  return {modules:db.prepare("SELECT module FROM user_module_grants WHERE user_id=? ORDER BY module").all(id)
    .map(x=>x.module).filter(x=>GRANTABLE_MODULE_KEYS.includes(x)),
