@@ -539,7 +539,8 @@ function register(router) {
   /* ---------------- 付款 ---------------- */
   router.get("/api/payments", async (ctx) => {
     // 会务执行没有「财务结算」模块，但能提付款申请 —— 动作权限要放行
-    assertModule(ctx.user, "finance", "payment:create");
+    if(!["payment:create","payment:approve","payment:pay"].some(perm=>can(ctx.user,perm)))
+      assertModule(ctx.user,"finance");
     const { sql, params } = scopeFilter(ctx.user);
     const where = [sql];
     const args = [...params];
@@ -610,10 +611,8 @@ function register(router) {
     const p = getProject(b.pid);
     assertProjectVisible(ctx.user, p);
     if(direct){
-      if(!isSuper(ctx.user) && ctx.user.role!=="finance")
-        throw forbidden("仅财务人员或总管理员可以直接登记已完成付款");
-      assertCan(ctx.user,"payment:pay","当前账号未获得财务付款权限");
-    }else assertCan(ctx.user,"payment:create","当前角色无付款申请权限");
+      assertCan(ctx.user,"payment:pay","当前账号未获得付款执行权限");
+    }else assertCan(ctx.user,"payment:create","当前账号未获得付款申请权限");
     /**
      * V1.2.23 NEW-01：门禁先于字段校验。
      *
@@ -777,7 +776,7 @@ function register(router) {
     if (!y) throw notFound("付款单不存在");
     const p = getProject(y.pid);
     assertProjectVisible(ctx.user, p);
-    assertCan(ctx.user, "payment:pay", "只有财务与核销（或总管理员）可以登记收款账户");
+    assertCan(ctx.user, "payment:pay", "需要付款执行权限才能登记收款账户");
     if (y.status === "已付款") {
       throw conflict("付款已完成，收款账户不可再修改（如需更正请走线下凭证更正流程）", "PAID_LOCKED");
     }
@@ -802,7 +801,7 @@ function register(router) {
     if(!y)throw notFound("付款单不存在");
     const p=getProject(y.pid);
     assertProjectVisible(ctx.user,p);
-    assertCan(ctx.user,"payment:pay","只有财务执行人员可以查看付款依据原件");
+    assertCan(ctx.user,"payment:pay","需要付款执行权限才能查看付款依据原件");
     const selectedContract=String(y.payee_source_id||"").startsWith("contract:")?
       String(y.payee_source_id).slice(9):null;
     const contracts=selectedContract?
@@ -825,7 +824,7 @@ function register(router) {
     if (!y) throw notFound("付款单不存在");
     const p = getProject(y.pid);
     assertProjectVisible(ctx.user, p);
-    assertCan(ctx.user, "payment:approve", "只有协会管理员（或总管理员）可以审批付款");
+    assertCan(ctx.user, "payment:approve", "需要付款审批权限才能审批付款");
     if (y.status !== "待审批") throw conflict(`付款单已是「${y.status}」状态`);
     const approve = requireDecision(ctx.body);
     const st = approve ? "已审批" : "已驳回";
@@ -841,7 +840,7 @@ function register(router) {
     if (!y) throw notFound("付款单不存在");
     const p = getProject(y.pid);
     assertProjectVisible(ctx.user, p);
-    assertCan(ctx.user, "payment:pay", "只有财务与核销（或总管理员）可以执行付款");
+    assertCan(ctx.user, "payment:pay", "需要付款执行权限才能执行付款");
     if (y.status !== "已审批") throw conflict(`只有「已审批」的付款单可以付款，当前为「${y.status}」`);
     // V1.2.18：没有收款账户就付不了款 —— 与其让财务自己发现，不如在门口拦住
     if (!y.payee_account || !y.payee_bank) {
@@ -880,7 +879,7 @@ function register(router) {
     if(!y)throw notFound("付款单不存在");
     const p=getProject(y.pid);
     assertProjectVisible(ctx.user,p);
-    assertCan(ctx.user,"payment:pay","仅财务与总管理员可以上传付款凭证");
+    assertCan(ctx.user,"payment:pay","需要付款执行权限才能上传付款凭证");
     if(y.status!=="已付款")throw conflict("付款尚未完成，不能登记已付款凭证","PAYMENT_NOT_PAID");
     if(y.receipt_file_key)throw conflict("该付款记录已有凭证，原件不可直接覆盖","PAYMENT_RECEIPT_EXISTS");
     const key=String(ctx.body?.file_key||"").trim();
@@ -937,7 +936,7 @@ function register(router) {
     "立项审批": ["project:approve", "只有协会管理员（或总管理员）可以审批立项"],
     "变更审批": ["project:approve", "只有协会管理员（或总管理员）可以审批变更"],
     "例外单审批": ["verify:exception_approve", "只有财务与核销（或总管理员）可以审批例外单"],
-    "付款审批": ["payment:approve", "只有协会管理员（或总管理员）可以审批付款"],
+    "付款审批": ["payment:approve", "需要付款审批权限才能审批付款"],
     "合同审批": ["contract:approve", "只有协会管理员（或总管理员）可以审批合同签署"],
     "合同更正审批": ["contract:approve", "只有协会管理员（或总管理员）可以审批合同更正"]
   };
