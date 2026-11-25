@@ -146,16 +146,61 @@ test("生成有效 PPTX，首页有会议名称时间协会，第二页为真实
  assert.equal(JSON.stringify(db.prepare("SELECT id,payee,amount FROM payments WHERE pid=?").all(pid)),before,
   "downloading PPT must never modify financial records");
 });
-test("更多付款自动续页，第二页仍然是付款对照表",()=>{
+test("付款明细只占第二页，后续严格按材料下载所选的业务来源顺序",async()=>{
+ const selected=["sponsor-invoice:SI-AUTO-001","sponsor-contract:SC-AUTO-001",
+  "auto:description","auto:notice","sponsor-receipt:SR-AUTO-001"];
+ const response=await req(admin,"POST",projectUrl+"/archive-pptx",{source_ids:selected});
+ assert.equal(response.status,200,JSON.stringify(response.data));
+ const zip=new PizZip(Buffer.from(await response.res.arrayBuffer()));
+ assert.match(zip.file("ppt/slides/slide2.xml").asText(),/付款明细对照表/);
+ const material=Object.keys(zip.files).filter(k=>/^ppt\/slides\/slide\d+\.xml$/.test(k))
+  .sort((a,b)=>Number(a.match(/slide(\d+)\.xml/)[1])-Number(b.match(/slide(\d+)\.xml/)[1]))
+  .slice(2).map(n=>zip.file(n).asText());
+ assert.equal(material.length,5,"each sample PDF has one page, virtual summaries render as slide text");
+ const expected=["赞助企业合同关联发票","赞助企业合同","会议说明书","立项通知","进款凭证"];
+ expected.forEach((label,i)=>assert.ok(material[i].includes(label),"material "+(i+3)+": "+label));
+ for(const part of material)assert.ok(!part.includes("付款明细对照表"),
+  "the payment table must not reappear on material pages");
+ const files=Object.keys(zip.files).filter(k=>k.startsWith("ppt/embeddings/original-"));
+ assert.equal(files.length,3,"original sponsor PDF, sponsor contract and incoming receipt are bundled");
+});
+test("大量付款压缩成同一张表；没有任何额外的付款表续页",()=>{
  const build=require("../server/lib/archive-payment-pptx").buildPaymentPptx;
  const p=db.prepare("SELECT * FROM projects WHERE id=?").get(pid);
  const many=Array.from({length:23},(_,i)=>({
   id:"PY-LONG-"+i,type:"学会公付",payee:"外部供应商"+i,amount:200+i,
   status:i%3===0?"已付款":"已审批"
  }));
- const zip=new PizZip(build(p,many,[]));
- assert.ok(zip.file("ppt/slides/slide4.xml"),"3 payment pages + cover expected");
+ const zip=new PizZip(build(p,many,[],{slides:[],attachments:[]}));
+ assert.ok(zip.file("ppt/slides/slide1.xml"));
  assert.match(zip.file("ppt/slides/slide2.xml").asText(),/付款明细对照表/);
- assert.match(zip.file("ppt/slides/slide4.xml").asText(),/（续）/);
- assert.ok(!zip.file("ppt/slides/slide5.xml"));
+ assert.match(zip.file("ppt/slides/slide2.xml").asText(),/按类目汇总/);
+ assert.ok(!zip.file("ppt/slides/slide3.xml"),"only cover and one financial table");
+});
+test("图片原件成为可见PPT图像页，材料顺序及源文件一并保留",()=>{
+ const build=require("../server/lib/archive-payment-pptx").buildPaymentPptx;
+ const p=db.prepare("SELECT * FROM projects WHERE id=?").get(pid);
+ const png=Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+i2ioAAAAASUVORK5CYII=","base64");
+ const deck={slides:[
+  {kind:"image",source_name:"现场照片",source_group:"会议照片(现场照片和权益照片)",image:png,mime:"image/png",page:1,total:1},
+  {kind:"text",source_name:"会议说明书",source_group:"会议说明书",text:"真实项目会议时间："+p.date,page:1,total:1}
+ ],attachments:[{bytes:png,filename:"现场照片.png",id:"material:900",kind:"现场照片"}]};
+ const zip=new PizZip(build(p,[],[],deck));
+ assert.ok(zip.file("ppt/slides/slide3.xml").asText().includes("会议照片"));
+ assert.match(zip.file("ppt/slides/slide3.xml").asText(),/p:pic/);
+ assert.ok(zip.file("ppt/media/material1.png"),"actual image asset included in PPT");
+ assert.match(zip.file("ppt/slides/_rels/slide3.xml.rels").asText(),/media\/material1.png/);
+ assert.ok(zip.file("ppt/slides/slide4.xml").asText().includes(p.date));
+ const originals=Object.keys(zip.files).filter(x=>x.startsWith("ppt/embeddings/original-"));
+ assert.equal(originals.length,1);
+ assert.deepEqual(Buffer.from(zip.file(originals[0]).asUint8Array()),png);
+});
+test("PPT资料选择禁止跨会议、重复和伪造来源ID",async()=>{
+ for(const invalid of [["sponsor-contract:SC-AUTO-001","sponsor-contract:SC-AUTO-001"],
+  ["material:999999"],["sponsor-contract:OUTSIDE"],[100]]){
+  const r=await req(admin,"POST",projectUrl+"/archive-pptx",{source_ids:invalid});
+  assert.equal(r.status,400,JSON.stringify({invalid,data:r.data}));
+ }
+ assert.equal((await req(execUser,"POST",projectUrl+"/archive-pptx",
+  {source_ids:["auto:notice"]})).status,403);
 });

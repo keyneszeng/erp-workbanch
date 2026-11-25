@@ -44,7 +44,7 @@ export async function downloadArchivePdf(pid,button){
       '<span class="hint">已勾选 '+sources.length+' 项，可取消或上移、下移调整 PDF 次序</span></div>'+
     '<div data-material-file-list class="material-export-options" style="max-height:340px;overflow:auto"></div>'+
     '<p class="hint" style="margin:12px 0">下载 PDF 时按以上文件顺序合并；源文件保留原件。下载 PPT 独立生成，'+
-       '第一页为会议名称、时间和协会，第二页为付款明细对照表；付款记录较多时增加续页。</p>'+
+       '第一页为会议信息、第二页为唯一的付款明细对照表；从第三页起，按当前勾选和排序逐项展示原件内容。无法渲染的文件将标注原因并保留原件。</p>'+
     wmHtml,
    footer:'<button class="btn btn-o" data-cancel>取消</button>'+
     '<button class="btn btn-o" data-export-pptx>生成并下载 PPT</button>'+
@@ -124,7 +124,14 @@ export async function downloadArchivePdf(pid,button){
    if(ppt.disabled)return;
    ppt.disabled=true;ppt.textContent="正在生成付款对照 PPT…";
    try{
-    const result=await api.download("/api/projects/"+encodeURIComponent(pid)+"/archive-pptx");
+    // Reuse exactly the same per-file selection and manual ordering as PDF.
+    const enabled=new Set(controls.filter(x=>x.checked).map(x=>x.value));
+    const sourceIds=ordered.filter(s=>enabled.has(s.kind)&&checkedIds.has(s.source_id))
+      .map(s=>s.source_id);
+    if(!sourceIds.length){toast("请至少勾选一项会议资料","warn");return;}
+    const result=await api.download("/api/projects/"+encodeURIComponent(pid)+"/archive-pptx",{
+      method:"POST",body:{source_ids:sourceIds}
+    });
     m.classList.remove("open");toast("已下载付款明细PPT："+result.name,"ok");
    }catch(e){toast("生成PPT失败："+e.message,"warn");}
    finally{ppt.disabled=false;ppt.textContent="生成并下载 PPT";}

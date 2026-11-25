@@ -111,6 +111,7 @@ jobs:
           node --check server/api/archive-pdf.js
           node --check server/lib/archive-material-index.js
           node --check server/lib/archive-payment-pptx.js
+          node --check server/lib/archive-ppt-materials.js
           node --check test/archive-auto-pptx.test.js
           node --check server/api/user-access.js
           node --check test/permission-grants.test.js
