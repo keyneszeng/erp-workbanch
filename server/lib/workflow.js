@@ -73,8 +73,8 @@ function verification(pid) {
     // 前端核销详情只展示同一份后端材料池的有效原件，杜绝客户端按文件名
     // 重新猜测被软删的合同/协议。只给编号，不泄漏历史废件箱的附件信息。
     sourceMaterialIds:{
-      laborContracts:laborContracts.rows.map(m=>Number(m.id)),
-      meetingAgreements:demand.agreements.map(m=>Number(m.id))
+      laborContracts:laborContracts.rows.map(m=>Number(m.id)).filter(Number.isSafeInteger),
+      meetingAgreements:demand.agreements.map(m=>Number(m.id)).filter(Number.isSafeInteger)
     },
     complete:passed===active.length && openExceptions===0 && (isDemoMode() || failedSteps.length===0)};
 }
