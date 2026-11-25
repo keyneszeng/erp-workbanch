@@ -4,11 +4,11 @@ import { api, can, state } from "../lib/api.js";
 import {bindPayeePicker} from "../lib/payee-picker.js";
 import {renderIncomeWorkbench} from "../lib/income-workbench.js";
 import {renderSettlementBreakdown} from "../lib/settlement-breakdown.js";
-import { badge, bindPager, closeModal, confirmBox, esc, formHtml, modal, money, pager, panel, readForm, table, toast, validate } from "../lib/ui.js";
+import { badge, closeModal, confirmBox, esc, formHtml, modal, money, readForm, table, toast, validate } from "../lib/ui.js";
 
 
 /** 项目内付款明细；审批状态仅作为历史记录提示，不再作为筛选入口。 */
-function paymentOnePageTable(rows,options=[],pid=""){
+function paymentOnePageTable(rows,options=[]){
   const canPay=can("payment:pay");
   const norm=v=>String(v||"").normalize("NFKC").replace(/\s+/g,"").trim();
   // 已存在关联或同名历史付款的收款方不自动生成新付款事项，避免重复登记。
@@ -73,8 +73,7 @@ const PAYABLE = ["已核销"];
 
 /**
  * 从工作台「待付款」待办点进来时 params[0] 是项目号。
- * 付款列表默认分页 50 条，目标那笔很可能不在第一页 —— 所以要按 pid 让后端过滤，
- * 而不是渲染完再找（找不到就成了「点了没反应」）。
+ * 先显示已核销会议目录，选择项目后才按 pid 请求该项目完整付款明细。
  */
 export async function render(root, params = []) {
   const focusPid = params[0] || "";
@@ -124,8 +123,9 @@ export async function render(root, params = []) {
       <div id="paymentProjects" style="display:grid;gap:8px;max-height:360px;overflow:auto">${projectList}</div>
       ${selected?`<section id="paymentDetails" style="margin-top:18px">
         <div class="panel-h"><h3>${esc(selected.name)} · 付款明细表</h3>${financeDirect&&!detailsError?'<button class="btn btn-o btn-sm" id="goDirectPay">+ 登记其他付款</button>':""}</div>
+        <div class="hint" style="margin-bottom:8px">未登记的关联金额仅供核对；分期付款及同名历史记录请先人工核实，避免重复付款。</div>
         ${detailsError?'<div class="gate">'+esc(detailsError)+'，请刷新后重试。</div>':
-          (optionsError?'<div class="hint">'+esc(optionsError)+'；已登记记录仍可查看。</div>':"")+paymentOnePageTable(pay.rows||[],options,selected.id)}
+          (optionsError?'<div class="hint">'+esc(optionsError)+'；已登记记录仍可查看。</div>':"")+paymentOnePageTable(pay.rows||[],options)}
         ${financeDirect&&!detailsError?`<details id="paymentDirectPanel" style="margin-top:12px"><summary style="cursor:pointer">登记付款 · 核对收款方并上传凭证</summary>${directPayForm([selected],selected.id,state.meta?.paymentTypes||[])}</details>`:""}
       </section>`:'<div class="hint" style="padding:20px 0;text-align:center">请选择会议项目查看付款明细。</div>'}
     </div>
@@ -204,6 +204,8 @@ export async function render(root, params = []) {
       if(source.source==="labor"||String(source.label).includes("劳务专家"))
         form.querySelector('[name="type"]').value="专家费";
       else form.querySelector('[name="type"]').value="学会公付";
+      form.querySelector('[name="period"]').value="";
+      form.querySelector('[name="remark"]').value="";
       form.querySelector("[data-direct-paid]").checked=false;
       form.querySelector("[data-direct-voucher]").value="";
     });
