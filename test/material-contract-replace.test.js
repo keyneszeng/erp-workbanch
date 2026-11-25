@@ -52,11 +52,14 @@ before(async()=>{
  const u=await upload("admin",A,"旧合同材料.pdf");
  assert.equal(u.status,200,JSON.stringify(u.body));
  original=u.body.key;
- const added=await request("admin","POST","/api/projects/"+PID+"/materials",{
-   kind:"合同",name:"独立合同原件",version:"v1",
-   file_key:original,file_name:u.body.name,file_size:u.body.size,file_mime:u.body.mime});
- assert.equal(added.status,200,JSON.stringify(added.body));
- id=(await materialByKey(original)).id;
+ // The legacy "合同" material category is now read-only. Seed an actual old row
+ // for backwards-compatible file-replacement testing instead of creating new ones.
+ const {DatabaseSync}=require("node:sqlite");
+ const db=new DatabaseSync(DB);
+ const legacy=db.prepare("INSERT INTO materials(pid,kind,name,version,uploader,created_at,file_key,file_name,file_size,file_mime) VALUES (?,?,?,?,?,?,?,?,?,?)")
+   .run(PID,"合同","独立合同原件","v1","历史录入","2026-10-01 09:00",original,u.body.name,u.body.size,u.body.mime);
+ id=Number(legacy.lastInsertRowid);
+ db.close();
 });
 after(()=>{proc?.kill("SIGTERM");fs.rmSync(dir,{recursive:true,force:true});});
 test("未获授权的执行人员不可修改，即使原本拥有材料登记权限",async()=>{
