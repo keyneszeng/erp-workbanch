@@ -167,6 +167,9 @@ const isSuper = (user) => !!(user && ROLES[user.role] && ROLES[user.role].super)
 function can(user, perm) {
   if (!user || !ROLES[user.role] || !Object.prototype.hasOwnProperty.call(PERMS,perm))return false;
   if (isSuper(user))return true;
+  // 合同签署/审批为角色专属权限：协会管理员在本协会可自行录入并签署；
+  // 会务执行、财务、普通成员即使留有旧版显式授权，也不可审批合同。
+  if (perm === "contract:approve") return user.role === "assoc";
   if (SUPER_ONLY_PERMS.has(perm))return false;
   // 后端实时查询，不能通过旧登录状态或直接访问API绕过新授权。
   return !!require("./db").db.prepare(
