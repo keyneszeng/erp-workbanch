@@ -111,6 +111,113 @@ function register(router) {
     return { rows, total, page: paging.page, size: paging.size, pages: Math.max(1, Math.ceil(total / paging.size)), paged: true };
   });
 
+  /**
+   * 修改合同类别（不是替换原件）。
+   * 三类合同分别进入劳务核销、会务核销和企业赞助收入，类别改变要
+   * 原子更新权益/审批/受影响核销步骤，绝不只改一个展示字段。
+   */
+  router.patch("/api/contracts/:id/category",async ctx=>{
+    const c=db.prepare("SELECT * FROM contracts WHERE id=? AND deleted_at IS NULL").get(ctx.params.id);
+    if(!c)throw notFound("合同不存在或已删除");
+    const p=getProject(c.pid);
+    assertProjectVisible(ctx.user,p);
+    if(c.status==="已签署")
+      assertCan(ctx.user,"contract:approve","已签署合同修改类别需协会管理员或总管理员审核");
+    else assertCan(ctx.user,"contract:write","当前角色无修改合同类别权限");
+    if(["已结算","已归档"].includes(p.status) ||
+       db.prepare("SELECT 1 FROM settlements WHERE pid=?").get(p.id))
+      throw conflict("会议已结算或归档，合同类别已封账，不能修改","FROZEN");
+    if(!["草稿","待签署","已签署"].includes(c.status))
+      throw conflict("当前合同状态不允许修改类别","CONTRACT_LOCKED");
+    const b=ctx.body||{},next=String(b.category||"").trim();
+    if(!CONTRACT_CATEGORIES.includes(next))throw bad("请选择有效合同类别："+CONTRACT_CATEGORIES.join(" / "));
+    if(Object.prototype.hasOwnProperty.call(b,"expected_category")&&String(b.expected_category)!==String(c.category))
+      throw conflict("合同类别已被他人修改，请刷新后重新编辑","CONTRACT_CHANGED");
+    if(Object.prototype.hasOwnProperty.call(b,"expected_status")&&String(b.expected_status)!==String(c.status))
+      throw conflict("合同签署状态已变化，请刷新后重新编辑","CONTRACT_CHANGED");
+    if(next===c.category)
+      return {contract:c,changed:false,message:"合同类别未变化"};
+    // 付款执行后不可在没有财务更正的情况下改变收支性质、支付方及核销证据。
+    if(db.prepare("SELECT 1 FROM payments WHERE pid=? AND status<>'已驳回' LIMIT 1").get(p.id))
+      throw conflict("项目已有付款或请款记录，修改合同类别须先进行财务调整","PAYMENT_RECONCILIATION_REQUIRED");
+    if(db.prepare("SELECT 1 FROM contract_amendments WHERE contract_id=? AND status='待审批'").get(c.id))
+      throw conflict("合同存在待审批更正申请，请先处理","AMENDMENT_PENDING");
+    if(next==="企业赞助"&&!c.file_key)
+      throw bad("修改为企业赞助合同前必须先上传合同原件");
+    // 对赞助权益存在照片、确认事项或回款/发票的合同，禁止直接改变收入归属。
+    const sponsor=c.category==="企业赞助"?linkedSponsor(db,c.id):null;
+    if(c.category==="企业赞助"&&!sponsor)
+      throw conflict("原赞助合同未关联会议收入，请联系管理员核对","SPONSOR_LINK_MISSING");
+    if(sponsor){
+      const receipts=db.prepare("SELECT 1 FROM meeting_sponsor_receipts WHERE sponsor_id=? LIMIT 1").get(sponsor.id);
+      const invoices=db.prepare("SELECT 1 FROM meeting_sponsor_invoices WHERE sponsor_id=? LIMIT 1").get(sponsor.id);
+      const rights=db.prepare("SELECT id,confirmed FROM sponsor_rights WHERE sponsor_id=?").all(sponsor.id);
+      const confirmed=rights.some(x=>x.confirmed);
+      const photos=rights.some(x=>db.prepare(
+        "SELECT 1 FROM materials WHERE sponsor_right_id=? AND (deleted_at IS NULL OR deleted_at='') LIMIT 1"
+      ).get(x.id));
+      if(receipts||invoices||confirmed||photos)
+        throw conflict("原企业赞助合同已有回款、发票或已确认/交付的权益，不能直接修改类别，须先完成收入及权益清算",
+          "SPONSOR_RECONCILIATION_REQUIRED");
+    }
+    const affected={会务需求:6,劳务专家:5,企业赞助:7};
+    const steps=[...new Set([affected[c.category],affected[next]].filter(Boolean))];
+    const at=now();
+    const result=transaction(()=>{
+      const current=db.prepare("SELECT category,status,file_key FROM contracts WHERE id=? AND deleted_at IS NULL").get(c.id);
+      if(!current||current.category!==c.category||current.status!==c.status||current.file_key!==c.file_key)
+        throw conflict("合同资料已变化，请刷新后重新编辑","CONTRACT_CHANGED");
+      if(db.prepare("SELECT 1 FROM payments WHERE pid=? AND status<>'已驳回' LIMIT 1").get(p.id))
+        throw conflict("付款已发生，禁止继续修改合同类别","PAYMENT_RECONCILIATION_REQUIRED");
+      if(db.prepare("SELECT 1 FROM settlements WHERE pid=?").get(p.id))
+        throw conflict("结算单已生成，禁止继续修改合同类别","FROZEN");
+      if(sponsor){
+        const latest=linkedSponsor(db,c.id);
+        if(!latest||latest.id!==sponsor.id)
+          throw conflict("赞助收入关联发生变化，请刷新","CONTRACT_CHANGED");
+        // 禁止丢失任何已有付款、开票、权益照片或已确认权益。
+        if(db.prepare("SELECT 1 FROM meeting_sponsor_receipts WHERE sponsor_id=? UNION SELECT 1 FROM meeting_sponsor_invoices WHERE sponsor_id=?").get(sponsor.id,sponsor.id) ||
+           db.prepare("SELECT 1 FROM sponsor_rights WHERE sponsor_id=? AND confirmed=1 LIMIT 1").get(sponsor.id) ||
+           db.prepare("SELECT 1 FROM materials WHERE sponsor_right_id IN (SELECT id FROM sponsor_rights WHERE sponsor_id=?) AND (deleted_at IS NULL OR deleted_at='') LIMIT 1").get(sponsor.id))
+          throw conflict("赞助收入或权益已发生变化，必须先行对账","SPONSOR_RECONCILIATION_REQUIRED");
+        db.prepare("DELETE FROM sponsor_rights WHERE sponsor_id=?").run(sponsor.id);
+        db.prepare("DELETE FROM meeting_sponsor_contracts WHERE id=? AND ledger_contract_id=?").run(sponsor.id,c.id);
+      }
+      let sponsorId=null;
+      if(next==="企业赞助"){
+        const collision=db.prepare("SELECT 1 FROM meeting_sponsor_contracts WHERE pid=? AND file_key=? LIMIT 1").get(p.id,c.file_key);
+        if(collision)throw conflict("该原件已关联其他企业赞助收入，不能重复登记","SPONSOR_DUPLICATE");
+        sponsorId=nextId(db,"meeting_sponsor_contracts","id","SC");
+        db.prepare("INSERT INTO meeting_sponsor_contracts(id,pid,enterprise,contract_no,ledger_contract_id,amount,status,file_key,file_name,created_by,created_at,rights_scan_status,rights_scan_note) "+
+          "VALUES (?,?,?,?,?,?,'待确认',?,?,?,?,?,?)")
+          .run(sponsorId,p.id,c.vendor,c.id,c.id,c.amount,c.file_key,c.file_name||c.file_key,ctx.user.id,at,
+            "需人工补录","合同类别改为企业赞助，请在会议收入核对并确认权益条目");
+      }
+      // 已提交、已签署类别修改必须重新完成正式签署审批，而非带着旧批文直接生效。
+      db.prepare("UPDATE contracts SET category=?,status='草稿',sign_date='' WHERE id=? AND deleted_at IS NULL").run(next,c.id);
+      db.prepare("UPDATE approvals SET status='已撤销',decided_by=?,decided_at=?,comment=? "+
+        "WHERE type='合同审批' AND ref_id=? AND status='待审批'")
+        .run(ctx.user.name,at,"合同类别已变更，旧审批自动撤销，需重新提交签署",c.id);
+      for(const no of steps){
+        db.prepare("UPDATE verify_steps SET result='待判定',remark=?,evidence_json=NULL,invoice_amount=NULL,checked_by=NULL,checked_at=NULL "+
+          "WHERE pid=? AND step_no=?")
+          .run("合同 "+c.id+" 类别从 "+c.category+" 调整为 "+next+"，需重新核验",p.id,no);
+      }
+      if(p.status==="已核销")db.prepare("UPDATE projects SET status='待核销',updated_at=? WHERE id=?").run(at,p.id);
+      // 合同归档保留原件字节，签署状态改为待重新提交，不删除旧文件。
+      db.prepare("UPDATE materials SET version='草稿' WHERE pid=? AND kind='合同' AND file_key=? AND (deleted_at IS NULL OR deleted_at='')")
+        .run(p.id,c.file_key);
+      return {contract:db.prepare("SELECT * FROM contracts WHERE id=?").get(c.id),sponsorId};
+    });
+    logAudit({user:ctx.user,module:"合同台账",action:"修改合同类别",target:p.id,
+      detail:c.id+"："+c.category+" → "+next+"；原状态："+c.status+" → 草稿；受影响核销步骤："+steps.join("、")+
+        (result.sponsorId?"；已建立企业赞助收入 "+result.sponsorId:"；已撤销旧签署审批并保留原件"),ip:ctx.ip});
+    return {...result,changed:true,reverifySteps:steps,
+      message:"合同类别已修改为「"+next+"」，合同已退回草稿，请重新提交签署"+
+        (result.sponsorId?"，并到会议收入确认赞助权益":"")+
+        (p.status==="已核销"?"；项目已退回待核销":"")};
+  });
+
   /** 先上传再扫描，OCR仅预填，正式合同仍须人工核对后保存。 */
   router.post("/api/contracts/scan",async ctx=>{
     const b=ctx.body||{},p=getProject(b.pid);
