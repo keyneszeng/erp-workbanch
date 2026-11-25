@@ -449,7 +449,8 @@ function register(router) {
    * 两步分给两个权限：
    *   提交签署 contract:write（协会 / 执行，录入人自己提交）
    *   确认签署 contract:approve（协会管理员，代表协会落章）
-   * 这样「谁提交的、谁确认的」在审计里分得清，也符合合同的实际流程。
+   * 协会管理员与总管理员可本人录入、本人提交并确认签署；
+   * 其他具有录入权限的成员只能提交，由协会管理员或总管理员审批。
    */
   const CONTRACT_FLOW = [
     { from: "草稿", action: "submit", to: "待签署", label: "提交签署", perm: "contract:write" },
@@ -481,13 +482,15 @@ function register(router) {
         "ILLEGAL_TRANSITION", { status: c.status, allowed }
       );
     }
-    assertCan(ctx.user, flow.perm, `需要「${flow.perm === "contract:approve" ? "协会管理员" : "合同录入"}」权限才能${flow.label}`);
+    assertCan(ctx.user, flow.perm, `需要「${flow.perm === "contract:approve" ? "协会管理员或总管理员" : "合同录入"}」权限才能${flow.label}`);
+    if(flow.perm==="contract:approve"&&!isSuper(ctx.user)&&ctx.user.role!=="assoc")
+      throw forbidden("只有协会管理员或总管理员可以确认或驳回合同签署");
 
     if (!isDemoMode() && action === "sign") {
       const approval = db.prepare("SELECT id,submitted_by_id FROM approvals WHERE type='合同审批' AND ref_id=? AND status='待审批' ORDER BY created_at DESC LIMIT 1").get(c.id);
       if (!approval) throw conflict("合同尚未提交有效签署审批，不能直接确认", "SIGN_APPROVAL_REQUIRED");
-      if (!isSuper(ctx.user) && Number(c.created_by) === Number(ctx.user.id))
-        throw conflict("合同录入人与签署审批人须分离；请交由其他协会管理员或总管理员", "NEED_SECOND_PERSON");
+      // 合同签署允许协会管理员/总管理员本人录入、本人提交、本人审批。
+      // 审批单与审计仍记录真实操作人，其他角色不得确认签署。
     }
     if(action==="reject"){
       const reason=String(ctx.body?.reason||"").trim();
@@ -968,6 +971,9 @@ function register(router) {
     const need = DECIDE_PERM[a.type];
     if (!need) throw bad(`未知的审批类型「${a.type}」`);
     assertCan(ctx.user, need[0], need[1]);
+    if((a.type==="合同审批"||a.type==="合同更正审批")&&
+       !isSuper(ctx.user)&&ctx.user.role!=="assoc")
+      throw forbidden("只有协会管理员或总管理员可以审批合同");
 
     if (a.status !== "待审批") throw conflict(`该审批单已是「${a.status}」状态`);
     const p = getProject(a.pid);
@@ -1014,8 +1020,7 @@ function register(router) {
       const c = db.prepare("SELECT * FROM contracts WHERE id=? AND pid=? AND deleted_at IS NULL").get(a.ref_id,p.id);
       if (!c) throw notFound("关联合同不存在");
       if (c.status !== "待签署") throw conflict("只有待签署合同可以审批，当前状态：" + c.status);
-      if (!isDemoMode() && !isSuper(ctx.user) && Number(c.created_by) === Number(ctx.user.id))
-        throw conflict("签署审批必须由其他协会管理员或总管理员完成", "NEED_SECOND_PERSON");
+      // 协会管理员和总管理员允许审批本人录入的合同；审核轨迹继续保留。
       const at = now();
       const sponsor=approve&&c.category==="企业赞助"?ensureSponsorSignable(db,p,c.id):null;
       db.prepare("UPDATE contracts SET status=?,sign_date=? WHERE id=?")
