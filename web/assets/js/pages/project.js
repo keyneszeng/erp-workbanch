@@ -341,7 +341,7 @@ function contractFlowBtn(c, locked) {
 
 function tabContracts(d, p) {
   const locked = CONTRACT_LOCKED.includes(p.status);
-  return panel("合同台账", `${d.contracts.length} 份${locked ? " · 已封存" : ""}`, table(
+  return panel("合同目录详情", `${d.contracts.length} 份${locked ? " · 已封存" : ""}`, table(
     [{ t: "合同编号", w: "112px" }, { t: "合同名称" }, { t: "签约方", w: "150px" }, { t: "金额", w: "100px", cls: "num" }, { t: "签署日期", w: "100px" }, { t: "状态", w: "80px" }, { t: "原件", w: "104px" }, { t: "操作", w: "150px" }],
     d.contracts.map((c) => ({
       c: [`<span class="mono">${c.id}</span>`,
@@ -474,6 +474,9 @@ function tabMaterials(d, p) {
   const current=validMaterials.filter(m=>m.kind===selected);
   const writable=can("material:write")&&!d.settlement&&!["已结算","已归档"].includes(p.status)&&
     !unavailable.has(selected)&&!retiredKinds.has(selected);
+  const contractShortcut=d.sectionAccess?.contracts
+    ? '<button type="button" class="material-kind-chip" data-goto-tab="contracts" aria-label="查看本会议合同目录">合同 <span class="hint">查看合同目录</span></button>'
+    : "";
   const kindButtons=allKinds.map(k=>{
     const count=validMaterials.filter(m=>m.kind===k).length;
     return '<button type="button" class="material-kind-chip'+(selected===k?' active':'')+
@@ -485,10 +488,10 @@ function tabMaterials(d, p) {
 
   return panel("材料收集",
     `已上传 ${ms.uploadedCount || 0} 份附件 · ${ms.have.length} 类 · ${ms.ok ? "可进入后续流程" : "请先上传至少一份附件"}`, `
-    <div class="hint" style="padding:8px 14px">点击下方材料类别，直接打开该类别的上传资料窗口；上传后可查看已收集文件。企业赞助合同、会务协议、劳务协议统一通过“合同”模块上传；历史原件仍可在合同归档中查阅。</div>
+    <div class="hint" style="padding:8px 14px">点击材料类别上传对应资料；点击“合同”直接查看本会议合同目录。企业赞助合同、会务协议、劳务协议统一在合同目录中录入与管理。</div>
     <div class="material-kind-panel" aria-label="材料类别选择">
       <div class="material-kind-heading">材料收集类别 · 点击类别上传资料</div>
-      <div class="material-kind-chips">${kindButtons}</div>
+      <div class="material-kind-chips">${contractShortcut}${kindButtons}</div>
       ${can("material:write")&&!d.settlement&&!["已结算","已归档"].includes(p.status)?
         '<div class="material-custom"><input data-material-custom maxlength="20" placeholder="其他材料类别（可自定义，20 字以内）" aria-label="自定义材料类别">'+
         '<button class="btn btn-o btn-sm" data-material-custom-apply>选择自定义类别</button></div>':""}
