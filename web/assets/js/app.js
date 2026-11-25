@@ -62,8 +62,8 @@ function parseHash() {
 
 function navHtml(active) {
   const mods = state.role?.modules || [];
-  return NAV.filter((g) => (mods.includes(g.k)||g.k==="dashboard"||(g.k==="projects"&&(can("contract:write")||can("contract:approve")))) && (g.k!=="system"||state.super)).map((g) => {
-    const items = g.items.filter((it) => !it.need || it.need());
+  return NAV.filter((g) => (mods.includes(g.k)||g.k==="dashboard"||(g.k==="projects"&&(can("contract:write")||can("contract:approve")))||(g.k==="finance"&&["payment:create","payment:approve","payment:pay"].some(can))) && (g.k!=="system"||state.super)).map((g) => {
+    const items = g.items.filter((it) => canVisit(it.k) && (!it.need || it.need()));
     if (!items.length) return "";
     if (items.length === 1) {
       const it = items[0];
