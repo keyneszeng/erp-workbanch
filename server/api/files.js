@@ -137,7 +137,7 @@ function register(router) {
       // Payment transfer vouchers contain sensitive financial evidence: project visibility
       // alone is not enough, even when the user may view ordinary material attachments.
       if (paymentReceipt && !can(ctx.user,"payment:pay"))
-        throw forbidden("付款凭证仅财务人员及总管理员可查看");
+        throw forbidden("付款凭证仅具有付款执行权限的账号可查看");
       // 单纯是项目成员的嘉宾并不自动获得合同和财务凭证的读取权限。
       if (!can(ctx.user, "material:write") && !can(ctx.user, "contract:write") &&
           !can(ctx.user, "verify:check") && !can(ctx.user, "archive:write") && !can(ctx.user,"payment:pay") &&
