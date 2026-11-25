@@ -809,24 +809,40 @@ function register(router) {
    * Only expose files from this payment's project and the selected contract,
    * never sponsor agreements or unrelated project files.
    */
+  function paymentEvidence(y){
+    const selectedContract=String(y.payee_source_id||"").startsWith("contract:")?
+      String(y.payee_source_id).slice(9):null;
+    const contracts=selectedContract?
+      db.prepare("SELECT id,name,vendor,category,file_key,file_name,file_mime FROM contracts WHERE pid=? AND id=? AND deleted_at IS NULL AND status='已签署' AND COALESCE(category,'')<>'企业赞助'").all(y.pid,selectedContract):
+      db.prepare("SELECT id,name,vendor,category,file_key,file_name,file_mime FROM contracts WHERE pid=? AND deleted_at IS NULL AND status='已签署' AND COALESCE(category,'')<>'企业赞助' AND vendor=? ORDER BY id").all(y.pid,y.payee);
+    const invoices=db.prepare(
+      "SELECT id,kind,name,file_key,file_name,file_mime FROM materials WHERE pid=? AND (deleted_at IS NULL OR deleted_at='') AND kind IN ('会务发票','发票') AND file_key IS NOT NULL AND file_key<>'' ORDER BY id"
+    ).all(y.pid).filter(x=>x.kind==="会务发票" || /会务|会议服务|会议执行/.test(String(x.name||"")+" "+String(x.file_name||"")));
+    const labor=String(y.payee_source_id||"").startsWith("labor:")||y.type==="专家费"||contracts.some(x=>x.category==="劳务专家");
+    const sheets=labor?db.prepare("SELECT id,kind,name,file_key,file_name,file_mime FROM materials WHERE pid=? AND (deleted_at IS NULL OR deleted_at='') AND kind IN ('劳务表','劳务登记表','劳务收集表') AND file_key IS NOT NULL AND file_key<>'' ORDER BY id").all(y.pid):[];
+    const evidence=[
+      ...contracts.filter(x=>x.file_key).map(x=>({type:"已签会务或劳务合同",id:x.id,name:x.name,fileKey:x.file_key,fileName:x.file_name,mime:x.file_mime})),
+      ...(labor?[]:invoices).map(x=>({type:"项目关联会务发票",id:x.id,name:x.name,fileKey:x.file_key,fileName:x.file_name,mime:x.file_mime})),
+      ...sheets.map(x=>({type:"项目核销劳务表",id:x.id,name:x.name,fileKey:x.file_key,fileName:x.file_name,mime:x.file_mime}))
+    ];
+    return evidence;
+  }
+  router.get("/api/projects/:id/payee-evidence",async ctx=>{
+    const p=getProject(ctx.params.id);
+    assertProjectVisible(ctx.user,p);
+    assertCan(ctx.user,"payment:pay","需要付款执行权限才能查看付款依据原件");
+    const option=require("../lib/verified-payees").options(p.id).find(x=>x.id===ctx.query.source);
+    if(!option)throw notFound("收款依据不存在或已变化");
+    const labor=option.source==="labor"||String(option.label).includes("劳务专家");
+    return {payment:{pid:p.id,payee:option.payee,amount:option.amount},evidence:paymentEvidence({pid:p.id,payee:option.payee,payee_source_id:option.id,type:labor?"专家费":"学会公付"}),warning:"项目级劳务表或会务发票可能涵盖多个收款方，请核对原件。"};
+  });
   router.get("/api/payments/:id/evidence", async (ctx) => {
     const y=db.prepare("SELECT * FROM payments WHERE id=?").get(ctx.params.id);
     if(!y)throw notFound("付款单不存在");
     const p=getProject(y.pid);
     assertProjectVisible(ctx.user,p);
     assertCan(ctx.user,"payment:pay","需要付款执行权限才能查看付款依据原件");
-    const selectedContract=String(y.payee_source_id||"").startsWith("contract:")?
-      String(y.payee_source_id).slice(9):null;
-    const contracts=selectedContract?
-      db.prepare("SELECT id,name,vendor,file_key,file_name,file_mime FROM contracts WHERE pid=? AND id=? AND deleted_at IS NULL AND status='已签署' AND COALESCE(category,'')<>'企业赞助'").all(y.pid,selectedContract):
-      db.prepare("SELECT id,name,vendor,file_key,file_name,file_mime FROM contracts WHERE pid=? AND deleted_at IS NULL AND status='已签署' AND COALESCE(category,'')<>'企业赞助' AND vendor=? ORDER BY id").all(y.pid,y.payee);
-    const invoices=db.prepare(
-      "SELECT id,kind,name,file_key,file_name,file_mime FROM materials WHERE pid=? AND (deleted_at IS NULL OR deleted_at='') AND kind IN ('会务发票','发票') AND file_key IS NOT NULL AND file_key<>'' ORDER BY id"
-    ).all(y.pid).filter(x=>x.kind==="会务发票" || /会务|会议服务|会议执行/.test(String(x.name||"")+" "+String(x.file_name||"")));
-    const evidence=[
-      ...contracts.filter(x=>x.file_key).map(x=>({type:"已签会务或劳务合同",id:x.id,name:x.name,fileKey:x.file_key,fileName:x.file_name,mime:x.file_mime})),
-      ...invoices.map(x=>({type:"项目关联会务发票",id:x.id,name:x.name,fileKey:x.file_key,fileName:x.file_name,mime:x.file_mime}))
-    ];
+    const evidence=paymentEvidence(y);
     return {payment:{id:y.id,pid:y.pid,payee:y.payee,amount:y.amount,status:y.status,
       bank:y.payee_bank||"",maskedAccount:y.payee_account?"尾号 "+String(y.payee_account).slice(-4):""},
       evidence,warning:"发票按项目关联，未建立与本付款单的逐票绑定关系；执行付款前须核对原件、合同签约方与本次金额。"};
