@@ -81,14 +81,15 @@ export async function render(root, params = []) {
   if (focusPid) totalsQs.set("pid", focusPid);
   totalsQs.set("page", "1");
   totalsQs.set("size", "1");
+  const settlementReadable=state.super||state.role?.modules?.includes("finance")||can("settle:create");
   const [pay, st, proj, allPay] = await Promise.all([
     api.get("/api/payments?" + qs.toString()),
-    api.get("/api/settlements"),
+    settlementReadable?api.get("/api/settlements"):Promise.resolve({rows:[],total:0}),
     api.get("/api/projects"),
     filterStatus ? api.get("/api/payments?" + totalsQs.toString()) : Promise.resolve(null)
   ]);
   const payableProjects = proj.rows.filter((p) => PAYABLE.includes(p.status));
-  const financeDirect = can("payment:pay") && (state.super || state.user?.role === "finance");
+  const financeDirect = can("payment:pay");
   // Income API is permission protected: do not request it or offer navigation to unauthorized accounts.
   const incomeReadable = state.user?.role==="finance" || ["contract:write","contract:approve","payment:pay","payment:approve"].some(perm=>can(perm));
   // KPI 全部用后端全量汇总：pay.rows 只是当前页
@@ -98,11 +99,11 @@ export async function render(root, params = []) {
   const scopeNote = focusPid ? '<span style="font-weight:400;color:var(--mute)">（本项目）</span>' : "";
 
   root.innerHTML = `<div class="phead">
-      <div><h2>会议收入、付款与结算</h2><p>按会议编号归集付款与结算；财务人员在核销通过后可直接登记已付款并上传凭证，无需先发起付款申请。</p></div>
+      <div><h2>会议收入、付款与结算</h2><p>按会议编号归集付款与结算；具有付款执行权限的人员在核销通过后可直接登记已付款并上传凭证，无需先发起付款申请。</p></div>
       <div class="acts">
         ${state.super ? '<button class="btn btn-o" data-go="project-ledger">项目台账</button>' : ""}
         ${can("export:any") ? `<button class="btn btn-o" id="expPay">导出付款明细</button>
-        <button class="btn btn-o" id="expSt">导出结算汇总</button>` : ""}
+        ${settlementReadable?'<button class="btn btn-o" id="expSt">导出结算汇总</button>':""}` : ""}
         ${financeDirect ? '<button class="btn btn-p" id="goDirectPay">+ 财务直接付款</button>' : ""}
       </div>
     </div>
@@ -124,7 +125,7 @@ export async function render(root, params = []) {
     <div class="ux-finance-tabs" role="navigation" aria-label="财务业务分区">
        ${incomeReadable ? '<button class="ux-finance-tab active" data-finance-jump="incomeWorkbench">企业赞助</button>' : ""}
        <button class="ux-finance-tab ${incomeReadable ? "" : "active"}" data-finance-jump="fin-payments">付款登记与凭证</button>
-       <button class="ux-finance-tab" data-finance-jump="fin-settlements">结算与归档</button>
+       ${settlementReadable?'<button class="ux-finance-tab" data-finance-jump="fin-settlements">结算与归档</button>':""}
      </div>
     <div class="ux-finance-rule">适用核销项通过 → 财务核实线下付款 → 勾选已付并上传银行回单 → 付款与凭证登记 → 结算。历史审批单仍保留原审批流程。</div>
     <div class="panel mt" id="fin-payments">
@@ -136,7 +137,7 @@ export async function render(root, params = []) {
       ${pager(pay, { unit: "笔" })}
     </div>
 
-    <div class="panel" id="fin-settlements">
+    <div class="panel" id="fin-settlements" ${settlementReadable?"":"hidden"}>
       <div class="panel-h"><h2>结算单</h2><div><span class="hint">${st.total ?? st.rows.length} 张 · 生成即冻结核销结论</span></div></div>
       ${table(
         [{ t: "结算单号", w: "112px" }, { t: "项目" }, { t: "项目预算", w: "96px", cls: "num" },
