@@ -98,10 +98,10 @@ test("选项完全来自本项目材料库动态类别，并排除历史软删�
  assert.equal(result.data.can_customize_watermark,false);
  assert.equal((await call("admin","GET",opt(pid))).data.can_customize_watermark,true);
 });
-test("普通协会管理员勾选一个类目，PDF仅含封面+原件2页，且每页有本人/时间水印",async()=>{
+test("协会管理员下载PDF须含封面、项目台账结算对照页和原件2页，且每页有水印",async()=>{
  const result=await post("assoc",pid,["签到表"]);
  const doc=await pdfOf(result);
- assert.equal(doc.getPageCount(),3);
+ assert.equal(doc.getPageCount(),4);
  assert.match(doc.getKeywords()||" ",/watermark:default/);
  stampOnEveryPage(doc);
  const bytes=Buffer.from(await (await call("assoc","GET",uri(pid))).raw.arrayBuffer());
@@ -110,14 +110,14 @@ test("普通协会管理员勾选一个类目，PDF仅含封面+原件2页，且
 });
 test("多类合并且Office/TXT等非可视格式保留原件附件与提示页",async()=>{
  const doc=await pdfOf(await post("admin",pid,["签到表","合同","会务说明"]));
- assert.equal(doc.getPageCount(),6,"封面1+签到2+合同2+非可视附件说明1"); 
+ assert.equal(doc.getPageCount(),7,"封面1+项目台账1+签到2+合同2+非可视附件说明1"); 
  const name=doc.getKeywords()||"";
  assert.match(name,/source-count:3/);
  stampOnEveryPage(doc);
 });
 test("只有总管理员能取消水印，自定义文字可用；普通管理员不能绕过",async()=>{
  const plain=await pdfOf(await post("admin",pid,["签到表"],"none"));
- assert.equal(plain.getPageCount(),3);
+ assert.equal(plain.getPageCount(),4);
  assert.match(plain.getKeywords()||" ",/watermark:none/);
  for(const page of plain.getPages())assert.ok(!page.node.Resources()?.lookup(PDFName.of("XObject")),
   "no watermark XObject should exist when admin chose none");
@@ -161,7 +161,7 @@ test("选中已上传但物理文件缺失时禁止假装导出成功",async()=>
 test("兼容旧GET下载链接也必须使用新的最简封面和默认水印",async()=>{
  const res=await call("admin","GET",uri(otherPid));
  const doc=await pdfOf(res);
- assert.equal(doc.getPageCount(),3);
+ assert.equal(doc.getPageCount(),4);
  assert.match(doc.getKeywords()||" ",/watermark:default/);
  stampOnEveryPage(doc);
 });
@@ -187,8 +187,8 @@ test("旧逐份选择接口即使提交合同在签到表之前，仍按15类固
   categories:["合同","签到表"],material_ids:[contract.id,attendance.id],watermark_mode:"none"
  });
  const doc=await pdfOf(r);
- assert.equal(doc.getPageCount(),5);
- assert.deepEqual(doc.getPages().slice(1).map(p=>p.getWidth()),[320,320,321,321],
+ assert.equal(doc.getPageCount(),6);
+ assert.deepEqual(doc.getPages().slice(2).map(p=>p.getWidth()),[320,320,321,321],
   "签到表必须先于合同，不能按前端提交的跨类别顺序输出");
  const attachments=doc.catalog.lookup(PDFName.of("Names"))?.lookup(PDFName.of("EmbeddedFiles"));
  assert.ok(attachments,"PDF must retain each original as an attachment");
