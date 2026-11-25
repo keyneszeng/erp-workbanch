@@ -70,7 +70,10 @@ before(async()=>{
  const pdfKey="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.pdf";
  put(pdfKey,bytes);mat(pid,"签到表","现场签到表",pdfKey,bytes.length);
  const otherKey="bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.pdf";
- put(otherKey,bytes);mat(pid,"合同","资料合同",otherKey,bytes.length);
+ const second=await PDFDocument.create();second.addPage([321,401]);second.addPage([321,401]);
+ second.setTitle("合同原件-不同于签到表");
+ const otherBytes=Buffer.from(await second.save());
+ put(otherKey,otherBytes);mat(pid,"合同","资料合同",otherKey,otherBytes.length);
  const pngBytes=Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+i2ioAAAAASUVORK5CYII=","base64");
  const pngKey="cccccccccccccccccccccccccccccccc.png";
  put(pngKey,pngBytes);mat(pid,"讲者照片","讲者照片",pngKey,pngBytes.length,"image/png");
