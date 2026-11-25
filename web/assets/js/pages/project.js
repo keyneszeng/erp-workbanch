@@ -458,10 +458,9 @@ function tabMaterials(d, p) {
   const ms = d.materialsStatus;
   const validMaterials=(d.materials||[]).filter(m=>!m.deleted_at)
     .map(m=>m.kind==="劳务收集表"?{...m,kind:"劳务表"}:m);
-  // Old "合同/会务协议" materials remain available as read-only historical evidence.
-  // New contract originals must be uploaded through the dedicated contract tab.
+  // 合同与会务协议不属于材料收集类别，统一通过合同模块管理。
+  // 历史遗留记录保留在数据层，但不再作为材料类别或独立区块展示。
   const retiredKinds=new Set(["合同","会务协议"]);
-  const historicMaterials=validMaterials.filter(m=>retiredKinds.has(m.kind));
   const unavailable=new Set(ms.disabled||[]);
   const recommended=(state.meta?.materialKinds||[]).filter(k=>!unavailable.has(k)&&!retiredKinds.has(k));
   const otherKinds=[...new Set(validMaterials.map(m=>m.kind))]
@@ -481,12 +480,7 @@ function tabMaterials(d, p) {
   }).join("");
   const rightById=new Map((d.sponsorRights?.rights||[]).map(r=>[Number(r.id),r]));
   const sponsorsById=new Map((d.sponsorRights?.contracts||[]).map(c=>[c.id,c]));
-  const historicSection=historicMaterials.length?panel("历史合同与会务协议材料（只读）",
-    "这两个旧类别已从材料收集移除；原件仍保留在历史记录，新增合同请在“合同”页操作",
-    table([{t:"历史类别",w:"115px"},{t:"材料名称"},{t:"历史原件",w:"130px"},{t:"上传时间",w:"150px"}],
-      historicMaterials.map(m=>({c:[esc(m.kind),esc(m.name),
-        m.file_key?'<a class="link" href="'+fileUrl(m.file_key)+'" target="_blank" rel="noopener">查看原件</a>':"—",
-        esc(m.created_at||"")]})),{empty:"没有历史资料"}),""):"";
+
   return panel("材料收集",
     `已上传 ${ms.uploadedCount || 0} 份附件 · ${ms.have.length} 类 · ${ms.ok ? "可进入后续流程" : "请先上传至少一份附件"}`, `
     <div class="hint" style="padding:8px 14px">点击下方材料类别，直接打开该类别的上传资料窗口；上传后可查看已收集文件。合同及会务协议的新增原件请通过“合同”模块管理。</div>
@@ -521,7 +515,7 @@ function tabMaterials(d, p) {
         ]
       })),
       { empty: "该类别尚无已上传文件，请选择上方类别并上传" })}`,
-    "") + historicSection;
+    "");
 }
 
 /* ---------------- 成员 ---------------- */
