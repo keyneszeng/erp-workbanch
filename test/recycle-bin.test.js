@@ -252,4 +252,19 @@ test("删除未签署合同同步软删所有同原件合同材料并撤销第5/
   assert.ok(!verify.body.verification.sourceMaterialIds?.laborContracts.includes(original.id));
   assert.ok(!verify.body.verification.sourceMaterialIds?.meetingAgreements.includes(companion));
  }
+ // 总管理员从同批任意一份历史协议材料恢复，应恢复整组合同原件，
+ // 但不会自动把旧核销结论从待判定恢复为通过。
+ const restored=await req("admin","POST","/api/recycle-bin/materials/"+companion+"/restore",{});
+ assert.equal(restored.status,200,JSON.stringify(restored.body));
+ assert.equal(restored.body.linkedContract,cid);
+ assert.ok(restored.body.restoredMaterialIds.includes(original.id));
+ assert.ok(restored.body.restoredMaterialIds.includes(companion));
+ const live=(await req("admin","GET","/api/projects/"+PID)).body;
+ assert.ok(live.materials.some(x=>x.id===original.id));
+ assert.ok(live.materials.some(x=>x.id===companion));
+ const contract=(await req("admin","GET","/api/contracts?pid="+PID)).body.rows.find(x=>x.id===cid);
+ assert.equal(contract?.status,"草稿","恢复的合同不能直接成为已签署状态");
+ assert.ok(!(await list("同合同历史扫描件")).rows.some(x=>x.id===companion));
+ const stale=sql(db=>db.prepare("SELECT result FROM verify_steps WHERE pid=? AND step_no=6").get(PID));
+ assert.equal(stale.result,"待判定","恢复文件不应自动恢复旧核销结论");
 });
