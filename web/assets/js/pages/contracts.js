@@ -47,7 +47,7 @@ export async function render(root) {
   const withFile = rows.filter((r) => r.file_key).length;
 
   root.innerHTML = `<div class="phead">
-      <div>${pid ? '<button type="button" class="btn btn-o btn-sm" data-go="materials/' + esc(pid) + '">← 返回材料收集</button>' : ""}<h2>${pid ? "合同目录详情" : "合同台账"}</h2><p>${pid ? esc(project.name) + " · " + esc(pid) + " · 当前会议合同清单" : "企业赞助合同、会务协议、劳务协议均在此统一上传与归档；会务费用关联核销第6项，劳务合同关联第5项。"}</p></div>
+      <div><h2>合同台账</h2><p>企业赞助合同、会务协议、劳务协议均在此统一上传与归档；会务费用关联核销第6项，劳务合同关联第5项。</p></div>
       <div class="acts">
         ${can("export:any") ? '<button class="btn btn-o" id="exp">导出 CSV</button>' : ""}
         ${can("contract:write") ? '<button class="btn btn-p" id="newC">+ 录入合同</button>' : ""}
