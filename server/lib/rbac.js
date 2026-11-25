@@ -125,6 +125,7 @@ function canVisitNav(user, nav) {
   if (nav === "dashboard" && !hasModule(user,"dashboard")) return true; // 安全待授权页
   if (nav === "projects" && canReadProjects(user)) return true;
   if (nav === "contracts" && (can(user,"contract:write")||can(user,"contract:approve"))) return true;
+  if (nav === "finance" && ["payment:create","payment:approve","payment:pay"].some(perm=>can(user,perm))) return true;
   if (nav === "approvals" && (can(user,"contract:approve")||can(user,"project:approve")||
     can(user,"verify:exception_approve")||can(user,"payment:approve"))) return true;
   if (need === "system" && !isSuper(user)) return false;
