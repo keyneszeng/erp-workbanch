@@ -463,14 +463,14 @@ function tabMaterials(d, p) {
   // 合同与会务协议不属于材料收集类别，统一通过合同模块管理。
   // 历史遗留记录保留在数据层，但不再作为材料类别或独立区块展示。
   const retiredKinds=new Set(["合同","会务协议","劳务协议","企业赞助合同","赞助合同","劳务专家合同","专家劳务协议","劳务合同","会务合同"]);
-  const unavailable=new Set(ms.disabled||[]);
-  const recommended=(state.meta?.materialKinds||[]).filter(k=>!unavailable.has(k)&&!retiredKinds.has(k));
-  const otherKinds=[...new Set(validMaterials.map(m=>m.kind))]
-    .filter(k=>!recommended.includes(k)&&!retiredKinds.has(k));
+  const unavailable=new Set(ms.categoryCatalog?.disabled||ms.disabled||[]);
+  const recommended=ms.categoryCatalog?.active||(state.meta?.materialKinds||[]).filter(k=>!unavailable.has(k)&&!retiredKinds.has(k));
+  const otherKinds=ms.categoryCatalog?.history||[...new Set(validMaterials.map(m=>m.kind))]
+    .filter(k=>!recommended.includes(k)&&!retiredKinds.has(k)).sort();
   const remembered=selectedMaterialKinds.get(p.id);
   const selected=remembered&&!retiredKinds.has(remembered)?remembered:
     (recommended.includes("课件")?"课件":recommended[0]||otherKinds[0]||"课件");
-  const allKinds=[...new Set([...recommended,...otherKinds,selected])];
+  const allKinds=[...new Set([...(ms.categoryCatalog?.all||[...recommended,...otherKinds]),...(selected&&!unavailable.has(selected)?[selected]:[])])];
   const current=validMaterials.filter(m=>m.kind===selected);
   const writable=can("material:write")&&!d.settlement&&!["已结算","已归档"].includes(p.status)&&
     !unavailable.has(selected)&&!retiredKinds.has(selected);
@@ -632,8 +632,11 @@ function wire(root, pid, d, body) {
     const name=String(body.querySelector("[data-material-custom]")?.value||"").trim();
     if(!name||name.length>20)return toast("请输入 1～20 字的材料类别名称","warn");
     if(["合同","会务协议","劳务协议","企业赞助合同","赞助合同","劳务专家合同","专家劳务协议","劳务合同","会务合同"].includes(name))return toast("企业赞助合同、会务协议和劳务协议请统一在合同模块上传","warn");
-    selectedMaterialKinds.set(pid,name);
-    render(root,[pid]).then(()=>openMaterial(root,pid,name));
+    const kind=name==="劳务收集表"?"劳务表":name;
+    if((d.materialsStatus.categoryCatalog?.disabled||d.materialsStatus.disabled||[]).includes(kind))
+      return toast("当前材料类别已停用，仅可查看历史附件","warn");
+    selectedMaterialKinds.set(pid,kind);
+    render(root,[pid]).then(()=>openMaterial(root,pid,kind));
   });
   body.querySelector("[data-material-custom]")?.addEventListener("keydown",e=>{
     if(e.key==="Enter"){e.preventDefault();body.querySelector("[data-material-custom-apply]")?.click();}
