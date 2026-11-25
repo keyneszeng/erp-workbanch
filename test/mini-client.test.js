@@ -425,7 +425,7 @@ test("小程序材料工作台同一个表单显示类别、上传与已录入�
  const web=fs.readFileSync(path.join(__dirname,"../web/assets/js/pages/project.js"),"utf8");
  assert.match(web,/material-kind-chip/,"Web 项目材料面板应能按类别选择");
  assert.match(web,/data-material-custom-apply/,"Web 材料类别也应允许自定义");
- assert.match(web,/当前录入/,"Web 与小程序都显示当前录入类别");
+ assert.match(web,/当前类别/,"Web 与小程序都显示当前材料类别");
  assert.match(web,/current\.map\(\(m\)/,"Web 材料附件仅显示当前类别的已录入文件");
 
 });

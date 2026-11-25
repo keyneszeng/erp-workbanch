@@ -5,6 +5,7 @@ import { checkFile, fileUrl, formatBytes, UPLOAD_ACCEPT, UPLOAD_TIP } from "../l
 import { openContractMaterialReplace } from "../lib/contract-material-replace.js";
 
 const PAGE_SIZE = 50;
+const RETIRED_KINDS=new Set(["合同","会务协议"]);
 // Preserve the existing lifecycle gate: browsing a project folder grants no upload access.
 const UPLOAD_STATUSES = new Set(["筹备中", "执行中", "待核销", "已核销"]);
 let curPage = 1;
@@ -32,7 +33,7 @@ export async function render(root, params = []) {
   if (!pid) {
     const uploaded = d.projects.filter(p => p.uploadedCount > 0).length;
     root.innerHTML = '<div class="phead"><div><h2>材料收集</h2><p>按项目名称建立目录，点击项目查看材料详情、上传记录与附件</p></div>' +
-      '<div class="acts">' + (canWrite && writableProjects.length ? '<button type="button" class="btn btn-p" id="add">+ 登记材料</button>' : "") + '</div></div>' +
+      '</div>' +
       '<div class="grid g3">' +
         '<div class="kpi"><div class="t">项目目录</div><div class="v">' + d.projects.length + '<span class="u">个</span></div></div>' +
         '<div class="kpi k2"><div class="t">已收集材料项目</div><div class="v">' + uploaded + '<span class="u">个</span></div></div>' +
@@ -70,19 +71,17 @@ export async function render(root, params = []) {
     };
     input.addEventListener("input", filter);
     filter();
-    const add = root.querySelector("#add");
-    if (add) add.onclick = () => openMaterialRegistration(root, writableProjects, d.kinds);
     return;
   }
 
   const refresh = () => render(root, [pid]);
   const writable = canWrite && UPLOAD_STATUSES.has(project.status);
-  const kinds = [...new Set([...(d.kinds || []), ...(project.have || [])])].filter(Boolean);
+  const kinds=[...new Set([...(d.kinds||[]),...(project.have||[])])]
+    .filter(kind=>kind&&!RETIRED_KINDS.has(kind));
   root.innerHTML = '<div class="phead"><div><button type="button" class="btn btn-o btn-sm" data-go="materials">← 返回项目目录</button>' +
       '<h2 style="margin-top:12px">' + esc(project.name) + '</h2>' +
       '<p>材料收集 / ' + esc(project.id) + ' · ' + esc(project.status) + '</p></div>' +
       '<div class="acts">' +
-        (writable ? '<button type="button" class="btn btn-p" id="add">+ 上传材料</button>' : "") +
         (canDownloadArchivePdf({status: project.status, assoc: project.assoc}) ? ' <button type="button" class="btn btn-o" data-archive-pdf="' + esc(pid) + '">材料下载</button>' : "") +
       '</div></div>' +
     '<div class="grid g3">' +
@@ -93,7 +92,7 @@ export async function render(root, params = []) {
     '<div class="panel mt"><div class="panel-h"><h2>材料收集类别</h2><span class="hint">' +
       (writable ? "点击类别可直接上传，自动归入当前项目" : "该项目仅可查看已录入材料") +
     '</span></div><div class="material-kind-panel">' +
-      '<p class="hint">材料按类别收集，文件保留原始名称；未上传的类别可选择登记，无需每类都上传。</p>' +
+      '<p class="hint">点击下方材料类别即可上传文件，自动归入当前会议。合同和会务协议的新增资料请在合同模块管理；旧资料仍在下方列表中保留。</p>' +
       '<div class="material-kind-chips">' + kinds.map(kind =>
         '<button type="button" class="material-kind-chip" data-guide-kind="' + esc(kind) + '"' + (writable ? "" : " disabled") + '>' +
           esc(kind) + (project.have?.includes(kind) ? ' <span class="hint">已收集</span>' : "") + '</button>'
@@ -118,8 +117,6 @@ export async function render(root, params = []) {
 
   bindPager(root, n => { curPage = n; refresh(); });
   bindArchivePdfButtons(root);
-  const add = root.querySelector("#add");
-  if (add) add.onclick = () => openMaterialRegistration(root, [project], d.kinds, pid, refresh);
   root.querySelectorAll("[data-guide-kind]").forEach(btn => {
     btn.onclick = () => openMaterialRegistration(root, [project], d.kinds, pid, refresh, btn.dataset.guideKind);
   });
@@ -139,16 +136,20 @@ export async function render(root, params = []) {
 export const MAX_MATERIAL_FILES_PER_BATCH=10;
 
 export function openMaterialRegistration(root, projects, kinds, defaultPid="", onSaved=null, defaultKind="") {
+  if(defaultKind&&RETIRED_KINDS.has(defaultKind)){
+    toast("合同、会务协议请在合同模块录入，不能从材料收集新增","warn");return;
+  }
   if(!projects.length){
     toast("当前没有可登记材料的项目（已结算、已归档项目不允许新增材料）","warn");
     return;
   }
+  const allowedKinds=(kinds||[]).filter(kind=>!RETIRED_KINDS.has(kind));
   const fields=[
     {k:"pid",l:"所属项目",t:"select",req:1,v:defaultPid,
       opts:projects.map(p=>({v:p.id,l:p.id+" "+p.name}))},
     {k:"kind",l:"材料类别",t:"select",req:1,custom:1,v:defaultKind,
       ph:"如：盖章会议通知 / 招商函 / 终版议程 / 讲者照片",
-      opts:[...kinds,"会议通知","招商函","终版议程","课件","串场","劳务表","讲者照片","权益照片",defaultKind]
+      opts:[...allowedKinds,"会议通知","招商函","终版议程","课件","串场","劳务表","讲者照片","权益照片",defaultKind]
         .filter((v,i,a)=>v&&a.indexOf(v)===i),
       tip:"可任选或自定义类别。多份文件将分别登记到当前项目与材料类别。"},
     {k:"sponsor_right_id",l:"权益照片 · 二级类目（从赞助合同自动生成，可自定义）",
@@ -157,7 +158,7 @@ export function openMaterialRegistration(root, projects, kinds, defaultPid="", o
       tip:`一次最多选择 ${MAX_MATERIAL_FILES_PER_BATCH} 份，每份不超过 50 MB；支持并发上传。材料名称自动采用对应文件名，无需手动输入。`}
   ];
   const m=modal({
-    title:"登记材料",width:"660px",
+    title:"上传资料"+(defaultKind?" · "+defaultKind:""),width:"660px",
     body:formHtml(fields)+
       '<div data-material-file-list aria-live="polite" class="fld full" style="grid-column:1/-1;margin-top:10px">'+
       '<div class="hint">选择文件后，系统将在此列出每份文件的材料名称及上传状态。</div></div>'+
@@ -269,6 +270,7 @@ export function openMaterialRegistration(root, projects, kinds, defaultPid="", o
   saveButton.onclick=async()=>{
     if(busy)return;
     if(!validate(m,fields))return;
+    if(RETIRED_KINDS.has(kindSelect.value)){toast("合同及会务协议请到合同模块管理","warn");return;}
     if(!picked.length){toast("请先选择至少一份材料文件","warn");return;}
     if(picked.length>MAX_MATERIAL_FILES_PER_BATCH){toast(`单次最多登记 ${MAX_MATERIAL_FILES_PER_BATCH} 份材料附件`,"warn");return;}
     const final=kindSelect.value==="终版议程";
@@ -276,6 +278,9 @@ export function openMaterialRegistration(root, projects, kinds, defaultPid="", o
       toast("请先选择与当前赞助合同对应的权益内容","warn");return;
     }
     const data=readForm(m);
+    if(RETIRED_KINDS.has(String(data.kind||"").trim())){
+      toast("合同和会务协议属于合同模块，请选择其他材料类别","warn");return;
+    }
     delete data.name;delete data.version;
     data.version=final?"终版":"v1";
     if(kindSelect.value==="权益照片")data.sponsor_right_id=Number(rightSelect.value);

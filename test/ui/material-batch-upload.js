@@ -52,16 +52,19 @@ async function ready(){
   const chips=page.locator("#tabbody [data-material-kind]");
   await chips.first().waitFor({timeout:12000});
   assert.ok(await chips.count()>=12,"material panel shows selectable recommended categories, like mini");
-  assert.match((await page.locator("#tabbody .material-kind-selected").innerText()).replace(/\s+/g,""),/当前录入：课件已录入\d+份/);
+  assert.match((await page.locator("#tabbody .material-kind-selected").innerText()).replace(/\s+/g,""),/当前类别：课件已收集\d+份/);
+  assert.equal(await page.locator("#addMat").count(),0,"no separate upload/registration button");
+  assert.equal(await page.locator('#tabbody [data-material-kind="合同"]').count(),0);
+  assert.equal(await page.locator('#tabbody [data-material-kind="会务协议"]').count(),0);
   await page.locator('#tabbody [data-material-kind="签到表"]').click();
-  await page.waitForFunction(()=>document.querySelector(".material-kind-selected")?.textContent?.includes("签到表"),null,{timeout:10000});
-  assert.equal(await page.locator("#addMat").count(),1,"switching category retains direct upload action");
+  const firstModal=page.locator("#modal.open");
+  await firstModal.locator('[name="kind"]').waitFor({timeout:15000});
+  assert.equal(await firstModal.locator('[name="kind"]').inputValue(),"签到表");
+  await firstModal.locator('[data-x="0"]').click();
+  await page.waitForFunction(()=>!document.querySelector("#modal.open"),null,{timeout:10000});
   await page.locator('#tabbody [data-material-kind="课件"]').click();
-  await page.waitForFunction(()=>document.querySelector(".material-kind-selected")?.textContent?.includes("课件"),null,{timeout:10000});
-  const add=page.locator("#addMat");
-  await add.waitFor({timeout:15000});
-  await add.click();
   const modal=page.locator("#modal.open");
+  await modal.locator('[name="kind"]').waitFor({timeout:15000});
   assert.equal(await modal.locator('[name="kind"]').inputValue(),"课件","upload form preselects chosen panel category");
   assert.equal(await modal.locator('[name="name"]').count(),0,
     "manual material-name input must be removed");
@@ -105,20 +108,23 @@ async function ready(){
   }
   for(const name of names)
     assert.ok((await page.locator("#content").innerText()).includes(name),"meeting materials list displays "+name);
-  assert.ok(Number((await page.locator("#tabbody .material-kind-selected").innerText()).match(/已录入\s*(\d+)\s*份/)?.[1])>=10,"上传十份后统计包含新增附件");
+  assert.ok(Number((await page.locator("#tabbody .material-kind-selected").innerText()).match(/已收集\s*(\d+)\s*份/)?.[1])>=10,"上传十份后统计包含新增附件");
   await page.locator('#tabbody [data-material-kind="签到表"]').click();
-  await page.waitForFunction(()=>document.querySelector(".material-kind-selected")?.textContent?.includes("签到表"),null,{timeout:10000});
+  await page.locator('#modal.open [name="kind"]').waitFor({timeout:15000});
   assert.ok(!(await page.locator("#tabbody").innerText()).includes(names[0]),
     "switching categories hides unrelated uploaded filenames");
+  await page.locator('#modal.open [data-x="0"]').click();
   await page.locator('#tabbody [data-material-kind="课件"]').click();
-  await page.waitForFunction(()=>document.querySelector(".material-kind-selected")?.textContent?.includes("课件"),null,{timeout:10000});
+  await page.locator('#modal.open [name="kind"]').waitFor({timeout:15000});
   assert.ok((await page.locator("#tabbody").innerText()).includes(names[0]),
     "switching back displays already-uploaded filenames without re-uploading");
+  await page.locator('#modal.open [data-x="0"]').click();
 
   // Speaker photo filenames are the ONLY association key for verification.
-  await page.locator("#addMat").click();
+  await page.locator('#tabbody [data-material-kind="讲者照片"]').click();
   const speakerModal=page.locator("#modal.open");
-  await speakerModal.locator('[name="kind"]').selectOption("讲者照片");
+  await speakerModal.locator('[name="kind"]').waitFor({timeout:15000});
+  assert.equal(await speakerModal.locator('[name="kind"]').inputValue(),"讲者照片");
   const speakerPicker=speakerModal.locator('input[name="file"]');
   assert.notEqual(await speakerPicker.getAttribute("multiple"),null,
     "speaker photos must allow multi-file selection");
@@ -133,9 +139,10 @@ async function ready(){
       "speaker must be linked by its original filename: "+name);
   }
   // Final agendas are also multi-selectable, but only the LAST one remains current.
-  await page.locator("#addMat").click();
+  await page.locator('#tabbody [data-material-kind="终版议程"]').click();
   const agendaModal=page.locator("#modal.open");
-  await agendaModal.locator('[name="kind"]').selectOption("终版议程");
+  await agendaModal.locator('[name="kind"]').waitFor({timeout:15000});
+  assert.equal(await agendaModal.locator('[name="kind"]').inputValue(),"终版议程");
   const agendaPicker=agendaModal.locator('input[name="file"]');
   assert.notEqual(await agendaPicker.getAttribute("multiple"),null,
     "every registration category, including final agenda, supports multi-select");
@@ -167,10 +174,11 @@ async function ready(){
   assert.equal(await guidedModal.locator('[name="kind"]').inputValue(),"劳务表",
     "category chip should directly open uploader with selected kind");
   await guidedModal.locator('[data-x="0"]').click();
-  await page.locator("#add").click();
+  assert.equal(await page.locator("#add").count(),0,"standalone register action removed");
+  await page.locator('[data-guide-kind="劳务表"]').click();
   const second=page.locator("#modal.open");
-  await second.locator('[name="pid"]').selectOption(pid);
-  await second.locator('[name="kind"]').selectOption("劳务表");
+  await second.locator('[name="kind"]').waitFor({timeout:15000});
+  assert.equal(await second.locator('[name="kind"]').inputValue(),"劳务表");
   const nextNames=["报名资料A.pdf","报名资料B.pdf"];
   await second.locator('[name="file"]').setInputFiles(nextNames.map(makePdf));
   let failOnce=false,attempts=0;
@@ -200,6 +208,11 @@ async function ready(){
   // rows. Confirm immediate removal, API filtering, and persistence after reload.
   await page.goto(origin+"/#/projects/"+encodeURIComponent(pid),{waitUntil:"domcontentloaded"});
   await page.locator('.tabs [data-tab="materials"]').click();
+  // Category selection persists across navigation. The last uploaded agenda
+  // remains selected; switch back to 课件 before deleting a course file.
+  await page.locator('#tabbody [data-material-kind="课件"]').click();
+  await page.locator('#modal.open [name="kind"]').waitFor({timeout:15000});
+  await page.locator('#modal.open [data-x="0"]').click();
   await page.locator('[data-del-mat="'+all[0].id+'"]').click();
   await page.locator('#modal.open [data-x="1"]').click();
   // Wait for the project archive table to finish re-rendering after deletion;

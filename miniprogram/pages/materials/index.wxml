@@ -32,7 +32,7 @@
       <picker mode="selector" range="{{sponsorRights}}" range-key="label" value="{{rightIndex}}" bindchange="pickRight"><view class="picker-control"><text class="picker-value">{{sponsorRights[rightIndex].label}}</text><text class="picker-arrow">⌄</text></view></picker>
       <view class="field-hint">权益类目需先在 Web 端确认，照片才能关联到对应赞助合同。</view>
     </view>
-    <view class="category-upload-caption">当前录入：{{custom?(customKind||'请填写自定义类别'):kind}}</view>
+    <view class="category-upload-caption">当前类别：{{custom?(customKind||'请填写自定义类别'):kind}}</view>
     <view class="notice"><text class="notice-icon">i</text><text>每份材料自动采用对应文件名，无须逐份手工填写名称。单批最多10份。</text></view>
     <view wx:if="{{!custom&&kind==='讲者照片'}}" class="field-hint">讲者照片：可直接用下方「拍照或从相册选择」批量选图，选完逐张填写讲者姓名（姓名即材料名称）；也可从微信会话选择已用姓名命名的图片（如张三.jpg），系统按文件名关联。</view>
     <view wx:if="{{!custom&&kind==='终版议程'}}" class="field-hint">可同时选择最多10份议程，按选择顺序登记，最后一份作为唯一当前终版，其余为历史版。</view>
@@ -88,6 +88,13 @@
         </view>
       </view>
       <view wx:else class="field-hint">该类别暂无已上传文件，选择上方入口即可录入。</view>
+    </view>
+    <view wx:if="{{legacyMaterials.length}}" class="card">
+      <view class="section-caption">历史合同与会务协议资料（只读）</view>
+      <view class="field-hint">原类别已停止在材料收集中上传，正式合同请到合同模块录入。历史文件记录继续保留。</view>
+      <view wx:for="{{legacyMaterials}}" wx:key="id" class="uploaded-file-item">
+        <text class="uploaded-file-name">{{item.kind}} · {{item.filename}}</text>
+      </view>
     </view>
     <view class="privacy-note">每批最多10份文件，单个附件不超过20 MB。OCR 仅辅助识别，不代表核销通过。</view>
   </view>

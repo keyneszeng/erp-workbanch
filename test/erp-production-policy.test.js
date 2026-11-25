@@ -114,7 +114,7 @@ test("production: association member IDs, approved contract signing and pay-afte
   assert.equal(confirmedNeed.status,200,JSON.stringify(confirmedNeed.body));
 
 
-  for (const kind of [...new Set([...MATERIAL_KINDS.filter(x=>!["权益照片","讲者照片"].includes(x)),"会议通知","劳务收集表","串场"])]) {
+  for (const kind of [...new Set([...MATERIAL_KINDS.filter(x=>!["权益照片","讲者照片"].includes(x)),"会议通知","会务合同","劳务收集表","串场"])]) {
     const attachment = kind === "发票" ? uploadBody : await (async () => {
       const response = await fetch(root + "/api/uploads?pid=" + pid, {
         method:"POST",
@@ -140,7 +140,7 @@ test("production: association member IDs, approved contract signing and pay-afte
   const personalFile=await uploadPersonal.json();
   assert.equal(uploadPersonal.status,200,JSON.stringify(personalFile));
   const personalMaterial=await request("POST","/api/projects/"+pid+"/materials",{
-    kind:"合同",name:"测试讲者",file_key:personalFile.key,
+    kind:"劳务专家合同",name:"测试讲者",file_key:personalFile.key,
     file_name:personalFile.name,file_size:personalFile.size,file_mime:personalFile.mime
   },cookie);
   assert.equal(personalMaterial.status,200,JSON.stringify(personalMaterial.body));

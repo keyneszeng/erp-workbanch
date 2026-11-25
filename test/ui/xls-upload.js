@@ -36,8 +36,11 @@ async function waitReady() {
   await page.click("#lbtn");
   await page.waitForSelector("#pwdBtn");
   await page.goto(BASE+"/#/materials",{waitUntil:"domcontentloaded"});
-  await page.waitForSelector("#add");
-  await page.click("#add");
+  const selectedFolder=page.locator('[data-material-project="MP-2026-001"]');
+  await selectedFolder.waitFor({timeout:12000});
+  await selectedFolder.click();
+  await page.locator('[data-guide-kind="劳务表"]').click();
+  await page.locator('#modal.open [name="kind"]').waitFor({timeout:12000});
   const input=page.locator('#modal input[type="file"]');
   // formHtml 把原生 file input 视觉隐藏在上传卡片内；Playwright 只需等待挂载即可。
   await input.waitFor({state:"attached"});
@@ -52,7 +55,7 @@ async function waitReady() {
   const availableKinds=await page.locator('#modal [name="kind"] option').allTextContents();
   if(!availableKinds.includes("劳务表")||availableKinds.includes("劳务收集表"))
     throw Error("材料类别必须只保留劳务表，不可再显示劳务收集表: "+availableKinds.join(","));
-  await page.selectOption('#modal [name="kind"]',"劳务表");
+  if((await page.locator('#modal [name="kind"]').inputValue())!=="劳务表")throw Error("类别按钮未预选劳务表");
   await input.setInputFiles({name:"测试旧版.xls",mimeType:"application/vnd.ms-excel",buffer:BYTES});
   await page.locator('[data-material-name]').getByText("测试旧版.xls").waitFor();
   if(await page.locator('#modal [name="name"]').count())throw Error("materials must not have a manual title field");
@@ -72,9 +75,7 @@ async function waitReady() {
     throw Error("legacy Excel should force download rather than embed");
   // Materials are now organized under project folders: open this project's
   // directory before asserting the uploaded original remains visible.
-  const folder=page.locator('[data-material-project="'+pid+'"]');
-  await folder.waitFor({timeout:12000});
-  await folder.click();
+  if(pid!=="MP-2026-001")throw Error("资料上传不应改写已选会议编号");
   await page.waitForURL(BASE+"/#/materials/"+pid,{timeout:12000});
   await page.getByText("已收集材料详情",{exact:true}).waitFor({timeout:12000});
   await page.reload({waitUntil:"domcontentloaded"});

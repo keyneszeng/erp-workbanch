@@ -189,7 +189,7 @@ test("全链路：立项 → 筹备 → 执行 → 核销（含例外）→ 付�
   }
 
   // 8 类材料（发票、劳务表由财务补）
-  for (const k of ["立项文件", "合同", "议程", "课件", "签到表", "劳务表", "发票", "现场照片"]) {
+  for (const k of ["立项文件", "劳务协议", "议程", "课件", "签到表", "劳务表", "发票", "现场照片"]) {
     const c = k === "发票" || k === "劳务表" ? finance : executor;
     const r = await c("POST", `/api/projects/${pid}/materials`, { kind: k, name: `${k}（全链路）` });
     assert.equal(r.status, 200, `登记材料「${k}」失败：${r.msg}`);
