@@ -378,10 +378,9 @@ function tabPayments(d, p) {
     : p.status==="已结算"
       ? '<div class="gate" style="margin-bottom:12px"><b>财务已结算</b>不再新增付款，已登记凭证可以查看。</div>'
       : payable?'':'<div class="gate" style="margin-bottom:12px"><b>付款门禁锁定</b>需全部适用核销项通过后才可付款。</div>';
-  const controls=financeDirect
+  const controls=financeDirect&&payable
     ? '<button class="btn btn-p btn-sm" data-go="finance/'+esc(p.id)+'">进入付款单页 · 直接登记与上传凭证</button>'
-    : can("payment:create")
-      ? '<button class="btn btn-p btn-sm" id="addPay"'+(payable?'':' disabled')+'>+ 付款申请</button>' : '';
+    : '';
   const rows=d.payments.map(y=>({c:[
     '<span class="mono">'+esc(y.id)+'</span><div class="hint">'+esc(y.payee)+(y.period?' · '+esc(y.period):'')+'</div>',
     esc(y.type),
@@ -460,7 +459,7 @@ function tabMaterials(d, p) {
     .map(m=>m.kind==="劳务收集表"?{...m,kind:"劳务表"}:m);
   // 合同与会务协议不属于材料收集类别，统一通过合同模块管理。
   // 历史遗留记录保留在数据层，但不再作为材料类别或独立区块展示。
-  const retiredKinds=new Set(["合同","会务协议"]);
+  const retiredKinds=new Set(["合同","会务协议","劳务协议","企业赞助合同","赞助合同","劳务专家合同","专家劳务协议","劳务合同","会务合同"]);
   const unavailable=new Set(ms.disabled||[]);
   const recommended=(state.meta?.materialKinds||[]).filter(k=>!unavailable.has(k)&&!retiredKinds.has(k));
   const otherKinds=[...new Set(validMaterials.map(m=>m.kind))]
@@ -483,7 +482,7 @@ function tabMaterials(d, p) {
 
   return panel("材料收集",
     `已上传 ${ms.uploadedCount || 0} 份附件 · ${ms.have.length} 类 · ${ms.ok ? "可进入后续流程" : "请先上传至少一份附件"}`, `
-    <div class="hint" style="padding:8px 14px">点击下方材料类别，直接打开该类别的上传资料窗口；上传后可查看已收集文件。合同及会务协议的新增原件请通过“合同”模块管理。</div>
+    <div class="hint" style="padding:8px 14px">点击下方材料类别，直接打开该类别的上传资料窗口；上传后可查看已收集文件。企业赞助合同、会务协议、劳务协议统一通过“合同”模块上传；历史原件仍可在合同归档中查阅。</div>
     <div class="material-kind-panel" aria-label="材料类别选择">
       <div class="material-kind-heading">材料收集类别 · 点击类别上传资料</div>
       <div class="material-kind-chips">${kindButtons}</div>
@@ -605,7 +604,6 @@ function wire(root, pid, d, body) {
   });
 
   const ac = body.querySelector("#addContract"); if (ac) ac.onclick = () => openContract(root, pid);
-  const ap = body.querySelector("#addPay"); if (ap) ap.onclick = () => openPay(root, pid, d);
   const ae = body.querySelector("#addEx"); if (ae) ae.onclick = () => openException(root, pid, d);
   // 项目材料面板使用和小程序相同的「类别 → 上传 → 已录入文件」顺序。
   body.querySelectorAll("[data-material-kind]").forEach(btn=>{
@@ -623,7 +621,7 @@ function wire(root, pid, d, body) {
   body.querySelector("[data-material-custom-apply]")?.addEventListener("click",()=>{
     const name=String(body.querySelector("[data-material-custom]")?.value||"").trim();
     if(!name||name.length>20)return toast("请输入 1～20 字的材料类别名称","warn");
-    if(["合同","会务协议"].includes(name))return toast("合同和会务协议请在合同模块上传，不能作为材料收集类别","warn");
+    if(["合同","会务协议","劳务协议","企业赞助合同","赞助合同","劳务专家合同","专家劳务协议","劳务合同","会务合同"].includes(name))return toast("企业赞助合同、会务协议和劳务协议请统一在合同模块上传","warn");
     selectedMaterialKinds.set(pid,name);
     render(root,[pid]).then(()=>openMaterial(root,pid,name));
   });
@@ -773,8 +771,9 @@ function openContract(root, pid) {
     { k: "vendor", l: "签约方", req: 1 },
     { k: "amount", l: "合同金额（元）", t: "number", req: 1,
       tip: "劳务专家合同优先识别原件中的劳动报酬／劳务报酬金额；OCR 结果仅用于预填，请核对后保存。" },
-    { k: "category", l: "合同类别", t: "select", req: 1, opts: ["会务需求","劳务专家","企业赞助"],
-      tip: "会务需求关联核销第6项，劳务专家关联第5项，企业赞助关联收入与第7项权益。" },
+    { k: "category", l: "合同类别", t: "select", req: 1, opts: [
+        {v:"会务需求",l:"会务协议"},{v:"劳务专家",l:"劳务协议"},{v:"企业赞助",l:"企业赞助合同"}],
+      tip: "三个类别统一在合同模块上传：会务协议关联核销第6项，劳务协议关联第5项，企业赞助合同关联收入与第7项权益。" },
     { k: "sign_date", l: "签署日期", t: "date" },
     { k: "status", l: "状态", t: "select", opts: ["草稿", "待签署", "已签署"], tip: "已签署需要管理员审批，不能通过录入直接跳过审批" },
     {
@@ -857,78 +856,6 @@ function openContract(root, pid) {
       btn.disabled = false;
       btn.textContent = "保存";
     }
-  };
-}
-
-async function openPay(root, pid, d) {
-  const fields = [
-    { k: "type", l: "付款类型", t: "select", req: 1, opts: state.meta.paymentTypes },
-    { k: "payee_option_id", l: "按核销资料选择收款方", t: "select", opts: [{v:"",l:"载入中…"}],
-      tip:"专家费与个人报销优先使用第 5 步核验的劳务表；其他收款方来自已签署合同。" },
-    { k: "payee", l: "收款方", req: 1 },
-    // V1.2.18：财务要照着这两行打款
-    { k: "amount", l: "付款金额（元）", t: "number", req: 1 },
-    { k: "period", l: "期次（可选）", ph: "第1期 / 第2期 / 尾款", tip: "同额分期务必填写不同期次，否则会按重复付款申请拦截；最多20字。" },
-    { k: "remark", l: "备注", t: "textarea", full: 1, rows: 2 }
-  ];
-  const m = modal({
-    title: "付款申请",
-    body: `<div class="gate ok" style="margin-bottom:12px"><b>核销门禁已通过</b>项目「${esc(d.project.name)}」当前状态「${d.project.status}」，允许付款。</div><div class="hint" style="margin-bottom:10px">同项目、同付款类型、同收款方、同金额、同期次的有效付款单只允许申请一次；分期付款请填写不同期次；待审批、已审批及已付款均不可重复，已驳回可重新提交。</div>${formHtml(fields)}`,
-    footer: `<button class="btn btn-o" data-x="0">取消</button><button class="btn btn-p" data-x="1">提交申请</button>`
-  });
-  await bindPayeePicker(m,pid,false);
-  m.querySelector('[data-x="0"]').onclick = () => m.classList.remove("open");
-  const submitButton=m.querySelector('[data-x="1"]');
-  submitButton.onclick = async () => {
-    if (!validate(m, fields)) return;
-    if(submitButton.disabled)return;
-    submitButton.disabled=true;
-    submitButton.textContent="提交中…";
-    try {
-      const r = await api.post("/api/payments", { ...readForm(m), pid });
-      toast(r.message, "ok");
-      m.classList.remove("open");
-      tab = "payments";
-      await refresh(root, pid);
-    } catch (e) {
-      toast(e.code==="DUPLICATE_PAYMENT"?"付款申请重复："+e.message:e.message,"warn");
-    } finally {
-      submitButton.disabled=false;
-      submitButton.textContent="提交申请";
-    }
-  };
-}
-
-function openException(root, pid, d) {
-  const fields = [
-    {
-      k: "step_no", l: "对应步骤", t: "select", req: 1, custom: 1, ph: "如：专家临时换人 / 场地变更",
-      opts: d.verification.steps.map((s) => ({ v: s.no, l: `第 ${s.no} 步 · ${s.name}` })),
-      tip: "不属于上面 7 步的问题，选「自定义填入」写清具体事项。这类例外单照样要审批，批准后不再阻塞核销，但不会把某一步标成「已解例外」"
-    },
-    { k: "reason", l: "例外原因", t: "textarea", req: 1, full: 1, rows: 3 }
-  ];
-  const m = modal({ title: "提交例外单", body: `<div class="hint" style="margin-bottom:12px">例外单审批通过不等于核销通过。生产流程须补充整改证据、原步骤复核通过后才能继续结算；演示模式另按演示规则执行。</div>${formHtml(fields)}`,
-    footer: `<button class="btn btn-o" data-x="0">取消</button><button class="btn btn-p" data-x="1">提交</button>` });
-  m.querySelector('[data-x="0"]').onclick = () => m.classList.remove("open");
-  m.querySelector('[data-x="1"]').onclick = async () => {
-    if (!validate(m, fields)) return;
-    try {
-      const v = readForm(m);
-      // readForm 已经把「自定义填入」的下拉值替换成文本框里的内容，
-      // 所以这里拿到的是人写的事项名而不是 "__custom__"。
-      // 步骤是数字字段：不是 1~7 就说明选了自定义，转成 step_no = 0 + step_label。
-      const no = Number(v.step_no);
-      if (!(no >= 1 && no <= 7)) {
-        v.step_label = String(v.step_no || "").trim();
-        v.step_no = 0;
-      }
-      delete v.step_no__custom;
-      const r = await api.post(`/api/projects/${pid}/exceptions`, v);
-      toast(r.message, "ok");
-      m.classList.remove("open");
-      await refresh(root, pid);
-    } catch (e) { toast(e.message, "warn"); }
   };
 }
 
