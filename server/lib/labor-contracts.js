@@ -52,6 +52,26 @@ function contractPool(db,pid){
   }
   return isExpertDocument(m)?[{...m,expertVendor:"",ledgerContractId:""}]:[];
  });
+ // New workflow: the contracts module owns all expert agreements. A ledger
+ // contract uploaded only there has no materials mirror, but remains a valid
+ // expert original for person matching and audit fingerprinting. Tombstoned
+ // material mirrors must NOT be revived by this fallback.
+ const allMirrorKeys=new Set(db.prepare(
+  "SELECT DISTINCT file_key FROM materials WHERE pid=? AND file_key IS NOT NULL AND file_key<>''"
+ ).all(pid).map(x=>String(x.file_key)));
+ for(const contract of ledgers){
+  if(contract.deleted_at||contract.status==="已终止"||contract.category!=="劳务专家"||
+     allMirrorKeys.has(String(contract.file_key)))continue;
+  const same=byKey.get(String(contract.file_key))||[];
+  if(same.length!==1)continue; // ambiguous ownership is never auto-matched
+  onlyLabor.push({
+   id:"ledger:"+contract.id,kind:"劳务专家合同",name:contract.name,
+   file_name:String(contract.name||contract.vendor||"专家劳务协议")+".pdf",
+   file_key:contract.file_key,expertVendor:contract.vendor,
+   ledgerContractId:contract.id,ledgerName:contract.name,
+   ledgerCategory:contract.category,ledgerStatus:contract.status
+  });
+ }
  const signature=crypto.createHash("sha256").update(JSON.stringify(onlyLabor.map(r=>
   [r.id,r.kind,r.name,r.file_name,r.file_key,
    r.expertVendor,r.ledgerContractId,r.ledgerName,r.ledgerCategory,r.ledgerStatus]))).digest("hex");
