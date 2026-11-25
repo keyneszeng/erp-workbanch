@@ -43,15 +43,23 @@ async function run(){
  await open.click();
  const modal=page.locator("#modal.open");
  await modal.locator('input[name="material_category"]').first().waitFor({timeout:15000});
+ const groups=await modal.locator('input[name="material_category"]').evaluateAll(xs=>xs.map(x=>x.value));
+ assert.deepEqual(groups.slice(0,15),[
+  "立项通知","会议说明书","招商函","赞助企业合同","进款凭证","赞助企业合同关联发票",
+  "会议照片(现场照片和权益照片)","签到表","劳务收集表","专家劳务协议",
+  "串场文件","课件","会务协议","会务需求单","会务合同关联发票"
+ ],"archive default order exactly matches 15 requested categories");
  assert.equal(await modal.locator('input[name="material_category"]:not([disabled])').count()>=2,true);
- const names=await modal.locator('input[name="material_category"]').evaluateAll(xs=>xs.map(x=>x.value));
- assert.ok(names.includes("签到表")&&names.includes("终版议程"));
+ assert.ok(await modal.locator('[data-source-id]').count()>=3,
+   "archive must include uploaded originals plus system generated notices");
  const mode=modal.locator('select[name="watermark_mode"]');
  await mode.selectOption("custom");
  await modal.locator('input[name="watermark_text"]').fill("内部档案测试水印");
  await modal.locator("[data-clear-all]").click();
  assert.equal(await modal.locator('input[name="material_category"]:checked').count(),0);
  await modal.locator('input[name="material_category"][value="签到表"]').check();
+ const selected=modal.locator('[data-file-select]:checked');
+ assert.equal(await selected.count(),1,"only selected attendance original must be included");
  const event=page.waitForEvent("download",{timeout:60000});
  await modal.locator("[data-export]").click();
  const file=await event;
@@ -63,6 +71,16 @@ async function run(){
  await page.goto(origin+"/#/archive");
  const archiveButton=page.locator('[data-archive-pdf="MP-2026-015"]').first();
  await archiveButton.waitFor({timeout:15000});
+ await archiveButton.click();
+ const pptEvent=page.waitForEvent("download",{timeout:45000});
+ await page.locator("#modal.open [data-export-pptx]").click();
+ const pptFile=await pptEvent;
+ assert.match(pptFile.suggestedFilename(),/\.pptx$/i);
+ const PizZip=require("pizzip");
+ const pptZip=new PizZip(fs.readFileSync(await pptFile.path()));
+ assert.ok(pptZip.file("ppt/slides/slide1.xml"));
+ assert.ok(pptZip.file("ppt/slides/slide2.xml"));
+ assert.match(pptZip.file("ppt/slides/slide2.xml").asText(),/付款明细对照表/);
  await archiveButton.click();
  await page.locator("#modal.open select[name=watermark_mode]").selectOption("none");
  await page.locator("#modal.open [data-cancel]").click();
