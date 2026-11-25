@@ -37,7 +37,7 @@ before(async()=>{
   await new Promise(r=>setTimeout(r,120));
  }
  assert.ok(ready,"ERP server starts");
- [finance,admin,exec,guest]=await Promise.all(["finance","admin","exec","guest"].map(auth));
+ [finance,admin,exec,guest]=await Promise.all(["finance","admin","exec","guest"].map(u=>auth(u)));
 });
 after(()=>{server?.kill("SIGTERM");fs.rmSync(dir,{recursive:true,force:true});});
 test("有付款权限的财务人员能上传付款凭证；无付款权限的账号不能直接付款",async()=>{
