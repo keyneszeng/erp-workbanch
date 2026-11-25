@@ -56,7 +56,7 @@ App({
             !path.startsWith("/public/")) this.clearSession();
         reject(error);
       },
-      fail: () => reject(new Error("网络异常，请检查服务器及微信合法域名配置"))
+      fail: () => reject(new Error("网络异常，请检查网络连接或联系系统管理员"))
     }));
   },
   // Originals are private; opening them must carry the same session token as API reads.
@@ -90,8 +90,8 @@ App({
   request(path, method = "GET", data = null) { return this.api(path, method, data); },
   wechatCode() {
     return new Promise((resolve, reject) => wx.login({
-      success: r => r.code ? resolve(r.code) : reject(new Error("无法获取微信登录凭证")),
-      fail: () => reject(new Error("微信登录失败"))
+      success: r => r.code ? resolve(r.code) : reject(new Error("无法获取登录凭证")),
+      fail: () => reject(new Error("快捷登录失败，请重试"))
     }));
   },
   async resume() {
