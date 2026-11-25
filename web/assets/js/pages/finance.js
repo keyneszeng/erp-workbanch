@@ -90,7 +90,7 @@ export async function render(root, params = []) {
   const payableProjects = proj.rows.filter((p) => PAYABLE.includes(p.status));
   const financeDirect = can("payment:pay") && (state.super || state.user?.role === "finance");
   // Income API is permission protected: do not request it or offer navigation to unauthorized accounts.
-  const incomeReadable = ["contract:write","contract:approve","payment:pay","payment:approve"].some(perm=>can(perm));
+  const incomeReadable = state.user?.role==="finance" || ["contract:write","contract:approve","payment:pay","payment:approve"].some(perm=>can(perm));
   // KPI 全部用后端全量汇总：pay.rows 只是当前页
   const s = (allPay || pay).summary || { pending: 0, approved: 0, pendingAmount: 0, approvedAmount: 0, paidAmount: 0 };
   const blocked = proj.rows.filter((p) => ["待核销", "执行中", "筹备中"].includes(p.status)).length;
