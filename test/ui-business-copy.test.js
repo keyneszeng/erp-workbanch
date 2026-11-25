@@ -199,3 +199,23 @@ test("付款明细导出改为可搜索和多选会议，必须明确选择后 P
  assert.match(server,/会议编号/);
  assert.doesNotMatch(finance,/ep\.onclick = \(\) => dl\("\/api\/export\/payments"\)/);
 });
+
+test("材料收集统一由类别入口上传，Web 与小程序只关联已签赞助合同",()=>{
+ const project=src("web/assets/js/pages/project.js");
+ const materials=src("web/assets/js/pages/materials.js");
+ const mini=src("miniprogram/pages/materials/index.js");
+ const miniView=src("miniprogram/pages/materials/index.wxml");
+ const server=src("server/api/verify.js");
+ assert.match(project,/\["materials", "材料收集"\]/);
+ assert.match(project,/data-material-kind/);
+ assert.match(project,/await openMaterial\(root,pid,kind\)/);
+ assert.doesNotMatch(project,/id="addMaterial"/);
+ assert.match(materials,/kindSelect\.disabled=!!defaultKind/);
+ assert.match(materials,/kindSelect\.disabled=!!defaultKind;/);
+ assert.match(materials,/c\.status==="已签署"/);
+ assert.match(mini,/x\.status==="已签署"/);
+ assert.match(mini,/!retired\.has\(k\)/);
+ assert.doesNotMatch(miniView,/历史合同与会务协议资料（只读）/);
+ assert.match(server,/RETIRED_MATERIAL_KINDS\.includes\(kind\)/);
+ assert.match(materials,/RETIRED_KINDS\.has\(defaultKind\)/);
+});
