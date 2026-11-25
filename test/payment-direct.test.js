@@ -158,3 +158,20 @@ test("非财务岗位获得付款执行权限即可直接付款，核销前置�
  actor=await auth("qa_granted_pay","SecureDemo2026!");
  assert.equal((await call(actor,"POST","/api/payments/direct",body())).status,403);
 });
+
+test("已审批付款明细可直接确认，无需录入银行账号；凭证随后独立上传",async()=>{
+ const made=await call(admin,"POST","/api/payments",{pid,type:"学会公付",payee:"逐行确认测试收款方",amount:16.18});
+ assert.equal(made.status,200,JSON.stringify(made.data));
+ const id=made.data.payment.id;
+ assert.equal((await call(admin,"POST","/api/payments/"+id+"/approve",{approve:true})).status,200);
+ assert.equal((await call(exec,"POST","/api/payments/"+id+"/pay",{confirm_paid:true})).status,403);
+ const paid=await call(finance,"POST","/api/payments/"+id+"/pay",{confirm_paid:true});
+ assert.equal(paid.status,200,JSON.stringify(paid.data));
+ assert.equal(paid.data.payment.status,"已付款");
+ assert.equal(paid.data.payment.receipt_file_key,null);
+ assert.equal((await call(finance,"POST","/api/payments/"+id+"/pay",{confirm_paid:true})).status,409);
+ const voucher=await upload(finance);
+ assert.equal(voucher.status,200);
+ const result=await call(finance,"POST","/api/payments/"+id+"/receipt",{file_key:voucher.data.key,file_name:voucher.data.name});
+ assert.equal(result.status,200,JSON.stringify(result.data));
+});
