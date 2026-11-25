@@ -56,7 +56,7 @@ function selectMaterials(pid,body,allKinds){
  const materials=db.prepare(
    "SELECT id,kind,name,version,file_key,file_name,file_mime,file_size FROM materials WHERE pid=? "+
    "AND (deleted_at IS NULL OR deleted_at='') AND file_key IS NOT NULL AND file_key<>'' "+
-   "AND kind IN ("+placeholders+") ORDER BY kind,id"
+   "AND kind IN ("+placeholders+") ORDER BY id"
  ).all(pid,...kinds);
  if(!materials.length)
    throw bad("所选材料类别没有已上传的文件，不能生成 PDF");
@@ -71,11 +71,12 @@ function availableKinds(pid){
 }
 /** Available originals within current project; limited fields, no raw file keys exposed in options. */
 function availableMaterials(pid){
- return db.prepare(
+ const rows=db.prepare(
    "SELECT id,kind,name,file_name,file_mime,file_size FROM materials WHERE pid=? "+
    "AND (deleted_at IS NULL OR deleted_at='') AND file_key IS NOT NULL AND file_key<>'' "+
-   "ORDER BY kind,id"
+   "ORDER BY id"
  ).all(pid);
+ return archiveIndex.sortDossierSources(rows);
 }
 function parseWatermark(user,body={}){
  const mode=body.watermark_mode??"default";
