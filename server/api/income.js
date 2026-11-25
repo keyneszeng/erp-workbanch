@@ -253,14 +253,15 @@ function register(router){
   });
   router.post("/api/projects/:id/income/contracts/:cid/decide",async ctx=>{
     const p=getProject(ctx.params.id);writable(ctx,p,"contract:approve");
+    if(!isSuper(ctx.user)&&ctx.user.role!=="assoc")
+      throw require("../lib/util").forbidden("只有协会管理员或总管理员可以确认赞助合同签署");
     const s=sponsor(p.id,ctx.params.cid);
     if(s.status!=="待确认")throw conflict("赞助合同不在待确认状态","INCOME_CONTRACT_LOCKED");
     const approve=ctx.body?.approve;
     if(typeof approve!=="boolean")throw bad("必须明确提交审批通过或驳回");
     if(!approve && String(ctx.body?.reason||"").trim().length<4)throw bad("驳回理由至少 4 字");
     if(approve){
-      if(!isDemoMode()&&!isSuper(ctx.user)&&Number(s.created_by)===Number(ctx.user.id))
-        throw conflict("赞助合同录入人与审批人须分离","NEED_SECOND_PERSON");
+      // 协会管理员/总管理员可以审批本人录入的企业赞助合同。
       const summary=incomeSummary(p.id,p.budget);
       if(cents(summary.contracted)+cents(s.amount)>cents(p.budget))
         throw conflict("已签赞助合同累计金额不能高于会议预算，请先调整赞助方案","SPONSOR_BUDGET_EXCEEDED");
