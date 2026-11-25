@@ -2,7 +2,7 @@
 /** 废件箱集成测试：仅总管理员，下载隔离，原地恢复，合同回滚审批安全，冻结及旧版本拦截。 */
 const {test,before,after}=require("node:test");
 const assert=require("node:assert/strict");
-const {spawn}=require("node:child_process");
+const {spawn,spawnSync}=require("node:child_process");
 const {DatabaseSync}=require("node:sqlite");
 const fs=require("node:fs"),path=require("node:path"),os=require("node:os");
 const root=path.join(__dirname,"..");
@@ -267,4 +267,37 @@ test("删除未签署合同同步软删所有同原件合同材料并撤销第5/
  assert.ok(!(await list("同合同历史扫描件")).rows.some(x=>x.id===companion));
  const stale=sql(db=>db.prepare("SELECT result FROM verify_steps WHERE pid=? AND step_no=6").get(PID));
  assert.equal(stale.result,"待判定","恢复文件不应自动恢复旧核销结论");
+});
+
+test("历史删除合同残留的材料经迁移进入废件箱并失去旧核销引用",async()=>{
+ const up=await upload("历史幽灵合同原件.pdf");
+ const made=await req("exec","POST","/api/contracts",{
+  pid:PID,name:"历史幽灵合同修复",vendor:"历史测试",amount:900,
+  category:"会务需求",status:"草稿",file_key:up.key,file_name:up.name,
+  file_size:up.size,file_mime:up.mime
+ });
+ assert.equal(made.status,200,JSON.stringify(made.body));
+ const mat=(await req("admin","GET","/api/projects/"+PID)).body.materials.find(x=>x.file_key===up.key);
+ assert.ok(mat);
+ sql(db=>{
+  db.prepare("UPDATE contracts SET deleted_at=?,deleted_by='历史删除' WHERE id=?")
+    .run("2026-11-25 10:00",made.body.contract.id);
+  db.prepare("INSERT INTO verify_steps(pid,step_no,name,result,evidence_json) VALUES (?,5,'专家劳务核销','通过',?) "+
+    "ON CONFLICT(pid,step_no) DO UPDATE SET result='通过',evidence_json=excluded.evidence_json")
+    .run(PID,JSON.stringify({sources:[{materialId:mat.id,fileKey:up.key}]}));
+ });
+ assert.ok((await req("admin","GET","/api/materials?pid="+PID)).body.rows.some(x=>x.id===mat.id),
+   "模拟旧版问题：合同已删、材料仍未软删");
+ const repair=spawnSync(process.execPath,["--experimental-sqlite","-e",
+   "require('./server/lib/db').migrate();"],{
+   cwd:root,env:{...process.env,ERP_DB:DB,ERP_DEMO_MODE:"1",ERP_UPLOAD_DIR:UP},
+   timeout:20000,encoding:"utf8"
+ });
+ assert.equal(repair.status,0,repair.stderr||repair.stdout);
+ assert.ok(!(await req("admin","GET","/api/materials?pid="+PID)).body.rows.some(x=>x.id===mat.id));
+ assert.ok((await list("历史幽灵合同原件")).rows.some(x=>x.id===mat.id),
+   "旧版遗留材料经过迁移后也应进废件箱");
+ const raw=sql(db=>db.prepare("SELECT result,evidence_json FROM verify_steps WHERE pid=? AND step_no=5").get(PID));
+ assert.equal(raw.result,"待判定");
+ assert.equal(raw.evidence_json,null);
 });
