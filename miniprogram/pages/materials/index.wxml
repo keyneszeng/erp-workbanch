@@ -14,15 +14,38 @@
 
   <view class="form-section">
     <view class="section-head"><view class="row"><view class="section-index">01</view><view class="section-caption">按类别直接录入材料</view></view></view>
-    <view class="muted">下方列出推荐收集的材料类别，便于知道可上传哪些文件。点选类别后直接上传，下方显示已录入文件名。推荐类别不是必须逐项上传，核销要求按具体步骤判定。</view>
+    <view class="muted">下方列出推荐收集的材料类别，便于知道可上传哪些文件。点选类别后直接上传，下方显示已录入文件名；点击「合同」查看本会议正式合同目录。推荐类别不是必须逐项上传，核销要求按具体步骤判定。</view>
     <view class="chip-list">
-      <view wx:for="{{activeKinds}}" wx:key="*this" data-kind="{{item}}" bindtap="chooseKind" class="select-chip {{!custom&&kind===item?'chip-selected':''}}">{{item}}</view>
-      <view bindtap="chooseCustom" class="select-chip {{custom?'chip-selected':''}}">＋ 自定义</view>
+      <view wx:if="{{pid}}" bindtap="chooseContracts" class="select-chip {{contractMode?'chip-selected':''}}">合同</view>
+      <view wx:for="{{activeKinds}}" wx:key="*this" data-kind="{{item}}" bindtap="chooseKind" class="select-chip {{!contractMode&&!custom&&kind===item?'chip-selected':''}}">{{item}}</view>
+      <view bindtap="chooseCustom" class="select-chip {{!contractMode&&custom?'chip-selected':''}}">＋ 自定义</view>
     </view>
     <view wx:if="{{historyKinds.length}}" class="field-hint">已录入的其他类别：</view>
     <view wx:if="{{historyKinds.length}}" class="chip-list">
-      <view wx:for="{{historyKinds}}" wx:key="*this" data-kind="{{item}}" bindtap="chooseKind" class="select-chip {{!custom&&kind===item?'chip-selected':''}}">{{item}}</view>
+      <view wx:for="{{historyKinds}}" wx:key="*this" data-kind="{{item}}" bindtap="chooseKind" class="select-chip {{!contractMode&&!custom&&kind===item?'chip-selected':''}}">{{item}}</view>
     </view>
+    <view wx:if="{{contractMode}}" class="uploaded-file-list">
+      <view class="uploaded-file-head">
+        <text class="uploaded-file-title">合同目录</text>
+        <text class="uploaded-file-count">{{contractRows.length}} 份</text>
+      </view>
+      <view class="field-hint">合同原件与 Web 正式合同台账一致；录入及签署审批仍在 Web 合同模块办理。</view>
+      <view wx:if="{{contractsLoading}}" class="field-hint">正在加载合同目录…</view>
+      <view wx:elif="{{contractError}}" class="error">{{contractError}}</view>
+      <view wx:elif="{{contractRows.length}}">
+        <view wx:for="{{contractRows}}" wx:key="id" class="item">
+          <view class="row"><text class="title">{{item.name}}</text><text>{{item.status}}</text></view>
+          <view class="muted">{{item.category}} · {{item.vendor}} · {{item.id}}</view>
+          <view wx:if="{{item.fileKey}}" class="row">
+            <text class="grow">{{item.fileName||'合同原件'}}</text>
+            <button size="mini" class="btn ghost" data-id="{{item.id}}" bindtap="openContractOriginal">查看原件</button>
+          </view>
+          <view wx:else class="field-hint">暂无合同原件</view>
+        </view>
+      </view>
+      <view wx:else class="field-hint">本会议暂无合同记录。</view>
+    </view>
+    <block wx:else>
     <view wx:if="{{custom}}" class="field">
       <view class="field-label"><text class="required">*</text>自定义类别</view>
       <input class="field-control" value="{{customKind}}" data-key="customKind" bindinput="input" placeholder="20 字以内"/>
@@ -91,5 +114,6 @@
       <view wx:else class="field-hint">该类别暂无已上传文件，选择上方入口即可录入。</view>
     </view>
     <view class="privacy-note">每批最多10份文件，单个附件不超过20 MB。OCR 仅辅助识别，不代表核销通过。</view>
+    </block>
   </view>
 </view>
