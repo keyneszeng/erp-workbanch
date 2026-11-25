@@ -49,10 +49,10 @@
         <view class="field"><view class="field-label"><text class="required">*</text>合同名称</view><input class="field-control" value="{{contractDraft.name}}" data-key="name" bindinput="contractDraftInput" maxlength="80" disabled="{{busy}}" placeholder="自动填入文件名，可修改"/></view>
         <view class="field"><view class="field-label"><text class="required">*</text>签约方</view><input class="field-control" value="{{contractDraft.vendor}}" data-key="vendor" bindinput="contractDraftInput" maxlength="80" disabled="{{busy}}" placeholder="OCR 识别或手工填写"/></view>
         <view class="field"><view class="field-label"><text class="required">*</text>合同金额（元）</view><input class="field-control" type="digit" value="{{contractDraft.amount}}" data-key="amount" bindinput="contractDraftInput" disabled="{{busy}}" placeholder="核对合同金额或劳务报酬"/></view>
-        <view class="field"><view class="field-label">签署日期（选填）</view><picker mode="date" value="{{contractDraft.signDate}}" disabled="{{busy}}" bindchange="contractDateChange"><view class="picker-control"><text>{{contractDraft.signDate||'选择日期'}}</text><text class="picker-arrow">⌄</text></view></picker></view>
+        <view class="field"><view class="field-label">签署日期{{contractDraft.statusIndex===2?'（必填）':'（选填）'}}</view><picker mode="date" value="{{contractDraft.signDate}}" disabled="{{busy}}" bindchange="contractDateChange"><view class="picker-control"><text>{{contractDraft.signDate||'选择日期'}}</text><text class="picker-arrow">⌄</text></view></picker></view>
         <view class="field"><view class="field-label">合同状态</view><picker mode="selector" range="{{contractStatuses}}" value="{{contractDraft.statusIndex}}" disabled="{{busy}}" bindchange="contractStatusChange"><view class="picker-control"><text>{{contractStatuses[contractDraft.statusIndex]}}</text><text class="picker-arrow">⌄</text></view></picker></view>
-        <view class="field-hint">OCR 仅预填，须核对原件。选择「待签署」进入签署审批，不直接标记已签署。</view>
-        <button class="btn primary" loading="{{busy}}" disabled="{{busy||!contractDraft.file}}" bindtap="saveContract">{{contractDraft.statusIndex===1?'保存并提交签署':'保存合同'}}</button>
+        <view class="field-hint">OCR 仅预填，须核对原件。选择「待签署」或「已签署」后，正式环境仍须通过签署审批才能确认已签署。</view>
+        <button class="btn primary" loading="{{busy}}" disabled="{{busy||!contractDraft.file}}" bindtap="saveContract">{{contractDraft.statusIndex>0?'保存并提交签署':'保存合同'}}</button>
       </view>
       <view wx:elif="{{!contractsLoading&&!contractError}}" class="field-hint">当前账号或会议状态不允许新增合同，可查看已有原件。</view>
       <view wx:if="{{contractNotice}}" class="field-hint">{{contractNotice}}</view>
