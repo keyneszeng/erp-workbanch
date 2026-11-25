@@ -26,7 +26,7 @@ test("财务页显示企业赞助收入、分期期次并明确银行不自动�
   assert.doesNotMatch(finance,/会议收入 · 企业赞助/);
   assert.match(finance,/data-finance-jump="fin-payments">付款登记与凭证/);
   assert.match(finance,/data-finance-jump="fin-settlements">结算与归档/);
-  assert.match(finance,/const incomeReadable = /);
+  assert.match(finance,/const incomeReadable\s*=\s*/);
   assert.match(finance,/if \(incomeReadable\) renderIncomeWorkbench/);
   assert.match(finance,/付款（勾选）/);
   assert.match(finance,/凭证详情/);
