@@ -6,8 +6,8 @@ import { openContractMaterialReplace } from "../lib/contract-material-replace.js
 
 const PAGE_SIZE = 50;
 const RETIRED_KINDS=new Set(["合同","会务协议"]);
-// Preserve the existing lifecycle gate: browsing a project folder grants no upload access.
-const UPLOAD_STATUSES = new Set(["筹备中", "执行中", "待核销", "已核销"]);
+// 与项目详情页/小程序/后端一致：结算或归档后冻结；权限依然单独校验。
+const canUploadAtStatus=status=>!["已结算","已归档"].includes(status);
 let curPage = 1;
 let lastProject = "";
 let projectSearch = "";
@@ -23,7 +23,6 @@ export async function render(root, params = []) {
   const d = await api.get("/api/materials?" + qs);
   if (seq !== renderSeq || !root.isConnected) return;
   const project = pid ? d.projects.find(p => p.id === pid) : null;
-  const writableProjects = d.projects.filter(p => UPLOAD_STATUSES.has(p.status));
   const canWrite = can("material:write");
   if (pid && !project) {
     root.innerHTML = '<div class="panel">该项目不存在或不在当前账号的材料查看范围内。<button type="button" class="btn btn-o" data-go="materials">返回项目目录</button></div>';
@@ -75,7 +74,7 @@ export async function render(root, params = []) {
   }
 
   const refresh = () => render(root, [pid]);
-  const writable = canWrite && UPLOAD_STATUSES.has(project.status);
+  const writable = canWrite && canUploadAtStatus(project.status);
   const kinds=[...new Set([...(d.kinds||[]),...(project.have||[])])]
     .filter(kind=>kind&&!RETIRED_KINDS.has(kind));
   root.innerHTML = '<div class="phead"><div><button type="button" class="btn btn-o btn-sm" data-go="materials">← 返回项目目录</button>' +
