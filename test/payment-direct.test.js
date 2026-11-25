@@ -175,3 +175,20 @@ test("已审批付款明细可直接确认，无需录入银行账号；凭证�
  const result=await call(finance,"POST","/api/payments/"+id+"/receipt",{file_key:voucher.data.key,file_name:voucher.data.name});
  assert.equal(result.status,200,JSON.stringify(result.data));
 });
+
+test("具有付款执行权限的财务可超会议预算付款，无需总管理员特批",async()=>{
+ const project=await call(admin,"GET","/api/projects/"+pid);
+ assert.equal(project.status,200);
+ const budget=Number(project.data.project.budget);
+ const receipt=await upload(finance);
+ assert.equal(receipt.status,200);
+ const amount=budget+100;
+ const paid=await call(finance,"POST","/api/payments/direct",{
+  ...body(),payee:"超预算付款专项测试供应商",amount,receipt_file_key:receipt.data.key,receipt_file_name:receipt.data.name
+ });
+ assert.equal(paid.status,200,JSON.stringify(paid.data));
+ assert.equal(paid.data.payment.status,"已付款");
+ assert.equal(paid.data.payment.amount,amount);
+ const detail=await call(admin,"GET","/api/projects/"+pid);
+ assert.equal(Number(detail.data.project.budget),budget,"原会议预算不随付款自动修改");
+});
