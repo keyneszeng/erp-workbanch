@@ -5,22 +5,11 @@ const fs=require("node:fs");
 const path=require("node:path");
 const read=p=>fs.readFileSync(path.join(__dirname,"..",p),"utf8");
 
-test("合同录入及付款申请均不要求开户行和账号，付款前才补录",()=>{
- const ledger=read("web/assets/js/pages/contracts.js");
- const project=read("web/assets/js/pages/project.js");
+test("会议付款明细不要求重新录入收款银行账户",()=>{
  const finance=read("web/assets/js/pages/finance.js");
- const contractModal=ledger.slice(ledger.indexOf("function openCreate("));
- const localContract=project.slice(project.indexOf("function openContract("),project.indexOf("async function payAct(")>project.indexOf("function openContract(")?project.indexOf("async function payAct("):undefined);
- const localRequest=project.slice(project.indexOf("async function openPay("),project.indexOf("function openException(",project.indexOf("async function openPay(")));
- const financeRequest=finance.slice(finance.indexOf("async function openPay("));
- for(const part of [contractModal,localRequest,financeRequest]){
-  assert.doesNotMatch(part,/\{ k: "payee_(?:bank|account)", l:/);
- }
- assert.match(localContract,/合同原件/);
- for(const part of [localRequest,financeRequest]){
-  assert.match(part,/bindPayeePicker/);
-  assert.doesNotMatch(part,/请填写收款方开户行|请填写银行账号/);
- }
+ assert.doesNotMatch(finance,/name="payee_account"|name="payee_bank"|directPayForm/);
+ assert.match(finance,/confirm_paid:true/);
+ assert.match(finance,/data-receipt/);
 });
 
 test("财务执行付款从权限校验接口读取原件并可在窗口内预览",()=>{
@@ -32,8 +21,8 @@ test("财务执行付款从权限校验接口读取原件并可在窗口内预�
  assert.match(service,/assertProjectVisible\(ctx.user,p\)/);
  assert.match(service,/assertCan\(ctx.user,"payment:pay"/);
  assert.match(service,/payee_source_id/);
- assert.match(service,/const payeeBank=choice\?\.bank/);
- assert.match(service,/const payeeAccount=choice\?\.account/);
+ assert.match(service,/choice\?\.bank\?parseBankName/);
+ assert.match(service,/choice\?\.account\?parseBankAccount/);
  assert.match(files,/can\(ctx.user,"payment:pay"\)/);
  assert.match(widget,/<iframe title=/);
  assert.match(widget,/<img alt=/);
@@ -42,7 +31,10 @@ test("财务执行付款从权限校验接口读取原件并可在窗口内预�
  assert.ok(widget.includes('encodeURIComponent(id)+"/account"'));
  assert.ok(widget.includes('encodeURIComponent(id)+"/pay"'));
  assert.match(project,/openPaymentExecution\(id,/);
- assert.match(finance,/openPaymentExecution\(id,/);
+ assert.match(finance,/showPaymentEvidence/);
+ assert.match(finance,/<iframe title=/);
+ assert.match(finance,/<img alt=/);
+ assert.match(service,/payee-evidence/);
  assert.match(read("server/lib/db.js"),/addColumn\("payments", "payee_source_id"/);
 });
 
