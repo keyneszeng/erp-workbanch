@@ -172,7 +172,11 @@ async function exerciseSafeControls(page,role,route){
           await contractShortcut.click({timeout:8000});
           const expected="#/contracts/"+pid;
           await page.waitForFunction(value=>location.hash===value||location.hash==="#/dashboard",expected,{timeout:12000});
-          await loaded(page);
+          if(new URL(page.url()).hash===expected){
+            await page.locator("#content .phead h2").filter({hasText:"合同目录详情"}).waitFor({timeout:12000});
+          }else{
+            await loaded(page);
+          }
           const reached=new URL(page.url()).hash===expected;
           const heading=await page.locator("#content .phead h2").innerText().catch(()=>"");
           const scope=await page.evaluate(async value=>{
