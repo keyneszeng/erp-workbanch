@@ -14,7 +14,7 @@
 
   <view class="form-section">
     <view class="section-head"><view class="row"><view class="section-index">01</view><view class="section-caption">按类别直接录入材料</view></view></view>
-    <view class="muted">下方列出推荐收集的材料类别，便于知道可上传哪些文件。点选类别后直接上传，下方显示已录入文件名；点击「合同」查看本会议正式合同目录。推荐类别不是必须逐项上传，核销要求按具体步骤判定。</view>
+    <view class="muted">下方列出推荐收集的材料类别，便于知道可上传哪些文件。点选类别后直接上传，下方显示已录入文件名；点击「合同」上传合同并查看本会议正式合同目录。推荐类别不是必须逐项上传，核销要求按具体步骤判定。</view>
     <view class="chip-list">
       <view wx:if="{{pid}}" bindtap="chooseContracts" class="select-chip {{contractMode?'chip-selected':''}}">合同</view>
       <view wx:for="{{activeKinds}}" wx:key="*this" data-kind="{{item}}" bindtap="chooseKind" class="select-chip {{!contractMode&&!custom&&kind===item?'chip-selected':''}}">{{item}}</view>
@@ -29,7 +29,33 @@
         <text class="uploaded-file-title">合同目录</text>
         <text class="uploaded-file-count">{{contractRows.length}} 份</text>
       </view>
-      <view class="field-hint">合同原件与 Web 正式合同台账一致；录入及签署审批仍在 Web 合同模块办理。</view>
+      <view class="field-hint">合同上传后自动登记到 Web 正式合同台账并同步归档原件。提交待签署合同仍须按现有权限审批。</view>
+      <view wx:if="{{canUploadContract}}" class="card space-sm">
+        <view class="section-caption">上传合同</view>
+        <view class="field">
+          <view class="field-label"><text class="required">*</text>合同类别</view>
+          <picker mode="selector" range="{{contractTypes}}" range-key="label" value="{{contractDraft.categoryIndex}}" disabled="{{busy}}" bindchange="contractCategoryChange">
+            <view class="picker-control"><text>{{contractTypes[contractDraft.categoryIndex].label}}</text><text class="picker-arrow">⌄</text></view>
+          </picker>
+        </view>
+        <button class="upload-panel" disabled="{{busy}}" bindtap="pickContractFile" data-source="photo">
+          <view class="upload-icon">照</view><view class="upload-title">拍照或从相册选择合同</view><view class="upload-sub">单份文件不超过20 MB</view>
+        </button>
+        <button class="upload-panel" disabled="{{busy}}" bindtap="pickContractFile" data-source="file">
+          <view class="upload-icon">档</view><view class="upload-title">从微信会话选择合同文件</view><view class="upload-sub">支持 PDF、Office、图片等格式</view>
+        </button>
+        <view wx:if="{{contractDraft.file}}" class="field-hint">已上传原件：{{contractDraft.file.name}}</view>
+        <view wx:if="{{contractDraft.scanNote}}" class="field-hint">{{contractDraft.scanNote}}</view>
+        <view class="field"><view class="field-label"><text class="required">*</text>合同名称</view><input class="field-control" value="{{contractDraft.name}}" data-key="name" bindinput="contractDraftInput" maxlength="80" disabled="{{busy}}" placeholder="自动填入文件名，可修改"/></view>
+        <view class="field"><view class="field-label"><text class="required">*</text>签约方</view><input class="field-control" value="{{contractDraft.vendor}}" data-key="vendor" bindinput="contractDraftInput" maxlength="80" disabled="{{busy}}" placeholder="OCR 识别或手工填写"/></view>
+        <view class="field"><view class="field-label"><text class="required">*</text>合同金额（元）</view><input class="field-control" type="digit" value="{{contractDraft.amount}}" data-key="amount" bindinput="contractDraftInput" disabled="{{busy}}" placeholder="核对合同金额或劳务报酬"/></view>
+        <view class="field"><view class="field-label">签署日期（选填）</view><picker mode="date" value="{{contractDraft.signDate}}" disabled="{{busy}}" bindchange="contractDateChange"><view class="picker-control"><text>{{contractDraft.signDate||'选择日期'}}</text><text class="picker-arrow">⌄</text></view></picker></view>
+        <view class="field"><view class="field-label">合同状态</view><picker mode="selector" range="{{contractStatuses}}" value="{{contractDraft.statusIndex}}" disabled="{{busy}}" bindchange="contractStatusChange"><view class="picker-control"><text>{{contractStatuses[contractDraft.statusIndex]}}</text><text class="picker-arrow">⌄</text></view></picker></view>
+        <view class="field-hint">OCR 仅预填，须核对原件。选择「待签署」进入签署审批，不直接标记已签署。</view>
+        <button class="btn primary" loading="{{busy}}" disabled="{{busy||!contractDraft.file}}" bindtap="saveContract">{{contractDraft.statusIndex===1?'保存并提交签署':'保存合同'}}</button>
+      </view>
+      <view wx:elif="{{!contractsLoading&&!contractError}}" class="field-hint">当前账号或会议状态不允许新增合同，可查看已有原件。</view>
+      <view wx:if="{{contractNotice}}" class="field-hint">{{contractNotice}}</view>
       <view wx:if="{{contractsLoading}}" class="field-hint">正在加载合同目录…</view>
       <view wx:elif="{{contractError}}" class="error">{{contractError}}</view>
       <view wx:elif="{{contractRows.length}}">
