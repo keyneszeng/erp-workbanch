@@ -417,7 +417,8 @@ function register(router) {
     ).all(...params).map((p) => {
       const stats=statsByPid.get(p.id)||{kinds:new Set(),count:0,uploadedCount:0};
       return { ...p, have:[...stats.kinds],required:[],missing:stats.uploadedCount?[]:["至少上传1份材料附件"],
-        count:stats.count,uploadedCount:stats.uploadedCount,ok:stats.uploadedCount>0 };
+        count:stats.count,uploadedCount:stats.uploadedCount,ok:stats.uploadedCount>0,
+         ...(p.id===pid?{categoryCatalog:materialsStatus(p.id).categoryCatalog}:{}) };
     });
 
     return {
