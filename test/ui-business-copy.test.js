@@ -78,7 +78,7 @@ test("财务直接付款可查看已关联收款方资料，合同与劳务均�
  assert.match(picker,/changeChoice\(\)/);
  assert.match(picker,/seq/);
  assert.doesNotMatch(project,/#addPay|async function openPay\(/);
- assert.match(finance,/bindPayeePicker\(form,select\.value,true\)/);
+ assert.match(finance,/bindPayeePicker\(form,select\.value,false\)/);
  assert.match(src("server/lib/verified-payees.js"),/maskedAccount:"尾号 "\+account\.slice\(-4\)/);
 });
 
@@ -220,4 +220,17 @@ test("材料收集统一由类别入口上传，Web 与小程序只关联已签�
  assert.doesNotMatch(miniView,/历史合同与会务协议资料（只读）/);
  assert.match(server,/RETIRED_MATERIAL_KINDS\.includes\(kind\)/);
  assert.match(materials,/RETIRED_KINDS\.has\(defaultKind\)/);
+});
+
+test("付款记录先展示已核销会议，选择后加载四列明细，不再按付款状态筛选",()=>{
+ const finance=src("web/assets/js/pages/finance.js");
+ assert.match(finance,/id="paymentProjects"/);
+ assert.match(finance,/id="paymentDetails"/);
+ assert.match(finance,/PAYABLE\.includes\(p\.status\)/);
+ assert.match(finance,/\/api\/payments\?pid=/);
+ for(const label of ["收款方","金额","付款按钮","凭证详情"])
+   assert.ok(finance.includes('{t:"'+label+'"'),label);
+ assert.doesNotMatch(finance,/data-st=|filterStatus/);
+ assert.match(finance,/data-pay-source/);
+ assert.match(finance,/查看付款凭证/);
 });
