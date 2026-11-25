@@ -12,7 +12,8 @@ export async function renderIncomeWorkbench(root,projects,requested=""){
  if(requested&&projects.some(p=>p.id===requested))chosen=requested;
  if(!projects.some(p=>p.id===chosen))chosen=projects[0].id;
  const d=await api.get("/api/projects/"+encodeURIComponent(chosen)+"/income"),s=d.summary;
- const contractEdit=can("contract:write"),approve=can("contract:approve"),finance=can("payment:pay");
+ const contractEdit=d.permissions?.editContracts??can("contract:write"),approve=d.permissions?.approveContracts??can("contract:approve"),finance=d.permissions?.recordFinance??can("payment:pay");
+ const correct=!!d.permissions?.correctContracts;
  root.innerHTML=`<section class="panel mt" aria-label="会议收入">
    <div class="panel-h"><h2>会议收入 · 企业赞助</h2><select id="income-project">
      ${projects.map(p=>`<option value="${esc(p.id)}" ${p.id===chosen?"selected":""}>${esc(p.name)}</option>`).join("")}
@@ -27,6 +28,7 @@ export async function renderIncomeWorkbench(root,projects,requested=""){
      会议预算来自会议立项，赞助收入独立登记。
      已确认赞助合同${budgetDifference(s.contractGap)}；实际到账${budgetDifference(s.receiptGap)}。
      企业赞助收入不计入会务支出合同总额。
+     ${d.permissions?.frozen?"结算单已生成，赞助合同及收入凭证仅可查看。":""}
    </div>
    <div class="panel-h"><h3>赞助合同</h3>${contractEdit?'<button id="income-add-contract" class="btn btn-p btn-sm">+ 登记企业赞助合同</button>':""}</div>
    <div class="tw"><table><thead><tr><th>企业 / 合同号</th><th>合同金额</th><th>状态</th><th>权益内容</th><th>合同原件</th><th>审批／后续</th></tr></thead>
@@ -36,7 +38,7 @@ export async function renderIncomeWorkbench(root,projects,requested=""){
        <div class="hint">${esc(x.rights_scan_note||"")}</div>
        ${d.rights.filter(r=>r.sponsor_id===x.id).map(r=>`<div class="hint">${esc(r.category)} · ${r.confirmed?"已确认":"待校正"}</div>`).join("")}
        ${contractEdit&&x.status!=="已驳回"?`<button class="link" data-rights-edit="${esc(x.id)}">校对 / 自定义权益</button>`:""}</td><td>${link(x.file_key)}</td>
-     <td>${x.status==="待确认"&&approve?`<button class="link" data-sponsor-approve="${esc(x.id)}">确认合同</button>
+     <td>${correct&&x.status!=="已驳回"?`<button class="link" data-sponsor-edit="${esc(x.id)}">修改合同</button> `:""}${x.status==="待确认"&&approve?`<button class="link" data-sponsor-approve="${esc(x.id)}">确认合同</button>
         <button class="link danger" data-sponsor-reject="${esc(x.id)}">驳回</button>`:""}
        ${x.status==="已签署"&&finance?`<button class="link" data-sponsor-receipt="${esc(x.id)}">登记回款</button>
         <button class="link" data-sponsor-invoice="${esc(x.id)}">登记开票</button>`:""}</td></tr>`).join(""):'<tr><td colspan="6">暂无企业赞助合同</td></tr>'}</tbody></table></div>
@@ -51,6 +53,7 @@ export async function renderIncomeWorkbench(root,projects,requested=""){
  </section>`;
  root.querySelector("#income-project").onchange=e=>{chosen=e.target.value;renderIncomeWorkbench(root,projects).catch(err=>toast(err.message,"warn"));};
  root.querySelector("#income-add-contract")?.addEventListener("click",()=>formIncome(root,projects,"contract"));
+ root.querySelectorAll("[data-sponsor-edit]").forEach(b=>b.onclick=()=>editSponsorContract(root,projects,chosen,d.contracts.find(x=>x.id===b.dataset.sponsorEdit)));
  root.querySelectorAll("[data-rights-edit]").forEach(b=>b.onclick=()=>openSponsorRightsEditor(root,projects,chosen,d,b.dataset.rightsEdit,renderIncomeWorkbench));
  root.querySelectorAll("[data-sponsor-approve]").forEach(b=>b.onclick=async()=>{
    try{const id=b.dataset.sponsorApprove;const ok=await confirmBox("确认该赞助合同已完成签署？",{ok:"确认签署"});
@@ -182,5 +185,33 @@ function formIncome(root,projects,type,sponsorId=""){
        openSponsorRightsEditor(root,projects,pid,data,result.id,renderIncomeWorkbench);
      }
    }catch(e){toast(e.message,"warn");saveBtn.disabled=false;}
+ };
+}
+
+function editSponsorContract(root,projects,pid,contract){
+ if(!contract)return;
+ const fields=[
+   {k:"enterprise",l:"赞助企业名称",req:1,v:contract.enterprise},
+   {k:"amount",l:"赞助合同金额（元）",t:"number",req:1,v:contract.amount},
+   {k:"file",l:"更换合同原件（可选）",t:"file",full:1,accept:UPLOAD_ACCEPT,tip:"不选择文件则保留现有原件；更换时保留历史版并重新核对权益。"}
+ ];
+ const m=modal({title:"修改企业赞助合同",width:"640px",
+   body:'<p class="hint">合同编号：'+esc(contract.contract_no)+' · '+link(contract.file_key)+'。已结算会议不可修改。修改后金额不得低于已回款或已开票金额。</p>'+formHtml(fields),
+   footer:'<button class="btn btn-o" data-cancel>取消</button><button class="btn btn-p" data-save>保存修改</button>'});
+ let picked=null,invalid=false;
+ m.querySelector('[name="enterprise"]').value=contract.enterprise;
+ m.querySelector('[name="amount"]').value=String(contract.amount);
+ bindFilePicker(m,"file",(file,err)=>{picked=err?null:file;invalid=!!err;if(err)toast(err,"warn");});
+ m.querySelector("[data-cancel]").onclick=()=>m.classList.remove("open");
+ const save=m.querySelector("[data-save]");
+ save.onclick=async()=>{
+  if(invalid||!validate(m,fields))return;
+  save.disabled=true;
+  try{
+   const values=readForm(m),body={enterprise:values.enterprise,amount:Number(values.amount)};
+   if(picked){const file=await api.upload(picked,{pid});body.file_key=file.key;body.file_name=file.name;}
+   await api.patch("/api/projects/"+encodeURIComponent(pid)+"/income/contracts/"+encodeURIComponent(contract.id),body);
+   m.classList.remove("open");toast("赞助合同已修改","ok");await renderIncomeWorkbench(root,projects,pid);
+  }catch(e){toast(e.message,"warn");save.disabled=false;}
  };
 }
