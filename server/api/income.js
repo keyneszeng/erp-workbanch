@@ -260,12 +260,7 @@ function register(router){
     const approve=ctx.body?.approve;
     if(typeof approve!=="boolean")throw bad("必须明确提交审批通过或驳回");
     if(!approve && String(ctx.body?.reason||"").trim().length<4)throw bad("驳回理由至少 4 字");
-    if(approve){
-      // 协会管理员/总管理员可以审批本人录入的企业赞助合同。
-      const summary=incomeSummary(p.id,p.budget);
-      if(cents(summary.contracted)+cents(s.amount)>cents(p.budget))
-        throw conflict("已签赞助合同累计金额不能高于会议预算，请先调整赞助方案","SPONSOR_BUDGET_EXCEEDED");
-    }
+    // 会议预算取立项数据，仅作预算对照，不限制赞助合同收入。
     const status=approve?"已签署":"已驳回";
     const ledger=s.ledger_contract_id
       ? db.prepare("SELECT id,pid,status,category FROM contracts WHERE id=? AND pid=? AND deleted_at IS NULL").get(s.ledger_contract_id,p.id)
@@ -289,7 +284,7 @@ function register(router){
       }
     });
     logAudit({user:ctx.user,module:"会议收入",action:approve?"确认赞助合同":"驳回赞助合同",target:p.id,
-      detail:s.id+(approve?"；预算核对通过":"；原因："+String(ctx.body.reason).trim()),ip:ctx.ip});
+      detail:s.id+(approve?"；确认合同已签署":"；原因："+String(ctx.body.reason).trim()),ip:ctx.ip});
     return {id:s.id,status,summary:incomeSummary(p.id,p.budget)};
   });
   router.post("/api/projects/:id/income/receipts",async ctx=>{

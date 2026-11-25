@@ -1,6 +1,6 @@
 "use strict";
 /** Ledger sponsorship is income, never an accounts-payable contract. */
-const {cents,now,conflict}=require("./util");
+const {now,conflict}=require("./util");
 function linkedSponsor(db,ledgerId){
  return db.prepare("SELECT * FROM meeting_sponsor_contracts WHERE ledger_contract_id=?").get(ledgerId);
 }
@@ -8,9 +8,7 @@ function ensureSponsorSignable(db,project,ledgerId){
  const s=linkedSponsor(db,ledgerId);
  if(!s)throw conflict("该企业赞助合同尚未关联到会议收入，请联系管理员","SPONSOR_LINK_MISSING");
  if(s.status!=="待确认")throw conflict("赞助合同状态已变化，请刷新后重试","SPONSOR_ALREADY_DECIDED");
- const signed=db.prepare("SELECT COALESCE(SUM(amount),0) AS n FROM meeting_sponsor_contracts WHERE pid=? AND status='已签署'").get(project.id).n;
- if(cents(signed)+cents(s.amount)>cents(project.budget))
-   throw conflict("已签赞助合同累计金额不能高于会议预算，请先调整赞助方案","SPONSOR_BUDGET_EXCEEDED");
+ // 赞助收入独立于会议立项预算，不设预算上限。
  return s;
 }
 function setSponsorStatus(db,s,approve,userId){

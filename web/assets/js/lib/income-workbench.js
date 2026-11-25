@@ -4,6 +4,7 @@ import {bindFilePicker,UPLOAD_ACCEPT,UPLOAD_TIP} from "./upload.js";
 import {openSponsorRightsEditor} from "./sponsor-rights-editor.js";
 let chosen="";
 const yuan=n=>"¥"+money(n||0);
+const budgetDifference=gap=>gap>0?"低于会议预算 "+yuan(gap):gap<0?"高于会议预算 "+yuan(-gap):"与会议预算相等";
 const link=k=>k?`<a class="link" href="/api/uploads/${encodeURIComponent(k)}" target="_blank" rel="noopener">点击原件查看</a>`:"未上传";
 export async function renderIncomeWorkbench(root,projects,requested=""){
  if(!root)return;
@@ -17,14 +18,14 @@ export async function renderIncomeWorkbench(root,projects,requested=""){
      ${projects.map(p=>`<option value="${esc(p.id)}" ${p.id===chosen?"selected":""}>${esc(p.name)}</option>`).join("")}
    </select></div>
    <div class="grid g4" style="padding:12px">
-     <div class="kpi"><div class="t">会议预算／收入目标</div><div class="v">${yuan(s.budget)}</div></div>
+     <div class="kpi"><div class="t">会议预算</div><div class="v">${yuan(s.budget)}</div></div>
      <div class="kpi k2"><div class="t">已确认赞助合同</div><div class="v">${yuan(s.contracted)}</div></div>
      <div class="kpi k3"><div class="t">实际到账</div><div class="v">${yuan(s.received)}</div></div>
      <div class="kpi k4"><div class="t">已开票</div><div class="v">${yuan(s.invoiced)}</div></div>
    </div>
    <div class="hint" style="padding:10px 16px">
-     赞助合同距会议预算 ${yuan(s.contractGap)}；实际回款距预算 ${yuan(s.receiptGap)}。
-     ${s.contractedMatchesBudget&&s.receiptsMatchBudget?"赞助合同与到账金额均已覆盖会议预算。":"未完全匹配会议预算，需继续补齐或走预算调整审批。"}
+     会议预算来自会议立项，赞助收入独立登记。
+     已确认赞助合同${budgetDifference(s.contractGap)}；实际到账${budgetDifference(s.receiptGap)}。
      企业赞助收入不计入会务支出合同总额。
    </div>
    <div class="panel-h"><h3>赞助合同</h3>${contractEdit?'<button id="income-add-contract" class="btn btn-p btn-sm">+ 登记企业赞助合同</button>':""}</div>
@@ -52,7 +53,7 @@ export async function renderIncomeWorkbench(root,projects,requested=""){
  root.querySelector("#income-add-contract")?.addEventListener("click",()=>formIncome(root,projects,"contract"));
  root.querySelectorAll("[data-rights-edit]").forEach(b=>b.onclick=()=>openSponsorRightsEditor(root,projects,chosen,d,b.dataset.rightsEdit,renderIncomeWorkbench));
  root.querySelectorAll("[data-sponsor-approve]").forEach(b=>b.onclick=async()=>{
-   try{const id=b.dataset.sponsorApprove;const ok=await confirmBox("确认该赞助合同已完成签署且金额与会议预算计划一致？",{ok:"确认签署"});
+   try{const id=b.dataset.sponsorApprove;const ok=await confirmBox("确认该赞助合同已完成签署？",{ok:"确认签署"});
      if(!ok)return;await api.post("/api/projects/"+chosen+"/income/contracts/"+id+"/decide",{approve:true});
      toast("赞助合同已确认","ok");await renderIncomeWorkbench(root,projects);}catch(e){toast(e.message,"warn");}
  });

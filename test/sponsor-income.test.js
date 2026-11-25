@@ -92,6 +92,16 @@ test("合同台账企业赞助自动编码，OCR预填，并同步会议收入�
  const payees=await request("GET","/api/projects/"+pid+"/payee-options",undefined,admin);
  if(payees.status===200)assert.ok(!payees.data.rows.some(x=>x.payee==="广州睿康医疗科技有限公司"),
    "赞助企业不是供应商，不应成为可付款对象");
+ const extra=await request("POST","/api/contracts",{
+   pid,name:"追加企业赞助合同",vendor:"追加赞助企业",amount:20000,category:"企业赞助",
+   status:"待签署",file_key:await upload(exec,pid),rightsCategories:[]},exec);
+ assert.equal(extra.status,200,JSON.stringify(extra.data));
+ const signed=await request("POST","/api/contracts/"+extra.data.contract.id+"/transition",{action:"sign"},admin);
+ assert.equal(signed.status,200,JSON.stringify(signed.data));
+ const overBudget=await request("GET","/api/projects/"+pid+"/income",undefined,admin);
+ assert.equal(overBudget.data.summary.budget,30000);
+ assert.equal(overBudget.data.summary.contracted,32000,"合同台账签署不得限制累计赞助收入");
+ assert.equal(overBudget.data.summary.contractGap,-2000);
 });
 
 test("赞助合同/到账凭证/开票逐笔登记、授权与预算差额",async()=>{
@@ -161,7 +171,10 @@ test("赞助合同/到账凭证/开票逐笔登记、授权与预算差额",asyn
  const another=await request("POST","/api/projects/"+pid+"/income/contracts",{enterprise:"另一赞助企业",contractNo:"SP-2027-002",amount:500,file_key:await upload(exec,pid)},exec);
  assert.equal(another.status,200);
  const excess=await request("POST","/api/projects/"+pid+"/income/contracts/"+another.data.id+"/decide",{approve:true},admin);
- assert.equal(excess.status,409,"赞助累计已超过预算应拒绝");
+ assert.equal(excess.status,200,JSON.stringify(excess.data));
+ assert.equal(excess.data.summary.budget,10000);
+ assert.equal(excess.data.summary.contracted,10500,"累计赞助合同允许超过会议预算");
+ assert.equal(excess.data.summary.contractGap,-500);
  const receiptKey=await upload(admin,pid);
  for(const invalidDate of ["2027-13-01", "2027-02-30", "not-a-date"]) {
    const rejected=await request("POST","/api/projects/"+pid+"/income/receipts",
@@ -181,9 +194,26 @@ test("赞助合同/到账凭证/开票逐笔登记、授权与预算差额",asyn
  const inv=await request("POST","/api/projects/"+pid+"/income/invoices",
    {sponsorId:c.data.id,amount:10000,invoiceNo:"INV20270001",issuedDate:"2027-10-21",file_key:invoiceKey},admin);
  assert.equal(inv.status,200,JSON.stringify(inv.data));assert.equal(inv.data.summary.invoiced,10000);
+ const extraReceipt=await request("POST","/api/projects/"+pid+"/income/receipts",
+   {sponsorId:another.data.id,amount:500,paymentRef:"BANK20270002",receivedDate:"2027-10-21",file_key:await upload(admin,pid)},admin);
+ assert.equal(extraReceipt.status,200,JSON.stringify(extraReceipt.data));
+ const extraInvoice=await request("POST","/api/projects/"+pid+"/income/invoices",
+   {sponsorId:another.data.id,amount:500,invoiceNo:"INV20270002",issuedDate:"2027-10-21",file_key:await upload(admin,pid)},admin);
+ assert.equal(extraInvoice.status,200,JSON.stringify(extraInvoice.data));
  const state=await request("GET","/api/projects/"+pid+"/income",undefined,admin);
- assert.equal(state.data.summary.contractGap,0);assert.equal(state.data.summary.receiptGap,0);
- assert.equal(state.data.contracts.length,2);assert.equal(state.data.receipts.length,1);assert.equal(state.data.invoices.length,1);
+ assert.equal(state.data.summary.budget,10000);
+ assert.equal(state.data.summary.contracted,10500);
+ assert.equal(state.data.summary.received,10500);
+ assert.equal(state.data.summary.invoiced,10500);
+ assert.equal(state.data.summary.contractGap,-500);assert.equal(state.data.summary.receiptGap,-500);
+ assert.equal(state.data.contracts.length,2);assert.equal(state.data.receipts.length,2);assert.equal(state.data.invoices.length,2);
+ const edited=await request("PATCH","/api/projects/"+pid,{budget:9000},admin);
+ assert.equal(edited.status,200,JSON.stringify(edited.data));
+ const refreshed=await request("GET","/api/projects/"+pid+"/income",undefined,admin);
+ assert.equal(refreshed.data.summary.budget,9000,"会议收入显示立项最新预算");
+ assert.equal(refreshed.data.summary.contracted,10500);
+ assert.equal(refreshed.data.summary.received,10500);
+ assert.equal(refreshed.data.summary.contractGap,-1500);
  const dup=await request("POST","/api/projects/"+pid+"/income/invoices",{sponsorId:c.data.id,amount:1,invoiceNo:"INV20270001",issuedDate:"2027-10-21",file_key:await upload(admin,pid)},admin);
  assert.equal(dup.status,409);
 });
