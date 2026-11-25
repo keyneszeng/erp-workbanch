@@ -210,6 +210,8 @@ test("材料收集统一由类别入口上传，Web 与小程序只关联已签�
  assert.match(project,/data-material-kind/);
  assert.match(project,/await openMaterial\(root,pid,kind\)/);
  assert.doesNotMatch(project,/id="addMaterial"/);
+ assert.match(materials,/canUploadAtStatus\(project\.status\)/);
+ assert.doesNotMatch(materials,/UPLOAD_STATUSES/);
  assert.match(materials,/kindSelect\.disabled=!!defaultKind/);
  assert.match(materials,/kindSelect\.disabled=!!defaultKind;/);
  assert.match(materials,/c\.status==="已签署"/);
