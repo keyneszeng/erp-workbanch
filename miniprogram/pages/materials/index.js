@@ -1,6 +1,8 @@
 const app=getApp();
 const MAX_MATERIAL_FILES_PER_BATCH=10;
 const MAX_FILE_BYTES=20*1024*1024;
+const CONTRACT_TYPES=[{value:"会务需求",label:"会务协议"},{value:"劳务专家",label:"劳务协议"},{value:"企业赞助",label:"企业赞助合同"}];
+const emptyContract=()=>({categoryIndex:0,name:"",vendor:"",amount:"",statusIndex:0,signDate:"",file:null,scanNote:""});
 // 相册图片没有原始文件名（wxfile://tmp_xxx.jpg），无法按文件名关联讲者，
 // 因此讲者照片额外提供「相册选图 → 逐张填姓名」的通道，姓名拼成文件名后走同一套上传。
 let speakerSeq=0;
@@ -9,10 +11,11 @@ Page({
   // 类别由服务端统一下发；不维护独立的客户端类别清单。
   activeKinds:[],historyKinds:[],disabledKinds:[],categoryDisabled:false,materialRows:[],visibleFiles:[],filesLoading:false,
   custom:false,customKind:"",locked:false,batchResults:[],speakerFiles:[],deletingId:0,
-  contractMode:false,contractsLoading:false,contractRows:[],contractError:"",
+  contractMode:false,contractsLoading:false,contractRows:[],contractError:"",canUploadContract:false,
+  contractTypes:CONTRACT_TYPES,contractStatuses:["草稿","待签署"],contractDraft:emptyContract(),contractNotice:"",
   sponsorRights:[{id:"",label:"请选择赞助权益类目"}],rightIndex:0,rightId:""},
  onLoad(q){if(q.pid)this.setData({pid:q.pid});},
- onShow(){return this.load();},
+ onShow(){if(!this.data.busy)return this.load();},
  async load(){
   try{
    const r=await app.api("/projects?page=1&size=100");
@@ -27,7 +30,7 @@ Page({
    let index=projects.findIndex(x=>x.id===this.data.pid);if(index<0)index=0;
    const p=projects[index];
    this.setData({projects,index,pid:p?.id||"",locked:!p||["已结算","已归档"].includes(p.status),
-     materialRows:[],visibleFiles:[],historyKinds:[],filesLoading:!!p,contractRows:[],contractError:"",contractsLoading:false});
+     materialRows:[],visibleFiles:[],historyKinds:[],filesLoading:!!p,contractRows:[],contractError:"",contractsLoading:false,canUploadContract:false});
    if(p){await this.loadKinds(p.id);if(this.data.contractMode)await this.loadContracts(p.id);else if(this.data.kind==="权益照片")await this.loadRights(p.id);}
   }catch(e){this.setData({error:e.message});}
  },
@@ -70,7 +73,7 @@ Page({
  },
  select(e){if(this.data.busy)return;this._batch=null;const index=Number(e.detail.value),p=this.data.projects[index];
   this.setData({index,pid:p.id,locked:["已结算","已归档"].includes(p.status),uploaded:"",
-   batchResults:[],speakerFiles:[],materialRows:[],visibleFiles:[],activeKinds:[],historyKinds:[],disabledKinds:[],categoryDisabled:false,contractRows:[],contractError:"",contractsLoading:false});
+   batchResults:[],speakerFiles:[],materialRows:[],visibleFiles:[],activeKinds:[],historyKinds:[],disabledKinds:[],categoryDisabled:false,contractRows:[],contractError:"",contractsLoading:false,canUploadContract:false,contractDraft:emptyContract(),contractNotice:""});
   this.loadKinds(p.id);
   if(this.data.contractMode){this.loadContracts(p.id);return;}
   if(this.data.kind==="权益照片")this.loadRights(p.id);else this.setData({sponsorRights:[{id:"",label:"请选择赞助权益类目"}],rightIndex:0,rightId:""});
@@ -86,12 +89,12 @@ Page({
  chooseContracts(){
   if(this.data.busy||!this.data.pid)return;
   this._batch=null;
-  this.setData({contractMode:true,custom:false,uploaded:"",error:"",batchResults:[],speakerFiles:[]});
+  this.setData({contractMode:true,custom:false,uploaded:"",error:"",batchResults:[],speakerFiles:[],...(this.data.contractMode?{}:{contractDraft:emptyContract(),contractNotice:""})});
   return this.loadContracts(this.data.pid);
  },
  async loadContracts(pid){
   const seq=(this._contractSeq||0)+1;this._contractSeq=seq;
-  this.setData({contractsLoading:true,contractRows:[],contractError:""});
+  this.setData({contractsLoading:true,contractRows:[],contractError:"",canUploadContract:false});
   try{
    const data=await app.api("/projects/"+encodeURIComponent(pid));
    if(this.data.pid!==pid||this._contractSeq!==seq)return;
@@ -103,10 +106,85 @@ Page({
     id:c.id,name:c.name,vendor:c.vendor||"",category:labels[c.category]||c.category||"合同",
     status:c.status,fileKey:c.file_key||"",fileName:c.file_name||""
    }));
-   this.setData({contractsLoading:false,contractRows:rows});
+   const status=data.project?.status||this.data.projects[this.data.index]?.status;
+   const canUploadContract=(app.globalData?.perms||[]).includes("contract:write")&&!data.settlement&&!["已核销","已结算","已归档"].includes(status)&&!this.data.locked;
+   this.setData({contractsLoading:false,contractRows:rows,canUploadContract});
   }catch(e){
    if(this.data.pid===pid&&this._contractSeq===seq)this.setData({contractsLoading:false,contractError:"合同目录读取失败："+e.message});
   }
+ },
+ // 合同只通过正式合同接口登记，服务端同步归档原件；不重复调用普通材料接口。
+ contractDraftInput(e){
+  if(this.data.busy)return;
+  const key=e.currentTarget.dataset.key;
+  if(!["name","vendor","amount"].includes(key))return;
+  this.setData({contractDraft:{...this.data.contractDraft,[key]:e.detail.value}});
+ },
+ contractStatusChange(e){
+  if(!this.data.busy)this.setData({contractDraft:{...this.data.contractDraft,statusIndex:Number(e.detail.value)}});
+ },
+ contractDateChange(e){
+  if(!this.data.busy)this.setData({contractDraft:{...this.data.contractDraft,signDate:e.detail.value}});
+ },
+ contractCategoryChange(e){
+  if(this.data.busy)return;
+  const index=Number(e.detail.value);
+  if(!CONTRACT_TYPES[index])return;
+  // 更换分类后需重新核对识别结果（尤其劳务报酬与普通合同金额）。
+  this.setData({contractDraft:{...this.data.contractDraft,categoryIndex:index,amount:"",vendor:"",scanNote:"分类已变更，请核对原件并手工填写，或重新选择文件识别。"}});
+ },
+ async pickContractFile(e){
+  if(this.data.busy||!this.data.contractMode||!this.data.canUploadContract||!this.data.pid)return;
+  const pid=this.data.pid;
+  const photo=e?.currentTarget?.dataset?.source==="photo";
+  this.setData({busy:true,contractNotice:""});
+  try{
+   const result=await new Promise((resolve,reject)=>photo?
+    wx.chooseMedia({count:1,mediaType:["image"],sourceType:["album","camera"],success:resolve,fail:reject}):
+    wx.chooseMessageFile({count:1,type:"file",extension:["pdf","doc","docx","ppt","pptx","xls","xlsx","csv","txt","jpg","jpeg","png","webp","gif"],success:resolve,fail:reject}));
+   const f=result.tempFiles?.[0];
+   if(!f)return;
+   const filePath=f.tempFilePath||f.path;
+   const ext=/\.png$/i.test(filePath)?"png":/\.webp$/i.test(filePath)?"webp":"jpg";
+   const name=String(f.name||(photo?"合同-"+Date.now()+"."+ext:"")).trim();
+   if(!name||name.length>120||! /\.(pdf|docx?|pptx?|xlsx?|csv|txt|jpe?g|png|webp|gif)$/i.test(name))throw Error("请选择有效合同文件");
+   if(!filePath||Number(f.size)>MAX_FILE_BYTES)throw Error("合同文件不可超过20 MB");
+   if(this.data.pid!==pid||!this.data.contractMode)throw Error("会议已变化，请重新选择");
+   const draft={...this.data.contractDraft,name:name.replace(/\.[^.]+$/,"").slice(0,80),vendor:"",amount:"",file:null,scanNote:"正在上传合同原件…"};
+   this.setData({contractDraft:draft});
+   const raw=await new Promise((resolve,reject)=>wx.getFileSystemManager().readFile({filePath,success:r=>resolve(r.data),fail:reject}));
+   if(!raw?.byteLength||raw.byteLength>MAX_FILE_BYTES)throw Error("合同文件为空或超过20 MB");
+   const up=await app.api("/uploads?pid="+encodeURIComponent(pid),"POST",raw,{"Content-Type":"application/octet-stream","X-File-Name":encodeURIComponent(name)});
+   draft.file=up;draft.scanNote="正在识别合同信息…";this.setData({contractDraft:{...draft}});
+   try{
+    const scan=await app.api("/contracts/scan","POST",{pid,file_key:up.key,category:CONTRACT_TYPES[draft.categoryIndex].value});
+    const fields=scan.fields||{};
+    draft.vendor=String(fields.vendor||fields.enterprise||"").slice(0,80);
+    if(fields.amount!==null&&fields.amount!==undefined)draft.amount=String(fields.amount);
+    draft.scanNote=scan.note||"识别完成，请人工核对签约方和合同金额。";
+   }catch(err){draft.scanNote="OCR 未完成，可手工填写后保存："+(err.message||"识别失败");}
+   this.setData({contractDraft:{...draft}});
+  }catch(err){
+   if(!/cancel/i.test(String(err?.errMsg||err?.message||"")))this.setData({contractNotice:err.message||"合同文件上传失败"});
+  }finally{this.setData({busy:false});}
+ },
+ async saveContract(){
+  if(this.data.busy||!this.data.contractMode||!this.data.canUploadContract||!this.data.pid)return;
+  const pid=this.data.pid,d=this.data.contractDraft,amount=Number(d.amount);
+  const name=String(d.name||"").trim(),vendor=String(d.vendor||"").trim(),category=CONTRACT_TYPES[d.categoryIndex]?.value;
+  if(!d.file?.key||!category||!name||!vendor||name.length>80||vendor.length>80||!Number.isFinite(amount)||amount<=0||amount>1e9||Number(amount.toFixed(2))!==amount){
+   this.setData({contractNotice:"请上传合同原件，选择类别并核对合同名称、签约方和有效金额（最多两位小数）"});return;
+  }
+  this.setData({busy:true,contractNotice:""});
+  try{
+   const out=await app.api("/contracts","POST",{pid,category,name,vendor,amount,
+    status:d.statusIndex===1?"待签署":"草稿",sign_date:d.signDate||"",
+    file_key:d.file.key,file_name:d.file.name,file_size:d.file.size,file_mime:d.file.mime});
+   this.setData({contractDraft:emptyContract(),contractNotice:(out.message||"合同已保存")+(out.warning?"；"+out.warning:"")});
+   await this.loadContracts(pid);
+   wx.showToast({title:"合同已保存",icon:"success"});
+  }catch(err){this.setData({contractNotice:err.message||"合同保存失败，请核对后重试"});}
+  finally{this.setData({busy:false});}
  },
  async openContractOriginal(e){
   if(!this.data.contractMode)return;
@@ -272,7 +350,7 @@ Page({
    this.setData({error:"当前材料类别不可上传，请等待目录加载或选择未停用类别"});return;
   }
   if(["合同","会务协议","劳务协议","企业赞助合同","赞助合同","劳务专家合同","专家劳务协议","劳务合同","会务合同"].includes(kind)){
-   this.setData({error:"企业赞助合同、会务协议和劳务协议请在合同管理模块统一上传，不再提供材料收集入口"});return;
+   this.setData({error:"企业赞助合同、会务协议和劳务协议请点击上方「合同」类目统一上传"});return;
   }
   const final=kind==="终版议程";
   const pid=this.data.pid;
