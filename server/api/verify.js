@@ -15,6 +15,7 @@ const {sponsorRights}=require("../lib/sponsor-rights");
 const {buildSettlementBreakdown}=require("../lib/settlement-breakdown");
 const verifyOcr=require("../lib/verify-ocr-compare");
 const {photoName}=require("../lib/verify-agenda-evidence");
+const {detachDeletedMaterialEvidence}=require("../lib/deleted-material-cleanup");
 const {sponsorRights:currentSponsorRights,validateRightsEvidence}=require("../lib/sponsor-rights");
 let scanningVerification=false;
 
@@ -623,6 +624,8 @@ function register(router) {
     assertProjectVisible(ctx.user, p);
     assertCan(ctx.user, "material:write", "当前角色无材料删除权限");
     if (p.status === "已归档") throw conflict("已归档项目材料不可删除");
+    if (["已核销","已结算"].includes(p.status))
+      throw conflict("已核销或已结算项目的材料已锁定；请先办理正式核销更正，不能直接删除原件","VERIFIED_MATERIAL_LOCKED");
     // 结算单一旦生成，材料就是结算与核销的原始凭证，删了等于销毁证据链。
     // 这里用「有没有结算单」判断而不是只看 status：状态可能被人为改过，
     // 但结算单存在与否是硬事实。
@@ -661,7 +664,13 @@ function register(router) {
         throw conflict("该文件仍被非合同类材料引用，请先核对附件关联","SHARED_CONTRACT_FILE");
     }
     const at=now();
-    transaction(()=>{
+    const cleanup=transaction(()=>{
+      // 同一份合同原件可能有多条历史同步记录，先精确锁定待删除 ID，
+      // 再原子地删除有效引用并撤销其核销结论，不能留下清单/核销幽灵项。
+      const removed=c
+        ?db.prepare("SELECT id,kind,file_key FROM materials WHERE pid=? AND file_key=? "+
+          "AND deleted_at IS NULL AND (kind LIKE '%合同%' OR kind LIKE '%协议%')").all(p.id,m.file_key)
+        :[{id:m.id,kind:m.kind,file_key:m.file_key}];
       if(c){
         db.prepare("UPDATE materials SET deleted_at=?,deleted_by=? WHERE pid=? AND file_key=? "+
           "AND deleted_at IS NULL AND (kind LIKE '%合同%' OR kind LIKE '%协议%')")
@@ -672,14 +681,18 @@ function register(router) {
           "WHERE type='合同审批' AND ref_id=? AND status='待审批'")
           .run(ctx.user.name,at,c.id);
       }else{
-        db.prepare("UPDATE materials SET deleted_at=?, deleted_by=? WHERE id=? AND deleted_at IS NULL")
+        db.prepare("UPDATE materials SET deleted_at=?,deleted_by=? WHERE id=? AND deleted_at IS NULL")
           .run(at,ctx.user.name,m.id);
       }
+      return detachDeletedMaterialEvidence(db,p.id,removed,at,ctx.user.name);
     });
-    logAudit({user:ctx.user,module:"材料中心",action:c?"软删合同及关联材料":"软删冻结",
-      target:p.id,detail:`历史保留 ${m.kind}：${m.name}`+(c?"；同步退出合同看板："+c.id:""),ip:ctx.ip});
+    logAudit({user:ctx.user,module:"材料中心",action:c?"软删合同及关联材料":"软删材料及核销解绑",
+      target:p.id,detail:`移入废件箱：${m.kind}：${m.name}`+
+        (c?"；同步退出合同看板："+c.id:"")+
+        "；核销待重新判定步骤："+(cleanup.resetSteps.join("、")||"无"),ip:ctx.ip});
     return {materialsStatus:materialsStatus(p.id),linkedContract:c?.id||null,
-      message:c?"合同及关联材料已删除，审计历史保留":"已软删并保留历史记录"};
+      resetSteps:cleanup.resetSteps,removedMaterialIds:cleanup.materialIds,
+      message:c?"合同及关联材料已移入废件箱，原核销证据已解除":"材料已移入废件箱并解除核销关联"};
   });
 
   /** 已生成结算单的四项汇总和四类已付款明细，必须先财务授权再校验项目范围。 */
