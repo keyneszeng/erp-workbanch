@@ -6,7 +6,6 @@
  * - 所有原件来源由服务端按项目/类目查询，不接受请求体指定文件key。
  */
 const {PDFDocument,degrees}=require("pdf-lib");
-const {createHash}=require("node:crypto");
 const {HttpError}=require("./util");
 const {compressOriginal}=require("./file-compress");
 const VISIBLE_OFFICE_EXT=new Set(["pptx","xlsx","docx"]);
@@ -109,7 +108,8 @@ async function buildSelectedMaterialsPdf({project,materials,watermark,compressor
   // Mirrors and reuploads can point at different storage keys while containing
   // byte-for-byte identical originals. Keep only the FIRST original in the
   // canonical 15-category order (and its attachment / visible pages).
-  const fingerprint=createHash("sha256").update(original).digest("hex");
+  // WebCrypto works in both Node 22 and Cloudflare Workers (no node:crypto shim).
+  const fingerprint=Buffer.from(await globalThis.crypto.subtle.digest("SHA-256",original)).toString("hex");
   if(seenContent.has(fingerprint))continue;
   seenContent.add(fingerprint);
   const originalFileName=m.file_name||m.name||m.file_key;
