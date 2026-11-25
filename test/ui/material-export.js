@@ -77,8 +77,9 @@ async function run(){
  await pptModal.locator('input[name="material_category"][value="会议说明书"]').check();
  await pptModal.locator('input[name="material_category"][value="签到表"]').check();
  const attendanceId=await pptModal.locator('[data-source-id]').filter({hasText:"签到表-测试"}).first().getAttribute("data-source-id");
- // Manually move attendance before the default-first meeting description.
- await pptModal.locator('[data-move-up="'+attendanceId+'"]').click();
+ // The 15-category rule is immutable: attendance must never jump ahead of the meeting description.
+ assert.equal(await pptModal.locator('[data-move-up="'+attendanceId+'"]').isDisabled(),true,
+   "跨类上移应禁用，不能破坏预设的15类业务目录顺序");
  const pptEvent=page.waitForEvent("download",{timeout:60000});
  await pptModal.locator("[data-export-pptx]").click();
  const pptFile=await pptEvent;
@@ -88,10 +89,10 @@ async function run(){
  assert.ok(pptZip.file("ppt/slides/slide1.xml"));
  assert.ok(pptZip.file("ppt/slides/slide2.xml"));
  assert.match(pptZip.file("ppt/slides/slide2.xml").asText(),/付款明细对照表/);
- assert.match(pptZip.file("ppt/slides/slide3.xml").asText(),/签到表/);
- assert.match(pptZip.file("ppt/slides/slide4.xml").asText(),/会议说明书/);
+ assert.match(pptZip.file("ppt/slides/slide3.xml").asText(),/会议说明书/);
+ assert.match(pptZip.file("ppt/slides/slide4.xml").asText(),/签到表/);
  assert.ok(!pptZip.file("ppt/slides/slide5.xml"),"only the selected ordered materials follow the payment table");
- assert.match(pptZip.file("ppt/slides/slide3.xml").asText(),/p:pic/);
+ assert.match(pptZip.file("ppt/slides/slide4.xml").asText(),/p:pic/);
  await archiveButton.click();
  await page.locator("#modal.open select[name=watermark_mode]").selectOption("none");
  await page.locator("#modal.open [data-cancel]").click();
