@@ -9,6 +9,7 @@ Page({
   // 类别由服务端统一下发；不维护独立的客户端类别清单。
   activeKinds:[],historyKinds:[],disabledKinds:[],categoryDisabled:false,materialRows:[],visibleFiles:[],filesLoading:false,
   custom:false,customKind:"",locked:false,batchResults:[],speakerFiles:[],deletingId:0,
+  contractMode:false,contractsLoading:false,contractRows:[],contractError:"",
   sponsorRights:[{id:"",label:"请选择赞助权益类目"}],rightIndex:0,rightId:""},
  onLoad(q){if(q.pid)this.setData({pid:q.pid});},
  onShow(){return this.load();},
@@ -26,8 +27,8 @@ Page({
    let index=projects.findIndex(x=>x.id===this.data.pid);if(index<0)index=0;
    const p=projects[index];
    this.setData({projects,index,pid:p?.id||"",locked:!p||["已结算","已归档"].includes(p.status),
-     materialRows:[],visibleFiles:[],historyKinds:[],filesLoading:!!p});
-   if(p){await this.loadKinds(p.id);if(this.data.kind==="权益照片")await this.loadRights(p.id);}
+     materialRows:[],visibleFiles:[],historyKinds:[],filesLoading:!!p,contractRows:[],contractError:"",contractsLoading:false});
+   if(p){await this.loadKinds(p.id);if(this.data.contractMode)await this.loadContracts(p.id);else if(this.data.kind==="权益照片")await this.loadRights(p.id);}
   }catch(e){this.setData({error:e.message});}
  },
  // The selected category is the entry form and the persistent file list.
@@ -69,16 +70,50 @@ Page({
  },
  select(e){if(this.data.busy)return;this._batch=null;const index=Number(e.detail.value),p=this.data.projects[index];
   this.setData({index,pid:p.id,locked:["已结算","已归档"].includes(p.status),uploaded:"",
-   batchResults:[],speakerFiles:[],materialRows:[],visibleFiles:[],activeKinds:[],historyKinds:[],disabledKinds:[],categoryDisabled:false});
+   batchResults:[],speakerFiles:[],materialRows:[],visibleFiles:[],activeKinds:[],historyKinds:[],disabledKinds:[],categoryDisabled:false,contractRows:[],contractError:"",contractsLoading:false});
   this.loadKinds(p.id);
+  if(this.data.contractMode){this.loadContracts(p.id);return;}
   if(this.data.kind==="权益照片")this.loadRights(p.id);else this.setData({sponsorRights:[{id:"",label:"请选择赞助权益类目"}],rightIndex:0,rightId:""});
  },
  chooseKind(e){
   if(this.data.busy)return;
   this._batch=null;const kind=e.currentTarget.dataset.kind;
-  this.setData({kind,custom:false,customKind:"",uploaded:"",error:"",batchResults:[],speakerFiles:[]});
+  this.setData({kind,custom:false,customKind:"",uploaded:"",error:"",batchResults:[],speakerFiles:[],contractMode:false});
   this.syncVisibleFiles();
   if(kind==="权益照片")this.loadRights(this.data.pid);
+ },
+ // 与 Web 项目材料面板一致：合同是正式合同目录入口，不作为普通材料上传。
+ chooseContracts(){
+  if(this.data.busy||!this.data.pid)return;
+  this._batch=null;
+  this.setData({contractMode:true,custom:false,uploaded:"",error:"",batchResults:[],speakerFiles:[]});
+  return this.loadContracts(this.data.pid);
+ },
+ async loadContracts(pid){
+  const seq=(this._contractSeq||0)+1;this._contractSeq=seq;
+  this.setData({contractsLoading:true,contractRows:[],contractError:""});
+  try{
+   const data=await app.api("/projects/"+encodeURIComponent(pid));
+   if(this.data.pid!==pid||this._contractSeq!==seq)return;
+   if(data.sectionAccess?.contracts!==true){
+    this.setData({contractsLoading:false,contractError:"当前账号无合同目录查看权限，请联系管理员授权"});return;
+   }
+   const labels={"会务需求":"会务协议","劳务专家":"劳务协议","企业赞助":"企业赞助合同"};
+   const rows=(data.contracts||[]).filter(c=>!c.deleted_at).map(c=>({
+    id:c.id,name:c.name,vendor:c.vendor||"",category:labels[c.category]||c.category||"合同",
+    status:c.status,fileKey:c.file_key||"",fileName:c.file_name||""
+   }));
+   this.setData({contractsLoading:false,contractRows:rows});
+  }catch(e){
+   if(this.data.pid===pid&&this._contractSeq===seq)this.setData({contractsLoading:false,contractError:"合同目录读取失败："+e.message});
+  }
+ },
+ async openContractOriginal(e){
+  if(!this.data.contractMode)return;
+  const row=this.data.contractRows.find(c=>c.id===e.currentTarget.dataset.id);
+  if(!row?.fileKey)return;
+  try{await app.openOriginal(row.fileKey);}
+  catch(err){wx.showToast({title:err.message||"无法查看合同原件",icon:"none"});}
  },
  async loadRights(pid){
   const empty=[{id:"",label:"请选择赞助合同 → 权益二级类目"}];
@@ -103,7 +138,7 @@ Page({
  chooseCustom(){
   if(this.data.busy)return;
   this._batch=null;
-  this.setData({custom:true,kind:"",customKind:"",rightId:"",uploaded:"",error:"",
+  this.setData({custom:true,kind:"",customKind:"",rightId:"",uploaded:"",error:"",contractMode:false,
     batchResults:[],speakerFiles:[]});
   this.syncVisibleFiles();
  },
