@@ -12,7 +12,7 @@ Page({
   activeKinds:[],historyKinds:[],disabledKinds:[],categoryDisabled:false,materialRows:[],visibleFiles:[],filesLoading:false,
   custom:false,customKind:"",locked:false,batchResults:[],speakerFiles:[],deletingId:0,
   contractMode:false,contractsLoading:false,contractRows:[],contractError:"",canUploadContract:false,
-  contractTypes:CONTRACT_TYPES,contractStatuses:["草稿","待签署"],contractDraft:emptyContract(),contractNotice:"",
+  contractTypes:CONTRACT_TYPES,contractStatuses:["草稿","待签署","已签署"],contractDraft:emptyContract(),contractNotice:"",
   sponsorRights:[{id:"",label:"请选择赞助权益类目"}],rightIndex:0,rightId:""},
  onLoad(q){if(q.pid)this.setData({pid:q.pid});},
  onShow(){if(!this.data.busy)return this.load();},
@@ -121,7 +121,8 @@ Page({
   this.setData({contractDraft:{...this.data.contractDraft,[key]:e.detail.value}});
  },
  contractStatusChange(e){
-  if(!this.data.busy)this.setData({contractDraft:{...this.data.contractDraft,statusIndex:Number(e.detail.value)}});
+  const index=Number(e.detail.value);
+  if(!this.data.busy&&this.data.contractStatuses[index])this.setData({contractDraft:{...this.data.contractDraft,statusIndex:index}});
  },
  contractDateChange(e){
   if(!this.data.busy)this.setData({contractDraft:{...this.data.contractDraft,signDate:e.detail.value}});
@@ -175,10 +176,13 @@ Page({
   if(!d.file?.key||!category||!name||!vendor||name.length>80||vendor.length>80||!Number.isFinite(amount)||amount<=0||amount>1e9||Number(amount.toFixed(2))!==amount){
    this.setData({contractNotice:"请上传合同原件，选择类别并核对合同名称、签约方和有效金额（最多两位小数）"});return;
   }
+  const status=this.data.contractStatuses[d.statusIndex];
+  if(!status){this.setData({contractNotice:"请选择有效合同状态"});return;}
+  if(status==="已签署"&&!d.signDate){this.setData({contractNotice:"请选择合同签署日期"});return;}
   this.setData({busy:true,contractNotice:""});
   try{
    const out=await app.api("/contracts","POST",{pid,category,name,vendor,amount,
-    status:d.statusIndex===1?"待签署":"草稿",sign_date:d.signDate||"",
+    status,sign_date:d.signDate||"",
     file_key:d.file.key,file_name:d.file.name,file_size:d.file.size,file_mime:d.file.mime});
    this.setData({contractDraft:emptyContract(),contractNotice:(out.message||"合同已保存")+(out.warning?"；"+out.warning:"")});
    await this.loadContracts(pid);
