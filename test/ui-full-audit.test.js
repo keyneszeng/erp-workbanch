@@ -105,3 +105,35 @@ test("数字卷宗导出按钮与真实CSV输出一致，不把核销明细误�
   has(p,'api.download("/api/export/verify")');
   no(p,"导出核销卷宗");
 });
+
+test("财务和项目详情不再提供付款申请入口，保留财务直接付款与历史付款记录",()=>{
+ for(const path of ["web/assets/js/pages/finance.js","web/assets/js/pages/project.js"]){
+  no(path,'id="newPay"');
+  no(path,'id="addPay"');
+  no(path,"async function openPay(");
+  has(path,"已付款");
+ }
+ has("web/assets/js/pages/finance.js","data-direct-submit");
+ has("web/assets/js/pages/project.js","直接登记与上传凭证");
+ has("web/assets/js/pages/flow.js","财务直接付款");
+});
+test("三类合同统一合同上传，材料收集和微信小程序禁止重新登记劳务协议",()=>{
+ const constants=require("../server/lib/constants");
+ for(const name of ["劳务协议","会务协议","企业赞助合同"]){
+  assert.ok(!constants.MATERIAL_KINDS.includes(name),name+" 不可作为普通材料类别");
+  assert.ok(constants.RETIRED_MATERIAL_KINDS.includes(name),name+" 写入必须拒绝");
+ }
+ for(const path of ["web/assets/js/pages/project.js","web/assets/js/pages/contracts.js"]){
+  for(const [value,label] of [["会务需求","会务协议"],["劳务专家","劳务协议"],["企业赞助","企业赞助合同"]])
+   has(path,'{v:"'+value+'",l:"'+label+'"}');
+ }
+ for(const path of ["web/assets/js/pages/materials.js","miniprogram/pages/materials/index.js"])
+  has(path,"劳务协议");
+ has("server/api/verify.js","RETIRED_MATERIAL_KINDS.includes(kind)");
+});
+test("数字卷宗PDF强制在所有原件之前生成项目台账结算与分类付款对照",()=>{
+ has("server/api/archive-pdf.js","const ledgerDetail=buildDetail(project.id,ctx.user)");
+ has("server/lib/material-export-pdf.js","ledgerPages(ledgerDetail)");
+ has("server/lib/material-export-pdf.js","分类付款对照");
+ has("web/assets/js/lib/archive-pdf.js","第2页为项目台账结算单");
+});
