@@ -351,6 +351,36 @@ function register(router){
       detail:s.id+(approve?"；确认合同已签署":"；原因："+String(ctx.body.reason).trim()),ip:ctx.ip});
     return {id:s.id,status,summary:incomeSummary(p.id,p.budget)};
   });
+  // 凭证纠错须保留原编号与审计记录，并仍受单份合同金额限制。
+  for(const kind of ["receipts","invoices"]){
+    const receipt=kind==="receipts",table=receipt?"meeting_sponsor_receipts":"meeting_sponsor_invoices";
+    const refCol=receipt?"payment_ref":"invoice_no",dateCol=receipt?"received_date":"issued_date";
+    router.patch("/api/projects/:id/income/"+kind+"/:rid",async ctx=>{
+      const p=getProject(ctx.params.id);assertSponsorManager(ctx,p);
+      const old=db.prepare("SELECT * FROM "+table+" WHERE id=? AND pid=?").get(ctx.params.rid,p.id);
+      if(!old)throw notFound("收入凭证不存在");
+      const s=sponsor(p.id,old.sponsor_id),b=ctx.body||{};
+      const n="amount" in b?amount(b.amount):old.amount;
+      const ref=String(b[receipt?"paymentRef":"invoiceNo"]??old[refCol]).trim();
+      if(receipt?ref.length<3||ref.length>100:!/^[\w\-]{6,50}$/.test(ref))throw bad("凭证编号格式不正确");
+      const date=stamp(b[receipt?"receivedDate":"issuedDate"]??old[dateCol],receipt?"到账日期":"开票日期");
+      const others=db.prepare("SELECT COALESCE(SUM(amount),0) AS n FROM "+table+" WHERE sponsor_id=? AND id<>?").get(s.id,old.id).n;
+      if(cents(others)+cents(n)>cents(s.amount))throw conflict("累计金额不能超过该企业签署的赞助合同金额","INCOME_OVER_CONTRACT");
+      if(!receipt&&db.prepare("SELECT 1 FROM meeting_sponsor_invoices WHERE invoice_no=? AND id<>?").get(ref,old.id))throw conflict("该开票号码已登记","INVOICE_DUPLICATE");
+      const replacement=!!b.file_key&&b.file_key!==old.file_key;
+      const key=replacement?evidence(ctx,p,b.file_key):old.file_key;
+      const name=replacement?String(b.file_name||"").slice(0,120):old.file_name;
+      transaction(()=>{
+        assertSponsorManager(ctx,getProject(p.id));
+        if(replacement&&old.file_key)db.prepare("INSERT INTO materials(pid,kind,name,version,uploader,created_at,file_key,file_name) VALUES(?,?,?,?,?,?,?,?)")
+          .run(p.id,receipt?"赞助回款凭证":"发票",old.id+" · 原收入凭证","历史版",ctx.user.name,now(),old.file_key,old.file_name);
+        db.prepare("UPDATE "+table+" SET amount=?,"+refCol+"=?,"+dateCol+"=?,file_key=?,file_name=? WHERE id=?").run(n,ref,date,key,name,old.id);
+      });
+      logAudit({user:ctx.user,module:"会议收入",action:receipt?"修改赞助回款":"修改赞助开票",target:p.id,
+        detail:old.id+"；金额："+old.amount+" → "+n+"；编号："+old[refCol]+" → "+ref+"；日期："+old[dateCol]+" → "+date+(replacement?"；原件已替换并保留历史版":""),ip:ctx.ip});
+      return {id:old.id,summary:incomeSummary(p.id,p.budget)};
+    });
+  }
   router.post("/api/projects/:id/income/receipts",async ctx=>{
     const p=getProject(ctx.params.id);writable(ctx,p,"payment:pay");
     const b=ctx.body||{},s=sponsor(p.id,String(b.sponsorId||""));
