@@ -137,3 +137,19 @@ test("数字卷宗PDF强制在所有原件之前生成项目台账结算与分�
  has("server/lib/material-export-pdf.js","分类付款对照");
  has("web/assets/js/lib/archive-pdf.js","第2页为项目台账结算单");
 });
+
+test("项目详情与全局合同台账均允许修改合同类别，保留独立更换原件功能",()=>{
+ for(const path of ["web/assets/js/pages/project.js","web/assets/js/pages/contracts.js"]){
+  has(path,"data-edit-contract-category");
+  has(path,"openContractCategoryEdit");
+  has(path,"更换原件");
+ }
+ const editor="web/assets/js/lib/contract-category-edit.js";
+ for(const val of ["会务需求","劳务专家","企业赞助"])has(editor,val);
+ has(editor,"expected_category:contract.category");
+ has(editor,"expected_status:contract.status");
+ has(editor,"api.patch(");
+ has("server/api/finance.js",'router.patch("/api/contracts/:id/category"');
+ has("server/api/finance.js","PAYMENT_RECONCILIATION_REQUIRED");
+ has("server/api/finance.js","SPONSOR_RECONCILIATION_REQUIRED");
+});
