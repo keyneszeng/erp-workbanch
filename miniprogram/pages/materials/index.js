@@ -7,8 +7,8 @@ let speakerSeq=0;
 Page({
  data:{projects:[],index:0,pid:"",kind:"课件",name:"",error:"",busy:false,uploaded:"",
   // 兼容未升级的 API；正常情况下以后端共享 MATERIAL_KINDS 为唯一材料类别来源。
-  standardKinds:["立项文件","会议通知","招商函","合同","会务协议","劳务协议","议程","终版议程","课件","串场","签到表","劳务表","讲者照片","现场照片","会议截图","在线记录","发票","会务发票","权益照片"],
-  activeKinds:[],historyKinds:[],materialRows:[],visibleFiles:[],filesLoading:false,
+  standardKinds:["立项文件","会议通知","招商函","劳务协议","议程","终版议程","课件","串场","签到表","劳务表","讲者照片","现场照片","会议截图","在线记录","发票","会务发票","权益照片"],
+  activeKinds:[],historyKinds:[],legacyMaterials:[],materialRows:[],visibleFiles:[],filesLoading:false,
   custom:false,customKind:"",locked:false,batchResults:[],speakerFiles:[],deletingId:0,
   sponsorRights:[{id:"",label:"请选择赞助权益类目"}],rightIndex:0,rightId:""},
  onLoad(q){if(q.pid)this.setData({pid:q.pid});},
@@ -27,7 +27,7 @@ Page({
    let index=projects.findIndex(x=>x.id===this.data.pid);if(index<0)index=0;
    const p=projects[index];
    this.setData({projects,index,pid:p?.id||"",locked:!p||["已结算","已归档"].includes(p.status),
-     materialRows:[],visibleFiles:[],historyKinds:[],filesLoading:!!p});
+     materialRows:[],visibleFiles:[],historyKinds:[],legacyMaterials:[],filesLoading:!!p});
    if(p){await this.loadKinds(p.id);if(this.data.kind==="权益照片")await this.loadRights(p.id);}
   }catch(e){this.setData({error:e.message});}
  },
@@ -45,14 +45,16 @@ Page({
    // 兼容旧部署/历史档案：「劳务收集表」只作为数据别名，绝不重新进入可选类别。
    const normalizedKind=k=>k==="劳务收集表"?"劳务表":k;
    const catalog=Array.isArray(data.kinds)&&data.kinds.length?data.kinds:this.data.standardKinds;
+   const retired=new Set(["合同","会务协议"]);
    const kinds=[...new Set(catalog.map(normalizedKind))]
-     .filter(k=>!data.modules?.some(m=>normalizedKind(m.kind)===k&&m.enabled===0));
+     .filter(k=>!retired.has(k)&&!data.modules?.some(m=>normalizedKind(m.kind)===k&&m.enabled===0));
    const rows=(data.materials||[]).filter(row=>row&&row.filename&&row.kind)
      .map(row=>({...row,kind:normalizedKind(row.kind)}));
-   const history=[...new Set(rows.map(row=>row.kind))].filter(k=>!kinds.includes(k));
+   const history=[...new Set(rows.map(row=>row.kind))].filter(k=>!kinds.includes(k)&&!retired.has(k));
+   const legacyMaterials=rows.filter(row=>retired.has(row.kind));
    const chosen=this.data.kind;
    const kind=kinds.includes(chosen)||history.includes(chosen)?chosen:(kinds[0]||"现场照片");
-   this.setData({activeKinds:kinds,historyKinds:history,materialRows:rows,kind,
+   this.setData({activeKinds:kinds,historyKinds:history,legacyMaterials,materialRows:rows,kind,
      filesLoading:false,...(preserveError?{}:{error:""})});
    this.syncVisibleFiles();
   }catch(e){
@@ -226,6 +228,9 @@ Page({
  async uploadBatch(files){
   if(this.data.busy)return;
   const kind=this.data.custom?this.data.customKind.trim():this.data.kind.trim();
+  if(["合同","会务协议"].includes(kind)){
+   this.setData({error:"合同和会务协议请在合同管理模块上传，不再提供材料收集入口"});return;
+  }
   const final=kind==="终版议程";
   const pid=this.data.pid;
   if(!pid||!kind||kind.length>20){
