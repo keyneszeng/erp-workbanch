@@ -429,3 +429,17 @@ test("小程序材料工作台同一个表单显示类别、上传与已录入�
  assert.match(web,/current\.map\(\(m\)/,"Web 材料附件仅显示当前类别的已录入文件");
 
 });
+
+test("手机号快捷登录前置页面使用产品品牌，不出现平台官方身份混淆文案",()=>{
+ const view=fs.readFileSync(path.join(__dirname,"../miniprogram/pages/bind/index.wxml"),"utf8");
+ const logic=fs.readFileSync(path.join(__dirname,"../miniprogram/pages/bind/index.js"),"utf8");
+ const title=JSON.parse(fs.readFileSync(path.join(__dirname,"../miniprogram/pages/bind/index.json"),"utf8"));
+ const account=fs.readFileSync(path.join(__dirname,"../miniprogram/pages/account/index.wxml"),"utf8");
+ assert.equal(title.navigationBarTitleText,"手机号快捷登录");
+ assert.match(view,/<button[^>]+open-type="getPhoneNumber"[^>]*>\s*手机号快捷登录\s*<\/button>/);
+ assert.match(view,/bindgetphonenumber="getPhoneNumber"/);
+ assert.match(view,/会规智云品牌标识/);
+ assert.match(view,/disabled="{{busy\|\|!consent}}"/);
+ assert.match(logic,/\/mini\/auth\/phone-bind/);
+ for(const source of [view,logic,account,JSON.stringify(title)])assert.doesNotMatch(source,/微信|腾讯|wechat-logo|weixin-logo/i);
+});
