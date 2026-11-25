@@ -69,7 +69,7 @@ function indexByName(list){
  return map;
 }
 function options(pid){
- const contracts=db.prepare("SELECT id,vendor,amount,category FROM contracts WHERE pid=? AND status='已签署' AND COALESCE(category,'')<>'企业赞助' ORDER BY id").all(pid);
+ const contracts=db.prepare("SELECT id,vendor,amount,category FROM contracts WHERE pid=? AND deleted_at IS NULL AND status='已签署' AND COALESCE(category,'')<>'企业赞助' ORDER BY id").all(pid);
  const labor=laborPayees(pid),byName=indexByName(labor),used=new Set();
  const rows=contracts.map(x=>{
   const base={id:"contract:"+x.id,label:x.vendor+"（"+x.category+"合同）",payee:x.vendor,
@@ -96,7 +96,7 @@ function options(pid){
 function resolve(pid,id){
  const value=String(id||"");
  if(value.startsWith("contract:")){
-  const x=db.prepare("SELECT vendor,amount,category FROM contracts WHERE id=? AND pid=? AND status='已签署' AND COALESCE(category,'')<>'企业赞助'").get(value.slice(9),pid);
+  const x=db.prepare("SELECT vendor,amount,category FROM contracts WHERE id=? AND pid=? AND deleted_at IS NULL AND status='已签署' AND COALESCE(category,'')<>'企业赞助'").get(value.slice(9),pid);
   if(!x)throw bad("选择的合同收款方不存在或未签署");
   if(x.category==="劳务专家"){
    const m=indexByName(laborPayees(pid)).get(normName(x.vendor));
