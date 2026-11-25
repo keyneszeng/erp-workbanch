@@ -66,7 +66,7 @@ async function run(){
  assert.match(file.suggestedFilename(),/\.pdf$/i);
  const bytes=fs.readFileSync(await file.path());
  const doc=await PDFDocument.load(bytes);
- assert.equal(doc.getPageCount(),2,"cover plus selected original");
+ assert.equal(doc.getPageCount(),3,"封面+项目台账第二页+勾选的原件");
  assert.match(doc.getKeywords()||"",/watermark:custom/);
  await page.goto(origin+"/#/archive");
  const archiveButton=page.locator('[data-archive-pdf="MP-2026-015"]').first();
