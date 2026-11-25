@@ -999,24 +999,18 @@ function migrate() {
     /* users 表为空或旧库缺列，忽略 */
   }
 
-  // V1.2.6：结算单金额定点自愈
-  // 旧版本 profit 是 `income - expense` 直接算的，浮点会留下尾巴
-  // （140000 - 135580.6 = 4419.399999999994），已经入库的老数据不会自己变干净，
-  // 导出 CSV 就是这一串小数。这里收敛到「分」，幂等，跑多少次结果一样。
-  // 注意是 ROUND(income - expense, 2)，不是 ROUND(income,2) - ROUND(expense,2) ——
-  // 后者相减又会把尾巴带回来。
+  // 结算余额按冻结预算与税费率计算，历史未存税费率时兼容项目费率。
+  // 幂等修正旧公式，不改结算原始预算、支出或费率快照。
   try {
-    db.exec(
-      `UPDATE settlements
-          SET income = ROUND(income, 2),
-              expense = ROUND(expense, 2),
-              profit = ROUND(income - expense, 2)
-        WHERE profit <> ROUND(income - expense, 2)
-           OR income <> ROUND(income, 2)
-           OR expense <> ROUND(expense, 2)`
-    );
+    const {settlementTotals}=require("./budget-fee");
+    const rows=db.prepare("SELECT s.*,p.tax_fee_rate AS project_rate FROM settlements s JOIN projects p ON p.id=s.pid").all();
+    const update=db.prepare("UPDATE settlements SET profit=? WHERE id=?");
+    for(const row of rows){
+      const value=settlementTotals(row,row.project_rate).profit;
+      if(row.profit!==value)update.run(value,row.id);
+    }
   } catch {
-    /* 旧库没有 settlements 表，忽略 */
+    /* 兼容旧库初始化 */
   }
 
   // 历史修复：旧版删除合同归档原件时，只软删了 materials，留下合同看板幽灵行。
