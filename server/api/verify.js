@@ -13,6 +13,7 @@ const { assertUploadAttachable } = require("../lib/upload-ownership");
 const { validateSopEvidence } = require("../lib/meeting-sop");
 const {sponsorRights}=require("../lib/sponsor-rights");
 const {buildSettlementBreakdown}=require("../lib/settlement-breakdown");
+const {settlementTotals}=require("../lib/budget-fee");
 const verifyOcr=require("../lib/verify-ocr-compare");
 const {photoName}=require("../lib/verify-agenda-evidence");
 const {detachDeletedMaterialEvidence}=require("../lib/deleted-material-cleanup");
@@ -715,14 +716,15 @@ function register(router) {
     const { sql, params } = require("../lib/rbac").scopeFilter(ctx.user);
     const base = `FROM settlements s JOIN projects p ON p.id = s.pid WHERE ${sql}`;
     const paging = readPaging(ctx.query);
+    const summarize=({project_rate,...row})=>settlementTotals(row,project_rate);
     if (!paging) {
-      const rows = db.prepare(`SELECT s.*, p.name, p.assoc, p.status AS pstatus ${base} ORDER BY s.created_at DESC`).all(...params);
+      const rows = db.prepare(`SELECT s.*, p.name, p.assoc, p.status AS pstatus, p.tax_fee_rate AS project_rate ${base} ORDER BY s.created_at DESC`).all(...params).map(summarize);
       return { rows, total: rows.length };
     }
     const total = countOf(db.prepare(`SELECT COUNT(*) AS c ${base}`).get(...params));
     const rows = db.prepare(
-      `SELECT s.*, p.name, p.assoc, p.status AS pstatus ${base} ORDER BY s.created_at DESC LIMIT ? OFFSET ?`
-    ).all(...params, paging.size, paging.offset);
+      `SELECT s.*, p.name, p.assoc, p.status AS pstatus, p.tax_fee_rate AS project_rate ${base} ORDER BY s.created_at DESC LIMIT ? OFFSET ?`
+    ).all(...params, paging.size, paging.offset).map(summarize);
     return { rows, total, page: paging.page, size: paging.size, pages: Math.max(1, Math.ceil(total / paging.size)), paged: true };
   });
 
