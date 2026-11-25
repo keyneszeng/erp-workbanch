@@ -45,6 +45,22 @@ function classifyMaterial(row){
  // explicitly entered a different material category.
  return OTHER;
 }
+/**
+ * The 15-category dossier order is an invariant, not a client preference.
+ * Preserve the source's native insertion order inside each category:
+ * business-owner originals before upload mirrors; SQLite rows already arrive
+ * by created_at/id or numeric material.id. A caller may rearrange files only
+ * within the same category.
+ */
+function sourceRank(source){
+ const kind=RANK.has(source.kind)?source.kind:classifyMaterial(source);
+ return RANK.get(kind)??RANK.get(OTHER);
+}
+function sortDossierSources(sources){
+ return sources.map((source,position)=>({source,position,rank:sourceRank(source)}))
+  .sort((a,b)=>a.rank-b.rank||a.position-b.position)
+  .map(x=>x.source);
+}
 function listArchiveSources(project){
  const pid=project.id,seen=new Set(),sources=[];
  function add(group,id,name,opts={}){
@@ -123,8 +139,7 @@ function listArchiveSources(project){
    });
   }
  }
- return sources.sort((a,b)=>(RANK.get(a.kind)??999)-(RANK.get(b.kind)??999)||
-  a.source_id.localeCompare(b.source_id,"zh-CN"));
+ return sortDossierSources(sources);
 }
 function publicSource(s){
  return {source_id:s.source_id,kind:s.kind,name:s.name,file_name:s.file_name,
@@ -181,4 +196,4 @@ async function pdfMaterials(project,selected,store){
  return {materials:mapped,store:{name:store.name,get:key=>cache.has(key)?
   Promise.resolve({buffer:cache.get(key),mime:"application/pdf"}):store.get(key)}};
 }
-module.exports={GROUPS,OTHER,classifyMaterial,listArchiveSources,publicSource,categorySummary,pdfMaterials,buildVirtualPdf,toPdfLines};
+module.exports={GROUPS,OTHER,classifyMaterial,sourceRank,sortDossierSources,listArchiveSources,publicSource,categorySummary,pdfMaterials,buildVirtualPdf,toPdfLines};
