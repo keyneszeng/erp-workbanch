@@ -7,31 +7,42 @@ import {renderSettlementBreakdown} from "../lib/settlement-breakdown.js";
 import { badge, bindPager, closeModal, confirmBox, esc, formHtml, modal, money, pager, panel, readForm, table, toast, validate } from "../lib/ui.js";
 
 
-/** One page for categories, amounts, checked payment state and voucher details. */
-function paymentOnePageTable(rows){
-  return table([
-    {t:"会议 / 付款单号"}, {t:"类目"}, {t:"金额",w:"110px",cls:"num"},
-    {t:"付款（勾选）",w:"160px"}, {t:"凭证详情",w:"148px"}
-  ],rows.map(y=>({
+/** 项目内付款明细；审批状态仅作为历史记录提示，不再作为筛选入口。 */
+function paymentOnePageTable(rows,options=[],pid=""){
+  const canPay=can("payment:pay");
+  const norm=v=>String(v||"").normalize("NFKC").replace(/\s+/g,"").trim();
+  // 已存在关联或同名历史付款的收款方不自动生成新付款事项，避免重复登记。
+  // 分期或同名多个合同须通过人工核对后的直接登记入口处理。
+  const active=rows.filter(y=>y.status!=="已驳回");
+  const candidates=options.filter(o=>Number(o.amount)>0&&!active.some(y=>
+    y.payee_source_id===o.id||(!y.payee_source_id&&norm(y.payee)===norm(o.payee))));
+  const existing=rows.map(y=>({
     attrs:' data-row="'+esc(y.id)+'" data-pid="'+esc(y.pid)+'"',
     c:[
-      '<a class="link" data-go="projects/'+esc(y.pid)+'">'+esc(y.pname)+'</a><div class="hint mono">'+esc(y.pid)+' · '+esc(y.id)+'</div>',
-      esc(y.type)+'<div class="hint">'+esc(y.payee)+(y.period?' · '+esc(y.period):'')+'</div>',
+      '<b>'+esc(y.payee)+'</b><div class="hint">'+esc(y.type)+(y.period?' · '+esc(y.period):'')+' · '+esc(y.id)+'</div>',
       '¥'+money(y.amount),
       y.status==="已付款"
-        ? '<label class="hint"><input type="checkbox" checked disabled aria-label="付款已完成"> 已付款</label><div class="hint">'+esc(y.paid_at||"")+'</div>'
-        : badge(y.status)+
-          (y.status==="已审批"&&can("payment:pay")?' <button class="link" data-pay="'+esc(y.id)+'">☐ 确认付款</button>':'')+
-          (y.status==="待审批"&&can("payment:approve")?'<div><button class="link" data-ok="'+esc(y.id)+'">审批</button> <button class="link danger" data-no="'+esc(y.id)+'">驳回</button></div>':''),
+        ? '<span class="hint">✓ 已付款</span><div class="hint">'+esc(y.paid_at||"")+'</div>'
+        : y.status==="已审批"&&canPay
+          ? '<button class="btn btn-p btn-sm" data-pay="'+esc(y.id)+'">确认已付款</button>'
+          : badge(y.status)+(y.status==="待审批"&&can("payment:approve")?'<div><button class="link" data-ok="'+esc(y.id)+'">审批</button> <button class="link danger" data-no="'+esc(y.id)+'">驳回</button></div>':""),
       y.receipt_file_key
-        ? can("payment:pay")
+        ? canPay
           ? '<a class="link" href="/api/uploads/'+encodeURIComponent(y.receipt_file_key)+'" target="_blank" rel="noopener">查看付款凭证</a><div class="hint">'+esc(y.receipt_file_name||"")+'</div>'
           : '<span class="hint">凭证已归档</span>'
-        : y.status==="已付款"&&can("payment:pay")
-          ? '<button class="link" data-receipt="'+esc(y.id)+'" data-pid="'+esc(y.pid)+'">上传文件</button>'
-          : '<span class="hint">付款后上传</span>'
+        : y.status==="已付款"&&canPay
+          ? '<button class="link" data-receipt="'+esc(y.id)+'" data-pid="'+esc(y.pid)+'">上传付款凭证</button>'
+          : y.status==="已审批"&&canPay?'<button class="link" data-pay="'+esc(y.id)+'">上传付款凭证</button>':'<span class="hint">付款后上传</span>'
     ]
-  })),{empty:"暂无付款记录"});
+  }));
+  const pending=candidates.map(o=>({c:[
+    '<b>'+esc(o.payee)+'</b><div class="hint">'+esc(o.label||"核销收款资料")+'</div>',
+    '¥'+money(o.amount),
+    canPay?'<button class="btn btn-p btn-sm" data-pay-source="'+esc(o.id)+'">确认已付款</button>':'<span class="hint">待登记付款</span>',
+    canPay?'<button class="link" data-pay-source="'+esc(o.id)+'">上传付款凭证</button>':'<span class="hint">待上传</span>'
+  ]}));
+  return table([{t:"收款方"},{t:"金额",w:"120px",cls:"num"},{t:"付款按钮",w:"160px"},{t:"凭证详情",w:"180px"}],
+    [...existing,...pending],{empty:"暂无付款明细，可核对合同及劳务资料后登记付款"});
 }
 function directPayForm(projects,focusPid,types){
   if(!projects.length)return '<div class="gate">当前没有已核销、可登记付款的项目。</div>';
@@ -57,9 +68,6 @@ function directPayForm(projects,focusPid,types){
     '<button type="button" class="btn btn-p" data-direct-submit>登记已付款并上传凭证</button></div></section>';
 }
 
-const PAGE_SIZE = 50;
-let filterStatus = "";
-let curPage = 1;
 // 只有「已核销」可由财务直接登记已付款，保留历史审批记录但不新增申请
 const PAYABLE = ["已核销"];
 
@@ -70,55 +78,37 @@ const PAYABLE = ["已核销"];
  */
 export async function render(root, params = []) {
   const focusPid = params[0] || "";
-  const qs = new URLSearchParams();
-  if (filterStatus) qs.set("status", filterStatus);
-  if (focusPid) qs.set("pid", focusPid);
-  qs.set("page", curPage);
-  qs.set("size", PAGE_SIZE);
-
-  // 表格状态筛选不能把顶部全局待审批/已付 KPI 也筛成 0。
-  const totalsQs = new URLSearchParams();
-  if (focusPid) totalsQs.set("pid", focusPid);
-  totalsQs.set("page", "1");
-  totalsQs.set("size", "1");
   const settlementReadable=state.super||state.role?.modules?.includes("finance")||can("settle:create");
-  const [pay, st, proj, allPay] = await Promise.all([
-    api.get("/api/payments?" + qs.toString()),
+  const [st,proj]=await Promise.all([
     settlementReadable?api.get("/api/settlements"):Promise.resolve({rows:[],total:0}),
-    api.get("/api/projects"),
-    filterStatus ? api.get("/api/payments?" + totalsQs.toString()) : Promise.resolve(null)
+    api.get("/api/projects")
   ]);
-  const payableProjects = proj.rows.filter((p) => PAYABLE.includes(p.status));
-  const financeDirect = can("payment:pay");
-  // Income API is permission protected: do not request it or offer navigation to unauthorized accounts.
-  const incomeReadable = state.user?.role==="finance" || ["contract:write","contract:approve","payment:pay","payment:approve"].some(perm=>can(perm));
-  // KPI 全部用后端全量汇总：pay.rows 只是当前页
-  const s = (allPay || pay).summary || { pending: 0, approved: 0, pendingAmount: 0, approvedAmount: 0, paidAmount: 0 };
-  const blocked = proj.rows.filter((p) => ["待核销", "执行中", "筹备中"].includes(p.status)).length;
-  // 定位态下后端汇总也被 pid 过滤了 —— 不标一句，用户会把「待审批 0 笔」当成全局没有待审批
-  const scopeNote = focusPid ? '<span style="font-weight:400;color:var(--mute)">（本项目）</span>' : "";
-
+  const payableProjects=(proj.rows||[]).filter(p=>PAYABLE.includes(p.status));
+  const selected=payableProjects.find(p=>p.id===focusPid);
+  const financeDirect=can("payment:pay");
+  const incomeReadable=state.user?.role==="finance"||["contract:write","contract:approve","payment:pay","payment:approve"].some(perm=>can(perm));
+  let pay={rows:[],total:0,summary:{}},options=[],detailsError="",optionsError="";
+  if(selected){
+    const result=await Promise.allSettled([
+      api.get("/api/payments?pid="+encodeURIComponent(selected.id)),
+      financeDirect||can("payment:create")?api.get("/api/projects/"+encodeURIComponent(selected.id)+"/payee-options"):Promise.resolve({rows:[]})
+    ]);
+    if(result[0].status==="fulfilled")pay=result[0].value;
+    else detailsError=result[0].reason?.message||"付款记录读取失败";
+    if(result[1].status==="fulfilled")options=result[1].value.rows||[];
+    else optionsError=result[1].reason?.message||"核销收款方资料读取失败";
+  }
+  const projectList=payableProjects.length?payableProjects.map(p=>
+    '<button type="button" class="btn '+(p.id===selected?.id?'btn-p':'btn-o')+'" data-go="finance/'+esc(p.id)+'" aria-pressed="'+(p.id===selected?.id)+'" style="width:100%;justify-content:space-between;text-align:left;white-space:normal;gap:12px;padding:12px 16px"><span><b>'+esc(p.name)+'</b><br><span style="font-size:12px;opacity:.8">'+esc(p.id)+' · '+esc(p.assoc||"")+'</span></span><span>查看付款明细 ›</span></button>'
+  ).join(""):'<div class="empty">当前账号范围内暂无已核销会议</div>';
   root.innerHTML = `<div class="phead">
       <div><h2>会议收入、付款与结算</h2><p>按会议编号归集付款与结算；具有付款执行权限的人员在核销通过后可直接登记已付款并上传凭证，无需先发起付款申请。</p></div>
       <div class="acts">
         ${state.super ? '<button class="btn btn-o" data-go="project-ledger">项目台账</button>' : ""}
         ${can("export:any") ? `<button class="btn btn-o" id="expPay">导出付款明细</button>
         ${settlementReadable?'<button class="btn btn-o" id="expSt">导出结算汇总</button>':""}` : ""}
-        ${financeDirect ? '<button class="btn btn-p" id="goDirectPay">+ 财务直接付款</button>' : ""}
+
       </div>
-    </div>
-
-    ${focusPid ? `<div class="locate">已定位到项目 <b class="mono">${esc(focusPid)}</b> 的付款记录
-      <button class="link" data-go="finance">查看全部付款</button></div>` : ""}
-
-    <div class="grid g4">
-      <div class="kpi k3"><div class="t">待审批${scopeNote}</div><div class="v">${s.pending}<span class="u">笔</span></div>
-        <div style="font-size:12px;color:var(--sub);margin-top:4px">¥${money(s.pendingAmount)}</div></div>
-      <div class="kpi"><div class="t">已审批待付${scopeNote}</div><div class="v">${s.approved}<span class="u">笔</span></div>
-        <div style="font-size:12px;color:var(--sub);margin-top:4px">¥${money(s.approvedAmount)}</div></div>
-      <div class="kpi k2"><div class="t">已登记付款${scopeNote}</div><div class="v">¥${money(s.paidAmount)}</div></div>
-      <div class="kpi k4"><div class="t">范围内未核销项目</div><div class="v">${blocked}<span class="u">个项目</span></div>
-        <div style="font-size:12px;color:var(--sub);margin-top:4px">按当前账号可见的项目统计</div></div>
     </div>
 
     ${incomeReadable ? '<div id="incomeWorkbench"></div>' : ""}
@@ -129,12 +119,15 @@ export async function render(root, params = []) {
      </div>
     <div class="ux-finance-rule">适用核销项通过 → 财务核实线下付款 → 勾选已付并上传银行回单 → 付款与凭证登记 → 结算。历史审批单仍保留原审批流程。</div>
     <div class="panel mt" id="fin-payments">
-      <div class="panel-h"><h2>付款记录</h2><div><span class="hint">共 ${pay.total} 笔</span></div></div>
-      <div class="tabs">${["", "待审批", "已审批", "已付款", "已驳回"].map((x) =>
-        `<button data-st="${x}" class="${filterStatus === x ? "on" : ""}">${x || "全部"}</button>`).join("")}</div>
-      ${financeDirect ? directPayForm(payableProjects,focusPid,state.meta?.paymentTypes||[]) : ""}
-      ${paymentOnePageTable(pay.rows)}
-      ${pager(pay, { unit: "笔" })}
+      <div class="panel-h"><h2>付款记录</h2><span class="hint">已核销会议 · ${payableProjects.length} 场</span></div>
+      <div class="hint" style="margin-bottom:10px">仅展示当前账号授权范围内、已完成核销且尚未结算的会议。选择会议后查看付款明细。</div>
+      <div id="paymentProjects" style="display:grid;gap:8px;max-height:360px;overflow:auto">${projectList}</div>
+      ${selected?`<section id="paymentDetails" style="margin-top:18px">
+        <div class="panel-h"><h3>${esc(selected.name)} · 付款明细表</h3>${financeDirect&&!detailsError?'<button class="btn btn-o btn-sm" id="goDirectPay">+ 登记其他付款</button>':""}</div>
+        ${detailsError?'<div class="gate">'+esc(detailsError)+'，请刷新后重试。</div>':
+          (optionsError?'<div class="hint">'+esc(optionsError)+'；已登记记录仍可查看。</div>':"")+paymentOnePageTable(pay.rows||[],options,selected.id)}
+        ${financeDirect&&!detailsError?`<details id="paymentDirectPanel" style="margin-top:12px"><summary style="cursor:pointer">登记付款 · 核对收款方并上传凭证</summary>${directPayForm([selected],selected.id,state.meta?.paymentTypes||[])}</details>`:""}
+      </section>`:'<div class="hint" style="padding:20px 0;text-align:center">请选择会议项目查看付款明细。</div>'}
     </div>
 
     <div class="panel" id="fin-settlements" ${settlementReadable?"":"hidden"}>
@@ -158,15 +151,13 @@ export async function render(root, params = []) {
 
   if (incomeReadable) renderIncomeWorkbench(root.querySelector("#incomeWorkbench"),
     proj.rows.filter(p=>!["已归档"].includes(p.status)),focusPid).catch(e=>toast(e.message,"warn"));
-  bindPager(root, (n) => { curPage = n; render(root, params); });
-  root.querySelectorAll("[data-st]").forEach((b) => b.onclick = () => { filterStatus = b.dataset.st; curPage = 1; render(root, params); });
   root.querySelectorAll("[data-finance-jump]").forEach(b=>b.onclick=()=>{
     root.querySelectorAll("[data-finance-jump]").forEach(x=>x.classList.toggle("active",x===b));
     root.querySelector("#"+b.dataset.financeJump)?.scrollIntoView({behavior:"smooth",block:"start"});
   });
-  root.querySelectorAll("[data-ok]").forEach((b) => b.onclick = () => act(root, b.dataset.ok, "approve"));
-  root.querySelectorAll("[data-no]").forEach((b) => b.onclick = () => act(root, b.dataset.no, "reject"));
-  root.querySelectorAll("[data-pay]").forEach((b) => b.onclick = () => act(root, b.dataset.pay, "pay"));
+  root.querySelectorAll("[data-ok]").forEach((b) => b.onclick = () => act(root, b.dataset.ok, "approve",params));
+  root.querySelectorAll("[data-no]").forEach((b) => b.onclick = () => act(root, b.dataset.no, "reject",params));
+  root.querySelectorAll("[data-pay]").forEach((b) => b.onclick = () => act(root, b.dataset.pay, "pay",params));
   // 「登记账户」已并入执行付款弹窗（payment-execution.js），列表不再单独提供入口。
   const settleSlot=root.querySelector("#settlementDetail");
   root.querySelectorAll("[data-settlement-detail]").forEach(button=>button.onclick=async()=>{
@@ -196,11 +187,26 @@ export async function render(root, params = []) {
   if (ep) ep.onclick = () => openPaymentExport(focusPid);
   const es = root.querySelector("#expSt");
   if (es) es.onclick = () => dl("/api/export/settlements");
-  root.querySelector("#goDirectPay")?.addEventListener("click",()=>root.querySelector("#financeDirect")?.scrollIntoView({behavior:"smooth",block:"start"}));
+  const directPanel=root.querySelector("#paymentDirectPanel");
+  const revealForm=()=>{if(directPanel){directPanel.open=true;directPanel.scrollIntoView({behavior:"smooth",block:"nearest"});}};
+  root.querySelector("#goDirectPay")?.addEventListener("click",revealForm);
   const form=root.querySelector("#financeDirect");
   if(form){
     const select=form.querySelector('[name="pid"]');
-    bindPayeePicker(form,select.value,true).catch(e=>toast("收款方资料加载失败："+e.message,"warn"));
+    const ready=bindPayeePicker(form,select.value,false).catch(e=>toast("收款方资料加载失败："+e.message,"warn"));
+    root.querySelectorAll("[data-pay-source]").forEach(b=>b.onclick=async()=>{
+      revealForm();await ready;
+      const source=options.find(o=>o.id===b.dataset.paySource);
+      const picker=form.querySelector('[name="payee_option_id"]');
+      if(!source||!Array.from(picker.options).some(o=>o.value===source.id)){toast("收款方资料已变化，请刷新后重试","warn");return;}
+      picker.value=source.id;picker.dispatchEvent(new Event("change"));
+      form.querySelector('[name="amount"]').value=source.amount;
+      if(source.source==="labor"||String(source.label).includes("劳务专家"))
+        form.querySelector('[name="type"]').value="专家费";
+      else form.querySelector('[name="type"]').value="学会公付";
+      form.querySelector("[data-direct-paid]").checked=false;
+      form.querySelector("[data-direct-voucher]").value="";
+    });
     const btn=form.querySelector("[data-direct-submit]");
     btn.onclick=async()=>{
       const pid=select.value,confirmed=form.querySelector("[data-direct-paid]").checked;
@@ -228,15 +234,8 @@ export async function render(root, params = []) {
   }
   root.querySelectorAll("[data-receipt]").forEach(b=>b.onclick=()=>openPaymentVoucher(b.dataset.receipt,b.dataset.pid,()=>render(root,params)));
 
-  if (focusPid) {
-    const row = root.querySelector(`tr[data-pid="${focusPid}"]`);
-    if (row) {
-      row.classList.add("row-focus");
-      row.scrollIntoView({ block: "center", behavior: "smooth" });
-    } else {
-      toast("该项目当前没有付款记录", "warn");
-    }
-  }
+  if(selected)root.querySelector("#paymentDetails")?.scrollIntoView({block:"nearest",behavior:"smooth"});
+  else if(focusPid)toast("该会议不在当前账号已核销待结算列表内","warn");
 }
 
 /**
@@ -330,15 +329,15 @@ async function dl(path) {
   catch (e) { toast(e.message, "warn"); }
 }
 
-async function act(root, id, kind) {
+async function act(root, id, kind, params=[]) {
   try {
     if (kind === "pay") {
-      return openPaymentExecution(id,()=>render(root));
+      return openPaymentExecution(id,()=>render(root,params));
     } else {
       const r = await api.post(`/api/payments/${id}/approve`, { approve: kind === "approve" });
       toast(r.message, "ok");
     }
-    await render(root);
+    await render(root,params);
   } catch (e) { toast(e.message, "warn"); }
 }
 
