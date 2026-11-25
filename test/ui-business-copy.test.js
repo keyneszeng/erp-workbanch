@@ -28,10 +28,10 @@ test("财务页显示企业赞助收入、分期期次并明确银行不自动�
   assert.match(finance,/data-finance-jump="fin-settlements">结算与归档/);
   assert.match(finance,/const incomeReadable\s*=\s*/);
   assert.match(finance,/if \(incomeReadable\) renderIncomeWorkbench/);
-  assert.match(finance,/付款（勾选）/);
+  assert.match(finance,/确认已付款/);
   assert.match(finance,/凭证详情/);
-  assert.match(finance,/期次（分期付款填）/);
-  assert.match(finance,/银行转账/);
+  assert.doesNotMatch(finance,/paymentDirectPanel|financeDirect"/);
+  assert.match(finance,/实际付款/);
   assert.doesNotMatch(finance,/未通过 6 步核销/);
   assert.match(src("web/assets/js/pages/project.js"),/y\.period/);
 });
@@ -78,7 +78,7 @@ test("财务直接付款可查看已关联收款方资料，合同与劳务均�
  assert.match(picker,/changeChoice\(\)/);
  assert.match(picker,/seq/);
  assert.doesNotMatch(project,/#addPay|async function openPay\(/);
- assert.match(finance,/bindPayeePicker\(form,select\.value,false\)/);
+ assert.match(finance,/data-source-evidence/);
  assert.match(src("server/lib/verified-payees.js"),/maskedAccount:"尾号 "\+account\.slice\(-4\)/);
 });
 
@@ -102,9 +102,9 @@ test("核销劳务收款方自动关联开户行及加密银行账号，无需�
  assert.match(exec,/name="payee_bank"/);
  assert.match(exec,/name="payee_account"/);
  assert.match(exec,/\/account/);
- assert.match(finance,/name="payee_account"/);
- assert.match(finance,/data-direct-voucher/);
- assert.match(finance,/data-direct-paid/);
+ assert.doesNotMatch(finance,/name="payee_account"/);
+ assert.match(finance,/data-receipt/);
+ assert.match(finance,/confirm_paid:true/);
  assert.doesNotMatch(project,/name="payee_account"/);
  assert.doesNotMatch(picker,/account_cipher|reveal\(/);
 });
@@ -233,4 +233,17 @@ test("付款记录先展示已核销会议，选择后加载四列明细，不�
  assert.doesNotMatch(finance,/data-st=|filterStatus/);
  assert.match(finance,/data-pay-source/);
  assert.match(finance,/查看付款凭证/);
+});
+
+test("会议付款明细逐行确认付款，不弹出登记信息；关联文件独立查看",()=>{
+ const finance=src("web/assets/js/pages/finance.js");
+ const service=src("server/api/finance.js");
+ assert.doesNotMatch(finance,/directPayForm|paymentDirectPanel|openPaymentExecution/);
+ assert.match(finance,/data-pay-evidence/);
+ assert.match(finance,/data-source-evidence/);
+ assert.match(finance,/showPaymentEvidence/);
+ assert.match(finance,/confirm_paid:true/);
+ assert.match(service,/sourceConfirm/);
+ assert.match(service,/payee-evidence/);
+ assert.match(service,/settlementOf\(p.id\)/);
 });
