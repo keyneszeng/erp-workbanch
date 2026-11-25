@@ -21,8 +21,9 @@ async function req(cookie,method,url,body){
  const ct=res.headers.get("content-type")||"";
  return {status:res.status,res,data:ct.includes("json")?await res.json():null};
 }
-async function pdf(){
- const pdf=await PDFDocument.create();pdf.addPage([240,300]);return Buffer.from(await pdf.save());
+async function pdf(i=0){
+ const pdf=await PDFDocument.create();pdf.addPage([240+i*11,300+i*13]);
+ pdf.setTitle("测试业务原件 "+i);return Buffer.from(await pdf.save());
 }
 function put(key,bytes){
  const folder=path.join(uploadDir,key.slice(0,2));
@@ -42,7 +43,6 @@ before(async()=>{
  assert.ok(ready,"server started");
  [admin,assoc,execUser]=await Promise.all(["admin","assoc","exec"].map(auth));
  db=new DatabaseSync(dbFile);db.exec("PRAGMA busy_timeout=5000");
- const content=await pdf();
  const keys=[
   "11111111111111111111111111111111.pdf",
   "22222222222222222222222222222222.pdf",
@@ -50,7 +50,9 @@ before(async()=>{
   "44444444444444444444444444444444.pdf",
   "55555555555555555555555555555555.pdf"
  ];
- for(const key of keys)put(key,content);
+ const contents=await Promise.all(keys.map((_,i)=>pdf(i)));
+ keys.forEach((key,i)=>put(key,contents[i]));
+ const content=contents[0];
  db.prepare("INSERT INTO meeting_sponsor_contracts (id,pid,enterprise,contract_no,amount,status,file_key,file_name,created_at) VALUES (?,?,?,?,?,?,?,?,?)")
    .run("SC-AUTO-001",pid,"甲赞助企业","ZZ-1001",20000,"已签署",keys[0],"赞助合同.pdf","2026-10-01");
  db.prepare("INSERT INTO meeting_sponsor_receipts (id,pid,sponsor_id,amount,payment_ref,received_date,file_key,file_name,created_at) VALUES (?,?,?,?,?,?,?,?,?)")
@@ -60,9 +62,9 @@ before(async()=>{
  db.prepare("INSERT INTO materials (pid,kind,name,version,uploader,created_at,file_key,file_name,file_size,file_mime) VALUES (?,?,?,?,?,?,?,?,?,?)")
    .run(pid,"合同","被赞助库镜像的合同","v1","测试","2026-10-04",keys[0],"重复原件.pdf",content.length,"application/pdf");
  db.prepare("INSERT INTO materials (pid,kind,name,version,uploader,created_at,file_key,file_name,file_size,file_mime) VALUES (?,?,?,?,?,?,?,?,?,?)")
-   .run(pid,"现场照片","现场照片原件","v1","测试","2026-10-04",keys[3],"现场照片.pdf",content.length,"application/pdf");
+   .run(pid,"现场照片","现场照片原件","v1","测试","2026-10-04",keys[3],"现场照片.pdf",contents[3].length,"application/pdf");
  db.prepare("INSERT INTO materials (pid,kind,name,version,uploader,created_at,file_key,file_name,file_size,file_mime,deleted_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)")
-   .run(pid,"课件","废件课件","v1","测试","2026-10-04",keys[4],"已删除.pdf",content.length,"application/pdf","2026-10-05");
+   .run(pid,"课件","废件课件","v1","测试","2026-10-04",keys[4],"已删除.pdf",contents[4].length,"application/pdf","2026-10-05");
  // Real payable records already exist in the seeded meeting. Test the archive
  // never changes any paid amount or status while exporting.
 });
@@ -88,7 +90,7 @@ test("默认15类目录顺序严格一致；跨业务表自动关联并对同一
  assert.ok(rows.every(s=>!("file_key" in s)&&!("token_hash" in s)), "no internal file keys exposed");
  assert.equal(data.project.id,pid);
 });
-test("自动来源跨库PDF按预设顺序合并并可调整，水印与历史下载保持兼容",async()=>{
+test("自动来源跨库PDF即使前端顺序错误也按固定15类合并，水印与旧接口兼容",async()=>{
  const opts=(await req(admin,"GET",projectUrl+"/archive-pdf/options")).data;
  const ids=["auto:notice","auto:description",
   "sponsor-contract:SC-AUTO-001","sponsor-receipt:SR-AUTO-001","sponsor-invoice:SI-AUTO-001"];
@@ -107,6 +109,35 @@ test("自动来源跨库PDF按预设顺序合并并可调整，水印与历史�
  assert.equal(body.status,200,"association administrator with archive permission can download own project");
  const old=await req(admin,"POST",projectUrl+"/archive-pdf",{categories:["现场照片"]});
  assert.equal(old.status,200,"legacy category API remains compatible");
+});
+test("PDF严格执行15类固定优先级：即便source_ids反序，合并后的原件页面仍按赞助合同、进款回单、赞助发票排序",async()=>{
+ const reverse=["sponsor-invoice:SI-AUTO-001","sponsor-receipt:SR-AUTO-001","sponsor-contract:SC-AUTO-001"];
+ const result=await req(admin,"POST",projectUrl+"/archive-pdf",{source_ids:reverse,watermark_mode:"none"});
+ assert.equal(result.status,200,JSON.stringify(result.data));
+ const doc=await PDFDocument.load(await result.res.arrayBuffer());
+ assert.equal(doc.getPageCount(),4,"封面 + 三份不同原件，各一页");
+ assert.deepEqual(doc.getPages().slice(1).map(p=>[p.getWidth(),p.getHeight()]),
+  [[240,300],[251,313],[262,326]],"绝不可按用户提交的跨类ID次序输出");
+ assert.match(doc.getKeywords()||"",/source-count:3/);
+});
+test("PDF按真实原件内容SHA256去重，覆盖不同文件键及不同材料登记记录",async()=>{
+ const duplicateKey="66666666666666666666666666666666.pdf";
+ const original=fs.readFileSync(path.join(uploadDir,"11","11111111111111111111111111111111.pdf"));
+ put(duplicateKey,original);
+ db.prepare("INSERT INTO materials(pid,kind,name,version,uploader,created_at,file_key,file_name,file_size,file_mime) VALUES(?,?,?,?,?,?,?,?,?,?)")
+  .run(pid,"赞助合同","第二次上传的同一赞助合同","v2","测试","2026-10-08",duplicateKey,"第二次上传.pdf",original.length,"application/pdf");
+ const extra=db.prepare("SELECT id FROM materials WHERE pid=? AND file_key=?").get(pid,duplicateKey);
+ assert.ok(extra?.id);
+ const selected=["sponsor-contract:SC-AUTO-001","material:"+extra.id,
+  "sponsor-receipt:SR-AUTO-001"];
+ const result=await req(admin,"POST",projectUrl+"/archive-pdf",{source_ids:selected,watermark_mode:"none"});
+ assert.equal(result.status,200,JSON.stringify(result.data));
+ const doc=await PDFDocument.load(await result.res.arrayBuffer());
+ assert.equal(doc.getPageCount(),3,"封面 + 合同一次 + 进款凭证一次，合同不重复拼页");
+ assert.match(doc.getKeywords()||"",/source-count:2/);
+ const embedded=doc.catalog.lookup(require("pdf-lib").PDFName.of("Names"))
+  ?.lookup(require("pdf-lib").PDFName.of("EmbeddedFiles"));
+ assert.ok(embedded,"合并结果保留原件附件，重复上传不会生成第二套可见页");
 });
 test("仅能选择本会议来源；重复、伪造源ID和跨会议均拒绝",async()=>{
  for(const badList of [[],["sponsor-contract:SC-AUTO-001","sponsor-contract:SC-AUTO-001"],
@@ -146,7 +177,7 @@ test("生成有效 PPTX，首页有会议名称时间协会，第二页为真实
  assert.equal(JSON.stringify(db.prepare("SELECT id,payee,amount FROM payments WHERE pid=?").all(pid)),before,
   "downloading PPT must never modify financial records");
 });
-test("付款明细只占第二页，后续严格按材料下载所选的业务来源顺序",async()=>{
+test("付款明细只占第二页，后续按15类固定目录顺序，不允许跨类重排",async()=>{
  const selected=["sponsor-invoice:SI-AUTO-001","sponsor-contract:SC-AUTO-001",
   "auto:description","auto:notice","sponsor-receipt:SR-AUTO-001"];
  const response=await req(admin,"POST",projectUrl+"/archive-pptx",{source_ids:selected});
@@ -157,7 +188,7 @@ test("付款明细只占第二页，后续严格按材料下载所选的业务�
   .sort((a,b)=>Number(a.match(/slide(\d+)\.xml/)[1])-Number(b.match(/slide(\d+)\.xml/)[1]))
   .slice(2).map(n=>zip.file(n).asText());
  assert.equal(material.length,5,"each sample PDF has one page, virtual summaries render as slide text");
- const expected=["赞助企业合同关联发票","赞助企业合同","会议说明书","立项通知","进款凭证"];
+ const expected=["立项通知","会议说明书","赞助企业合同","进款凭证","赞助企业合同关联发票"];
  expected.forEach((label,i)=>assert.ok(material[i].includes(label),"material "+(i+3)+": "+label));
  for(const part of material)assert.ok(!part.includes("付款明细对照表"),
   "the payment table must not reappear on material pages");
