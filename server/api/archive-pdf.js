@@ -6,6 +6,7 @@ const {bad,forbidden,conflict}=require("../lib/util");
 const {storage}=require("../lib/storage");
 const {logAudit}=require("../lib/audit");
 const {buildSelectedMaterialsPdf}=require("../lib/material-export-pdf");
+const {buildDetail}=require("./project-ledger");
 const archiveIndex=require("../lib/archive-material-index");
 const {buildPaymentPptx}=require("../lib/archive-payment-pptx");
 const {materialSlides}=require("../lib/archive-ppt-materials");
@@ -122,8 +123,11 @@ function register(router){
    const watermark=parseWatermark(ctx.user,supplied);
    const generatedAt=new Date().toISOString().replace("T"," ").slice(0,19)+" UTC";
    const text=watermark.mode==="default"?"操作员："+String(ctx.user.name||ctx.user.username||"未知")+"  时间："+generatedAt:watermark.text;
+   // Read the exact 项目台账 snapshot (settlement + categorized payments);
+   // never recompute a parallel financial summary inside the PDF exporter.
+   const ledgerDetail=buildDetail(project.id,ctx.user);
    const pdf=await buildSelectedMaterialsPdf({
-     project,materials:materialRows,watermark:{mode:watermark.mode,text}
+     project,materials:materialRows,ledgerDetail,watermark:{mode:watermark.mode,text}
    },downloadStore);
    logAudit({user:ctx.user,module:"档案中心",action:"自动归集材料PDF下载",target:project.id,
      detail:"所选类别："+[...new Set(materialRows.map(m=>m.kind))].join("、")+
