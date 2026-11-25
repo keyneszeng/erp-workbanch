@@ -202,3 +202,40 @@ test("劳务收集表类别退役：新上传规范为劳务表，旧原件仍�
     {kind:"劳务表",name:"新名称重新启用成功"});
   assert.equal(resumed.status,200,JSON.stringify(resumed.data));
 });
+
+
+test("合同和会务协议已退出材料收集推荐类别且无法通过自定义上传；历史材料仍保留",async()=>{
+ const {DatabaseSync}=require("node:sqlite");
+ const {MATERIAL_KINDS,RETIRED_MATERIAL_KINDS}=require("../server/lib/constants");
+ assert.deepEqual(RETIRED_MATERIAL_KINDS,["合同","会务协议"]);
+ assert.ok(!MATERIAL_KINDS.includes("合同")&&!MATERIAL_KINDS.includes("会务协议"));
+ const admin=client(await login("admin"));
+ const list=await admin("GET","/api/projects");
+ const p=list.data.rows.find(r=>r.status==="筹备中");
+ assert.ok(p,"测试数据应存在可以录入材料的筹备项目");
+ const overview=await admin("GET","/api/materials");
+ assert.equal(overview.status,200);
+ assert.ok(!overview.data.kinds.includes("合同")&&!overview.data.kinds.includes("会务协议"));
+ const details=await admin("GET","/api/projects/"+p.id+"/material-workbench");
+ assert.equal(details.status,200);
+ assert.ok(!details.data.kinds.includes("合同")&&!details.data.kinds.includes("会务协议"));
+ for(const kind of ["合同","会务协议"]){
+  const r=await admin("POST","/api/projects/"+p.id+"/materials",{
+   kind,name:kind+"伪造材料.pdf"
+  });
+  assert.equal(r.status,400,kind+" 不可用自定义类别重新录入");
+  assert.match(JSON.stringify(r.data),/合同/);
+ }
+ const db=new DatabaseSync(DB);
+ const marker="历史会务协议资料-只读回归-"+Date.now();
+ const result=db.prepare("INSERT INTO materials(pid,kind,name,version,uploader,created_at) VALUES (?,?,?,?,?,?)")
+  .run(p.id,"会务协议",marker,"v1","历史测试","2026-10-01 10:00:00");
+ db.close();
+ const after=await admin("GET","/api/projects/"+p.id);
+ assert.equal(after.status,200);
+ assert.ok(after.data.materials.some(x=>Number(x.id)===Number(result.lastInsertRowid)&&
+  x.kind==="会务协议"&&x.name===marker),"旧材料应继续出现在项目详情接口供只读展示");
+ const center=await admin("GET","/api/materials?pid="+p.id);
+ assert.ok(center.data.rows.some(x=>Number(x.id)===Number(result.lastInsertRowid)),
+  "材料目录保留历史文件，不做软删除和数据迁移");
+});
