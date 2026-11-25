@@ -138,4 +138,13 @@ const RETIRED_MATERIAL_KINDS = ["合同","会务协议","劳务协议",
 function canonicalMaterialKind(kind) {
   return kind === "劳务收集表" ? "劳务表" : kind;
 }
-module.exports = { ASSOCS, FORMS, DEPTS, USER_DEPTS, PAYMENT_TYPES, VERIFY_STEPS, MATERIAL_KINDS, RETIRED_MATERIAL_KINDS, MATERIAL_MODULE_KINDS, canonicalMaterialKind, CONTRACT_CATEGORIES, guessContractCategory, FLOW, STATUS_DESC, DEMAND_GROUPS, DEMAND_TEMPLATE, DEMAND_NEED_OPTIONS, DEMAND_STATUSES };
+/** 单一项目类别目录：Web 与小程序共用，停用类别只保留历史查看。 */
+function materialCategoryCatalog(have=[],disabled=[]) {
+  const blocked=new Set(disabled.map(canonicalMaterialKind));
+  const normal=k=>canonicalMaterialKind(String(k||"").trim());
+  const valid=k=>k&&!RETIRED_MATERIAL_KINDS.includes(k);
+  const active=[...new Set(MATERIAL_KINDS.map(normal))].filter(k=>valid(k)&&!blocked.has(k));
+  const history=[...new Set(have.map(normal))].filter(k=>valid(k)&&!active.includes(k)).sort();
+  return {active,history,disabled:[...blocked].filter(valid),all:[...active,...history]};
+}
+module.exports = { materialCategoryCatalog, ASSOCS, FORMS, DEPTS, USER_DEPTS, PAYMENT_TYPES, VERIFY_STEPS, MATERIAL_KINDS, RETIRED_MATERIAL_KINDS, MATERIAL_MODULE_KINDS, canonicalMaterialKind, CONTRACT_CATEGORIES, guessContractCategory, FLOW, STATUS_DESC, DEMAND_GROUPS, DEMAND_TEMPLATE, DEMAND_NEED_OPTIONS, DEMAND_STATUSES };
