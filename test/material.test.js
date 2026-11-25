@@ -204,27 +204,27 @@ test("劳务收集表类别退役：新上传规范为劳务表，旧原件仍�
 });
 
 
-test("合同和会务协议已退出材料收集推荐类别且无法通过自定义上传；历史材料仍保留",async()=>{
+test("合同、会务协议与劳务协议均不能从材料收集新增，旧资料仍保留",async()=>{
  const {DatabaseSync}=require("node:sqlite");
  const {MATERIAL_KINDS,RETIRED_MATERIAL_KINDS}=require("../server/lib/constants");
- assert.deepEqual(RETIRED_MATERIAL_KINDS,["合同","会务协议"]);
- assert.ok(!MATERIAL_KINDS.includes("合同")&&!MATERIAL_KINDS.includes("会务协议"));
+ assert.ok(["合同","会务协议","劳务协议","企业赞助合同"].every(kind=>RETIRED_MATERIAL_KINDS.includes(kind)));
+ assert.ok(["合同","会务协议","劳务协议","企业赞助合同"].every(kind=>!MATERIAL_KINDS.includes(kind)));
  const admin=client(await login("admin"));
  const list=await admin("GET","/api/projects");
  const p=list.data.rows.find(r=>r.status==="筹备中");
  assert.ok(p,"测试数据应存在可以录入材料的筹备项目");
  const overview=await admin("GET","/api/materials");
  assert.equal(overview.status,200);
- assert.ok(!overview.data.kinds.includes("合同")&&!overview.data.kinds.includes("会务协议"));
+ assert.ok(["合同","会务协议","劳务协议","企业赞助合同"].every(kind=>!overview.data.kinds.includes(kind)));
  const details=await admin("GET","/api/projects/"+p.id+"/material-workbench");
  assert.equal(details.status,200);
- assert.ok(!details.data.kinds.includes("合同")&&!details.data.kinds.includes("会务协议"));
- for(const kind of ["合同","会务协议"]){
+ assert.ok(["合同","会务协议","劳务协议","企业赞助合同"].every(kind=>!details.data.kinds.includes(kind)));
+ for(const kind of ["合同","会务协议","劳务协议","企业赞助合同","劳务专家合同"]){
   const r=await admin("POST","/api/projects/"+p.id+"/materials",{
    kind,name:kind+"伪造材料.pdf"
   });
   assert.equal(r.status,400,kind+" 不可用自定义类别重新录入");
-  assert.match(JSON.stringify(r.data),/合同/);
+  assert.match(JSON.stringify(r.data),/合同|协议/);
  }
  const db=new DatabaseSync(DB);
  const marker="历史会务协议资料-只读回归-"+Date.now();
