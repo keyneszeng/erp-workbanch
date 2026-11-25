@@ -101,7 +101,7 @@ test("自动来源跨库PDF即使前端顺序错误也按固定15类合并，水
  assert.equal(result.status,200,JSON.stringify(result.data));
  assert.match(result.res.headers.get("content-type"),/application\/pdf/);
  const document=await PDFDocument.load(await result.res.arrayBuffer());
- assert.ok(document.getPageCount()>=6,"cover and five source pages");
+ assert.ok(document.getPageCount()>=7,"封面、项目台账第二页、五份资料原件");
  assert.match(document.getKeywords()||"",/source-count:5/);
  const body=await req(assoc,"POST",projectUrl+"/archive-pdf",{
   source_ids:["sponsor-contract:SC-AUTO-001"],watermark_mode:"default"
@@ -115,8 +115,8 @@ test("PDF严格执行15类固定优先级：即便source_ids反序，合并后�
  const result=await req(admin,"POST",projectUrl+"/archive-pdf",{source_ids:reverse,watermark_mode:"none"});
  assert.equal(result.status,200,JSON.stringify(result.data));
  const doc=await PDFDocument.load(await result.res.arrayBuffer());
- assert.equal(doc.getPageCount(),4,"封面 + 三份不同原件，各一页");
- assert.deepEqual(doc.getPages().slice(1).map(p=>[p.getWidth(),p.getHeight()]),
+ assert.equal(doc.getPageCount(),5,"封面 + 项目台账 + 三份不同原件，各一页");
+ assert.deepEqual(doc.getPages().slice(2).map(p=>[p.getWidth(),p.getHeight()]),
   [[240,300],[251,313],[262,326]],"绝不可按用户提交的跨类ID次序输出");
  assert.match(doc.getKeywords()||"",/source-count:3/);
 });
@@ -133,7 +133,7 @@ test("PDF按真实原件内容SHA256去重，覆盖不同文件键及不同材�
  const result=await req(admin,"POST",projectUrl+"/archive-pdf",{source_ids:selected,watermark_mode:"none"});
  assert.equal(result.status,200,JSON.stringify(result.data));
  const doc=await PDFDocument.load(await result.res.arrayBuffer());
- assert.equal(doc.getPageCount(),3,"封面 + 合同一次 + 进款凭证一次，合同不重复拼页");
+ assert.equal(doc.getPageCount(),4,"封面 + 项目台账 + 合同一次 + 进款凭证一次，合同不重复拼页");
  assert.match(doc.getKeywords()||"",/source-count:2/);
  const embedded=doc.catalog.lookup(require("pdf-lib").PDFName.of("Names"))
   ?.lookup(require("pdf-lib").PDFName.of("EmbeddedFiles"));
