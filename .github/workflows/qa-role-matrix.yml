@@ -1,0 +1,35 @@
+name: ERP five-role black-box
+on:
+  push:
+    branches:
+      - main
+      - 'fix/**'
+      - 'feat/**'
+  pull_request:
+    branches:
+      - main
+permissions:
+  contents: read
+jobs:
+  chrome-role-button-matrix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Install Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install browser dependencies
+        run: npm install --no-save --no-package-lock --no-audit --no-fund playwright
+      - name: Browser black-box across five roles and all accessible menus
+        run: node test/ui/role-button-blackbox.js
+      - name: Preserve screenshots and full button inventory
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: five-role-chrome-evidence
+          path: artifacts/live-regression/
+          if-no-files-found: ignore
+          retention-days: 7
