@@ -359,3 +359,35 @@ test("已有赞助权益确认的合同不得直接变更类别",async()=>{
  const still=(await client(admin)("GET","/api/contracts?pid="+pid)).data.rows.find(x=>x.id===id);
  assert.equal(still.category,"企业赞助");
 });
+
+test("协会管理员可本人录入、提交、确认签署；总管理员同样可自签",async()=>{
+ const pid=await freshProject();
+ for(const [role,label] of [["assoc","协会管理员"],["admin","总管理员"]]){
+  const created=await client(role)("POST","/api/contracts",{
+   pid,name:label+"自签合同",vendor:"会务供应商",amount:2468,category:"会务需求",status:"草稿"
+  });
+  assert.equal(created.status,200,label+"录入合同："+JSON.stringify(created.data));
+  const id=created.data.contract.id;
+  const submit=await client(role)("POST","/api/contracts/"+id+"/transition",{action:"submit"});
+  assert.equal(submit.status,200,label+"提交签署："+JSON.stringify(submit.data));
+  const sign=await client(role)("POST","/api/contracts/"+id+"/transition",{action:"sign"});
+  assert.equal(sign.status,200,label+"自签："+JSON.stringify(sign.data));
+  assert.equal(sign.data.contract.status,"已签署");
+  const list=await client(admin)("GET","/api/contracts?pid="+pid);
+  assert.equal(list.data.rows.find(x=>x.id===id).sign_date,todayStr());
+ }
+});
+
+test("其他成员仅可录入并提交，不能越权确认或审批合同",async()=>{
+ const pid=await freshProject();
+ const created=await client(exec)("POST","/api/contracts",{
+  pid,name:"会务执行提交审批合同",vendor:"会务供应商",amount:1600,status:"草稿"
+ });
+ assert.equal(created.status,200,JSON.stringify(created.data));
+ const id=created.data.contract.id;
+ assert.equal((await client(exec)("POST","/api/contracts/"+id+"/transition",{action:"submit"})).status,200);
+ const denied=await client(exec)("POST","/api/contracts/"+id+"/transition",{action:"sign"});
+ assert.equal(denied.status,403,"执行成员只能提交不能签署");
+ const approve=await client(assoc)("POST","/api/contracts/"+id+"/transition",{action:"sign"});
+ assert.equal(approve.status,200,"协会管理员可以审批成员提交的合同："+JSON.stringify(approve.data));
+});
