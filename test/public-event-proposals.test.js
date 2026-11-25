@@ -4,6 +4,7 @@ const assert=require("node:assert/strict");
 const {spawn}=require("node:child_process");
 const fs=require("node:fs"),os=require("node:os"),path=require("node:path");
 const {DatabaseSync}=require("node:sqlite");
+const {proposalSubmissionDay,nextPublicProposalId}=require("../server/api/public-event-proposals");
 const dir=fs.mkdtempSync(path.join(os.tmpdir(),"erp-public-intake-"));
 const dbFile=path.join(dir,"test.sqlite"),port=8949,base="http://127.0.0.1:"+port;
 let proc,db,adminCookie,guestCookie;
@@ -48,7 +49,9 @@ test("public submits without login and no internal project or approval is create
  const beforeApprovals=db.prepare("SELECT COUNT(*) n FROM approvals").get().n;
  const result=await req("/api/public/event-proposals","POST",sample);
  assert.equal(result.status,200,JSON.stringify(result.data));
- assert.match(result.data.reference,/^PP-[a-f0-9]{24}$/);
+ assert.match(result.data.reference,/^P\\d{11,}$/);
+ assert.equal(result.data.reference.slice(1,9),proposalSubmissionDay(new Date()),
+  "申请编号前8位必须是中国标准时间的提交年月日");
  assert.equal(result.data.status,"已接收");
  assert.equal(db.prepare("SELECT COUNT(*) n FROM projects").get().n,beforeProjects);
  assert.equal(db.prepare("SELECT COUNT(*) n FROM approvals").get().n,beforeApprovals);
@@ -73,10 +76,16 @@ test("public submissions validate required fields, consent and dates, and reject
   const result=await req("/api/public/event-proposals","POST",{...sample,...invalid});
   assert.equal(result.status,400,JSON.stringify({invalid,data:result.data}));
  }
+ const daily=[];
  for(let n=1;n<8;n++){
   const r=await req("/api/public/event-proposals","POST",{...sample,topic:sample.topic+" "+n});
   assert.equal(r.status,200);
+  daily.push(r.data.reference);
  }
+ assert.equal(new Set(daily).size,7,"连续7次提交编号不得重复");
+ for(let i=1;i<daily.length;i++)
+  assert.equal(Number(daily[i].slice(9)),Number(daily[i-1].slice(9))+1,
+   "同一天申请须连续递增，不能随机跳号");
  const limited=await req("/api/public/event-proposals","POST",sample);
  assert.equal(limited.status,429);
 });
@@ -256,4 +265,24 @@ test("系统配置协会简写 API 仅总管理员可用；重复简写与非法
  const updated=await req("/api/associations/"+encodeURIComponent(name),"PATCH",{code:"LCYX"},adminCookie);
  assert.equal(updated.status,200,JSON.stringify(updated.data));
  assert.equal(updated.data.code,"LCYX");
+});
+
+test("公众立项申请编号规则：P+提交年/月/日+自动序号，跨日重置且第1000份不会重号",()=>{
+ assert.equal(proposalSubmissionDay(new Date("2026-11-25T15:59:59.000Z")),"20261125");
+ assert.equal(proposalSubmissionDay(new Date("2026-11-25T16:00:00.000Z")),"20261126");
+ const sqlite=new DatabaseSync(":memory:");
+ sqlite.exec("CREATE TABLE public_proposal_sequences(day TEXT PRIMARY KEY,last_seq INTEGER NOT NULL DEFAULT 0)");
+ const allocate=day=>nextPublicProposalId(sqlite,day);
+ assert.equal(allocate("20261125"),"P20261125001");
+ assert.equal(allocate("20261125"),"P20261125002");
+ assert.equal(allocate("20261126"),"P20261126001");
+ sqlite.prepare("UPDATE public_proposal_sequences SET last_seq=? WHERE day=?").run(999,"20261125");
+ assert.equal(allocate("20261125"),"P202611251000","序号超过999不得截断");
+ assert.equal(allocate("20261125"),"P202611251001");
+ sqlite.exec("BEGIN");
+ assert.equal(allocate("20261125"),"P202611251002");
+ sqlite.exec("ROLLBACK");
+ assert.equal(allocate("20261125"),"P202611251002","事务失败不应占用或重复历史编号");
+ assert.throws(()=>allocate("invalid"),/日期无效/);
+ sqlite.close();
 });
