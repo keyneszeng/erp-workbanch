@@ -108,7 +108,7 @@ export async function render(root, params = []) {
      </div>
     <div class="ux-finance-rule">适用核销项通过 → 核实线下付款 → 确认已付款 → 单独上传银行回单 → 结算。历史审批单仍保留原审批流程。</div>
     <div class="panel mt" id="fin-payments">
-      <div class="panel-h"><h2>付款记录</h2><span class="hint">已核销会议 · ${payableProjects.length} 场</span></div>
+      <div class="panel-h"><h2>付款详情</h2><span class="hint">已核销会议 · ${payableProjects.length} 场</span></div>
       <div class="hint" style="margin-bottom:10px">仅展示当前账号授权范围内、已完成核销且尚未结算的会议。选择会议后查看付款明细。</div>
       <div id="paymentProjects" style="display:grid;gap:8px;max-height:360px;overflow:auto">${projectList}</div>
       ${selected?`<section id="paymentDetails" style="margin-top:18px">
