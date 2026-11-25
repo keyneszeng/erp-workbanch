@@ -154,10 +154,10 @@ function register(router) {
       const rights=db.prepare("SELECT id,confirmed FROM sponsor_rights WHERE sponsor_id=?").all(sponsor.id);
       const confirmed=rights.some(x=>x.confirmed);
       const photos=rights.some(x=>db.prepare(
-        "SELECT 1 FROM materials WHERE sponsor_right_id=? AND (deleted_at IS NULL OR deleted_at='') LIMIT 1"
+        "SELECT 1 FROM materials WHERE sponsor_right_id=? LIMIT 1"
       ).get(x.id));
       if(receipts||invoices||confirmed||photos)
-        throw conflict("原企业赞助合同已有回款、发票或已确认/交付的权益，不能直接修改类别，须先完成收入及权益清算",
+        throw conflict("原企业赞助合同已有回款、发票或已确认/交付的权益（含历史废件箱关联），不能直接修改类别，须先完成收入及权益清算",
           "SPONSOR_RECONCILIATION_REQUIRED");
     }
     const affected={会务需求:6,劳务专家:5,企业赞助:7};
@@ -178,7 +178,7 @@ function register(router) {
         // 禁止丢失任何已有付款、开票、权益照片或已确认权益。
         if(db.prepare("SELECT 1 FROM meeting_sponsor_receipts WHERE sponsor_id=? UNION SELECT 1 FROM meeting_sponsor_invoices WHERE sponsor_id=?").get(sponsor.id,sponsor.id) ||
            db.prepare("SELECT 1 FROM sponsor_rights WHERE sponsor_id=? AND confirmed=1 LIMIT 1").get(sponsor.id) ||
-           db.prepare("SELECT 1 FROM materials WHERE sponsor_right_id IN (SELECT id FROM sponsor_rights WHERE sponsor_id=?) AND (deleted_at IS NULL OR deleted_at='') LIMIT 1").get(sponsor.id))
+           db.prepare("SELECT 1 FROM materials WHERE sponsor_right_id IN (SELECT id FROM sponsor_rights WHERE sponsor_id=?) LIMIT 1").get(sponsor.id))
           throw conflict("赞助收入或权益已发生变化，必须先行对账","SPONSOR_RECONCILIATION_REQUIRED");
         db.prepare("DELETE FROM sponsor_rights WHERE sponsor_id=?").run(sponsor.id);
         db.prepare("DELETE FROM meeting_sponsor_contracts WHERE id=? AND ledger_contract_id=?").run(sponsor.id,c.id);
