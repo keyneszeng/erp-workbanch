@@ -6,7 +6,7 @@ const { linkedSponsor,ensureSponsorSignable,setSponsorStatus } = require("../lib
 const { now, today, nextId, bad, notFound, conflict, forbidden, cents, yuan, parseBankAccount, parseBankName } = require("../lib/util");
 const { assertCan, assertModule, assertProjectVisible, scopeFilter, can, isSuper } = require("../lib/rbac");
 const { logAudit } = require("../lib/audit");
-const { getProject, verification, committed } = require("../lib/workflow");
+const { getProject, verification, committed, settlementOf } = require("../lib/workflow");
 const { PAYMENT_TYPES, CONTRACT_CATEGORIES, guessContractCategory } = require("../lib/constants");
 const { readPaging, countOf } = require("../lib/paginate");
 const { transition } = require("../lib/workflow");
@@ -606,8 +606,8 @@ function register(router) {
   });
 
   /** 付款申请 —— 核销是唯一前置门 */
-  async function createPayment(ctx,direct=false) {
-    const b = ctx.body || {};
+  async function createPayment(ctx,direct=false,sourceConfirm=false) {
+    let b = ctx.body || {};
     const p = getProject(b.pid);
     assertProjectVisible(ctx.user, p);
     if(direct){
@@ -637,6 +637,18 @@ function register(router) {
         { status: p.status, verify: verification(p.id).judged + "/" + verification(p.id).total }
       );
     }
+    if(settlementOf(p.id))throw conflict("结算单已生成，不能确认付款","SETTLED");
+    if(sourceConfirm){
+      if(b.confirm_paid!==true)throw bad("请确认实际付款已完成");
+      const option=require("../lib/verified-payees").options(p.id).find(x=>x.id===b.payee_option_id);
+      if(!option||!(Number(option.amount)>0))throw bad("收款依据不存在或已变化，请刷新付款明细");
+      const norm=v=>String(v||"").normalize("NFKC").replace(/\s+/g,"").toLowerCase();
+      const prior=db.prepare("SELECT id,status,payee,payee_source_id FROM payments WHERE pid=? AND status<>'已驳回'").all(p.id)
+        .find(y=>y.payee_source_id===option.id||(!y.payee_source_id&&norm(y.payee)===norm(option.payee)));
+      if(prior)throw duplicatePaymentError(prior);
+      // 金额和收款方全部由服务端的核销来源决定，不接受页面传入的金额或账户。
+      b={pid:p.id,payee_option_id:option.id,type:option.source==="labor"||String(option.label).includes("劳务专家")?"专家费":"学会公付",amount:option.amount,confirm_paid:true};
+    }
     if (!PAYMENT_TYPES.includes(b.type)) throw bad(`付款类型必须是：${PAYMENT_TYPES.join(" / ")}`);
     const choice=b.payee_option_id ? require("../lib/verified-payees").resolve(p.id,b.payee_option_id) : null;
     if(!choice && !isDemoMode() && process.env.ERP_REQUIRE_VERIFIED_PAYEES==="1")
@@ -651,7 +663,7 @@ function register(router) {
       choice?.bank?parseBankName(choice.bank):"";
     const payeeAccount=direct?(b.payee_account?parseBankAccount(b.payee_account):choice?.account?parseBankAccount(choice.account):""):
       choice?.account?parseBankAccount(choice.account):"";
-    if(direct&&(!payeeBank||!payeeAccount))throw bad("直接付款必须确认收款银行和银行账号");
+    if(direct&&!sourceConfirm&&(!payeeBank||!payeeAccount))throw bad("直接付款必须确认收款银行和银行账号");
     // 发票属于核销材料，不是付款单字段；专家费个人报销不存在发票号。
     const invoiceNo=String(b.invoice_no||"").trim(); // Legacy API remains readable/deduplicated; new UI omits this field.
     if(invoiceNo.length>40)throw bad("发票号不能超过 40 字");
@@ -697,9 +709,9 @@ function register(router) {
     }
     const at = now();
     // A direct payment is evidence of an already executed offline bank transfer.
-    // Never create 'paid' without a verified, uploaded receipt.
+    // Legacy direct entry requires a receipt; source confirmation supports subsequent receipt upload.
     let receiptKey=null,receiptName=null;
-    if(direct){
+    if(direct&&!sourceConfirm){
       if(b.confirm_paid!==true)throw bad("请先勾选确认银行已实际付款");
       receiptKey=String(b.receipt_file_key||"").trim();
       if(!FILE_KEY_RE.test(receiptKey))throw bad("财务直接付款必须上传付款凭证");
@@ -736,9 +748,9 @@ function register(router) {
         const same=findExistingPayment(p.id,b.type,payee,amount,period);
         if(same)throw duplicatePaymentError(same);
         id=nextId(db,"payments","id","PY");
-        if(direct)assertUploadAttachable(receiptKey,p.id,ctx.user);
+        if(receiptKey)assertUploadAttachable(receiptKey,p.id,ctx.user);
         db.prepare("INSERT INTO payments (id,pid,type,payee,payee_bank,payee_account,amount,invoice_no,dedupe_key,period,req_user,status,remark,created_by,created_at,payee_source_id,paid_at,receipt_file_key,receipt_file_name,receipt_uploaded_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
-          .run(id,p.id,b.type,payee,payeeBank,payeeAccount,amount,invoiceNo,key,period,ctx.user.name,direct?"已付款":"待审批",remark,ctx.user.id,at,choice?String(b.payee_option_id):null,direct?at:null,receiptKey,receiptName,direct?at:null);
+          .run(id,p.id,b.type,payee,payeeBank,payeeAccount,amount,invoiceNo,key,period,ctx.user.name,direct?"已付款":"待审批",remark,ctx.user.id,at,choice?String(b.payee_option_id):null,direct?at:null,receiptKey,receiptName,receiptKey?at:null);
         if(!direct){
           const apId=nextId(db,"approvals","id","AP");
           db.prepare("INSERT INTO approvals (id,type,title,pid,ref_id,amount,by_user,sla,status,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)")
@@ -752,15 +764,16 @@ function register(router) {
       throw err;
     }
     logAudit({
-      user: ctx.user, module: "财务结算", action: direct?"直接登记已付款（附凭证）":"付款申请", target: p.id,
+      user: ctx.user, module: "财务结算", action: sourceConfirm?"核销明细确认已付款（待补凭证）":direct?"直接登记已付款（附凭证）":"付款申请", target: p.id,
       detail: `${id} ${b.type} ¥${amount.toLocaleString("zh-CN")}${period ? "（" + period + "）" : ""} → ${payee}（${payeeAccount ? "账户尾号 "+payeeAccount.slice(-4) : "财务付款时核对账户"}；核销已通过${force ? "；超预算特批" : ""}）`,
       ip: ctx.ip
     });
     return { payment: db.prepare("SELECT * FROM payments WHERE id = ?").get(id),
-      message: direct?`付款 ${id} 已登记为已付款，凭证已归档`:`付款申请 ${id} 已提交，等待财务审批` };
+      message: sourceConfirm?`付款 ${id} 已确认，凭证可单独上传`:direct?`付款 ${id} 已登记为已付款，凭证已归档`:`付款申请 ${id} 已提交，等待财务审批` };
   }
   router.post("/api/payments",ctx=>createPayment(ctx,false));
   router.post("/api/payments/direct",ctx=>createPayment(ctx,true));
+  router.post("/api/projects/:id/payments/confirm",ctx=>createPayment({...ctx,body:{pid:ctx.params.id,payee_option_id:ctx.body?.payee_option_id,confirm_paid:ctx.body?.confirm_paid}},true,true));
 
   /**
    * 补录收款账户（V1.2.18）。
@@ -843,13 +856,13 @@ function register(router) {
     assertCan(ctx.user, "payment:pay", "需要付款执行权限才能执行付款");
     if (y.status !== "已审批") throw conflict(`只有「已审批」的付款单可以付款，当前为「${y.status}」`);
     // V1.2.18：没有收款账户就付不了款 —— 与其让财务自己发现，不如在门口拦住
-    if (!y.payee_account || !y.payee_bank) {
+    if (ctx.body?.confirm_paid!==true && (!y.payee_account || !y.payee_bank)) {
       throw conflict(
         `${y.id} 还没有登记收款账户，无法付款。请先点「登记账户」补上开户行与银行账号`,
         "PAYEE_ACCOUNT_MISSING", { payment: y.id }
       );
     }
-    if (!PAYABLE_STATUS.includes(p.status)) throw conflict("项目核销状态异常，付款已拦截", "VERIFY_GATE");
+    if (!PAYABLE_STATUS.includes(p.status)||settlementOf(p.id)) throw conflict("项目核销状态异常或已结算，付款已拦截", "VERIFY_GATE");
     // Existing approved applications remain payable; the new UI attaches a real
     // voucher in the same request, while legacy API clients can be migrated safely.
     let key=null,name=null;
@@ -866,8 +879,10 @@ function register(router) {
     const paidAt=now();
     transaction(()=>{
       if(key)assertUploadAttachable(key,p.id,ctx.user);
-      db.prepare("UPDATE payments SET status='已付款',paid_at=?,receipt_file_key=?,receipt_file_name=?,receipt_uploaded_at=? WHERE id=? AND status='已审批'")
+      if(!PAYABLE_STATUS.includes(getProject(p.id).status)||settlementOf(p.id))throw conflict("项目核销状态异常或已结算，付款已拦截","VERIFY_GATE");
+      const changed=db.prepare("UPDATE payments SET status='已付款',paid_at=?,receipt_file_key=?,receipt_file_name=?,receipt_uploaded_at=? WHERE id=? AND status='已审批'")
         .run(paidAt,key,name,key?paidAt:null,y.id);
+      if(!changed.changes)throw conflict("付款状态已变化，请刷新","PAYMENT_STATUS_CHANGED");
     });
     logAudit({ user: ctx.user, module: "财务结算", action: "付款", target: p.id, detail: `${y.id} ${y.type} ¥${Number(y.amount).toLocaleString("zh-CN")} 已执行线下付款${key?"（凭证已存档）":""}`, ip: ctx.ip });
     return { payment: db.prepare("SELECT * FROM payments WHERE id = ?").get(y.id), message: `${y.id} 已付款` };
