@@ -47,6 +47,7 @@ export function canVisit(nav) {
      "archive:download","ledger:read"].some(can)))return true;
   // 合同录入/审批权独立于其他筹备模块；可用合同权限访问合同台账与审批中心。
   if(nav==="contracts"&&(can("contract:write")||can("contract:approve")))return true;
+  if(nav==="finance"&&["payment:create","payment:approve","payment:pay"].some(can))return true;
   if(nav==="approvals"&&["project:approve","verify:exception_approve","payment:approve","contract:approve"].some(can))return true;
   if(nav==="dashboard"&&!mods.includes("dashboard"))return true; // 无功能授权时展示安全待授权提示
   for (const g of NAV) {
