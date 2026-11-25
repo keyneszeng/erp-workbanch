@@ -443,3 +443,35 @@ test("手机号快捷登录前置页面使用产品品牌，不出现平台官�
  assert.match(logic,/\/mini\/auth\/phone-bind/);
  for(const source of [view,logic,account,JSON.stringify(title)])assert.doesNotMatch(source,/微信|腾讯|wechat-logo|weixin-logo/i);
 });
+
+test("材料收集合同类目使用正式合同目录，保留权限与原件保护",async()=>{
+ const pid="MP-CONTRACT";
+ const key="a".repeat(32)+".pdf";
+ let allowed=true,opened="";
+ const source=fs.readFileSync(path.join(__dirname,"../miniprogram/pages/materials/index.js"),"utf8");
+ let page;
+ const app={api:async url=>{
+  if(url==="/projects/"+pid)return {sectionAccess:{contracts:allowed},contracts:[
+   {id:"C-1",name:"会务合同",vendor:"会务公司",category:"会务需求",status:"已签署",file_key:key},
+   {id:"C-2",name:"已删除合同",deleted_at:"2026-11-25"}]};
+  throw Error("unexpected "+url);
+ },openOriginal:async file=>{opened=file;}};
+ vm.runInNewContext(source,{getApp:()=>app,Page:x=>{page=x;},wx:{showToast:()=>{}}});
+ page.setData=patch=>Object.assign(page.data,patch);
+ page.data.pid=pid;
+ await page.chooseContracts();
+ assert.equal(page.data.contractMode,true);
+ assert.equal(page.data.contractRows.length,1);
+ assert.equal(page.data.contractRows[0].category,"会务协议");
+ await page.openContractOriginal({currentTarget:{dataset:{id:"C-1"}}});
+ assert.equal(opened,key);
+ allowed=false;
+ await page.chooseContracts();
+ assert.equal(page.data.contractRows.length,0);
+ assert.match(page.data.contractError,/无合同目录查看权限/);
+ page.chooseKind({currentTarget:{dataset:{kind:"课件"}}});
+ assert.equal(page.data.contractMode,false);
+ const xml=fs.readFileSync(path.join(__dirname,"../miniprogram/pages/materials/index.wxml"),"utf8");
+ assert.match(xml,/bindtap="chooseContracts"[^>]*>合同<\/view>/);
+ assert.match(xml,/bindtap="openContractOriginal"/);
+});
