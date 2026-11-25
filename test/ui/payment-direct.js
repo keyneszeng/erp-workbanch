@@ -45,30 +45,30 @@ let server,browser;
  for(const column of ["收款方","金额","付款按钮","凭证详情"])
   assert.ok(text.includes(column),"missing column: "+column);
  assert.equal(await page.locator("#newPay").count(),0,"finance should not use payment application");
- await page.locator("#goDirectPay").click();
- const form=page.locator("#financeDirect");
- await form.waitFor({timeout:15000});
- assert.equal(await form.locator('[name="pid"]').inputValue(),pid);
- const payee=form.locator('[name="payee_option_id"]');
- await page.waitForFunction(()=>document.querySelector('#financeDirect select[name="payee_option_id"]')?.options?.[0]?.textContent?.includes("手动填写"),null,{timeout:15000});
- await payee.selectOption("");
- await form.locator('[name="type"]').selectOption("学会公付");
- await form.locator('[name="payee"]').fill("财务直付浏览器回单测试");
- await form.locator('[name="amount"]').fill("76.25");
- await form.locator('[name="payee_bank"]').fill("中国银行北京分行");
- await form.locator('[name="payee_account"]').fill("3210987654321098");
- await form.locator("[data-direct-voucher]").setInputFiles({
-  name:"已完成银行转账凭证.pdf",mimeType:"application/pdf",buffer:PDF
- });
- await form.locator("[data-direct-paid]").check();
- await form.locator("[data-direct-submit]").click();
+ // Use an existing approved payment fixture, or create one with the test admin session.
+ const adminContext=await browser.newContext();
+ const login=await adminContext.request.post(origin+"/api/auth/login",{data:{username:"admin",password:"123456"}});
+ assert.equal(login.status(),200);
+ const created=await adminContext.request.post(origin+"/api/payments",{data:{pid,type:"学会公付",payee:"逐行付款浏览器测试",amount:76.25}});
+ assert.equal(created.status(),200);
+ const id=(await created.json()).payment.id;
+ assert.equal((await adminContext.request.post(origin+"/api/payments/"+id+"/approve",{data:{approve:true}})).status(),200);
+ await adminContext.close();
+ await page.reload();
+ const row=page.locator('[data-row="'+id+'"]');
+ await row.waitFor({timeout:15000});
+ await row.locator("[data-pay-evidence]").click();
+ await page.locator("#modal.open [data-close-evidence]").click();
+ await row.locator("[data-pay]").click();
+ await row.getByText("已付款",{exact:false}).waitFor({timeout:15000});
+ assert.equal(await page.locator("#paymentDirectPanel,#financeDirect,#modal.open").count(),0,"确认已付款不弹出登记表单");
+ await row.locator("[data-receipt]").click();
  const dialog=page.locator("#modal.open");
+ await dialog.locator("[data-payment-voucher]").setInputFiles({name:"银行转账凭证.pdf",mimeType:"application/pdf",buffer:PDF});
  await dialog.locator('[data-x="1"]').click();
- await page.waitForFunction(()=>[...document.querySelectorAll('[data-row]')].some(
-  row=>row.innerText.includes("财务直付浏览器回单测试")&&row.innerText.includes("已付款")&&row.querySelector('a[href*="/api/uploads/"]')
- ),{timeout:15000});
+ await row.getByText("查看付款凭证").waitFor({timeout:15000});
  const list=await (await page.request.get(origin+"/api/payments?pid="+pid)).json();
- const paid=list.rows.find(r=>r.payee==="财务直付浏览器回单测试");
+ const paid=list.rows.find(r=>r.id===id);
  assert.ok(paid);
  assert.equal(paid.status,"已付款");
  assert.ok(paid.receipt_file_key);
@@ -85,13 +85,13 @@ let server,browser;
  await normal.goto(origin+"/#/finance");
  await normal.locator("#nav").waitFor({timeout:15000});
  await normal.waitForTimeout(350); // May be redirected from finance, which is valid for a non-finance role.
- assert.equal(await normal.locator("#financeDirect").count(),0,"exec cannot access finance direct payment form");
+ assert.equal(await normal.locator("#financeDirect").count(),0,"exec cannot access the removed payment form");
  const forbidden=await normal.request.post(origin+"/api/payments/direct",{data:{
   pid,type:"学会公付",payee:"非法财务直付",amount:1,confirm_paid:true
  }});
  assert.equal(forbidden.status(),403);
  await normal.close();
- console.log("PASS: single-page finance direct payment, checked paid, receipt upload and non-finance denial");
+ console.log("PASS: inline paid confirmation, linked originals, separate receipt upload and permission denial");
 })().catch(e=>{console.error(e);process.exitCode=1}).finally(async()=>{
  try{await browser?.close();}finally{server?.kill("SIGTERM");fs.rmSync(dir,{recursive:true,force:true});}
 });
