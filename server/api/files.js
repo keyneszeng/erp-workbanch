@@ -43,7 +43,8 @@ function register(router) {
   router.post("/api/uploads", async (ctx) => {
     // 上传是所有附件类操作的公共入口，材料登记和合同录入都要用。
     // 只卡 material:write 会让「能录合同但不能登记材料」的角色传不了合同原件。
-    if (!can(ctx.user, "material:write") && !can(ctx.user, "contract:write") && !can(ctx.user,"payment:pay")) {
+    if (!can(ctx.user, "material:write") && !can(ctx.user, "contract:write") && !can(ctx.user,"payment:pay") &&
+        !(ctx.user.role==="finance"&&ctx.query.pid)) {
       throw forbidden("当前角色无文件上传权限");
     }
 
@@ -139,7 +140,8 @@ function register(router) {
         throw forbidden("付款凭证仅财务人员及总管理员可查看");
       // 单纯是项目成员的嘉宾并不自动获得合同和财务凭证的读取权限。
       if (!can(ctx.user, "material:write") && !can(ctx.user, "contract:write") &&
-          !can(ctx.user, "verify:check") && !can(ctx.user, "archive:write") && !can(ctx.user,"payment:pay")) {
+          !can(ctx.user, "verify:check") && !can(ctx.user, "archive:write") && !can(ctx.user,"payment:pay") &&
+          !(ctx.user.role==="finance"&&db.prepare("SELECT 1 FROM meeting_sponsor_contracts WHERE file_key=? UNION SELECT 1 FROM meeting_sponsor_receipts WHERE file_key=? UNION SELECT 1 FROM meeting_sponsor_invoices WHERE file_key=?").get(key,key,key))) {
         throw forbidden("当前角色无权查看内部业务附件");
       }
     } else {
