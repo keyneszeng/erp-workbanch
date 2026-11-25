@@ -220,9 +220,11 @@ test("删除未签署合同同步软删所有同原件合同材料并撤销第5/
     "VALUES (?,?,'同合同历史扫描件','v1','历史','2026-11-25',?,?)")
     .run(PID,"会务协议",up.key,up.name);
   for(const no of [5,6]){
-   db.prepare("INSERT INTO verify_steps(pid,step_no,name,result,remark,evidence_json) VALUES (?,?,?,'通过','旧原件已匹配',?) "+
-     "ON CONFLICT(pid,step_no) DO UPDATE SET result='通过',remark=excluded.remark,evidence_json=excluded.evidence_json")
-    .run(PID,no,"历史核销-"+no,JSON.stringify({sources:[{materialId:original.id,fileKey:up.key}]}));
+   db.prepare("INSERT INTO verify_steps(pid,step_no,name,result,remark,evidence_json) VALUES (?,?,?,?,'旧原件已匹配',?) "+
+     "ON CONFLICT(pid,step_no) DO UPDATE SET result=excluded.result,remark=excluded.remark,evidence_json=excluded.evidence_json")
+    // 已通过第6步会锁定正式会务合同，不能借删除绕过更正流程。
+    .run(PID,no,"历史核销-"+no,no===6?"不通过":"通过",
+      JSON.stringify({sources:[{materialId:original.id,fileKey:up.key}]}));
   }
   return Number(extra.lastInsertRowid);
  });
