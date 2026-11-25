@@ -50,7 +50,7 @@ function selectMaterials(pid,body,allKinds){
    const byId=new Map(selectedRows.map(m=>[m.id,m]));
    if(selectedRows.length!==orderedIds.length||selectedRows.some(m=>!kinds.includes(m.kind)))
      throw bad("所选材料不属于当前项目或未在勾选类目中，请刷新后重选");
-   return orderedIds.map(id=>byId.get(id));
+   return archiveIndex.sortDossierSources(orderedIds.map(id=>byId.get(id)));
  }
  const placeholders=kinds.map(()=>"?").join(",");
  const materials=db.prepare(
@@ -60,7 +60,7 @@ function selectMaterials(pid,body,allKinds){
  ).all(pid,...kinds);
  if(!materials.length)
    throw bad("所选材料类别没有已上传的文件，不能生成 PDF");
- return materials;
+ return archiveIndex.sortDossierSources(materials);
 }
 function availableKinds(pid){
  const rows=db.prepare(
@@ -111,7 +111,7 @@ function register(router){
      const lookup=new Map(sources.map(s=>[s.source_id,s]));
      if(idList.some(id=>!lookup.has(id)))
        throw bad("存在不属于当前会议项目的原件，请刷新后重试");
-     const selection=idList.map(id=>lookup.get(id));
+     const selection=archiveIndex.sortDossierSources(idList.map(id=>lookup.get(id)));
      const prepared=await archiveIndex.pdfMaterials(project,selection,downloadStore);
      materialRows=prepared.materials;downloadStore=prepared.store;
    }else{
@@ -126,7 +126,7 @@ function register(router){
    },downloadStore);
    logAudit({user:ctx.user,module:"档案中心",action:"自动归集材料PDF下载",target:project.id,
      detail:"所选类别："+[...new Set(materialRows.map(m=>m.kind))].join("、")+
-       "；材料数："+materialRows.length+"；水印模式："+watermark.mode+
+       "；提交来源数："+materialRows.length+"；按15类固定顺序生成、按原件内容去重；水印模式："+watermark.mode+
        "；操作员："+ctx.user.name+"；时间："+generatedAt,
      ip:ctx.ip});
    return {__file:{buffer:pdf,mime:"application/pdf",
@@ -147,7 +147,7 @@ function register(router){
    const lookup=new Map(available.map(source=>[source.source_id,source]));
    if(ids.some(id=>!lookup.has(id)))
      throw bad("PPT来源资料必须属于当前已归档会议，不能跨会议导出");
-   const chosen=ids.map(id=>lookup.get(id));
+   const chosen=archiveIndex.sortDossierSources(ids.map(id=>lookup.get(id)));
    const prepared=await archiveIndex.pdfMaterials(project,chosen,storage());
    const dossier=await materialSlides(project,prepared.materials,prepared.store);
    const payments=db.prepare(
