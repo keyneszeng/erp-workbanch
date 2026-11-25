@@ -9,7 +9,7 @@ const {withBudgetFee}=require("./budget-fee");
 const { now, nextId, conflict, forbidden, notFound, bad, cents, yuan } = require("./util");
 const { can, isSuper, ROLES } = require("./rbac");
 const { logAudit } = require("./audit");
-const { FLOW, VERIFY_STEPS, canonicalMaterialKind } = require("./constants");
+const { FLOW, VERIFY_STEPS, canonicalMaterialKind, materialCategoryCatalog } = require("./constants");
 const { isDemoMode } = require("./runtime");
 const verifyOcr=require("./verify-ocr-compare");
 const {evidenceReferencesDeleted}=require("./deleted-material-cleanup");
@@ -97,7 +97,7 @@ function materialsStatus(pid) {
     disabled.add("劳务表");
   return { have, missing: hasEvidence ? [] : ["至少上传1份材料附件"],
     ok: hasEvidence, required: [], count:rows.length, uploadedCount:uploaded,
-    disabled:[...disabled] };
+    disabled:[...disabled], categoryCatalog:materialCategoryCatalog(have,[...disabled]) };
 }
 
 function settlementOf(pid) {
