@@ -564,6 +564,13 @@ CREATE TABLE IF NOT EXISTS project_notices (
 
 -- 项目筹备邀请函：内置固定模板、已生成 PDF 的快照与发送/回复追踪。
 -- 公众活动意向申请：独立收件箱，绝不写入 projects / approvals。
+-- 公众申请按提交日生成短编号：PYYYYMMDD001；只记录已分配流水，
+-- 老版 PP-随机编号原样保留。序号在提交事务内更新，失败自动回滚。
+CREATE TABLE IF NOT EXISTS public_proposal_sequences (
+  day TEXT PRIMARY KEY,
+  last_seq INTEGER NOT NULL DEFAULT 0 CHECK(last_seq>=0)
+);
+
 CREATE TABLE IF NOT EXISTS public_event_proposals (
   id TEXT PRIMARY KEY,
   topic TEXT NOT NULL,
