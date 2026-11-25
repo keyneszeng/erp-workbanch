@@ -690,23 +690,9 @@ function register(router) {
     // 期次：可选。填了就参与去重，让「同额分期」的第二期能正常提交。
     const period = String(b.period ?? "").trim();
     if (period.length > 20) throw bad("期次不能超过 20 字（如：第1期 / 首付款 / 尾款）");
-    // 超预算硬门禁：总管理员可显式 force 特批
-    // 比较走「分」，否则 2789.69 + 2600.09 = 5389.780000000001 > 预算 5389.78，
-    // 明明正好用尽却报「超预算 ¥0.0000000000000009」。
-    const used = committed(p.id);
-    const budget = availableBudget(p);
-    const force = !!b.force && isSuper(ctx.user);
-    const overCents = cents(used) + cents(amount) - cents(budget);
-    if (!force && overCents > 0) {
-      const over = overCents / 100;
-      throw conflict(
-        `付款被拦截：项目可用预算 ¥${budget.toLocaleString("zh-CN")}（立项预算扣除税费管理费），已占用 ¥${used.toLocaleString("zh-CN")}，` +
-        `本笔 ¥${amount.toLocaleString("zh-CN")} 将超预算 ¥${over.toLocaleString("zh-CN")}；` +
-        `如需特批请由总管理员携带 force 标记提交`,
-        "OVER_BUDGET",
-        { budget, used, amount, over }
-      );
-    }
+    // 预算仅供收支对照，不限制实际付款；超预算金额仍记入审计。
+    const budget=availableBudget(p);
+    const overCents=Math.max(0,cents(committed(p.id))+cents(amount)-cents(budget));
     const at = now();
     // A direct payment is evidence of an already executed offline bank transfer.
     // Legacy direct entry requires a receipt; source confirmation supports subsequent receipt upload.
@@ -765,7 +751,7 @@ function register(router) {
     }
     logAudit({
       user: ctx.user, module: "财务结算", action: sourceConfirm?"核销明细确认已付款（待补凭证）":direct?"直接登记已付款（附凭证）":"付款申请", target: p.id,
-      detail: `${id} ${b.type} ¥${amount.toLocaleString("zh-CN")}${period ? "（" + period + "）" : ""} → ${payee}（${payeeAccount ? "账户尾号 "+payeeAccount.slice(-4) : "财务付款时核对账户"}；核销已通过${force ? "；超预算特批" : ""}）`,
+      detail: `${id} ${b.type} ¥${amount.toLocaleString("zh-CN")}${period ? "（" + period + "）" : ""} → ${payee}（${payeeAccount ? "账户尾号 "+payeeAccount.slice(-4) : "财务付款时核对账户"}；核销已通过${overCents>0 ? "；累计超可用预算 ¥"+(overCents/100).toFixed(2) : ""}）`,
       ip: ctx.ip
     });
     return { payment: db.prepare("SELECT * FROM payments WHERE id = ?").get(id),
