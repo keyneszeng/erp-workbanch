@@ -60,7 +60,7 @@ function directPayForm(projects,focusPid,types){
 const PAGE_SIZE = 50;
 let filterStatus = "";
 let curPage = 1;
-// 只有「已核销」可申请付款：协会管理员审批后由财务支付，全部完成后才能结算
+// 只有「已核销」可由财务直接登记已付款，保留历史审批记录但不新增申请
 const PAYABLE = ["已核销"];
 
 /**
@@ -103,7 +103,7 @@ export async function render(root, params = []) {
         ${state.super ? '<button class="btn btn-o" data-go="project-ledger">项目台账</button>' : ""}
         ${can("export:any") ? `<button class="btn btn-o" id="expPay">导出付款明细</button>
         <button class="btn btn-o" id="expSt">导出结算汇总</button>` : ""}
-        ${financeDirect ? '<button class="btn btn-p" id="goDirectPay">+ 财务直接付款</button>' : can("payment:create") ? '<button class="btn btn-p" id="newPay">+ 付款申请</button>' : ""}
+        ${financeDirect ? '<button class="btn btn-p" id="goDirectPay">+ 财务直接付款</button>' : ""}
       </div>
     </div>
 
@@ -195,8 +195,6 @@ export async function render(root, params = []) {
   if (ep) ep.onclick = () => openPaymentExport(focusPid);
   const es = root.querySelector("#expSt");
   if (es) es.onclick = () => dl("/api/export/settlements");
-  const np = root.querySelector("#newPay");
-  if (np) np.onclick = () => openPay(root, payableProjects);
   root.querySelector("#goDirectPay")?.addEventListener("click",()=>root.querySelector("#financeDirect")?.scrollIntoView({behavior:"smooth",block:"start"}));
   const form=root.querySelector("#financeDirect");
   if(form){
@@ -369,43 +367,3 @@ function openAccount(root, id) {
   };
 }
 
-async function openPay(root, projects) {
-  if (!projects.length) return toast("当前没有已核销项目可付款", "warn");
-  const fields = [
-    { k: "pid", l: "付款项目", t: "select", req: 1, opts: projects.map((p) => ({
-        v: p.id,
-        l: `${p.id} ${p.name}（预算 ¥${Number(p.budget).toLocaleString("zh-CN")}，已付 ¥${Number(p.paid_amt || 0).toLocaleString("zh-CN")}）`
-      })) },
-    { k: "type", l: "付款类型", t: "select", req: 1, opts: state.meta.paymentTypes },
-    { k: "payee_option_id", l: "按核销资料选择收款方", t: "select", opts: [{v:"",l:"载入中…"}],
-      tip:"专家费与个人报销优先使用第 5 步核验的劳务表；其他收款方来自已签署合同。" },
-    { k: "payee", l: "收款方", req: 1 },
-    // V1.2.18：只写收款方名字，财务没法打款
-    { k: "amount", l: "付款金额（元）", t: "number", req: 1 },
-    // 分期付款两期金额常常相同，不填期次会被当成重复申请
-    { k: "period", l: "期次（可选）", req: 0, ph: "如：第1期 / 首付款 / 尾款" },
-    { k: "remark", l: "备注", t: "textarea", full: 1, rows: 2 }
-  ];
-  const m = modal({ title: "付款申请", body: `<div class="gate ok" style="margin-bottom:12px"><b>核销门禁</b>仅列出「已核销」项目：未核销项目不可付款，已结算项目账目已封账，已归档项目卷宗已封存。<br><b>预算门禁</b>已占用（待审批 + 已审批 + 已付款）加本笔金额超过预算时，接口返回 <code>OVER_BUDGET</code>，需总管理员特批。</div><div class="hint" style="margin-bottom:10px">同项目、同付款类型、同收款方、同金额、同期次的付款单只允许申请一次；待审批、已审批及已付款均不可重复，已驳回可重新提交。分期付款请填写不同期次（如「第1期」「第2期」），否则同额两期会被判为重复。</div>${formHtml(fields)}`,
-    footer: `<button class="btn btn-o" data-x="0">取消</button><button class="btn btn-p" data-x="1">提交申请</button>` });
-  await bindPayeePicker(m,projects[0].id,true);
-  m.querySelector('[data-x="0"]').onclick = () => m.classList.remove("open");
-  const submitButton=m.querySelector('[data-x="1"]');
-  submitButton.onclick = async () => {
-    if (!validate(m, fields)) return;
-    if(submitButton.disabled)return;
-    submitButton.disabled=true;
-    submitButton.textContent="提交中…";
-    try {
-      const r = await api.post("/api/payments", readForm(m));
-      toast(r.message, "ok");
-      m.classList.remove("open");
-      await render(root);
-    } catch (e) {
-      toast(e.code==="DUPLICATE_PAYMENT"?"付款申请重复："+e.message:e.message,"warn");
-    } finally {
-      submitButton.disabled=false;
-      submitButton.textContent="提交申请";
-    }
-  };
-}
