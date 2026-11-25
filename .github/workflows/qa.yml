@@ -73,6 +73,7 @@ jobs:
           node --check test/payment-duplicate.test.js
           node --input-type=module --check < web/assets/js/lib/contract-detail.js
           node --input-type=module --check < web/assets/js/pages/contracts.js
+          node --input-type=module --check < web/assets/js/app.js
           node --check server/api/verify.js
           node --check server/api/recycle-bin.js
           node --check test/recycle-bin.test.js
