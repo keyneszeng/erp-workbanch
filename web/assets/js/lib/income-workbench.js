@@ -40,8 +40,8 @@ export async function renderIncomeWorkbench(root,projects,requested=""){
        ${contractEdit&&x.status!=="已驳回"?`<button class="link" data-rights-edit="${esc(x.id)}">校对 / 自定义权益</button>`:""}</td><td>${link(x.file_key)}</td>
      <td>${correct&&x.status!=="已驳回"?`<button class="link" data-sponsor-edit="${esc(x.id)}">修改合同</button> `:""}${x.status==="待确认"&&approve?`<button class="link" data-sponsor-approve="${esc(x.id)}">确认合同</button>
         <button class="link danger" data-sponsor-reject="${esc(x.id)}">驳回</button>`:""}
-       ${x.status==="已签署"&&finance?`<button class="link" data-sponsor-receipt="${esc(x.id)}">登记回款</button>
-        <button class="link" data-sponsor-invoice="${esc(x.id)}">登记开票</button>`:""}</td></tr>`).join(""):'<tr><td colspan="6">暂无企业赞助合同</td></tr>'}</tbody></table></div>
+       ${x.status==="已签署"?(finance?`<button class="link" data-sponsor-receipt="${esc(x.id)}">回款登记</button>
+        <button class="link" data-sponsor-invoice="${esc(x.id)}">开票登记</button>`:`<span class="hint">${d.permissions?.frozen?"会议已结算或归档，收入已冻结":"当前账号无回款及开票登记权限"}</span>`):`<span class="hint">${x.status==="已驳回"?"合同已驳回，不可登记收入":"合同确认签署后可登记回款和开票"}</span>`}</td></tr>`).join(""):'<tr><td colspan="6">暂无企业赞助合同</td></tr>'}</tbody></table></div>
    <div class="panel-h"><h3>到账凭证</h3></div>
    <div class="tw"><table><thead><tr><th>到账日期</th><th>关联合同</th><th>流水编号</th><th>到账金额</th><th>银行凭证</th><th>操作</th></tr></thead><tbody>
    ${d.receipts.length?d.receipts.map(x=>`<tr><td>${esc(x.received_date)}</td><td>${esc(x.sponsor_id)}</td><td>${esc(x.payment_ref)}</td>
