@@ -1040,26 +1040,37 @@ function migrate() {
         AND ref_id IN (SELECT id FROM contracts WHERE deleted_at IS NOT NULL)`);
   } catch { /* 旧库结构不完整时保留原始数据，避免破坏迁移 */ }
 
-  // 历史修复：早期已软删除合同仍留有同原件的其他「合同/协议」类别材料，
-  // 核销可能误把残留扫描件当有效证据。仅处理明确关联到已删除的
-  // 未签署非赞助合同、且不存在任何同 key 有效合同的情况；原始字节不删除。
+  // 历史修复：合同软删后残留的同 key「合同/协议」材料应进入废件箱，
+  // 且必须在同一事务内解除其核销依据；不能只改 deleted_at 留着旧“通过”结论。
+  // 仅修复未签署、非赞助且没有任何同 key 有效合同的确切旧引用。
   try {
-    db.exec(`UPDATE materials SET
-      deleted_at=(SELECT MAX(c.deleted_at) FROM contracts c
-        WHERE c.pid=materials.pid AND c.file_key=materials.file_key
-          AND c.deleted_at IS NOT NULL AND c.status IN ('草稿','待签署')
-          AND COALESCE(c.category,'')<>'企业赞助'),
-      deleted_by='历史已删除合同关联材料回填'
-      WHERE (deleted_at IS NULL OR deleted_at='')
-        AND (kind LIKE '%合同%' OR kind LIKE '%协议%')
-        AND file_key IS NOT NULL AND file_key<>''
-        AND EXISTS (SELECT 1 FROM contracts c WHERE c.pid=materials.pid
-          AND c.file_key=materials.file_key AND c.deleted_at IS NOT NULL
-          AND c.status IN ('草稿','待签署')
-          AND COALESCE(c.category,'')<>'企业赞助')
-        AND NOT EXISTS (SELECT 1 FROM contracts c WHERE c.pid=materials.pid
-          AND c.file_key=materials.file_key AND c.deleted_at IS NULL)`);
-  }catch{/* 旧库结构不完整时保留原值；不能静默删除正式已签合同证据 */}
+    const orphanWhere=
+      "(m.deleted_at IS NULL OR m.deleted_at='') "+
+      "AND (m.kind LIKE '%合同%' OR m.kind LIKE '%协议%') "+
+      "AND m.file_key IS NOT NULL AND m.file_key<>'' "+
+      "AND EXISTS (SELECT 1 FROM contracts c WHERE c.pid=m.pid "+
+      "AND c.file_key=m.file_key AND c.deleted_at IS NOT NULL "+
+      "AND c.status IN ('草稿','待签署') AND COALESCE(c.category,'')<>'企业赞助') "+
+      "AND NOT EXISTS (SELECT 1 FROM contracts c WHERE c.pid=m.pid "+
+      "AND c.file_key=m.file_key AND c.deleted_at IS NULL)";
+    transaction(()=>{
+      const affected=db.prepare("SELECT m.id,m.pid,m.kind,m.file_key FROM materials m WHERE "+orphanWhere).all();
+      db.prepare("UPDATE materials AS m SET "+
+        "deleted_at=(SELECT MAX(c.deleted_at) FROM contracts c "+
+        "WHERE c.pid=m.pid AND c.file_key=m.file_key AND c.deleted_at IS NOT NULL "+
+        "AND c.status IN ('草稿','待签署') AND COALESCE(c.category,'')<>'企业赞助'), "+
+        "deleted_by='历史已删除合同关联材料回填' WHERE "+orphanWhere).run();
+      const {detachDeletedMaterialEvidence}=require("./deleted-material-cleanup");
+      const byPid=new Map();
+      for(const row of affected){
+        if(!byPid.has(row.pid))byPid.set(row.pid,[]);
+        byPid.get(row.pid).push(row);
+      }
+      for(const [pid,rows] of byPid){
+        detachDeletedMaterialEvidence(db,pid,rows,now(),"系统历史关联修复");
+      }
+    });
+  }catch{/* 历史库异常时不得删除已签合同证据；旧值保持不变 */}
 
   // 兼容历史合同：只为有原件、尚未在同项目材料中心出现的合同建立引用.
   // 原始文件不会复制、移动或修改，迁移可重复执行。
