@@ -1,5 +1,5 @@
 "use strict";
-/** 测试立项税费管理费率自动净额，编辑、旧库迁移与付款可用预算门禁。 */
+/** 测试立项税费管理费率自动净额，编辑、旧库迁移与超预算付款规则。 */
 const {test,before,after}=require("node:test"),assert=require("node:assert/strict");
 const {spawn}=require("node:child_process"),fs=require("node:fs"),path=require("node:path"),os=require("node:os");
 const dir=fs.mkdtempSync(path.join(os.tmpdir(),"erp-project-fee-")),port=8983;
@@ -84,7 +84,7 @@ test("拒绝非法费率，不改变持久化项目",async()=>{
  const detail=await req("GET","/api/projects/"+newId);
  assert.equal(detail.body.project.tax_fee_rate,12.5);
 });
-test("含税费可用预算小于已占用金额必须拦截",async()=>{
+test("预算调整仍校验已占用金额，但付款允许超过可用预算",async()=>{
  const bad=await req("PATCH","/api/projects/MP-2026-008",{tax_fee_rate:96});
  assert.equal(bad.status,409,JSON.stringify(bad.body));
  assert.equal(bad.body.error.code,"BUDGET_BELOW_COMMITTED");
@@ -94,9 +94,16 @@ test("含税费可用预算小于已占用金额必须拦截",async()=>{
  const pay=await req("POST","/api/payments",{pid:"MP-2026-008",type:"学会公付",
  payee:"税费限额测试供应商",payee_bank:"中国银行北京分行",
  payee_account:"3210987654321098",amount:1});
- assert.equal(pay.status,409,JSON.stringify(pay.body));
- assert.equal(pay.body.error.code,"OVER_BUDGET");
- assert.match(pay.body.error.message,/可用预算/);
+ assert.equal(pay.status,200,JSON.stringify(pay.body));
+ assert.equal(pay.body.payment.amount,1);
+ assert.equal(pay.body.payment.status,"待审批");
+ const id=pay.body.payment.id;
+ assert.equal((await req("POST","/api/payments/"+id+"/approve",{approve:true})).status,200);
+ const paid=await req("POST","/api/payments/"+id+"/pay",{confirm_paid:true});
+ assert.equal(paid.status,200,JSON.stringify(paid.body));
+ assert.equal(paid.body.payment.status,"已付款");
+ const detail=await req("GET","/api/projects/MP-2026-008");
+ assert.equal(detail.body.project.available_budget,3600,"付款不修改立项预算或税费率");
 });
 test("费率100%时可用预算为0；0%恢复全额",async()=>{
  const all=await req("PATCH","/api/projects/"+newId,{tax_fee_rate:100});
