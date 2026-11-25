@@ -35,15 +35,15 @@ export async function downloadArchivePdf(pid,button){
    body:'<p class="hint" style="margin-bottom:14px"><b>'+esc(data.project.name)+'</b> · '+
       esc(data.project.assoc)+' · '+esc(data.project.id)+'</p>'+
     '<div class="gate ok" style="margin-bottom:14px"><b>已按预设15类自动排序并关联合同、赞助、回单、发票、邀请函、会议材料与需求单。</b>'+
-      ' 原始文件按归属会议编号自动识别，重复原件只收录一次。没有已签原件的系统生成摘要会明确标注，绝不充当签章原件。</div>'+
-    '<div class="material-export-tools"><b>资料目录（初始顺序固定）</b>'+
+      ' 原始文件按归属会议编号自动识别，重复原件按文件内容去重，只保留第一次出现的版本。没有已签原件的系统生成摘要会明确标注，绝不充当签章原件。</div>'+
+    '<div class="material-export-tools"><b>资料目录（15类固定顺序，不可跨类调整）</b>'+
       '<button type="button" class="link" data-select-all>全选</button>'+
       '<button type="button" class="link" data-clear-all>清空</button></div>'+
     '<div class="material-export-options" data-archive-groups>'+groupRows+'</div>'+
     '<div class="material-export-tools" style="margin-top:14px"><b>自动关联的文件与系统摘要</b>'+
-      '<span class="hint">已勾选 '+sources.length+' 项，可取消或上移、下移调整 PDF 次序</span></div>'+
+      '<span class="hint">已关联 '+sources.length+' 项；仅支持同一类别内调整顺序，合并时自动去重</span></div>'+
     '<div data-material-file-list class="material-export-options" style="max-height:340px;overflow:auto"></div>'+
-    '<p class="hint" style="margin:12px 0">下载 PDF 时按以上文件顺序合并；源文件保留原件。下载 PPT 独立生成，'+
+    '<p class="hint" style="margin:12px 0">下载 PDF 时严格按预设15类优先级合并，类别内部沿用当前顺序；相同原件只合并一次。下载 PPT 独立生成，'+
        '第一页为会议信息、第二页为唯一的付款明细对照表；从第三页起，按当前勾选和排序逐项展示原件内容。无法渲染的文件将标注原因并保留原件。</p>'+
     wmHtml,
    footer:'<button class="btn btn-o" data-cancel>取消</button>'+
@@ -53,7 +53,7 @@ export async function downloadArchivePdf(pid,button){
   const controls=[...m.querySelectorAll('input[name="material_category"]')];
   const all=m.querySelector("[data-select-all]"),clear=m.querySelector("[data-clear-all]");
   const list=m.querySelector("[data-material-file-list]");
-  const ordered=sources.slice(); // server already returned the canonical 15-category sequence
+  const ordered=sources.slice(); // only same-category reorder is allowed; the API enforces category precedence
   const checkedIds=new Set(ordered.map(x=>x.source_id));
   const shortSize=s=>{
    const bytes=Number(s.file_size||0);
@@ -69,8 +69,8 @@ export async function downloadArchivePdf(pid,button){
       '<small>'+esc(s.kind)+' · '+esc(s.source_type||"材料库")+
         (s.generated?' · 系统生成摘要/记录':' · '+esc(s.file_name||"原件"))+
         shortSize(s)+'</small></span>'+
-     '<button type="button" class="link" data-move-up="'+esc(s.source_id)+'"'+(i===0?' disabled':'')+'>上移</button>'+
-     '<button type="button" class="link" data-move-down="'+esc(s.source_id)+'"'+(i===visible.length-1?' disabled':'')+'>下移</button></div>'
+     '<button type="button" class="link" data-move-up="'+esc(s.source_id)+'"'+(i===0||visible[i-1].kind!==s.kind?' disabled':'')+'>上移</button>'+
+     '<button type="button" class="link" data-move-down="'+esc(s.source_id)+'"'+(i===visible.length-1||visible[i+1].kind!==s.kind?' disabled':'')+'>下移</button></div>'
    ).join(""):'<div class="hint">当前选中目录没有资料</div>';
    list.querySelectorAll("[data-file-select]").forEach(el=>el.onchange=()=>{
     if(el.checked)checkedIds.add(el.dataset.fileSelect);
@@ -80,7 +80,7 @@ export async function downloadArchivePdf(pid,button){
     const from=ordered.findIndex(s=>s.source_id===id);
     const ix=visible.findIndex(s=>s.source_id===id);
     const target=visible[ix+delta];
-    if(from<0||!target)return;
+    if(from<0||!target||ordered[from].kind!==target.kind)return;
     const to=ordered.findIndex(s=>s.source_id===target.source_id);
     [ordered[from],ordered[to]]=[ordered[to],ordered[from]];
     renderFiles();
