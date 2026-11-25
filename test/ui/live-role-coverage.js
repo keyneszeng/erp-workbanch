@@ -343,7 +343,8 @@ async function inspectDetail(page, role) {
               await modal.locator(".close").click({timeout:5000});
               await modal.waitFor({state:"hidden",timeout:5000});
             }else check(role,"project-detail","材料类别快捷上传",null,"当前状态无写入权限");
-          }          const contractShortcut=page.locator('#tabbody [data-goto-tab="contracts"]');
+          }
+          const contractShortcut=page.locator('#tabbody [data-goto-tab="contracts"]');
           if(await contractShortcut.count()){
             await contractShortcut.click({timeout:8000});
             await page.locator("#tabbody").getByText("合同目录详情").waitFor({timeout:10000});
