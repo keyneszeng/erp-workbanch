@@ -208,6 +208,11 @@ async function ready(){
   // rows. Confirm immediate removal, API filtering, and persistence after reload.
   await page.goto(origin+"/#/projects/"+encodeURIComponent(pid),{waitUntil:"domcontentloaded"});
   await page.locator('.tabs [data-tab="materials"]').click();
+  // Category selection persists across navigation. The last uploaded agenda
+  // remains selected; switch back to 课件 before deleting a course file.
+  await page.locator('#tabbody [data-material-kind="课件"]').click();
+  await page.locator('#modal.open [name="kind"]').waitFor({timeout:15000});
+  await page.locator('#modal.open [data-x="0"]').click();
   await page.locator('[data-del-mat="'+all[0].id+'"]').click();
   await page.locator('#modal.open [data-x="1"]').click();
   // Wait for the project archive table to finish re-rendering after deletion;
