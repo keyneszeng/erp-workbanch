@@ -6,6 +6,8 @@ const {bad,forbidden,conflict}=require("../lib/util");
 const {storage}=require("../lib/storage");
 const {logAudit}=require("../lib/audit");
 const {buildSelectedMaterialsPdf}=require("../lib/material-export-pdf");
+const archiveIndex=require("../lib/archive-material-index");
+const {buildPaymentPptx}=require("../lib/archive-payment-pptx");
 
 /** 与原归档下载相同的角色边界；仅允许当前所属协会管理员或总管理员。 */
 function assertArchiveDownloadAccess(user,project){
@@ -88,20 +90,40 @@ function register(router){
  router.get("/api/projects/:id/archive-pdf/options",async ctx=>{
    const project=getAllowedProject(ctx);
    return {project:{id:project.id,name:project.name,assoc:project.assoc,status:project.status},
-     categories:availableKinds(project.id),materials:availableMaterials(project.id),can_customize_watermark:isSuper(ctx.user)};
+     categories:availableKinds(project.id),materials:availableMaterials(project.id),
+     groups:archiveIndex.categorySummary(archiveIndex.listArchiveSources(project)),
+     sources:archiveIndex.listArchiveSources(project).map(archiveIndex.publicSource),
+     can_customize_watermark:isSuper(ctx.user)};
  });
  const generate=async(ctx,legacyAll=false)=>{
    const project=getAllowedProject(ctx);
    const categories=availableKinds(project.id);
    const supplied=legacyAll?{categories:categories.filter(x=>x.files>0).map(x=>x.kind),watermark_mode:"default"}:(ctx.body||{});
-   const materialRows=selectMaterials(project.id,supplied,categories);
+   let materialRows,downloadStore=storage();
+   if(!legacyAll&&(supplied.auto_all===true||supplied.source_ids!==undefined)){
+     const sources=archiveIndex.listArchiveSources(project);
+     const idList=supplied.auto_all===true?sources.map(s=>s.source_id):supplied.source_ids;
+     if(!Array.isArray(idList)||!idList.length||idList.length>120||
+        idList.some(id=>typeof id!=="string"||id.length>120)||
+        new Set(idList).size!==idList.length)
+       throw bad("来源清单不能为空、不能重复或超过120份");
+     const lookup=new Map(sources.map(s=>[s.source_id,s]));
+     if(idList.some(id=>!lookup.has(id)))
+       throw bad("存在不属于当前会议项目的原件，请刷新后重试");
+     const selection=idList.map(id=>lookup.get(id));
+     const prepared=await archiveIndex.pdfMaterials(project,selection,downloadStore);
+     materialRows=prepared.materials;downloadStore=prepared.store;
+   }else{
+     // Historical category/ID selections and GET links continue to work.
+     materialRows=selectMaterials(project.id,supplied,categories);
+   }
    const watermark=parseWatermark(ctx.user,supplied);
    const generatedAt=new Date().toISOString().replace("T"," ").slice(0,19)+" UTC";
    const text=watermark.mode==="default"?"操作员："+String(ctx.user.name||ctx.user.username||"未知")+"  时间："+generatedAt:watermark.text;
    const pdf=await buildSelectedMaterialsPdf({
      project,materials:materialRows,watermark:{mode:watermark.mode,text}
-   },storage());
-   logAudit({user:ctx.user,module:"档案中心",action:"材料勾选PDF下载",target:project.id,
+   },downloadStore);
+   logAudit({user:ctx.user,module:"档案中心",action:"自动归集材料PDF下载",target:project.id,
      detail:"所选类别："+[...new Set(materialRows.map(m=>m.kind))].join("、")+
        "；材料数："+materialRows.length+"；水印模式："+watermark.mode+
        "；操作员："+ctx.user.name+"；时间："+generatedAt,
@@ -112,6 +134,23 @@ function register(router){
  router.post("/api/projects/:id/archive-pdf",async ctx=>generate(ctx));
  // 兼容旧链接：默认导出所有类别并强制操作员/时间水印，不保留无水印漏洞。
  router.get("/api/projects/:id/archive-pdf",async ctx=>generate(ctx,true));
+ /** Presentation with project cover + current meeting payment reconciliation. */
+ router.get("/api/projects/:id/archive-pptx",async ctx=>{
+   const project=getAllowedProject(ctx);
+   const payments=db.prepare(
+     "SELECT id,type,payee,amount,status,paid_at,receipt_file_key FROM payments WHERE pid=? ORDER BY created_at,id"
+   ).all(project.id);
+   const contracts=db.prepare(
+     "SELECT id,vendor,amount,category,status,deleted_at FROM contracts WHERE pid=? AND deleted_at IS NULL ORDER BY created_at,id"
+   ).all(project.id);
+   const pptx=buildPaymentPptx(project,payments,contracts);
+   logAudit({user:ctx.user,module:"档案中心",action:"生成付款对照PPTX",target:project.id,
+     detail:"会议封面 + 付款对照；付款记录"+payments.length+"笔；已签合同"+contracts.length+"份",
+     ip:ctx.ip});
+   return {__file:{buffer:pptx,
+     mime:"application/vnd.openxmlformats-officedocument.presentationml.presentation",
+     name:"会议付款对照_"+project.id+".pptx",download:true,cache:"no-store"}};
+ });
  return router;
 }
 module.exports={register,assertArchiveDownloadAccess,selectMaterials,parseWatermark,availableKinds,availableMaterials};

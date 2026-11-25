@@ -109,6 +109,9 @@ jobs:
           node --check server/api/material-workbench.js
           node --check server/lib/archive-pdf.js
           node --check server/api/archive-pdf.js
+          node --check server/lib/archive-material-index.js
+          node --check server/lib/archive-payment-pptx.js
+          node --check test/archive-auto-pptx.test.js
           node --check server/api/user-access.js
           node --check test/permission-grants.test.js
           node --input-type=module --check < web/assets/js/pages/users.js
@@ -137,6 +140,8 @@ jobs:
         run: ERP_DEMO_MODE=1 node --experimental-sqlite --test test/permission-grants.test.js
       - name: Verify material selection and mandatory PDF watermarks before heavy OCR setup
         run: ERP_DEMO_MODE=1 node --experimental-sqlite --test test/archive-pdf.test.js
+      - name: Verify auto-indexed dossier sources and generated PPTX with real meeting financial rows
+        run: ERP_DEMO_MODE=1 node --experimental-sqlite --test test/archive-auto-pptx.test.js
       - name: Verify settlement classifications, totals and scoped detail access
         run: ERP_DEMO_MODE=1 node --experimental-sqlite --test test/settlement-breakdown.test.js
       - name: Verify initiation budget tax-fee and available budget before heavy OCR setup
