@@ -76,7 +76,7 @@ async function run(){
  await pptModal.locator("[data-clear-all]").click();
  await pptModal.locator('input[name="material_category"][value="会议说明书"]').check();
  await pptModal.locator('input[name="material_category"][value="签到表"]').check();
- const attendanceId=await pptModal.locator('[data-source-id]').filter({hasText:"现场签到表"}).first().getAttribute("data-source-id");
+ const attendanceId=await pptModal.locator('[data-source-id]').filter({hasText:"签到表-测试"}).first().getAttribute("data-source-id");
  // Manually move attendance before the default-first meeting description.
  await pptModal.locator('[data-move-up="'+attendanceId+'"]').click();
  const pptEvent=page.waitForEvent("download",{timeout:60000});
