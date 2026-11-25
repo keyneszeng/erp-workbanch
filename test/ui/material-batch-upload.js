@@ -69,7 +69,8 @@ async function ready(){
   assert.equal(await modal.locator('[name="name"]').count(),0,
     "manual material-name input must be removed");
   assert.equal(await modal.locator('[name="version"]').count(),0);
-  await modal.locator('[name="kind"]').selectOption("课件");
+  assert.equal(await modal.locator('[name="kind"]').isDisabled(),true,
+    "clicked material category must remain fixed throughout this upload");
   const picker=modal.locator('input[name="file"]');
   assert.notEqual(await picker.getAttribute("multiple"),null,
     "default material kind allows multi-file selection");
@@ -173,6 +174,8 @@ async function ready(){
   const guidedModal=page.locator("#modal.open");
   assert.equal(await guidedModal.locator('[name="kind"]').inputValue(),"劳务表",
     "category chip should directly open uploader with selected kind");
+  assert.equal(await guidedModal.locator('[name="kind"]').isDisabled(),true,
+    "material directory upload must also lock the clicked category");
   await guidedModal.locator('[data-x="0"]').click();
   assert.equal(await page.locator("#add").count(),0,"standalone register action removed");
   await page.locator('[data-guide-kind="劳务表"]').click();
