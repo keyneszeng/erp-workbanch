@@ -51,7 +51,7 @@ function directPayForm(projects,focusPid,types){
     esc(p.id)+' '+esc(p.name)+'</option>').join('');
   const typesHtml=types.map(t=>'<option value="'+esc(t)+'">'+esc(t)+'</option>').join('');
   return '<section id="financeDirect" style="border:1px solid var(--line);border-radius:12px;padding:16px;margin:14px 0;background:var(--card)">'+
-    '<div class="panel-h"><h3>财务直接付款 · 单页登记</h3><span class="hint">线下已完成转账后勾选并上传回单</span></div>'+
+    '<div class="panel-h"><h3>付款确认与凭证</h3><span class="hint">线下已完成转账后勾选并上传回单</span></div>'+
     '<div class="fgrid">'+
     fld('会议项目 <span class="req">*</span>','<select name="pid">'+projectsHtml+'</select>')+
     fld('类目 <span class="req">*</span>','<select name="type">'+typesHtml+'</select>')+
@@ -122,7 +122,7 @@ export async function render(root, params = []) {
       <div class="hint" style="margin-bottom:10px">仅展示当前账号授权范围内、已完成核销且尚未结算的会议。选择会议后查看付款明细。</div>
       <div id="paymentProjects" style="display:grid;gap:8px;max-height:360px;overflow:auto">${projectList}</div>
       ${selected?`<section id="paymentDetails" style="margin-top:18px">
-        <div class="panel-h"><h3>${esc(selected.name)} · 付款明细表</h3>${financeDirect&&!detailsError?'<button class="btn btn-o btn-sm" id="goDirectPay">+ 登记其他付款</button>':""}</div>
+        <div class="panel-h"><h3>${esc(selected.name)} · 付款明细表</h3></div>
         <div class="hint" style="margin-bottom:8px">未登记的关联金额仅供核对；分期付款及同名历史记录请先人工核实，避免重复付款。</div>
         ${detailsError?'<div class="gate">'+esc(detailsError)+'，请刷新后重试。</div>':
           (optionsError?'<div class="hint">'+esc(optionsError)+'；已登记记录仍可查看。</div>':"")+paymentOnePageTable(pay.rows||[],options)}
@@ -189,7 +189,6 @@ export async function render(root, params = []) {
   if (es) es.onclick = () => dl("/api/export/settlements");
   const directPanel=root.querySelector("#paymentDirectPanel");
   const revealForm=()=>{if(directPanel){directPanel.open=true;directPanel.scrollIntoView({behavior:"smooth",block:"nearest"});}};
-  root.querySelector("#goDirectPay")?.addEventListener("click",revealForm);
   const form=root.querySelector("#financeDirect");
   if(form){
     const select=form.querySelector('[name="pid"]');
