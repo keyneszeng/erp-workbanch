@@ -22,8 +22,8 @@ const ALIYUN_ACCOUNT_ENV = {
 const PRIVATE_ROUTES = ["users", "approvals", "finance", "verify", "demand", "contracts", "materials", "audit", "archive"];
 const TITLE_BY_ROUTE = {
   dashboard: "我的工作台", flow: "全流程总览", projects: "会议项目",
-  approvals: "审批中心", verify: "核销看板", finance: "付款与结算",
-  contracts: "合同台账", demand: "会务需求", materials: "材料中心",
+  approvals: "审批中心", verify: "核销看板", finance: "会议收入与财务",
+  contracts: "合同台账", demand: "会务需求", materials: "材料收集",
   archive: "数字卷宗", audit: "审计日志", users: "用户与权限"
 };
 const OPEN_MODALS = {
@@ -173,12 +173,16 @@ async function inspectDetail(page, role) {
     await go(page, "projects/" + pid);
     const view = await page.locator("#content").innerText();
     check(role, "project-detail", "进入项目详情", !/页面加载失败|无权访问|对象不存在/.test(view), pid);
-    const tabs = await page.locator("#content button[data-tab]").evaluateAll(els => els.map(e => e.dataset.tab));
+    const tabs = await page.locator("#content .tabs button[data-tab]").evaluateAll(els => els.map(e => e.dataset.tab));
     if (role === "guest") {
       check(role, "project-detail", "嘉宾只有公开概览页签", tabs.length === 1 && tabs[0] === "overview", tabs.join(","));
       check(role, "project-detail", "嘉宾财务信息不展示", !/财务概览|付款门禁|审批记录|成员与授权/.test(view));
     } else {
-      check(role, "project-detail", "八个业务页签", tabs.length === 8, tabs.join(","));
+      const current=await page.evaluate(async id=>(await (await fetch("/api/projects/"+encodeURIComponent(id))).json()).sectionAccess,pid);
+      const allowed=["overview","demand","contracts","materials","verify","payments","team","timeline"]
+        .filter(key=>key==="overview"||(key==="payments"?current.finance:key==="timeline"?current.audit:current[key]));
+      check(role, "project-detail", "按角色权限筛选业务页签",
+        tabs.join("|")===allowed.join("|"), "实际 "+tabs.join(",")+" / 预期 "+allowed.join(","));
     }
     for (const tab of tabs) {
       try {
@@ -315,7 +319,7 @@ async function oneRole(browser, role) {
       throw new Error("禁止通过公网明文 HTTP 发送真实账号；请在 ECS 本机或 SSH 端口转发运行");
     }
   }
-  const b = await chromium.launch({ headless: true });
+  const b = await chromium.launch({ channel:"chrome", headless: true });
   try {
     for (const role of ROLES) await oneRole(b, role);
   } finally {
@@ -324,8 +328,9 @@ async function oneRole(browser, role) {
   for (const e of errors) {
     if (e.type === "pageerror") check(e.role, "javascript", "无未捕获 JS 错误", false, e.message);
   }
-  const out = { base: BASE, at: new Date().toISOString(), pass, fail, skip, results, inventory, errors };
+  const out = { base: BASE, at: new Date().toISOString(), pass, fail, skip, results, inventory, errors,
+    allButtons:inventory.reduce((n,p)=>n+p.buttons.length,0) };
   fs.writeFileSync(path.join(OUTPUT, "role-button-coverage.json"), JSON.stringify(out, null, 2));
-  console.log("LIVE_ROLE_REGRESSION " + JSON.stringify({ pass, fail, skip, roles: ROLES, screens: 5, inspectedPages: inventory.length }));
+  console.log("LIVE_ROLE_REGRESSION " + JSON.stringify({ pass, fail, skip, roles: ROLES, screens: ROLES.length, inspectedPages: inventory.length, inventoriedButtons:out.allButtons }));
   process.exitCode = fail ? 1 : 0;
 })().catch(err => { console.error("LIVE_ROLE_FATAL", err.message); process.exitCode = 2; });
