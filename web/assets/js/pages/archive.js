@@ -17,7 +17,7 @@ export async function render(root) {
 
   root.innerHTML = `<div class="phead">
       <div><h2>数字卷宗</h2><p>归档前置：结算单已生成 + 至少保留一份已上传的材料附件；材料类别自由选择，归档后卷宗封存</p></div>
-      <div class="acts">${can("export:any") ? '<button class="btn btn-o" id="exp">导出核销卷宗</button>' : ""}</div>
+      <div class="acts">${can("export:any") ? '<button class="btn btn-o" id="exp" title="导出核销七步明细CSV；项目完整卷宗请点击材料下载">导出核销明细 CSV</button>' : ""}</div>
     </div>
     <div class="grid g3">
       <div class="kpi"><div class="t">已归档项目</div><div class="v">${archived.length}<span class="u">个</span></div></div>
