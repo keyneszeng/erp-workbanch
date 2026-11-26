@@ -9,10 +9,10 @@ Page({
    if(state.user?.mustChangePassword){wx.navigateTo({url:"/pages/account/index"});return;}
    const ps=app.globalData.perms||[],user=app.globalData.user;
    const canApprove=ps.some(p=>["project:approve","verify:exception_approve","payment:approve","contract:approve"].includes(p));
-   const canMaterials=ps.includes("material:write");
+   const canMaterials=!!state.role?.modules?.some(x=>["materials","verify","prep","finance"].includes(x))||ps.some(x=>["material:write","material:file:replace","contract:write","contract:approve","verify:check","verify:conclude","archive:write","archive:download"].includes(x))||user?.role==="admin";
    const canApply=ps.includes("mini:apply");
    const canMeetings=!!state.role?.modules?.some(x=>["projects","prep","demand","exec","materials","verify","finance","archive"].includes(x)) ||
-     ps.some(x=>["mini:apply","material:write","payment:create","verify:check","project:create","project:transition","archive:download"].includes(x)) || user?.role==="admin";
+     canMaterials || ps.some(x=>["mini:apply","material:write","payment:create","verify:check","project:create","project:transition","archive:download"].includes(x)) || user?.role==="admin";
    let dashboard={counts:{}};
    if(state.role?.modules?.includes("dashboard") || user?.role==="admin") {
      try { dashboard=await app.api("/dashboard"); }
