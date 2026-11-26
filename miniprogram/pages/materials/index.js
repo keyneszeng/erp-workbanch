@@ -31,7 +31,7 @@ Page({
    const p=projects[index];
    this.setData({projects,index,pid:p?.id||"",locked:!p||["已结算","已归档"].includes(p.status),
      materialRows:[],visibleFiles:[],historyKinds:[],filesLoading:!!p,contractRows:[],contractError:"",contractsLoading:false,canUploadContract:false});
-   if(p){await this.loadKinds(p.id);if(this.data.contractMode)await this.loadContracts(p.id);else if(this.data.kind==="权益照片")await this.loadRights(p.id);}
+   if(p){await this.loadKinds(p.id);if(this.data.contractMode)await this.loadContracts(p.id);else if(this.data.kind==="权益照片"&&!this.data.locked)await this.loadRights(p.id);}
   }catch(e){this.setData({error:e.message});}
  },
  // The selected category is the entry form and the persistent file list.
@@ -76,14 +76,14 @@ Page({
    batchResults:[],speakerFiles:[],materialRows:[],visibleFiles:[],activeKinds:[],historyKinds:[],disabledKinds:[],categoryDisabled:false,contractRows:[],contractError:"",contractsLoading:false,canUploadContract:false,contractDraft:emptyContract(),contractNotice:""});
   this.loadKinds(p.id);
   if(this.data.contractMode){this.loadContracts(p.id);return;}
-  if(this.data.kind==="权益照片")this.loadRights(p.id);else this.setData({sponsorRights:[{id:"",label:"请选择赞助权益类目"}],rightIndex:0,rightId:""});
+  if(this.data.kind==="权益照片"&&!this.data.locked)this.loadRights(p.id);else this.setData({sponsorRights:[{id:"",label:"请选择赞助权益类目"}],rightIndex:0,rightId:""});
  },
  chooseKind(e){
   if(this.data.busy)return;
   this._batch=null;const kind=e.currentTarget.dataset.kind;
   this.setData({kind,custom:false,customKind:"",uploaded:"",error:"",batchResults:[],speakerFiles:[],contractMode:false});
   this.syncVisibleFiles();
-  if(kind==="权益照片")this.loadRights(this.data.pid);
+  if(kind==="权益照片"&&!this.data.locked)this.loadRights(this.data.pid);
  },
  // 与 Web 项目材料面板一致：合同是正式合同目录入口，不作为普通材料上传。
  chooseContracts(){
@@ -312,6 +312,22 @@ Page({
  },
  // 误传纠错：仅删除当前项目已正式登记的这份材料，绝不直接清理存储原件。
  // 后端执行权限/核销/合同冻结校验并软删除至总管理员废件箱。
+ // 查看与写入是独立动作；结算/归档只冻结写入，不冻结已授权原件。
+ async openMaterialOriginal(e){
+  if(this.data.contractMode||this.data.filesLoading||!this.data.pid)return;
+  const pid=this.data.pid,id=Number(e.currentTarget?.dataset?.id);
+  if(!Number.isSafeInteger(id)||id<1||!this.data.visibleFiles.some(row=>Number(row.id)===id))return;
+  try{
+   // 材料工作台只返回文件名；通过已有项目详情的字段权限获取原件标识，
+   // 最终下载仍由 /uploads/:key 校验项目范围和文件读取权限。
+   const data=await app.api("/projects/"+encodeURIComponent(pid));
+   if(this.data.pid!==pid||this.data.contractMode||!this.data.visibleFiles.some(row=>Number(row.id)===id))return;
+   if(data.sectionAccess?.materials!==true)throw Error("当前账号无材料原件查看权限");
+   const item=(data.materials||[]).find(row=>Number(row.id)===id&&!row.deleted_at);
+   if(!item?.file_key)throw Error("原件已不存在或已删除，请刷新材料列表");
+   await app.openOriginal(item.file_key);
+  }catch(err){if(this.data.pid===pid)wx.showToast({title:err.message||"无法查看材料原件",icon:"none"});}
+ },
  async removeUploaded(e){
   if(this.data.busy||this.data.locked||!this.data.pid)return;
   const id=Number(e.currentTarget?.dataset?.id);
