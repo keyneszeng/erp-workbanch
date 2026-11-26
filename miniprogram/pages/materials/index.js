@@ -136,6 +136,7 @@ Page({
    const status=data.project?.status||this.data.projects[this.data.index]?.status;
    const perms=app.globalData?.perms||[],write=perms.includes("contract:write"),approve=perms.includes("contract:approve");
    const sealed=!!data.settlement||["已结算","已归档"].includes(status),mutable=!sealed&&!frozenStatus(status);
+   const specialAdmin=status==="已归档"&&app.globalData?.user?.role==="admin";
    const rows=(data.contracts||[]).filter(c=>!c.deleted_at).map(c=>{
     const materialId=(data.materials||[]).find(m=>m.kind==="合同"&&!m.deleted_at&&m.file_key===c.file_key)?.id||null;
     return {id:c.id,name:c.name,vendor:c.vendor||"",category:labels[c.category]||c.category||"合同",categoryValue:c.category,
@@ -144,6 +145,7 @@ Page({
     canReplace:mutable&&perms.includes("material:file:replace")&&!!c.file_key&&!!materialId&&c.category!=="企业赞助",
     canReviewReplace:mutable&&approve&&c.status==="待签署",
     canDelete:mutable&&write&&(c.status==="已签署"?approve:["草稿","待签署"].includes(c.status))&&c.category!=="企业赞助",
+    canArchiveDelete:specialAdmin&&["草稿","待签署","已签署"].includes(c.status)&&c.category!=="企业赞助",
     canSubmit:mutable&&write&&c.status==="草稿",canSign:mutable&&approve&&c.status==="待签署",
     canHistory:write||approve,canAmend:!sealed&&write&&c.status==="已签署"};
    });
@@ -247,18 +249,22 @@ Page({
  async contractAction(e){
   if(this.data.busy||!this.data.contractMode)return;
   const c=this.contractRow(e),action=e.currentTarget.dataset.action,pid=this.data.pid;
-  if(!c||!({"submit":c.canSubmit,"sign":c.canSign,"reject":c.canSign,"delete":c.canDelete}[action]))return;
+  if(!c||!({"submit":c.canSubmit,"sign":c.canSign,"reject":c.canSign,"delete":c.canDelete,"archiveDelete":c.canArchiveDelete}[action]))return;
   this.setData({busy:true,contractNotice:""});
   try{
    let body={action};
-   if(action==="reject"){
+   if(action==="archiveDelete"){
+    const x=await new Promise((resolve,reject)=>wx.showModal({title:"总管理员特殊删除",editable:true,placeholderText:"填写8～500字修订原因",content:"仅允许不影响封存核销及结算的误录合同",success:resolve,fail:reject}));
+    if(!x.confirm)return;
+    body={reason:String(x.content||"").trim()};if(body.reason.length<8||body.reason.length>500)throw Error("特殊删除须填写8～500字原因");
+   }else if(action==="reject"){
     const x=await new Promise((resolve,reject)=>wx.showModal({title:"驳回合同签署",editable:true,placeholderText:"填写驳回理由（4～500字）",success:resolve,fail:reject}));
     if(!x.confirm)return;
     body.reason=String(x.content||"").trim();
     if(body.reason.length<4||body.reason.length>500)throw Error("驳回理由须为4～500字");
    }else if(!await this.confirmAction(action==="delete"?"删除合同":action==="sign"?"确认签署":"提交签署",action==="delete"?"确认删除「"+c.name+"」？原件进入废件箱，已完成审批保留；不等同于解除法律合同。":"确认办理「"+c.name+"」？"))return;
    if(this.data.pid!==pid)throw Error("会议已变化");
-   const result=await app.api("/contracts/"+encodeURIComponent(c.id)+(action==="delete"?"":"/transition"),action==="delete"?"DELETE":"POST",action==="delete"?null:body);
+   const result=await app.api("/contracts/"+encodeURIComponent(c.id)+(action==="delete"?"":action==="archiveDelete"?"/archive-delete":"/transition"),action==="delete"?"DELETE":"POST",action==="delete"?null:body);
    this.setData({contractNotice:result.message||"操作成功"});
    await this.loadKinds(pid,{preserveError:true});await this.loadContracts(pid);
   }catch(err){this.setData({contractNotice:err.message||"操作失败"});}
