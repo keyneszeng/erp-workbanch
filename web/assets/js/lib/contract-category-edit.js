@@ -61,8 +61,7 @@ export function contractDeleteButton(c,projectStatus="",settled=false){
  }
  const reason=settled||["已核销","已结算","已归档"].includes(phase)?"会议已核销或封存，须先办理正式更正":
   !["草稿","待签署","已签署"].includes(c.status)?"当前合同状态不允许直接删除":
-  c.status==="已签署"&&!can("contract:approve")?"删除已签署合同须由有签署审批权限的管理员办理":
-  c.category==="企业赞助"?"赞助合同已关联收入与权益，须先办理收入更正":"";
+  c.status==="已签署"&&!can("contract:approve")?"删除已签署合同须由有签署审批权限的管理员办理":"";
  return ' <button class="link danger" data-delete-contract="'+esc(c.id)+'"'+
   (reason?' disabled title="'+esc(reason)+'"':'')+'>删除</button>';
 }
@@ -75,7 +74,7 @@ export async function deleteContract(c,onDone=()=>{}){
   try{const r=await api.post("/api/contracts/"+encodeURIComponent(c.id)+"/archive-delete",{reason:value});toast(r.message,"ok");await onDone();}catch(e){toast(e.message||"特殊删除失败","warn");}
   return;
  }
- const ok=await confirmBox("确定删除「"+c.name+"」？"+(c.file_key?"合同及关联原件将移入废件箱，只有总管理员可恢复为草稿。":"无附件合同将软删除并保留操作记录，暂不支持从材料废件箱恢复。")+" 待签署审批会撤销，关联核销结论需重新核验。"+(c.status==="已签署"?" 已完成签署审批记录保留；系统删除不等同于解除法律合同。":""),{title:"删除合同",ok:"确认删除"});
+ const ok=await confirmBox("确定删除「"+c.name+"」？"+(c.file_key?"合同及关联原件将移入废件箱，只有总管理员可恢复为草稿。":"无附件合同将软删除并保留操作记录，暂不支持从材料废件箱恢复。")+" 待签署审批会撤销，关联核销结论需重新核验。"+(c.category==="企业赞助"?" 未发生实际收入或权益的关联赞助台账将同步撤销。":"")+(c.status==="已签署"?" 已完成签署审批记录保留；系统删除不等同于解除法律合同。":""),{title:"删除合同",ok:"确认删除"});
  if(!ok)return;
  try{
   const r=await api.del("/api/contracts/"+encodeURIComponent(c.id));
