@@ -7,6 +7,29 @@ import {canEditContractCategory,openContractCategoryEdit,contractDeleteButton,de
 
 let q = "";
 let renderSeq = 0;
+const views = new WeakMap();
+const matches=(row,query)=>!query||[row.id,row.name,row.vendor,row.pname,row.pid,row.category].some(v=>String(v||"").toLowerCase().includes(query.trim().toLowerCase()));
+
+/** 按唯一项目编号归类，避免同名会议混在一起；仅使用已授权合同数据。 */
+function groupContracts(rows,projects){
+  const index=new Map(projects.map(p=>[p.id,p]));
+  const groups=new Map();
+  for(const row of rows){
+    if(!groups.has(row.pid)){
+      const p=index.get(row.pid);
+      groups.set(row.pid,{id:row.pid,name:p?.name||row.pname||row.pid,assoc:p?.assoc||"",status:p?.status||row.pstatus||"",rows:[]});
+    }
+    groups.get(row.pid).rows.push(row);
+  }
+  return [...groups.values()];
+}
+function projectDirectory(groups){
+  return table([{t:"项目编号",w:"135px"},{t:"项目名称"},{t:"所属协会",w:"150px"},{t:"项目状态",w:"100px"},{t:"合同数",w:"80px",cls:"num"},{t:"支出合同金额",w:"130px",cls:"num"},{t:"赞助合同金额",w:"130px",cls:"num"},{t:"操作",w:"100px"}],groups.map(g=>{
+    const sum=category=>g.rows.filter(r=>r.status!=="已终止"&&(r.category==="企业赞助")===category).reduce((n,r)=>n+Number(r.amount||0),0);
+    const href="contracts/"+esc(g.id);
+    return {c:[`<span class="mono">${esc(g.id)}</span>`,`<button class="link" data-go="${href}"><b>${esc(g.name)}</b></button>`,esc(g.assoc||"—"),badge(g.status),String(g.rows.length),"¥"+money(sum(false)),"¥"+money(sum(true)),`<button class="link" data-go="${href}">查看合同</button>`]};
+  }),{empty:"暂无匹配的会议合同项目"});
+}
 
 /**
  * 合同状态流转按钮：草稿 → 待签署（提交）→ 已签署（确认）。
@@ -35,11 +58,16 @@ function fileCell(c) {
     title="${esc(c.file_key ? c.file_name || "查看合同原件" : "查看合同详情")}">详情<span class="ftag${c.file_key ? "" : " off"}">${tag}</span></button>`;
 }
 
-export async function render(root) {
+export async function render(root, params) {
+  const view=params!==undefined?{pid:params[0]||"",query:""}:views.get(root)||{pid:"",query:""};
+  views.set(root,view);
   const seq = ++renderSeq;
   const [c, proj] = await Promise.all([api.get("/api/contracts"), api.get("/api/projects")]);
   if (seq !== renderSeq) return;
-  const rows = c.rows.filter((r) => !q || (r.name + r.vendor + r.pname + r.id).includes(q));
+  const all=c.rows||[],projects=proj.rows||[],allGroups=groupContracts(all,projects);
+  const groups=allGroups.filter(g=>matches({id:g.id,name:g.name,vendor:g.assoc},q)||g.rows.some(r=>matches(r,q)));
+  const selected=view.pid?(allGroups.find(g=>g.id===view.pid)||projects.find(p=>p.id===view.pid)):null;
+  const rows=view.pid?all.filter(r=>r.pid===view.pid&&matches(r,view.query)):groups.flatMap(g=>g.rows);
   const expenseRows=rows.filter(r=>r.category!=="企业赞助"&&r.status!=="已终止");
   const total = expenseRows.reduce((s, r) => s + Number(r.amount || 0), 0);
   const signed = expenseRows.filter((r) => r.status === "已签署").reduce((s, r) => s + Number(r.amount || 0), 0);
@@ -60,9 +88,9 @@ export async function render(root) {
       <div class="kpi k3"><div class="t">赞助合同金额（收入）</div><div class="v">¥${money(sponsorTotal)}</div></div>
     </div>
     <div class="panel mt">
-      <div class="panel-h"><h2>合同清单</h2><span class="hint">${rows.length} 份 · 原件 ${withFile} 份</span></div>
-      <div class="filters"><input type="search" id="q" placeholder="搜索合同 / 签约方 / 项目" value="${esc(q)}"></div>
-      ${table(
+      <div class="panel-h"><h2>${view.pid?"合同清单 · "+esc(selected?.name||view.pid):"合同清单 · 项目目录"}</h2><span class="hint">${view.pid?"":groups.length+" 个项目 · "}${rows.length} 份 · 原件 ${withFile} 份</span></div>
+      <div class="filters">${view.pid?'<button class="btn btn-o" data-go="contracts">← 返回项目目录</button>':""}<input type="search" id="q" placeholder="${view.pid?"搜索本项目合同 / 签约方 / 类别":"搜索项目 / 合同 / 签约方 / 协会"}" value="${esc(view.pid?view.query:q)}"></div>
+      ${!view.pid?'<div class="hint" style="padding:0 16px 12px">按会议项目汇总，点击项目名称或查看合同进入该项目的完整清单。</div>'+projectDirectory(groups):table(
         [{ t: "合同编号", w: "112px" }, { t: "项目", w: "170px" }, { t: "合同名称" }, { t: "签约方", w: "150px" },
          { t: "金额", w: "104px", cls: "num" }, { t: "签署日期", w: "100px" }, { t: "状态", w: "80px" },
          { t: "原件", w: "104px" }, { t: "操作", w: "200px" }],
@@ -79,14 +107,14 @@ export async function render(root) {
         })), { empty: "暂无合同" })}
     </div>`;
 
-  bindSearchRefresh(root, "#q", value => { q = value; }, () => render(root));
+  bindSearchRefresh(root, "#q", value => { if(view.pid)view.query=value;else q=value; }, () => render(root));
   const expBtn = root.querySelector("#exp");
   if (expBtn) expBtn.onclick = async () => {
     try { const r = await api.download("/api/export/contracts"); toast(`已导出 ${r.name}`, "ok"); }
     catch (e) { toast(e.message, "warn"); }
   };
   const nb = root.querySelector("#newC");
-  if (nb) nb.onclick = () => openCreate(root, proj.rows);
+  if (nb) nb.onclick = () => openCreate(root, projects, view.pid);
   root.querySelectorAll("[data-cflow]").forEach((b) => b.onclick = () => {
     if(b.dataset.caction==="sign") {
       const row=rows.find(c=>c.id===b.dataset.cflow);
@@ -138,7 +166,7 @@ async function contractFlow(root, id, action) {
   } catch (e) { toast(e.message, "warn"); }
 }
 
-function openCreate(root, projects) {
+function openCreate(root, projects, preferredPid="") {
   const fields=[
     { k:"pid",l:"所属项目",t:"select",req:1,opts:projects.map(p=>({v:p.id,l:p.id+" "+p.name})) },
     { k:"name",l:"合同名称",req:1,full:1 },
@@ -157,7 +185,7 @@ function openCreate(root, projects) {
   ];
   const m=modal({title:"录入合同",width:"650px",
     body:'<div class="hint" style="padding-bottom:12px">合同编号由系统自动分配（HT-年份-流水号），不用填写。上传合同后可自动识别并预填，保存前请核对原件。</div>'+
-      formHtml(fields)+'<div class="hint" role="status" data-contract-scan style="padding:10px 0">尚未选择合同文件。</div>',
+      formHtml(fields,{pid:preferredPid})+'<div class="hint" role="status" data-contract-scan style="padding:10px 0">尚未选择合同文件。</div>',
     footer:'<button class="btn btn-o" data-x="0">取消</button><button class="btn btn-p" data-x="1">保存</button>'
   });
   const btn=m.querySelector('[data-x="1"]');
@@ -241,7 +269,9 @@ function openCreate(root, projects) {
       const base=(r.message||"合同已登记")+(r.sponsorId?"；已关联会议收入 "+r.sponsorId:"");
       toast(r.warning?base+"；"+r.warning:base,r.warning?"warn":"ok");
       m.classList.remove("open");
-      await render(root);
+      // 保存后直接定位所属会议，避免新合同混在其他会议的清单中。
+      if(views.get(root)?.pid===v.pid){views.get(root).query="";await render(root);}
+      else location.hash="#/contracts/"+v.pid;
     }catch(e){toast(e.message,"warn");btn.disabled=false;btn.textContent="保存";}
   };
 }
