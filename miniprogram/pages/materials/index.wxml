@@ -2,7 +2,7 @@
   <view class="card card-accent">
     <view class="page-kicker">MATERIAL WORKBENCH</view>
     <view class="heading">材料收集</view>
-    <view class="subtitle">选择会议和材料类别，将照片或文件归档到 ERP 材料库</view>
+    <view class="subtitle">选择会议及类别，按权限查看、上传和管理材料</view>
     <view class="field space-sm">
       <view class="field-label"><text class="required">*</text>所属会议</view>
       <picker mode="selector" range="{{projects}}" range-key="name" value="{{index}}" bindchange="select">
@@ -13,17 +13,19 @@
   </view>
 
   <view class="form-section">
-    <view class="section-head"><view class="row"><view class="section-index">01</view><view class="section-caption">按类别直接录入材料</view></view></view>
-    <view class="muted">下方列出推荐收集的材料类别，便于知道可上传哪些文件。点选类别后直接上传，下方显示已录入文件名；点击「合同」上传合同并查看本会议正式合同目录。推荐类别不是必须逐项上传，核销要求按具体步骤判定。</view>
+    <view class="section-head"><view class="row"><view class="section-index">01</view><view class="section-caption">按类别查看及录入材料</view></view></view>
+    <view class="muted">点击类别查看已有原件；获得写入权限且未冻结时可上传。合同与 Web 正式台账共用，归档后仍可查阅。</view>
     <view class="chip-list">
-      <view wx:if="{{pid}}" bindtap="chooseContracts" class="select-chip {{contractMode?'chip-selected':''}}">合同</view>
+      <view wx:if="{{pid&&canContractRead}}" bindtap="chooseContracts" class="select-chip {{contractMode?'chip-selected':''}}">合同</view>
       <view wx:for="{{activeKinds}}" wx:key="*this" data-kind="{{item}}" bindtap="chooseKind" class="select-chip {{!contractMode&&!custom&&kind===item?'chip-selected':''}}">{{item}}</view>
-      <view bindtap="chooseCustom" class="select-chip {{!contractMode&&custom?'chip-selected':''}}">＋ 自定义</view>
+      <view wx:if="{{canMaterialWrite&&!locked}}" bindtap="chooseCustom" class="select-chip {{!contractMode&&custom?'chip-selected':''}}">＋ 自定义</view>
     </view>
     <view wx:if="{{historyKinds.length}}" class="field-hint">已录入的其他类别：</view>
     <view wx:if="{{historyKinds.length}}" class="chip-list">
       <view wx:for="{{historyKinds}}" wx:key="*this" data-kind="{{item}}" bindtap="chooseKind" class="select-chip {{!contractMode&&!custom&&kind===item?'chip-selected':''}}">{{item}}</view>
     </view>
+    <view wx:if="{{filesLoading}}" class="field-hint">正在同步项目材料及权限…</view>
+    <view wx:if="{{error&&!canMaterialRead&&!contractMode}}" class="error">{{error}}</view>
     <view wx:if="{{contractMode}}" class="uploaded-file-list">
       <view class="uploaded-file-head">
         <text class="uploaded-file-title">合同目录</text>
@@ -49,6 +51,7 @@
         <view class="field"><view class="field-label"><text class="required">*</text>合同名称</view><input class="field-control" value="{{contractDraft.name}}" data-key="name" bindinput="contractDraftInput" maxlength="80" disabled="{{busy}}" placeholder="自动填入文件名，可修改"/></view>
         <view class="field"><view class="field-label"><text class="required">*</text>签约方</view><input class="field-control" value="{{contractDraft.vendor}}" data-key="vendor" bindinput="contractDraftInput" maxlength="80" disabled="{{busy}}" placeholder="OCR 识别或手工填写"/></view>
         <view class="field"><view class="field-label"><text class="required">*</text>合同金额（元）</view><input class="field-control" type="digit" value="{{contractDraft.amount}}" data-key="amount" bindinput="contractDraftInput" disabled="{{busy}}" placeholder="核对合同金额或劳务报酬"/></view>
+        <view wx:if="{{contractDraft.categoryIndex===2}}" class="field"><view class="field-label">赞助权益（每行一项）</view><textarea class="field-control" value="{{contractDraft.rightsText}}" data-key="rightsText" bindinput="contractDraftInput" disabled="{{busy}}" placeholder="OCR识别后人工核对，可自定义权益"/></view>
         <view class="field"><view class="field-label">签署日期{{contractDraft.statusIndex===2?'（必填）':'（选填）'}}</view><picker mode="date" value="{{contractDraft.signDate}}" disabled="{{busy}}" bindchange="contractDateChange"><view class="picker-control"><text>{{contractDraft.signDate||'选择日期'}}</text><text class="picker-arrow">⌄</text></view></picker></view>
         <view class="field"><view class="field-label">合同状态</view><picker mode="selector" range="{{contractStatuses}}" value="{{contractDraft.statusIndex}}" disabled="{{busy}}" bindchange="contractStatusChange"><view class="picker-control"><text>{{contractStatuses[contractDraft.statusIndex]}}</text><text class="picker-arrow">⌄</text></view></picker></view>
         <view class="field-hint">OCR 仅预填，须核对原件。选择「待签署」或「已签署」后，正式环境仍须通过签署审批才能确认已签署。</view>
@@ -62,21 +65,37 @@
         <view wx:for="{{contractRows}}" wx:key="id" class="item">
           <view class="row"><text class="title">{{item.name}}</text><text>{{item.status}}</text></view>
           <view class="muted">{{item.category}} · {{item.vendor}} · {{item.id}}</view>
+          <view class="muted">金额：¥{{item.amount}} · 签署日期：{{item.signDate||"—"}}</view>
+          <view class="muted">录入：{{item.creator||"—"}} {{item.createdAt}}</view>
+          <view wx:if="{{item.remark}}" class="muted">备注：{{item.remark}}</view>
           <view wx:if="{{item.fileKey}}" class="row">
             <text class="grow">{{item.fileName||'合同原件'}}</text>
             <button size="mini" class="btn ghost" data-id="{{item.id}}" bindtap="openContractOriginal">查看原件</button>
           </view>
           <view wx:else class="field-hint">暂无合同原件</view>
+          <view class="row" style="flex-wrap:wrap;gap:8px">
+            <button wx:if="{{item.canEdit}}" size="mini" class="btn ghost" data-id="{{item.id}}" disabled="{{busy}}" bindtap="editContractCategory">修改</button>
+            <button wx:if="{{item.canReplace}}" size="mini" class="btn ghost" data-id="{{item.id}}" disabled="{{busy}}" bindtap="replaceOriginal">更换原件</button>
+            <button wx:if="{{item.canDelete}}" size="mini" type="warn" data-id="{{item.id}}" data-action="delete" disabled="{{busy}}" bindtap="contractAction">删除</button>
+            <button wx:if="{{item.canSubmit}}" size="mini" class="btn ghost" data-id="{{item.id}}" data-action="submit" disabled="{{busy}}" bindtap="contractAction">提交签署</button>
+            <button wx:if="{{item.canSign}}" size="mini" class="btn ghost" data-id="{{item.id}}" data-action="sign" disabled="{{busy}}" bindtap="contractAction">确认签署</button>
+            <button wx:if="{{item.canSign}}" size="mini" type="warn" data-id="{{item.id}}" data-action="reject" disabled="{{busy}}" bindtap="contractAction">驳回</button>
+            <button wx:if="{{item.canHistory}}" size="mini" class="btn ghost" data-id="{{item.id}}" bindtap="contractHistory">版本历史</button>
+          </view>
         </view>
       </view>
       <view wx:else class="field-hint">本会议暂无合同记录。</view>
+      <view wx:if="{{historyContract}}" class="card space-sm"><view class="row"><text class="title grow">{{historyContract}} · 更正记录</text><button size="mini" bindtap="closeHistory">关闭</button></view>
+        <view wx:for="{{historyRows}}" wx:key="id" class="item"><view class="title">{{item.id}} · {{item.status}}</view><view class="muted">{{item.kind}} · {{item.createdAt}}</view><view>{{item.reason}}</view><button wx:if="{{item.oldKey}}" size="mini" data-key="{{item.oldKey}}" bindtap="openHistoryOriginal">旧原件</button><button wx:if="{{item.newKey}}" size="mini" data-key="{{item.newKey}}" bindtap="openHistoryOriginal">更正原件</button></view>
+        <view wx:if="{{!historyRows.length}}" class="field-hint">暂无更正记录</view>
+      </view>
     </view>
-    <block wx:else>
+    <block wx:elif="{{canMaterialRead}}">
     <view wx:if="{{custom}}" class="field">
       <view class="field-label"><text class="required">*</text>自定义类别</view>
       <input class="field-control" value="{{customKind}}" data-key="customKind" bindinput="input" placeholder="20 字以内"/>
     </view>
-    <view wx:if="{{!locked&&!custom&&kind==='权益照片'}}" class="field">
+    <view wx:if="{{canMaterialWrite&&!locked&&!custom&&kind==='权益照片'}}" class="field">
       <view class="field-label"><text class="required">*</text>赞助合同 · 权益二级类目</view>
       <picker mode="selector" range="{{sponsorRights}}" range-key="label" value="{{rightIndex}}" bindchange="pickRight"><view class="picker-control"><text class="picker-value">{{sponsorRights[rightIndex].label}}</text><text class="picker-arrow">⌄</text></view></picker>
       <view class="field-hint">权益类目需先在 Web 端确认，照片才能关联到对应赞助合同。</view>
@@ -89,10 +108,10 @@
     <view wx:if="{{error}}" class="error"><text class="feedback-icon">!</text><text>{{error}}</text></view>
     <view wx:if="{{uploaded}}" class="success-note"><text class="feedback-icon">✓</text><text>{{uploaded}}</text></view>
 
-    <button class="upload-panel" loading="{{busy}}" disabled="{{busy||locked||filesLoading||categoryDisabled||!pid||(custom&&!customKind)||(!custom&&kind==='权益照片'&&!rightId)}}" bindtap="addPhoto">
+    <button wx:if="{{canMaterialWrite&&!locked}}" class="upload-panel" loading="{{busy}}" disabled="{{busy||!canMaterialWrite||locked||filesLoading||categoryDisabled||!pid||(custom&&!customKind)||(!custom&&kind==='权益照片'&&!rightId)}}" bindtap="addPhoto">
       <view class="upload-icon">照</view><view class="upload-title">拍照或从相册选择</view><view class="upload-sub">{{!custom&&kind==='讲者照片'?'相册批量选图，选完逐张填写讲者姓名':'相册可批量选择照片，每批最多10份'}}</view>
     </button>
-    <button class="upload-panel" loading="{{busy}}" disabled="{{busy||locked||filesLoading||categoryDisabled||!pid||(custom&&!customKind)||(!custom&&kind==='权益照片'&&!rightId)}}" bindtap="addFile">
+    <button wx:if="{{canMaterialWrite&&!locked}}" class="upload-panel" loading="{{busy}}" disabled="{{busy||!canMaterialWrite||locked||filesLoading||categoryDisabled||!pid||(custom&&!customKind)||(!custom&&kind==='权益照片'&&!rightId)}}" bindtap="addFile">
       <view class="upload-icon" style="background:#1f5f8b">档</view><view class="upload-title">从微信会话选择文件</view><view class="upload-sub">一次最多选择10份 Office、PDF、CSV、TXT 或图片</view>
     </button>
     <view wx:if="{{!custom&&kind==='讲者照片'&&speakerFiles.length}}" class="speaker-block">
@@ -109,7 +128,7 @@
         </view>
         <view wx:if="{{!busy}}" class="speaker-del" data-index="{{index}}" bindtap="removeSpeaker">移除</view>
       </view>
-      <button class="btn primary speaker-submit" loading="{{busy}}" disabled="{{busy||locked||filesLoading||categoryDisabled||!pid}}" bindtap="uploadSpeakers">上传并归档（{{speakerFiles.length}} 张）</button>
+      <button class="btn primary speaker-submit" loading="{{busy}}" disabled="{{busy||!canMaterialWrite||locked||filesLoading||categoryDisabled||!pid}}" bindtap="uploadSpeakers">上传并归档（{{speakerFiles.length}} 张）</button>
     </view>
     <view wx:if="{{batchResults.length}}" class="card">
       <view class="section-caption">本批文件进度 · {{batchResults.length}}份</view>
@@ -126,20 +145,22 @@
         <text class="uploaded-file-count">{{visibleFiles.length}} 份</text>
       </view>
       <view class="field-hint">点击文件名或「查看原件」即可查阅已上传附件。</view>
-      <view wx:if="{{!locked}}" class="field-hint">文件传错了？点击该文件右侧「删除」并确认。删除后进入废件箱，仅总管理员可恢复。</view>
+      <view wx:if="{{canMaterialWrite&&!materialMutationLocked}}" class="field-hint">文件传错了？点击该文件右侧「删除」并确认。删除后进入废件箱，仅总管理员可恢复。</view>
       <view wx:if="{{filesLoading}}" class="field-hint">正在加载已上传材料…</view>
       <view wx:elif="{{visibleFiles.length}}">
         <view wx:for="{{visibleFiles}}" wx:key="id" class="uploaded-file-item">
           <text class="uploaded-file-name" data-id="{{item.id}}" bindtap="openMaterialOriginal">{{item.filename}}</text>
+          <view class="muted">{{item.uploader||""}} {{item.created_at||""}}</view>
           <text wx:if="{{item.version==='终版'}}" class="uploaded-file-version">当前终版</text>
           <text wx:elif="{{item.version==='历史版'}}" class="uploaded-file-version muted">历史版</text>
           <button size="mini" class="btn ghost" data-id="{{item.id}}" catchtap="openMaterialOriginal">查看原件</button>
-          <button wx:if="{{!locked}}" type="warn" size="mini" class="uploaded-file-delete"
+          <button wx:if="{{canMaterialReplace&&!materialMutationLocked}}" size="mini" class="btn ghost" data-id="{{item.id}}" disabled="{{busy}}" catchtap="replaceOriginal">更换原件</button>
+          <button wx:if="{{canMaterialWrite&&!materialMutationLocked}}" type="warn" size="mini" class="uploaded-file-delete"
             data-id="{{item.id}}" disabled="{{busy}}" loading="{{deletingId===item.id}}"
             catchtap="removeUploaded">删除</button>
         </view>
       </view>
-      <view wx:else class="field-hint">{{locked?'该类别暂无已上传文件。':'该类别暂无已上传文件，选择上方入口即可录入。'}}</view>
+      <view wx:else class="field-hint">{{locked||!canMaterialWrite?'该类别暂无已上传文件。':'该类别暂无已上传文件，选择上方入口即可录入。'}}</view>
     </view>
     <view class="privacy-note">每批最多10份文件，单个附件不超过20 MB。OCR 仅辅助识别，不代表核销通过。</view>
     </block>
