@@ -56,7 +56,7 @@
       <view class="quick-icon">批</view><view class="quick-title">待我审批</view><view class="quick-sub">处理授权审批单</view>
     </view>
     <view wx:if="{{canMaterials}}" class="quick-tile quick-steel" data-page="materials" bindtap="go">
-      <view class="quick-icon">材</view><view class="quick-title">材料收集</view><view class="quick-sub">拍照上传并归档</view>
+      <view class="quick-icon">材</view><view class="quick-title">材料收集</view><view class="quick-sub">合同与材料 · 查看 / 管理</view>
     </view>
     <view class="quick-tile quick-light" data-page="account" bindtap="go">
       <view class="quick-icon">安</view><view class="quick-title">账户安全</view><view class="quick-sub">身份验证与退出</view>
