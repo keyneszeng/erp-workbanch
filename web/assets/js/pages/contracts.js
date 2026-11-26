@@ -3,7 +3,7 @@ import { badge, bindSearchRefresh, confirmBox, promptBox, esc, formHtml, modal, 
 import { bindFilePicker, UPLOAD_ACCEPT, UPLOAD_TIP } from "../lib/upload.js";
 import { flowHint, flowOf, openContractDetail } from "../lib/contract-detail.js";
 import { openContractMaterialReplace } from "../lib/contract-material-replace.js";
-import {canEditContractCategory,openContractCategoryEdit} from "../lib/contract-category-edit.js";
+import {canEditContractCategory,openContractCategoryEdit,contractDeleteButton,deleteContract} from "../lib/contract-category-edit.js";
 
 let q = "";
 let renderSeq = 0;
@@ -65,7 +65,7 @@ export async function render(root) {
       ${table(
         [{ t: "合同编号", w: "112px" }, { t: "项目", w: "170px" }, { t: "合同名称" }, { t: "签约方", w: "150px" },
          { t: "金额", w: "104px", cls: "num" }, { t: "签署日期", w: "100px" }, { t: "状态", w: "80px" },
-         { t: "原件", w: "104px" }, { t: "操作", w: "150px" }],
+         { t: "原件", w: "104px" }, { t: "操作", w: "200px" }],
         rows.map((r) => ({
           c: [`<span class="mono">${r.id}</span>`, `<a class="link" data-go="projects/${r.pid}">${esc(r.pname)}</a>`,
             `${esc(r.name)}<span class="cat">${esc(r.category || "未分类")}</span>`,
@@ -75,7 +75,7 @@ export async function render(root) {
               ? ` <button class="link" data-edit-contract-category="${esc(r.id)}">修改</button>` : "")+
              (can("material:file:replace") && r.file_key && r.material_id &&
               !["已核销","已结算","已归档"].includes(r.pstatus)
-              ? ` <button class="link" data-replace-ledger-file="${r.material_id}">更换原件</button>` : "")]
+              ? ` <button class="link" data-replace-ledger-file="${r.material_id}">更换原件</button>` : "")+contractDeleteButton(r)]
         })), { empty: "暂无合同" })}
     </div>`;
 
@@ -98,6 +98,10 @@ export async function render(root) {
   root.querySelectorAll("[data-edit-contract-category]").forEach(b=>b.onclick=()=>{
     const row=rows.find(r=>r.id===b.dataset.editContractCategory);
     if(row)openContractCategoryEdit(row,()=>render(root));
+  });
+  root.querySelectorAll("[data-delete-contract]").forEach(b=>b.onclick=()=>{
+    const row=rows.find(r=>r.id===b.dataset.deleteContract);
+    if(row)deleteContract(row,()=>render(root));
   });
   root.querySelectorAll("[data-replace-ledger-file]").forEach(b=>b.onclick=()=>{
     const row=rows.find(r=>Number(r.material_id)===Number(b.dataset.replaceLedgerFile));
