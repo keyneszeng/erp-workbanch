@@ -11,7 +11,7 @@ Page({
    const r=await app.api("/projects/"+encodeURIComponent(this.data.id));
    const p=r.project,ps=app.globalData.perms||[];
    const idx=stages.indexOf(p.status);
-   const canMaterials=ps.includes("material:write")&&r.sectionAccess?.materials===true;
+   const canMaterials=r.sectionAccess?.materials===true||r.sectionAccess?.contracts===true;
    const canApprove=["project:approve","verify:exception_approve","payment:approve","contract:approve"].some(x=>ps.includes(x));
    const statusNotes={
      "草稿":"填写会议资料与初版议程后，提交立项审批。",
@@ -46,7 +46,7 @@ Page({
    this.setData({canVerify,canFinance,settlementSummary,settlementGroups,verifySummary,
     p,stageLabel:idx>=0?(idx+1)+"/9 · "+p.status:p.status,statusNote:statusNotes[p.status]||"",
      stagePercent:Math.round(Math.max(0,idx)/8*100),
-     canMaterials,
+     canMaterials,canMaterialWrite:r.sectionAccess?.materials===true&&ps.includes("material:write"),
      canApprove,
      isExecutor:canMaterials||canApprove,error:""});
   }catch(e){this.setData({error:e.message});}
