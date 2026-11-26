@@ -126,6 +126,7 @@ async function openAs(browser, username) {
 async function openDetailFromLedger(page, cid) {
   // 不用 networkidle：详情弹窗里的 PDF iframe 会一直占着连接，networkidle 等不到
   await page.goto(`${BASE}/#/contracts`, { waitUntil: "domcontentloaded" });
+  await page.locator(`[data-go="contracts/${PID}"]`).first().click();
   await page.waitForTimeout(1800);
   const btn = page.locator(`tr:has-text("${cid}") [data-cdet="${cid}"]`).first();
   if (!(await btn.count())) return false;
@@ -178,6 +179,7 @@ async function openDetailFromLedger(page, cid) {
   console.log("\n[1] 合同台账的原件列");
   const exec1 = await sess("exec");
   await exec1.page.goto(`${BASE}/#/contracts`, { waitUntil: "domcontentloaded" });
+  await exec1.page.locator(`[data-go="contracts/${PID}"]`).first().click();
   await exec1.page.waitForTimeout(1800);
   const cdetCount = await exec1.page.locator("[data-cdet]").count();
   check("每行原件列都有「详情」按钮", cdetCount >= 3, `实际 ${cdetCount}`);
