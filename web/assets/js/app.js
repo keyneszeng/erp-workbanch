@@ -40,6 +40,7 @@ const ROUTES = [
   { re: /^project-ledger$/, page: projectLedger, nav: "project-ledger", title: "项目台账", sub: "仅总管理员 · 按会议编号对照财务资料" },
   { re: /^project-ledger\/([\w-]+)$/, page: projectLedger, nav: "project-ledger", title: "会议项目台账", sub: "按会议唯一编号对照" },
   { re: /^contracts$/, page: contracts, nav: "contracts", title: "合同台账", sub: "合同金额与签署状态" },
+  { re: /^contracts\/([\w-]+)$/, page: contracts, nav: "contracts", title: "合同台账", sub: "指定会议项目的合同清单" },
   { re: /^prep-invitations$/, page: prepInvitations, nav: "prep-invitations", title: "筹备管理 · 邀请函", sub: "内置模板匹配、PDF、邮件与微信小程序分享" },
   { re: /^demand$/, page: demand, nav: "demand", title: "会务需求确认", sub: "四组清单：设计 / 制作 / 现场执行 / 其他" },
   { re: /^demand\/([\w-]+)$/, page: demand, nav: "demand", title: "需求单", sub: "逐条确认会务需求" },
