@@ -619,12 +619,18 @@ function register(router) {
       message:cleanup.linkedContract?"材料已替换，关联合同已退回草稿，须重新走签署审批":"材料文件已替换，相关核销步骤须重新确认"};
   });
 
-  router.delete("/api/materials/:id", async (ctx) => {
-    const m = db.prepare("SELECT * FROM materials WHERE id = ?").get(Number(ctx.params.id));
-    if (!m) throw notFound("材料不存在");
-    const p = getProject(m.pid);
+  // 两个入口共用删除事务：合同台账按合同ID，材料中心按材料ID。
+  async function deleteMaterialOrContract(ctx,contractId=null) {
+    const direct=contractId!==null;
+    const requested=direct?db.prepare("SELECT * FROM contracts WHERE id=? AND deleted_at IS NULL").get(contractId):null;
+    if(direct&&!requested)throw notFound("合同不存在或已删除");
+    const m=direct?(requested.file_key?db.prepare(
+      "SELECT * FROM materials WHERE pid=? AND file_key=? AND deleted_at IS NULL AND (kind LIKE '%合同%' OR kind LIKE '%协议%') ORDER BY id DESC LIMIT 1"
+    ).get(requested.pid,requested.file_key):null):db.prepare("SELECT * FROM materials WHERE id = ?").get(Number(ctx.params.id));
+    if (!direct&&!m) throw notFound("材料不存在");
+    const p = getProject(direct?requested.pid:m.pid);
     assertProjectVisible(ctx.user, p);
-    assertCan(ctx.user, "material:write", "当前角色无材料删除权限");
+    assertCan(ctx.user,direct?"contract:write":"material:write",direct?"当前角色无合同删除权限":"当前角色无材料删除权限");
     if (p.status === "已归档") throw conflict("已归档项目材料不可删除");
     // 结算单一旦生成，材料就是结算与核销的原始凭证，删了等于销毁证据链。
     // 这里用「有没有结算单」判断而不是只看 status：状态可能被人为改过，
@@ -638,19 +644,20 @@ function register(router) {
       throw conflict("已结算项目的原件已锁定，不可删除","FROZEN", {status:p.status});
 
     // 关联台账合同与材料必须同生共退。禁止通过删除合同原件绕过签署、赞助和核销流程。
-    if (m.deleted_at) throw conflict("材料已处于历史冻结状态，不能重复删除", "ALREADY_DELETED");
+    if (m?.deleted_at) throw conflict("材料已处于历史冻结状态，不能重复删除", "ALREADY_DELETED");
     // 旧系统允许把合同原件登记成「会务协议」「专家劳务合同」等自定义类别。
     // 删除时不能仅认 kind='合同'：只要这张材料引用的是该项目合同台账的
     // 同一份原件，就必须同步处理台账，否则合同继续卡住第5/6项核销。
-    const contractEvidence=/(?:合同|协议)/u.test(String(m.kind||""));
-    const linked=contractEvidence&&m.file_key
-      ? db.prepare("SELECT id,status,category FROM contracts WHERE pid=? AND file_key=? AND deleted_at IS NULL").all(p.id,m.file_key)
-      : [];
+    const contractEvidence=/(?:合同|协议)/u.test(String(m?.kind||""));
+    const fileKey=direct?requested.file_key:m.file_key;
+    const linked=(direct||contractEvidence)&&fileKey
+      ? db.prepare("SELECT id,status,category FROM contracts WHERE pid=? AND file_key=? AND deleted_at IS NULL").all(p.id,fileKey)
+      : (direct?[requested]:[]);
     if(linked.length>1)throw conflict("多份合同共用同一原件，需先由管理员核对关联关系","SHARED_CONTRACT_FILE");
-    const c=linked[0];
+    const c=direct?requested:linked[0];
     if(c){
       assertCan(ctx.user,"contract:write","该材料已关联正式合同，需要合同录入权限才能同步删除");
-      if(c.status==="已签署")
+      if(!["草稿","待签署"].includes(c.status))
         throw conflict("已签署合同不能通过删除原件撤销；请先办理合同终止或更正","SIGNED_CONTRACT_LOCKED");
       if(c.category==="企业赞助"||
         db.prepare("SELECT 1 FROM meeting_sponsor_contracts WHERE ledger_contract_id=?").get(c.id))
@@ -661,9 +668,14 @@ function register(router) {
       // 同一合同可能有多份按不同类别登记的原件引用。同步软删所有
       // 合同/协议类别的同 key 材料；如被发票或其他非合同资料复用，拒绝
       // 自动删除，防止错误移除其他业务原件。
-      const other=db.prepare(
+      if(db.prepare("SELECT 1 FROM payments WHERE pid=? AND status IN ('待审批','已审批','已付款') LIMIT 1").get(p.id))
+        throw conflict("项目已有有效付款，不能直接删除合同，请先办理财务更正","CONTRACT_PAYMENT_LINKED");
+      if(db.prepare("SELECT 1 FROM contract_amendments WHERE contract_id=? AND status='待审批'").get(c.id))
+        throw conflict("合同存在待审批更正，请先处理更正申请","CONTRACT_AMENDMENT_PENDING");
+      if(direct&&fileKey&&!m)throw conflict("合同原件归档关联缺失，请管理员核对后再删除","CONTRACT_MATERIAL_MISSING");
+      const other=fileKey?db.prepare(
         "SELECT id,kind FROM materials WHERE pid=? AND file_key=? AND deleted_at IS NULL AND id<>?"
-      ).all(p.id,m.file_key,m.id);
+      ).all(p.id,fileKey,m?.id||0):[];
       if(other.some(x=>!/(?:合同|协议)/u.test(String(x.kind||""))))
         throw conflict("该文件仍被非合同类材料引用，请先核对附件关联","SHARED_CONTRACT_FILE");
     }
@@ -672,13 +684,13 @@ function register(router) {
       // 同一份合同原件可能有多条历史同步记录，先精确锁定待删除 ID，
       // 再原子地删除有效引用并撤销其核销结论，不能留下清单/核销幽灵项。
       const removed=c
-        ?db.prepare("SELECT id,kind,file_key FROM materials WHERE pid=? AND file_key=? "+
-          "AND deleted_at IS NULL AND (kind LIKE '%合同%' OR kind LIKE '%协议%')").all(p.id,m.file_key)
+        ?(fileKey?db.prepare("SELECT id,kind,file_key FROM materials WHERE pid=? AND file_key=? "+
+          "AND deleted_at IS NULL AND (kind LIKE '%合同%' OR kind LIKE '%协议%')").all(p.id,fileKey):[])
         :[{id:m.id,kind:m.kind,file_key:m.file_key}];
       if(c){
-        db.prepare("UPDATE materials SET deleted_at=?,deleted_by=? WHERE pid=? AND file_key=? "+
+        if(fileKey)db.prepare("UPDATE materials SET deleted_at=?,deleted_by=? WHERE pid=? AND file_key=? "+
           "AND deleted_at IS NULL AND (kind LIKE '%合同%' OR kind LIKE '%协议%')")
-          .run(at,ctx.user.name,p.id,m.file_key);
+          .run(at,ctx.user.name,p.id,fileKey);
         db.prepare("UPDATE contracts SET deleted_at=?,deleted_by=? WHERE id=? AND deleted_at IS NULL")
           .run(at,ctx.user.name,c.id);
         db.prepare("UPDATE approvals SET status='已撤销',decided_by=?,decided_at=?,comment='关联合同已删除，原签署申请失效' "+
@@ -688,16 +700,25 @@ function register(router) {
         db.prepare("UPDATE materials SET deleted_at=?,deleted_by=? WHERE id=? AND deleted_at IS NULL")
           .run(at,ctx.user.name,m.id);
       }
-      return detachDeletedMaterialEvidence(db,p.id,removed,at,ctx.user.name);
+      const result=detachDeletedMaterialEvidence(db,p.id,removed,at,ctx.user.name);
+      // 无附件草稿也需要撤销可能依赖合同台账的核销结论。
+      if(c&&!removed.length){
+        const steps=c.category==="劳务专家"?[5]:[6];
+        for(const no of steps)db.prepare("UPDATE verify_steps SET result='待判定',remark='关联合同已删除，请重新核验',evidence_json=NULL,invoice_amount=NULL,checked_by=NULL,checked_at=NULL WHERE pid=? AND step_no=?").run(p.id,no);
+        result.resetSteps=steps;
+      }
+      return result;
     });
     logAudit({user:ctx.user,module:"材料中心",action:c?"软删合同及关联材料":"软删材料及核销解绑",
-      target:p.id,detail:`移入废件箱：${m.kind}：${m.name}`+
+      target:p.id,detail:(m?`移入废件箱：${m.kind}：${m.name}`:`软删无附件合同：${c.id} · ${c.name}`)+
         (c?"；同步退出合同看板："+c.id:"")+
         "；核销待重新判定步骤："+(cleanup.resetSteps.join("、")||"无"),ip:ctx.ip});
     return {materialsStatus:materialsStatus(p.id),linkedContract:c?.id||null,
       resetSteps:cleanup.resetSteps,removedMaterialIds:cleanup.materialIds,
-      message:c?"合同及关联材料已移入废件箱，原核销证据已解除":"材料已移入废件箱并解除核销关联"};
-  });
+      message:c?(m?"合同及关联材料已移入废件箱，原核销证据已解除":"无附件合同已软删除并留痕"):"材料已移入废件箱并解除核销关联"};
+  }
+  router.delete("/api/materials/:id",ctx=>deleteMaterialOrContract(ctx));
+  router.delete("/api/contracts/:id",ctx=>deleteMaterialOrContract(ctx,String(ctx.params.id)));
 
   /** 已生成结算单的四项汇总和四类已付款明细，必须先财务授权再校验项目范围。 */
   router.get("/api/settlements/:id/breakdown", async (ctx) => {
