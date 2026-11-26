@@ -136,7 +136,8 @@ let proc = null;
   const newBtn = await page.$("#newC");
   check("有「录入合同」按钮", !!newBtn);
   const headers = (await page.textContent("#app table thead").catch(() => "")) || "";
-  check("清单有「原件」列", /原件/.test(headers), headers.replace(/\s+/g, " ").slice(0, 90));
+  check("一级项目目录有「项目名称」列", /项目名称/.test(headers), headers.replace(/\s+/g, " ").slice(0, 90));
+  check("一级目录不展示合同明细按钮", (await page.locator("[data-cdet]").count()) === 0);
 
   console.log("\n[3] 打开录入弹窗");
   await newBtn.click();
@@ -174,6 +175,8 @@ let proc = null;
   console.log("\n[6] 原件列给出「详情」入口，点开在弹窗里看原件");
   // V1.2.14：原件列从「PDF 二字 + 新窗口裸文件」改成「详情」按钮 + 类型标签，
   // 点开是详情弹窗，原件内嵌在里面 —— 断言随之改成新口径。
+  check("录入后自动进入所属项目合同清单", /#\/contracts\/[^/]+$/.test(page.url()));
+  check("二级清单有「原件」列", /原件/.test((await page.textContent("#app table thead").catch(() => "")) || ""));
   const cdetBtn = page.locator("[data-cdet]").first();
   check("原件列有「详情」按钮", (await cdetBtn.count()) > 0);
   const cdetTxt = (await cdetBtn.textContent()) || "";
