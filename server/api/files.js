@@ -14,7 +14,7 @@
  */
 const { db } = require("../lib/db");
 const { now, bad, notFound, forbidden } = require("../lib/util");
-const { assertProjectVisible, can } = require("../lib/rbac");
+const { assertProjectVisible, can, hasModule } = require("../lib/rbac");
 const { logAudit } = require("../lib/audit");
 const { getProject } = require("../lib/workflow");
 const { HttpError } = require("../lib/util");
@@ -44,6 +44,7 @@ function register(router) {
     // 上传是所有附件类操作的公共入口，材料登记和合同录入都要用。
     // 只卡 material:write 会让「能录合同但不能登记材料」的角色传不了合同原件。
     if (!can(ctx.user, "material:write") && !can(ctx.user, "contract:write") && !can(ctx.user,"payment:pay") &&
+        !(ctx.query.pid&&can(ctx.user,"material:file:replace")) &&
         !(ctx.user.role==="finance"&&ctx.query.pid)) {
       throw forbidden("当前角色无文件上传权限");
     }
@@ -108,7 +109,7 @@ function register(router) {
     // 尚未关联的（刚上传、还没提交单据）只要求登录，key 本身是 32 位随机串。
     // 优先有效原件，避免同一个 key 被历史记录与当前业务共同引用时误封。
     const m = db.prepare(
-      "SELECT pid,file_name,deleted_at,deleted_by FROM materials WHERE file_key = ? "+
+      "SELECT pid,kind,file_name,deleted_at,deleted_by FROM materials WHERE file_key = ? "+
       "ORDER BY CASE WHEN deleted_at IS NULL THEN 0 ELSE 1 END,id DESC LIMIT 1"
     ).get(key);
     const c = m ? null : db.prepare(
@@ -136,10 +137,13 @@ function register(router) {
       assertProjectVisible(ctx.user, getProject(owner.pid));
       // Payment transfer vouchers contain sensitive financial evidence: project visibility
       // alone is not enough, even when the user may view ordinary material attachments.
-      if (paymentReceipt && !can(ctx.user,"payment:pay"))
+      if ((paymentReceipt||db.prepare("SELECT 1 FROM payments WHERE receipt_file_key=?").get(key)) && !can(ctx.user,"payment:pay"))
         throw forbidden("付款凭证仅具有付款执行权限的账号可查看");
       // 单纯是项目成员的嘉宾并不自动获得合同和财务凭证的读取权限。
-      if (!can(ctx.user, "material:write") && !can(ctx.user, "contract:write") &&
+      const ordinaryMaterialRead=m&&!m.deleted_at&&!/(?:合同|协议|付款凭证|到账凭证)/u.test(String(m.kind||""))&&
+        !db.prepare("SELECT 1 FROM contracts WHERE file_key=? UNION SELECT 1 FROM meeting_sponsor_contracts WHERE file_key=? UNION SELECT 1 FROM meeting_sponsor_receipts WHERE file_key=? UNION SELECT 1 FROM meeting_sponsor_invoices WHERE file_key=?").get(key,key,key,key)&&
+        (hasModule(ctx.user,"materials")||hasModule(ctx.user,"verify")||can(ctx.user,"archive:download")||can(ctx.user,"verify:conclude")||can(ctx.user,"material:file:replace"));
+      if (!ordinaryMaterialRead && !can(ctx.user, "material:write") && !can(ctx.user, "contract:write") &&
           !can(ctx.user, "verify:check") && !can(ctx.user, "archive:write") && !can(ctx.user,"payment:pay") &&
           !(ctx.user.role==="finance"&&db.prepare("SELECT 1 FROM meeting_sponsor_contracts WHERE file_key=? UNION SELECT 1 FROM meeting_sponsor_receipts WHERE file_key=? UNION SELECT 1 FROM meeting_sponsor_invoices WHERE file_key=?").get(key,key,key))) {
         throw forbidden("当前角色无权查看内部业务附件");
