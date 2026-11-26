@@ -79,8 +79,10 @@ function register(router){
     if(linked.length>1)throw conflict("多份已删除合同引用同一文件，请先核对","RECYCLE_CONTRACT_AMBIGUOUS");
     const c=linked[0];
     if(c){
-      if(!["草稿","待签署"].includes(c.status))
-        throw conflict("已签署或已终止合同不得通过废件箱恢复，应走合同更正流程","RECYCLE_SIGNED_CONTRACT");
+      if(!["草稿","待签署","已签署"].includes(c.status))
+        throw conflict("已终止或其他不可编辑状态的合同不得通过废件箱恢复，应走合同更正流程","RECYCLE_SIGNED_CONTRACT");
+      if(db.prepare("SELECT 1 FROM payments WHERE pid=? AND status IN ('待审批','已审批','已付款') LIMIT 1").get(p.id))
+        throw conflict("项目已有有效付款，须先办理财务更正","RECYCLE_CONTRACT_PAYMENT_LINKED");
       if(p.status==="已核销"||
         db.prepare("SELECT 1 FROM verify_steps WHERE pid=? AND step_no=6 AND result='通过'").get(p.id))
         throw conflict("合同已进入核销锁定，请先办理核销更正","RECYCLE_CONTRACT_VERIFIED");
@@ -117,7 +119,7 @@ function register(router){
         if(!changed.changes)throw conflict("材料已恢复，请刷新","RECYCLE_ALREADY_RESTORED");
       }
       if(c){
-        db.prepare("UPDATE contracts SET deleted_at=NULL,deleted_by=NULL,status='草稿' WHERE id=? AND deleted_at IS NOT NULL")
+        db.prepare("UPDATE contracts SET deleted_at=NULL,deleted_by=NULL,status='草稿',sign_date='' WHERE id=? AND deleted_at IS NOT NULL")
           .run(c.id);
       }
       return {id:m.id,pid:m.pid,kind:m.kind,linkedContract:c?.id||null,
