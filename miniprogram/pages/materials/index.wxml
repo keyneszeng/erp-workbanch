@@ -9,7 +9,7 @@
         <view class="picker-control"><text class="picker-value">{{projects[index].name||'请选择会议项目'}}</text><text class="picker-arrow">⌄</text></view>
       </picker>
     </view>
-    <view wx:if="{{locked}}" class="lock-banner"><view class="lock-mark">锁</view><view class="grow"><view class="title">材料已冻结</view><view class="muted">项目已结算或归档，无法继续上传。</view></view></view>
+    <view wx:if="{{locked}}" class="lock-banner"><view class="lock-mark">锁</view><view class="grow"><view class="title">材料已冻结</view><view class="muted">项目已结算或归档，仅可查阅已上传原件，不可上传或删除。</view></view></view>
   </view>
 
   <view class="form-section">
@@ -76,7 +76,7 @@
       <view class="field-label"><text class="required">*</text>自定义类别</view>
       <input class="field-control" value="{{customKind}}" data-key="customKind" bindinput="input" placeholder="20 字以内"/>
     </view>
-    <view wx:if="{{!custom&&kind==='权益照片'}}" class="field">
+    <view wx:if="{{!locked&&!custom&&kind==='权益照片'}}" class="field">
       <view class="field-label"><text class="required">*</text>赞助合同 · 权益二级类目</view>
       <picker mode="selector" range="{{sponsorRights}}" range-key="label" value="{{rightIndex}}" bindchange="pickRight"><view class="picker-control"><text class="picker-value">{{sponsorRights[rightIndex].label}}</text><text class="picker-arrow">⌄</text></view></picker>
       <view class="field-hint">权益类目需先在 Web 端确认，照片才能关联到对应赞助合同。</view>
@@ -125,19 +125,21 @@
         <text class="uploaded-file-title">已录入文件 · {{custom?customKind:kind}}</text>
         <text class="uploaded-file-count">{{visibleFiles.length}} 份</text>
       </view>
+      <view class="field-hint">点击文件名或「查看原件」即可查阅已上传附件。</view>
       <view wx:if="{{!locked}}" class="field-hint">文件传错了？点击该文件右侧「删除」并确认。删除后进入废件箱，仅总管理员可恢复。</view>
       <view wx:if="{{filesLoading}}" class="field-hint">正在加载已上传材料…</view>
       <view wx:elif="{{visibleFiles.length}}">
         <view wx:for="{{visibleFiles}}" wx:key="id" class="uploaded-file-item">
-          <text class="uploaded-file-name">{{item.filename}}</text>
+          <text class="uploaded-file-name" data-id="{{item.id}}" bindtap="openMaterialOriginal">{{item.filename}}</text>
           <text wx:if="{{item.version==='终版'}}" class="uploaded-file-version">当前终版</text>
           <text wx:elif="{{item.version==='历史版'}}" class="uploaded-file-version muted">历史版</text>
+          <button size="mini" class="btn ghost" data-id="{{item.id}}" catchtap="openMaterialOriginal">查看原件</button>
           <button wx:if="{{!locked}}" type="warn" size="mini" class="uploaded-file-delete"
             data-id="{{item.id}}" disabled="{{busy}}" loading="{{deletingId===item.id}}"
             catchtap="removeUploaded">删除</button>
         </view>
       </view>
-      <view wx:else class="field-hint">该类别暂无已上传文件，选择上方入口即可录入。</view>
+      <view wx:else class="field-hint">{{locked?'该类别暂无已上传文件。':'该类别暂无已上传文件，选择上方入口即可录入。'}}</view>
     </view>
     <view class="privacy-note">每批最多10份文件，单个附件不超过20 MB。OCR 仅辅助识别，不代表核销通过。</view>
     </block>
