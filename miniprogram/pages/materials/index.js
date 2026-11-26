@@ -66,10 +66,18 @@ Page({
    const normalizedKind=k=>k==="劳务收集表"?"劳务表":k;
    let shared=data.materialsStatus?.categoryCatalog;
    if(!shared){
-    // 旧服务器可使用原工作台类别目录，但原件仍来自 Web 项目详情。
-    const legacy=await app.api("/projects/"+encodeURIComponent(pid)+"/material-workbench");
-    if(this.data.pid!==pid||this._materialSeq!==seq)return;
-    shared=legacy.categoryCatalog||{active:legacy.kinds||[],history:[],disabled:(legacy.modules||[]).filter(m=>m.enabled===0).map(m=>m.kind)};
+    // 旧服务端缺少共享目录时，尽量使用原工作台的类别；只读用户即使无法进入
+    // 工作台，也能查看项目详情已经授权返回的历史文件，不能因此丢失整个材料列表。
+    try{
+     const legacy=await app.api("/projects/"+encodeURIComponent(pid)+"/material-workbench");
+     if(this.data.pid!==pid||this._materialSeq!==seq)return;
+     shared=legacy.categoryCatalog||{active:legacy.kinds||[],history:[],disabled:(legacy.modules||[]).filter(m=>m.enabled===0).map(m=>m.kind)};
+    }catch(err){
+     if(this.data.pid!==pid||this._materialSeq!==seq)return;
+     if(err.status===401)throw err;
+     shared={active:[],history:(data.materials||[]).filter(m=>m.file_key&&!m.deleted_at).map(m=>m.kind),disabled:data.materialsStatus?.disabled||[]};
+     this.setData({canMaterialWrite:false});
+    }
    }
    const catalog=shared.active||[];
    const retired=new Set(["合同","会务协议","劳务协议","企业赞助合同","赞助合同","劳务专家合同","专家劳务协议","劳务合同","会务合同"]);
