@@ -144,7 +144,7 @@ Page({
     canEdit:!sealed&&["草稿","待签署","已签署"].includes(c.status)&&(c.status==="已签署"?approve:write),
     canReplace:mutable&&perms.includes("material:file:replace")&&!!c.file_key&&!!materialId&&c.category!=="企业赞助",
     canReviewReplace:mutable&&approve&&c.status==="待签署",
-    canDelete:mutable&&write&&(c.status==="已签署"?approve:["草稿","待签署"].includes(c.status))&&c.category!=="企业赞助",
+    canDelete:mutable&&write&&(c.status==="已签署"?approve:["草稿","待签署"].includes(c.status)),
     canArchiveDelete:specialAdmin&&["草稿","待签署","已签署"].includes(c.status)&&c.category!=="企业赞助",
     canSubmit:mutable&&write&&c.status==="草稿",canSign:mutable&&approve&&c.status==="待签署",
     canHistory:write||approve,canAmend:!sealed&&write&&c.status==="已签署"};
@@ -262,7 +262,7 @@ Page({
     if(!x.confirm)return;
     body.reason=String(x.content||"").trim();
     if(body.reason.length<4||body.reason.length>500)throw Error("驳回理由须为4～500字");
-   }else if(!await this.confirmAction(action==="delete"?"删除合同":action==="sign"?"确认签署":"提交签署",action==="delete"?"确认删除「"+c.name+"」？原件进入废件箱，已完成审批保留；不等同于解除法律合同。":"确认办理「"+c.name+"」？"))return;
+   }else if(!await this.confirmAction(action==="delete"?"删除合同":action==="sign"?"确认签署":"提交签署",action==="delete"?"确认删除「"+c.name+"」？原件进入废件箱，已完成审批保留；不等同于解除法律合同。"+(c.categoryValue==="企业赞助"?" 未发生实际收入或权益的关联赞助台账将同步撤销。":"")+"":"确认办理「"+c.name+"」？"))return;
    if(this.data.pid!==pid)throw Error("会议已变化");
    const result=await app.api("/contracts/"+encodeURIComponent(c.id)+(action==="delete"?"":action==="archiveDelete"?"/archive-delete":"/transition"),action==="delete"?"DELETE":"POST",action==="delete"?null:body);
    this.setData({contractNotice:result.message||"操作成功"});
