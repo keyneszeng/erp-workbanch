@@ -582,7 +582,7 @@ function wire(root, pid, d, body) {
   });
   body.querySelectorAll("[data-delete-contract]").forEach(b=>b.onclick=()=>{
     const row=d.contracts.find(c=>c.id===b.dataset.deleteContract);
-    if(row)deleteContract(row,()=>refresh(root,pid));
+    if(row)deleteContract({...row,pstatus:d.project.status},()=>refresh(root,pid));
   });
   body.querySelectorAll("[data-replace-material]").forEach(b=>b.onclick=()=>{
     const m=d.materials.find(x=>Number(x.id)===Number(b.dataset.replaceMaterial));
