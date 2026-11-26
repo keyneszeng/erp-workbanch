@@ -12,7 +12,7 @@ Page({
   // 类别由服务端统一下发；不维护独立的客户端类别清单。
   activeKinds:[],historyKinds:[],disabledKinds:[],categoryDisabled:false,materialRows:[],visibleFiles:[],filesLoading:false,
   custom:false,customKind:"",locked:false,canMaterialWrite:false,canMaterialRead:false,canContractRead:false,canMaterialReplace:false,materialMutationLocked:false,batchResults:[],speakerFiles:[],deletingId:0,
-  contractMode:false,contractsLoading:false,contractRows:[],contractError:"",canUploadContract:false,
+  historyContract:"",historyRows:[],contractMode:false,contractsLoading:false,contractRows:[],contractError:"",canUploadContract:false,
   contractTypes:CONTRACT_TYPES,contractStatuses:["草稿","待签署","已签署"],contractDraft:emptyContract(),contractNotice:"",
   sponsorRights:[{id:"",label:"请选择赞助权益类目"}],rightIndex:0,rightId:""},
  onLoad(q){if(q.pid)this.setData({pid:q.pid});},
@@ -105,7 +105,7 @@ Page({
  },
  async loadContracts(pid){
   const seq=(this._contractSeq||0)+1;this._contractSeq=seq;
-  this.setData({contractsLoading:true,contractRows:[],contractError:"",canUploadContract:false});
+  this.setData({historyContract:"",historyRows:[],contractsLoading:true,contractRows:[],contractError:"",canUploadContract:false});
   try{
    const data=await app.api("/projects/"+encodeURIComponent(pid));
    if(this.data.pid!==pid||this._contractSeq!==seq)return;
@@ -216,6 +216,87 @@ Page({
   if(!row?.fileKey)return;
   try{await app.openOriginal(row.fileKey);}
   catch(err){wx.showToast({title:err.message||"无法查看合同原件",icon:"none"});}
+ },
+ // 与 Web 台账共用正式业务接口，所有写操作由服务端重新校验权限和冻结状态。
+ contractRow(e){return this.data.contractRows.find(c=>c.id===e.currentTarget.dataset.id);},
+ async confirmAction(title,content){
+  const r=await new Promise((resolve,reject)=>wx.showModal({title,content,success:resolve,fail:reject}));
+  return !!r.confirm;
+ },
+ async contractAction(e){
+  if(this.data.busy||!this.data.contractMode)return;
+  const c=this.contractRow(e),action=e.currentTarget.dataset.action,pid=this.data.pid;
+  if(!c||!({"submit":c.canSubmit,"sign":c.canSign,"reject":c.canSign,"delete":c.canDelete}[action]))return;
+  this.setData({busy:true,contractNotice:""});
+  try{
+   let body={action};
+   if(action==="reject"){
+    const x=await new Promise((resolve,reject)=>wx.showModal({title:"驳回合同签署",editable:true,placeholderText:"填写驳回理由（4～500字）",success:resolve,fail:reject}));
+    if(!x.confirm)return;
+    body.reason=String(x.content||"").trim();
+    if(body.reason.length<4||body.reason.length>500)throw Error("驳回理由须为4～500字");
+   }else if(!await this.confirmAction(action==="delete"?"删除合同":action==="sign"?"确认签署":"提交签署",action==="delete"?"确认删除「"+c.name+"」？原件进入废件箱，已完成审批保留；不等同于解除法律合同。":"确认办理「"+c.name+"」？"))return;
+   if(this.data.pid!==pid)throw Error("会议已变化");
+   const result=await app.api("/contracts/"+encodeURIComponent(c.id)+(action==="delete"?"":"/transition"),action==="delete"?"DELETE":"POST",action==="delete"?null:body);
+   this.setData({contractNotice:result.message||"操作成功"});
+   await this.loadKinds(pid,{preserveError:true});await this.loadContracts(pid);
+  }catch(err){this.setData({contractNotice:err.message||"操作失败"});}
+  finally{this.setData({busy:false});}
+ },
+ async editContractCategory(e){
+  if(this.data.busy)return;
+  const c=this.contractRow(e),pid=this.data.pid;if(!c?.canEdit)return;
+  this.setData({busy:true,contractNotice:""});
+  try{
+   const pick=await new Promise((resolve,reject)=>wx.showActionSheet({itemList:CONTRACT_TYPES.map(x=>x.label),success:resolve,fail:reject}));
+   const category=CONTRACT_TYPES[pick.tapIndex]?.value;if(!category||category===c.categoryValue)return;
+   if(!await this.confirmAction("修改合同类别","修改后退回草稿并重新核验。继续？"))return;
+   if(this.data.pid!==pid)throw Error("会议已变化");
+   const r=await app.api("/contracts/"+encodeURIComponent(c.id)+"/category","PATCH",{category,expected_category:c.categoryValue,expected_status:c.status});
+   this.setData({contractNotice:r.message||"类别已修改"});
+   await this.loadKinds(pid,{preserveError:true});await this.loadContracts(pid);
+  }catch(err){if(!/cancel/i.test(String(err?.errMsg||"")))this.setData({contractNotice:err.message||"修改失败"});}
+  finally{this.setData({busy:false});}
+ },
+ async chooseAndUploadOne(pid,kind){
+  const r=await new Promise((resolve,reject)=>wx.chooseMessageFile({count:1,type:"file",extension:["pdf","doc","docx","ppt","pptx","xls","xlsx","csv","txt","jpg","jpeg","png","webp","gif"],success:resolve,fail:reject}));
+  const f=r.tempFiles?.[0];if(!f)return null;
+  const name=String(f.name||"").trim(),path=f.tempFilePath||f.path;
+  if(!name||name.length>120||!path||Number(f.size)>MAX_FILE_BYTES||!/\.(pdf|docx?|pptx?|xlsx?|csv|txt|jpe?g|png|webp|gif)$/i.test(name))throw Error("请选择20 MB以内的有效文件");
+  if(["讲者照片","权益照片"].includes(kind)&&!/\.(jpe?g|png|webp)$/i.test(name))throw Error("照片材料仅支持 JPG、PNG、WebP");
+  const raw=await new Promise((resolve,reject)=>wx.getFileSystemManager().readFile({filePath:path,success:x=>resolve(x.data),fail:reject}));
+  if(!raw?.byteLength||raw.byteLength>MAX_FILE_BYTES)throw Error("文件为空或超过20 MB");
+  if(this.data.pid!==pid)throw Error("会议已变化");
+  return app.api("/uploads?pid="+encodeURIComponent(pid),"POST",raw,{"Content-Type":"application/octet-stream","X-File-Name":encodeURIComponent(name)});
+ },
+ async replaceOriginal(e){
+  if(this.data.busy||this.data.materialMutationLocked)return;
+  const pid=this.data.pid,contract=this.data.contractMode?this.contractRow(e):null;
+  const item=contract?(contract.canReplace?{id:contract.materialId,file_key:contract.fileKey,kind:"合同"}:null):
+    (this.data.canMaterialReplace?this.data.visibleFiles.find(x=>Number(x.id)===Number(e.currentTarget.dataset.id)):null);
+  if(!item?.id||!item.file_key)return;
+  this.setData({busy:true,error:"",contractNotice:""});
+  try{
+   if(!await this.confirmAction("更换原件","替换后旧原件不再是当前文件；合同退回草稿，相关核销须重新核验。确认继续？"))return;
+   const up=await this.chooseAndUploadOne(pid,item.kind);if(!up)return;
+   const r=await app.api("/materials/"+encodeURIComponent(item.id)+"/file","PATCH",{expected_file_key:item.file_key,file_key:up.key,file_name:up.name});
+   const msg=(r.message||"原件已替换")+(r.warning?"；"+r.warning:"");
+   this.setData({uploaded:msg,contractNotice:msg});
+   await this.loadKinds(pid,{preserveError:true});if(this.data.contractMode)await this.loadContracts(pid);
+  }catch(err){if(!/cancel/i.test(String(err?.errMsg||"")))this.setData({error:err.message||"更换失败",contractNotice:err.message||"更换失败"});}
+  finally{this.setData({busy:false});}
+ },
+ async contractHistory(e){
+  const c=this.contractRow(e);if(!c?.canHistory||this.data.busy)return;
+  try{
+   const r=await app.api("/contracts/"+encodeURIComponent(c.id)+"/amendments");
+   this.setData({historyContract:c.name,historyRows:(r.rows||[]).map(x=>({id:x.id,status:x.status,kind:x.kind,reason:x.reason,createdAt:x.created_at,oldKey:x.old_file_key,newKey:x.new_file_key,oldName:x.old_file_name,newName:x.new_file_name}))});
+  }catch(err){this.setData({contractNotice:err.message||"版本历史读取失败"});}
+ },
+ closeHistory(){this.setData({historyContract:"",historyRows:[]});},
+ async openHistoryOriginal(e){
+  const key=e.currentTarget.dataset.key;if(!key||!(this.data.historyRows||[]).some(r=>r.oldKey===key||r.newKey===key))return;
+  try{await app.openOriginal(key);}catch(err){wx.showToast({title:err.message||"原件查看失败",icon:"none"});}
  },
  async loadRights(pid){
   const empty=[{id:"",label:"请选择赞助合同 → 权益二级类目"}];
