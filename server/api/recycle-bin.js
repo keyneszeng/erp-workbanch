@@ -7,7 +7,7 @@
  * 恢复原行原 ID / 项目 / 类别 / 原文件，不拷贝也不篡改原始上传时间。
  */
 const { db, transaction } = require("../lib/db");
-const { now, bad, notFound, forbidden, conflict } = require("../lib/util");
+const { now, nextId, bad, notFound, forbidden, conflict } = require("../lib/util");
 const { isSuper } = require("../lib/rbac");
 const { getProject, settlementOf } = require("../lib/workflow");
 const { storage } = require("../lib/storage");
@@ -74,10 +74,11 @@ function register(router){
     // 已删材料中的合同原件可能同步软删了合同台账。必须同事务恢复，
     // 但恢复为「草稿」，不恢复已撤销的待签署审批，不能绕过审批直接进入签署。
     const linked=/(?:合同|协议)/u.test(String(m.kind||""))&&m.file_key
-      ?db.prepare("SELECT id,status,category FROM contracts WHERE pid=? AND file_key=? AND deleted_at IS NOT NULL").all(p.id,m.file_key)
+      ?db.prepare("SELECT id,status,category,deleted_at,file_key FROM contracts WHERE pid=? AND file_key=? AND deleted_at IS NOT NULL").all(p.id,m.file_key)
       :[];
     if(linked.length>1)throw conflict("多份已删除合同引用同一文件，请先核对","RECYCLE_CONTRACT_AMBIGUOUS");
     const c=linked[0];
+    let sponsorSnapshot=null;
     if(c){
       if(!["草稿","待签署","已签署"].includes(c.status))
         throw conflict("已终止或其他不可编辑状态的合同不得通过废件箱恢复，应走合同更正流程","RECYCLE_SIGNED_CONTRACT");
@@ -86,9 +87,17 @@ function register(router){
       if(p.status==="已核销"||
         db.prepare("SELECT 1 FROM verify_steps WHERE pid=? AND step_no=6 AND result='通过'").get(p.id))
         throw conflict("合同已进入核销锁定，请先办理核销更正","RECYCLE_CONTRACT_VERIFIED");
-      if(c.category==="企业赞助"||
-         db.prepare("SELECT 1 FROM meeting_sponsor_contracts WHERE ledger_contract_id=?").get(c.id))
-        throw conflict("赞助合同与收入权益已关联，须先办理收入及权益更正","RECYCLE_SPONSOR_CONTRACT");
+      if(c.category==="企业赞助"){
+        const saved=db.prepare("SELECT before_json FROM admin_content_revisions WHERE pid=? AND entity_type='sponsor_contract_delete' AND record_id=? AND changed_at=? ORDER BY id DESC LIMIT 1").get(p.id,String(c.id),c.deleted_at);
+        try{sponsorSnapshot=JSON.parse(saved?.before_json||"null");}catch{}
+        if(!sponsorSnapshot?.sponsor||!Array.isArray(sponsorSnapshot.rights)||sponsorSnapshot.sponsor.pid!==p.id||sponsorSnapshot.sponsor.ledger_contract_id!==c.id||sponsorSnapshot.sponsor.file_key!==c.file_key||sponsorSnapshot.rights.some(x=>x.confirmed||x.sponsor_id!==sponsorSnapshot.sponsor.id))
+          throw conflict("未找到安全的赞助收入恢复快照，须由管理员核对","RECYCLE_SPONSOR_CONTRACT");
+        if(db.prepare("SELECT 1 FROM meeting_sponsor_contracts WHERE ledger_contract_id=? OR (pid=? AND file_key=?)").get(c.id,p.id,c.file_key))
+          throw conflict("存在相同赞助收入关联，禁止重复恢复","RECYCLE_SPONSOR_CONTRACT");
+        if(db.prepare("SELECT 1 FROM verify_steps WHERE pid=? AND step_no=7 AND result IN ('通过','已解例外')").get(p.id))
+          throw conflict("赞助权益已核验，须先办理核销更正","RECYCLE_CONTRACT_VERIFIED");
+      }else if(db.prepare("SELECT 1 FROM meeting_sponsor_contracts WHERE ledger_contract_id=?").get(c.id))
+        throw conflict("赞助收入关联异常，须先核对","RECYCLE_SPONSOR_CONTRACT");
     }
     // 同一次合同删除会将所有同文件的合同/协议类别材料放入废件箱；
     // 从任意一条恢复时应原子恢复该次删除的整组关联记录，否则留下一半“幽灵”引用。
@@ -117,6 +126,14 @@ function register(router){
         const changed=db.prepare("UPDATE materials SET deleted_at=NULL,deleted_by=NULL WHERE id=? AND deleted_at=?")
           .run(item.id,item.deleted_at);
         if(!changed.changes)throw conflict("材料已恢复，请刷新","RECYCLE_ALREADY_RESTORED");
+      }
+      if(sponsorSnapshot){
+        if(db.prepare("SELECT 1 FROM meeting_sponsor_contracts WHERE ledger_contract_id=? OR (pid=? AND file_key=?)").get(c.id,p.id,c.file_key))throw conflict("赞助收入已被重新关联","RECYCLE_SPONSOR_CONTRACT");
+        const v=sponsorSnapshot.sponsor,id=nextId(db,"meeting_sponsor_contracts","id","SC");
+        db.prepare("INSERT INTO meeting_sponsor_contracts(id,pid,enterprise,contract_no,ledger_contract_id,amount,status,file_key,file_name,created_by,created_at,rights_scan_status,rights_scan_note) VALUES (?,?,?,?,?,?,'待确认',?,?,?,?,?,?)")
+          .run(id,p.id,v.enterprise,v.contract_no,c.id,v.amount,v.file_key,v.file_name,v.created_by,v.created_at,"需重新核对","废件箱恢复合同，请重新确认权益及签署");
+        for(const x of sponsorSnapshot.rights)db.prepare("INSERT INTO sponsor_rights(pid,sponsor_id,category,source,confirmed,updated_at) VALUES (?,?,?,?,0,?)").run(p.id,id,x.category,x.source,stamp);
+        db.prepare("UPDATE verify_steps SET result='待判定',remark='赞助合同已恢复为草稿，请重新核验权益',evidence_json=NULL,invoice_amount=NULL,checked_by=NULL,checked_at=NULL WHERE pid=? AND step_no=7").run(p.id);
       }
       if(c){
         db.prepare("UPDATE contracts SET deleted_at=NULL,deleted_by=NULL,status='草稿',sign_date='' WHERE id=? AND deleted_at IS NOT NULL")
