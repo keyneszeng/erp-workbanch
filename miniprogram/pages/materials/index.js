@@ -54,12 +54,17 @@ Page({
    const canMaterialRead=data.sectionAccess?.materials===true,canContractRead=data.sectionAccess?.contracts===true;
    const locked=!!data.settlement||["已结算","已归档"].includes(status);
    this.setData({locked,materialMutationLocked:locked||frozenStatus(status),canMaterialRead,canContractRead,
-    canMaterialWrite:canMaterialRead&&perms.includes("material:write"),canMaterialReplace:canMaterialRead&&perms.includes("material:file:replace")});
+    canMaterialWrite:canMaterialRead&&perms.includes("material:write"),canMaterialReplace:canMaterialRead&&perms.includes("material:file:replace"),contractMode:canContractRead&&this.data.contractMode});
    if(!canMaterialRead){this.setData({activeKinds:[],historyKinds:[],disabledKinds:[],materialRows:[],visibleFiles:[],filesLoading:false,contractMode:canContractRead,error:canContractRead?"":"当前账号无材料查看权限"});return;}
    // 兼容旧部署/历史档案：「劳务收集表」只作为数据别名，绝不重新进入可选类别。
    const normalizedKind=k=>k==="劳务收集表"?"劳务表":k;
-   const shared=data.materialsStatus?.categoryCatalog;
-   if(!shared)throw new Error("服务端未返回材料类别目录，请更新服务器版本");
+   let shared=data.materialsStatus?.categoryCatalog;
+   if(!shared){
+    // 旧服务器可使用原工作台类别目录，但原件仍来自 Web 项目详情。
+    const legacy=await app.api("/projects/"+encodeURIComponent(pid)+"/material-workbench");
+    if(this.data.pid!==pid||this._materialSeq!==seq)return;
+    shared=legacy.categoryCatalog||{active:legacy.kinds||[],history:[],disabled:(legacy.modules||[]).filter(m=>m.enabled===0).map(m=>m.kind)};
+   }
    const catalog=shared.active||[];
    const retired=new Set(["合同","会务协议","劳务协议","企业赞助合同","赞助合同","劳务专家合同","专家劳务协议","劳务合同","会务合同"]);
    const disabled=(shared.disabled||[]).map(normalizedKind);
@@ -71,13 +76,13 @@ Page({
      .filter(k=>!kinds.includes(k)&&!retired.has(k)).sort();
    // 历史合同及劳务协议、会务协议仍保存在服务端，不进入材料收集的可选类别。
    const chosen=this.data.kind;
-   const kind=kinds.includes(chosen)||history.includes(chosen)?chosen:(kinds[0]||"现场照片");
+   const kind=kinds.includes(chosen)||history.includes(chosen)?chosen:(kinds.includes("课件")?"课件":kinds[0]||history[0]||"现场照片");
    this.setData({activeKinds:kinds,historyKinds:history,disabledKinds:disabled,materialRows:rows.filter(row=>!retired.has(row.kind)),kind,
      filesLoading:false,...(preserveError?{}:{error:""})});
    this.syncVisibleFiles();
   }catch(e){
    if(this.data.pid===pid&&this._materialSeq===seq){
-    this.setData({filesLoading:false,canMaterialWrite:false,canMaterialReplace:false,...(preserveError?{}:{error:"材料文件列表读取失败："+e.message})});
+    this.setData({filesLoading:false,canMaterialWrite:false,canMaterialReplace:false,canMaterialRead:false,canContractRead:false,materialRows:[],visibleFiles:[],activeKinds:[],historyKinds:[],error:"材料文件列表读取失败："+e.message});
    }
   }
  },
@@ -122,6 +127,7 @@ Page({
     status:c.status,fileKey:c.file_key||"",fileName:c.file_name||"",amount:Number(c.amount||0).toFixed(2),signDate:c.sign_date||"",creator:c.created_by_name||"",createdAt:c.created_at||"",remark:c.remark||"",materialId,
     canEdit:!sealed&&["草稿","待签署","已签署"].includes(c.status)&&(c.status==="已签署"?approve:write),
     canReplace:mutable&&perms.includes("material:file:replace")&&!!c.file_key&&!!materialId&&c.category!=="企业赞助",
+    canReviewReplace:mutable&&approve&&c.status==="待签署",
     canDelete:mutable&&write&&(c.status==="已签署"?approve:["草稿","待签署"].includes(c.status))&&c.category!=="企业赞助",
     canSubmit:mutable&&write&&c.status==="草稿",canSign:mutable&&approve&&c.status==="待签署",
     canHistory:write||approve,canAmend:!sealed&&write&&c.status==="已签署"};
@@ -150,7 +156,7 @@ Page({
   const index=Number(e.detail.value);
   if(!CONTRACT_TYPES[index])return;
   // 更换分类后需重新核对识别结果（尤其劳务报酬与普通合同金额）。
-  this.setData({contractDraft:{...this.data.contractDraft,categoryIndex:index,amount:"",vendor:"",scanNote:"分类已变更，请核对原件并手工填写，或重新选择文件识别。"}});
+  this.setData({contractDraft:{...this.data.contractDraft,categoryIndex:index,amount:"",vendor:"",rightsText:"",scanNote:"分类已变更，请核对原件并手工填写，或重新选择文件识别。"}});
  },
  async pickContractFile(e){
   if(this.data.busy||!this.data.contractMode||!this.data.canUploadContract||!this.data.pid)return;
@@ -284,6 +290,43 @@ Page({
    this.setData({uploaded:msg,contractNotice:msg});
    await this.loadKinds(pid,{preserveError:true});if(this.data.contractMode)await this.loadContracts(pid);
   }catch(err){if(!/cancel/i.test(String(err?.errMsg||"")))this.setData({error:err.message||"更换失败",contractNotice:err.message||"更换失败"});}
+  finally{this.setData({busy:false});}
+ },
+ async reviewReplaceContract(e){
+  if(this.data.busy)return;
+  const c=this.contractRow(e),pid=this.data.pid;if(!c?.canReviewReplace)return;
+  this.setData({busy:true,contractNotice:""});
+  try{
+   if(!await this.confirmAction("签署前更新原件","更换后仍为待签署，请重新核对合同内容再确认签署。"))return;
+   const up=await this.chooseAndUploadOne(pid,"合同");if(!up)return;
+   const result=await app.api("/contracts/"+encodeURIComponent(c.id)+"/replace-file","POST",{file_key:up.key,file_name:up.name});
+   this.setData({contractNotice:(result.message||"原件已更新")+(result.warning?"；"+result.warning:"")});
+   await this.loadKinds(pid,{preserveError:true});await this.loadContracts(pid);
+  }catch(err){if(!/cancel/i.test(String(err?.errMsg||"")))this.setData({contractNotice:err.message||"更新失败"});}
+  finally{this.setData({busy:false});}
+ },
+ async amendContract(e){
+  if(this.data.busy)return;
+  const c=this.contractRow(e),pid=this.data.pid;if(!c?.canAmend)return;
+  this.setData({busy:true,contractNotice:""});
+  try{
+   const kinds=["file_correction","supplement","terminate"];
+   const choice=await new Promise((resolve,reject)=>wx.showActionSheet({itemList:["合同原件纠错","补充协议／合同变更","合同解除／终止"],success:resolve,fail:reject}));
+   const kind=kinds[choice.tapIndex];if(!kind)return;
+   const reason=await new Promise((resolve,reject)=>wx.showModal({title:"合同更正理由",editable:true,placeholderText:"8～500字，说明更正原因",success:resolve,fail:reject}));
+   if(!reason.confirm)return;
+   const detail=String(reason.content||"").trim();if(detail.length<8||detail.length>500)throw Error("更正理由须为8～500字");
+   let amount="";
+   if(kind==="supplement"){
+    const x=await new Promise((resolve,reject)=>wx.showModal({title:"变更后合同金额（选填）",editable:true,placeholderText:"留空表示金额不变",success:resolve,fail:reject}));
+    if(!x.confirm)return;amount=String(x.content||"").trim();
+    if(amount&&(!/^\\d+(?:\\.\\d{1,2})?$/.test(amount)||Number(amount)<=0||Number(amount)>1e9))throw Error("金额无效");
+   }
+   const up=await this.chooseAndUploadOne(pid,"合同");if(!up)return;
+   if(!await this.confirmAction("提交合同更正","确认提交更正证明及申请？原合同在审批生效前保持不变。"))return;
+   const result=await app.api("/contracts/"+encodeURIComponent(c.id)+"/amendments","POST",{kind,reason:detail,file_key:up.key,file_name:up.name,...(amount?{new_amount:Number(amount)}:{})});
+   this.setData({contractNotice:result.message||"合同更正申请已提交"});await this.loadContracts(pid);
+  }catch(err){if(!/cancel/i.test(String(err?.errMsg||"")))this.setData({contractNotice:err.message||"合同更正失败"});}
   finally{this.setData({busy:false});}
  },
  async contractHistory(e){
