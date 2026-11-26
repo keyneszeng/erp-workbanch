@@ -12,11 +12,11 @@ Page({
   // 类别由服务端统一下发；不维护独立的客户端类别清单。
   activeKinds:[],historyKinds:[],disabledKinds:[],categoryDisabled:false,materialRows:[],visibleFiles:[],filesLoading:false,
   custom:false,customKind:"",locked:false,canMaterialWrite:false,canMaterialRead:false,canContractRead:false,canMaterialReplace:false,materialMutationLocked:false,batchResults:[],speakerFiles:[],deletingId:0,
-  historyContract:"",historyRows:[],contractMode:false,contractsLoading:false,contractRows:[],contractError:"",canUploadContract:false,
+  archiveAllowed:false,archiveOpen:false,archiveSources:[],archiveCustomWatermark:false,archiveWatermarkMode:0,archiveWatermarkText:"",historyContract:"",historyRows:[],contractMode:false,contractsLoading:false,contractRows:[],contractError:"",canUploadContract:false,
   contractTypes:CONTRACT_TYPES,contractStatuses:["草稿","待签署","已签署"],contractDraft:emptyContract(),contractNotice:"",
   sponsorRights:[{id:"",label:"请选择赞助权益类目"}],rightIndex:0,rightId:""},
  onLoad(q){if(q.pid)this.setData({pid:q.pid});},
- onShow(){if(!this.data.busy)return this.load();},
+ onShow(){if(!this.data.busy&&!this.data.archiveOpen)return this.load();},
  async load(){
   try{
    const r=await app.api("/projects?page=1&size=100");
@@ -53,7 +53,7 @@ Page({
    const perms=app.globalData?.perms||[];
    const canMaterialRead=data.sectionAccess?.materials===true,canContractRead=data.sectionAccess?.contracts===true;
    const locked=!!data.settlement||["已结算","已归档"].includes(status);
-   this.setData({locked,materialMutationLocked:locked||frozenStatus(status),canMaterialRead,canContractRead,
+   this.setData({archiveAllowed:status==="已归档"&&perms.includes("archive:download"),locked,materialMutationLocked:locked||frozenStatus(status),canMaterialRead,canContractRead,
     canMaterialWrite:canMaterialRead&&perms.includes("material:write"),canMaterialReplace:canMaterialRead&&perms.includes("material:file:replace"),contractMode:canContractRead&&this.data.contractMode});
    if(!canMaterialRead){this.setData({activeKinds:[],historyKinds:[],disabledKinds:[],materialRows:[],visibleFiles:[],filesLoading:false,contractMode:canContractRead,error:canContractRead?"":"当前账号无材料查看权限"});return;}
    // 兼容旧部署/历史档案：「劳务收集表」只作为数据别名，绝不重新进入可选类别。
@@ -86,8 +86,9 @@ Page({
    }
   }
  },
- async select(e){if(this.data.busy)return;this._batch=null;const index=Number(e.detail.value),p=this.data.projects[index];
-  this.setData({index,pid:p.id,locked:["已结算","已归档"].includes(p.status),materialMutationLocked:frozenStatus(p.status),canMaterialWrite:false,canMaterialRead:false,canMaterialReplace:false,canContractRead:false,uploaded:"",
+ async select(e){if(this.data.busy||this.data.archiveOpen)return;this._batch=null;const index=Number(e.detail.value),p=this.data.projects[index];
+  if(!p)return;
+  this.setData({archiveOpen:false,archiveSources:[],archiveAllowed:false,index,pid:p.id,locked:["已结算","已归档"].includes(p.status),materialMutationLocked:frozenStatus(p.status),canMaterialWrite:false,canMaterialRead:false,canMaterialReplace:false,canContractRead:false,uploaded:"",
    batchResults:[],speakerFiles:[],materialRows:[],visibleFiles:[],activeKinds:[],historyKinds:[],disabledKinds:[],categoryDisabled:false,contractRows:[],contractError:"",contractsLoading:false,canUploadContract:false,contractDraft:emptyContract(),contractNotice:""});
   await this.loadKinds(p.id);
   if(this.data.pid!==p.id)return;
@@ -340,6 +341,47 @@ Page({
  async openHistoryOriginal(e){
   const key=e.currentTarget.dataset.key;if(!key||!(this.data.historyRows||[]).some(r=>r.oldKey===key||r.newKey===key))return;
   try{await app.openOriginal(key);}catch(err){wx.showToast({title:err.message||"原件查看失败",icon:"none"});}
+ },
+ async openArchive(){
+  if(this.data.busy||!this.data.archiveAllowed||!this.data.pid)return;
+  const pid=this.data.pid;this.setData({busy:true,archiveError:""});
+  try{
+   const data=await app.api("/projects/"+encodeURIComponent(pid)+"/archive-pdf/options");
+   if(this.data.pid!==pid)return;
+   this.setData({archiveOpen:true,archiveSources:(data.sources||[]).map(x=>({id:x.source_id,kind:x.kind,name:x.name,fileName:x.file_name||"",generated:!!x.generated,checked:true})),archiveCustomWatermark:data.can_customize_watermark===true,archiveWatermarkMode:0,archiveWatermarkText:""});
+  }catch(err){this.setData({archiveError:err.message||"卷宗目录读取失败"});}
+  finally{this.setData({busy:false});}
+ },
+ closeArchive(){if(!this.data.busy)this.setData({archiveOpen:false,archiveSources:[],archiveError:""});},
+ selectArchiveAll(e){
+  if(this.data.busy)return;
+  const checked=e.currentTarget.dataset.all==="yes";
+  this.setData({archiveSources:this.data.archiveSources.map(x=>({...x,checked}))});
+ },
+ toggleArchiveSource(e){
+  if(this.data.busy)return;
+  const id=e.currentTarget.dataset.id;
+  this.setData({archiveSources:this.data.archiveSources.map(x=>x.id===id?{...x,checked:!x.checked}:x)});
+ },
+ moveArchiveSource(e){
+  if(this.data.busy)return;
+  const rows=this.data.archiveSources.slice(),i=rows.findIndex(x=>x.id===e.currentTarget.dataset.id),delta=Number(e.currentTarget.dataset.delta),j=i+delta;
+  if(i<0||![-1,1].includes(delta)||!rows[j]||rows[i].kind!==rows[j].kind)return;
+  [rows[i],rows[j]]=[rows[j],rows[i]];this.setData({archiveSources:rows});
+ },
+ archiveWatermarkChange(e){if(!this.data.busy&&this.data.archiveCustomWatermark)this.setData({archiveWatermarkMode:Number(e.detail.value)});},
+ archiveWatermarkInput(e){if(!this.data.busy&&this.data.archiveCustomWatermark)this.setData({archiveWatermarkText:e.detail.value});},
+ async exportArchive(e){
+  if(this.data.busy||!this.data.archiveOpen||!this.data.archiveAllowed)return;
+  const ids=this.data.archiveSources.filter(x=>x.checked).map(x=>x.id),format=e.currentTarget.dataset.format;
+  if(!["pdf","pptx"].includes(format))return;
+  if(!ids.length||ids.length>120){this.setData({archiveError:"请选择1～120份资料"});return;}
+  const mode=this.data.archiveCustomWatermark?["default","none","custom"][this.data.archiveWatermarkMode]||"default":"default",text=this.data.archiveWatermarkText.trim();
+  if(format==="pdf"&&mode==="custom"&&(!text||text.length>80)){this.setData({archiveError:"自定义水印须填写1～80字"});return;}
+  this.setData({busy:true,archiveError:""});
+  try{await app.openArchiveExport(this.data.pid,format,{source_ids:ids,...(format==="pdf"?{watermark_mode:mode,watermark_text:text}:{})});}
+  catch(err){this.setData({archiveError:err.message||"生成失败"});}
+  finally{this.setData({busy:false});}
  },
  async loadRights(pid){
   const empty=[{id:"",label:"请选择赞助合同 → 权益二级类目"}];
