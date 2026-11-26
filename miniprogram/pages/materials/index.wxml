@@ -25,7 +25,7 @@
       <view wx:for="{{historyKinds}}" wx:key="*this" data-kind="{{item}}" bindtap="chooseKind" class="select-chip {{!contractMode&&!custom&&kind===item?'chip-selected':''}}">{{item}}</view>
     </view>
     <view wx:if="{{filesLoading}}" class="field-hint">正在同步项目材料及权限…</view>
-    <view wx:if="{{error&&!canMaterialRead&&!contractMode}}" class="error">{{error}}</view>
+    <view wx:if="{{error&&!canMaterialRead}}" class="error">{{error}}</view>
     <view wx:if="{{contractMode}}" class="uploaded-file-list">
       <view class="uploaded-file-head">
         <text class="uploaded-file-title">合同目录</text>
@@ -80,6 +80,8 @@
             <button wx:if="{{item.canSubmit}}" size="mini" class="btn ghost" data-id="{{item.id}}" data-action="submit" disabled="{{busy}}" bindtap="contractAction">提交签署</button>
             <button wx:if="{{item.canSign}}" size="mini" class="btn ghost" data-id="{{item.id}}" data-action="sign" disabled="{{busy}}" bindtap="contractAction">确认签署</button>
             <button wx:if="{{item.canSign}}" size="mini" type="warn" data-id="{{item.id}}" data-action="reject" disabled="{{busy}}" bindtap="contractAction">驳回</button>
+            <button wx:if="{{item.canReviewReplace}}" size="mini" class="btn ghost" data-id="{{item.id}}" disabled="{{busy}}" bindtap="reviewReplaceContract">签署前更新原件</button>
+            <button wx:if="{{item.canAmend}}" size="mini" class="btn ghost" data-id="{{item.id}}" disabled="{{busy}}" bindtap="amendContract">申请合同更正</button>
             <button wx:if="{{item.canHistory}}" size="mini" class="btn ghost" data-id="{{item.id}}" bindtap="contractHistory">版本历史</button>
           </view>
         </view>
@@ -102,9 +104,9 @@
     </view>
     <view class="category-upload-caption">当前类别：{{custom?(customKind||'请填写自定义类别'):kind}}</view>
     <view wx:if="{{categoryDisabled}}" class="field-hint">当前材料类别已停用，仅可查看历史附件。</view>
-    <view class="notice"><text class="notice-icon">i</text><text>每份材料自动采用对应文件名，无须逐份手工填写名称。单批最多10份。</text></view>
-    <view wx:if="{{!custom&&kind==='讲者照片'}}" class="field-hint">讲者照片：可直接用下方「拍照或从相册选择」批量选图，选完逐张填写讲者姓名（姓名即材料名称）；也可从微信会话选择已用姓名命名的图片（如张三.jpg），系统按文件名关联。</view>
-    <view wx:if="{{!custom&&kind==='终版议程'}}" class="field-hint">可同时选择最多10份议程，按选择顺序登记，最后一份作为唯一当前终版，其余为历史版。</view>
+    <view wx:if="{{canMaterialWrite&&!locked}}" class="notice"><text class="notice-icon">i</text><text>每份材料自动采用对应文件名，无须逐份手工填写名称。单批最多10份。</text></view>
+    <view wx:if="{{canMaterialWrite&&!locked&&!custom&&kind==='讲者照片'}}" class="field-hint">讲者照片：可直接用下方「拍照或从相册选择」批量选图，选完逐张填写讲者姓名（姓名即材料名称）；也可从微信会话选择已用姓名命名的图片（如张三.jpg），系统按文件名关联。</view>
+    <view wx:if="{{canMaterialWrite&&!locked&&!custom&&kind==='终版议程'}}" class="field-hint">可同时选择最多10份议程，按选择顺序登记，最后一份作为唯一当前终版，其余为历史版。</view>
     <view wx:if="{{error}}" class="error"><text class="feedback-icon">!</text><text>{{error}}</text></view>
     <view wx:if="{{uploaded}}" class="success-note"><text class="feedback-icon">✓</text><text>{{uploaded}}</text></view>
 
