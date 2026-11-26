@@ -196,7 +196,7 @@ function detail(project, user) {
     "contract:write","contract:approve","demand:write",
     "payment:create","payment:approve","payment:pay","settle:create",
     "verify:check","verify:exception","verify:exception_approve","verify:conclude",
-    "material:write","archive:write","audit:read","ledger:read"].some(k=>can(user,k)) &&
+    "material:write","material:file:replace","archive:write","archive:download","audit:read","ledger:read"].some(k=>can(user,k)) &&
       !["prep","demand","exec","materials","verify","finance","archive","audit"].some(k=>hasModule(user,k))) {
     const { id, name, assoc, form, date, days, people, owner, agenda, status } = project;
     return { project: { id, name, assoc, form, date, days, people, owner, agenda, status },
@@ -207,7 +207,7 @@ function detail(project, user) {
   const permitted=(mods,actions)=>isSuper(user)||mods.some(m=>hasModule(user,m))||actions.some(a=>can(user,a));
   const viewFinance=permitted(["finance"],["payment:create","payment:approve","payment:pay","settle:create","ledger:read"]);
   const viewContracts=permitted(["prep","finance"],["contract:write","contract:approve","verify:check","verify:conclude"]);
-  const viewMaterials=permitted(["materials","verify"],["material:write","archive:write","archive:download","verify:check","verify:conclude"]);
+  const viewMaterials=permitted(["materials","verify"],["material:write","material:file:replace","archive:write","archive:download","verify:check","verify:conclude"]);
   const viewVerify=permitted(["verify","finance"],["verify:check","verify:exception","verify:exception_approve","verify:conclude","settle:create"]);
   const viewDemand=permitted(["demand","verify"],["demand:write","verify:check","verify:conclude"]);
   const viewTeam=permitted(["exec"],["project:member","user:manage","project:transition"]);
@@ -276,7 +276,7 @@ function register(router) {
     "contract:write","contract:approve","demand:write",
     "payment:create","payment:approve","payment:pay","settle:create",
     "verify:check","verify:exception","verify:exception_approve","verify:conclude",
-    "material:write","archive:write","audit:read","ledger:read"].some(k=>can(ctx.user,k)) &&
+    "material:write","material:file:replace","archive:write","archive:download","audit:read","ledger:read"].some(k=>can(ctx.user,k)) &&
         !["prep","demand","exec","materials","verify","finance","archive","audit"].some(k=>hasModule(ctx.user,k))) {
       const participantRow = ({ id, name, assoc, form, date, days, people, owner, status }) =>
         ({ id, name, assoc, form, date, days, people, owner, status });
