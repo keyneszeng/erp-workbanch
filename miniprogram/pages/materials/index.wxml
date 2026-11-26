@@ -12,7 +12,25 @@
     <view wx:if="{{locked}}" class="lock-banner"><view class="lock-mark">锁</view><view class="grow"><view class="title">材料已冻结</view><view class="muted">项目已结算或归档，仅可查阅已上传原件，不可上传或删除。</view></view></view>
   </view>
 
-  <view class="form-section">
+  <view wx:if="{{archiveAllowed}}" class="card">
+    <button class="btn ghost" disabled="{{busy||archiveOpen}}" bindtap="openArchive">材料下载 · PDF / PPTX</button>
+    <view wx:if="{{archiveError&&!archiveOpen}}" class="error">{{archiveError}}</view>
+  </view>
+  <view wx:if="{{archiveOpen}}" class="card">
+    <view class="row"><view class="title grow">数字卷宗 · 资料选择</view><button size="mini" disabled="{{busy}}" bindtap="closeArchive">关闭</button></view>
+    <view class="muted">与 Web 使用同一份资料来源和固定类目顺序，重复原件由服务器去重。可按需选择并在同类目内排序。</view>
+    <view class="row"><button size="mini" data-all="yes" bindtap="selectArchiveAll" disabled="{{busy}}">全选</button><button size="mini" data-all="no" bindtap="selectArchiveAll" disabled="{{busy}}">清空</button></view>
+    <view wx:for="{{archiveSources}}" wx:key="id" class="item">
+      <view class="row" data-id="{{item.id}}" bindtap="toggleArchiveSource"><checkbox checked="{{item.checked}}" disabled="{{busy}}"/><view class="grow"><view>{{item.name}}</view><view class="muted">{{item.kind}} · {{item.generated?'系统生成摘要':item.fileName}}</view></view></view>
+      <view class="row"><button size="mini" disabled="{{busy||index===0||archiveSources[index-1].kind!==item.kind}}" data-id="{{item.id}}" data-delta="-1" bindtap="moveArchiveSource">上移</button><button size="mini" disabled="{{busy||index===archiveSources.length-1||archiveSources[index+1].kind!==item.kind}}" data-id="{{item.id}}" data-delta="1" bindtap="moveArchiveSource">下移</button></view>
+    </view>
+    <view wx:if="{{archiveCustomWatermark}}" class="field"><view class="field-label">PDF 水印</view><picker range="{{archiveWatermarkOptions}}" value="{{archiveWatermarkMode}}" bindchange="archiveWatermarkChange" disabled="{{busy}}"><view class="picker-control">{{archiveWatermarkMode===0?'操作员＋时间':archiveWatermarkMode===1?'无水印':'自定义水印'}}</view></picker><input wx:if="{{archiveWatermarkMode===2}}" class="field-control" value="{{archiveWatermarkText}}" maxlength="80" bindinput="archiveWatermarkInput" placeholder="自定义文字"/></view>
+    <view wx:else class="muted">PDF 默认标注操作员和生成时间。</view>
+    <view wx:if="{{archiveError}}" class="error">{{archiveError}}</view>
+    <button class="btn primary" data-format="pdf" bindtap="exportArchive" loading="{{busy}}" disabled="{{busy}}">生成并查看 PDF</button>
+    <button class="btn ghost" data-format="pptx" bindtap="exportArchive" disabled="{{busy}}">生成并查看 PPTX</button>
+  </view>
+  <view wx:if="{{!archiveOpen}}" class="form-section">
     <view class="section-head"><view class="row"><view class="section-index">01</view><view class="section-caption">按类别查看及录入材料</view></view></view>
     <view class="muted">点击类别查看已有原件；获得写入权限且未冻结时可上传。合同与 Web 正式台账共用，归档后仍可查阅。</view>
     <view class="chip-list">
