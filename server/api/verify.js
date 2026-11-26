@@ -657,8 +657,10 @@ function register(router) {
     const c=direct?requested:linked[0];
     if(c){
       assertCan(ctx.user,"contract:write","该材料已关联正式合同，需要合同录入权限才能同步删除");
-      if(!["草稿","待签署"].includes(c.status))
-        throw conflict("已签署合同不能通过删除原件撤销；请先办理合同终止或更正","SIGNED_CONTRACT_LOCKED");
+      if(!["草稿","待签署","已签署"].includes(c.status))
+        throw conflict("当前合同状态不允许直接删除","CONTRACT_LOCKED");
+      // 已签署合同允许纠错软删除；权限与已签署合同类别修改一致。
+      if(c.status==="已签署")assertCan(ctx.user,"contract:approve","删除已签署合同须由有签署审批权限的管理员办理");
       if(c.category==="企业赞助"||
         db.prepare("SELECT 1 FROM meeting_sponsor_contracts WHERE ledger_contract_id=?").get(c.id))
         throw conflict("合同已关联赞助收入及权益，请在合同管理流程中处理，不能单独删除原件","SPONSOR_CONTRACT_LINKED");
@@ -711,7 +713,7 @@ function register(router) {
     });
     logAudit({user:ctx.user,module:"材料中心",action:c?"软删合同及关联材料":"软删材料及核销解绑",
       target:p.id,detail:(m?`移入废件箱：${m.kind}：${m.name}`:`软删无附件合同：${c.id} · ${c.name}`)+
-        (c?"；同步退出合同看板："+c.id:"")+
+        (c?"；同步退出合同看板："+c.id+"；删除前状态："+c.status:"")+
         "；核销待重新判定步骤："+(cleanup.resetSteps.join("、")||"无"),ip:ctx.ip});
     return {materialsStatus:materialsStatus(p.id),linkedContract:c?.id||null,
       resetSteps:cleanup.resetSteps,removedMaterialIds:cleanup.materialIds,
