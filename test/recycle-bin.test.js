@@ -119,7 +119,9 @@ test("未签署合同删除后可与原件联动恢复，但只能恢复草稿�
  const detail=await req("admin","GET","/api/projects/"+PID);
  const mat=detail.body.materials.find(m=>m.file_key===up.key);
  assert.ok(mat);
- const deleted=await req("exec","DELETE","/api/materials/"+mat.id);
+ const denied=await req("guest","DELETE","/api/contracts/"+id);
+ assert.equal(denied.status,403);
+ const deleted=await req("exec","DELETE","/api/contracts/"+id);
  assert.equal(deleted.status,200,JSON.stringify(deleted.body));
  assert.ok(!(await req("admin","GET","/api/contracts?pid="+PID)).body.rows.some(c=>c.id===id));
  const restored=await req("admin","POST","/api/recycle-bin/materials/"+mat.id+"/restore",{});
@@ -131,6 +133,30 @@ test("未签署合同删除后可与原件联动恢复，但只能恢复草稿�
  const approvs=await req("admin","GET","/api/approvals?type="+encodeURIComponent("合同审批"));
  assert.ok(!approvs.body.rows.some(a=>a.ref_id===id&&a.status==="待审批"),"旧审批不可自动复活");
  assert.equal((await file("exec",up.key)).status,200);
+});
+
+test("合同台账可直接软删无附件草稿，签署或归档后拒绝删除",async()=>{
+ const made=await req("exec","POST","/api/contracts",{
+  pid:PID,name:"无附件误录合同",vendor:"测试供应商",amount:100,
+  category:"会务需求",status:"草稿"
+ });
+ assert.equal(made.status,200,JSON.stringify(made.body));
+ const id=made.body.contract.id;
+ sql(db=>db.prepare("UPDATE contracts SET status='已签署' WHERE id=?").run(id));
+ const signed=await req("admin","DELETE","/api/contracts/"+id);
+ assert.equal(signed.status,409);
+ assert.equal(signed.body.error.code,"SIGNED_CONTRACT_LOCKED");
+ sql(db=>{
+  db.prepare("UPDATE contracts SET status='草稿' WHERE id=?").run(id);
+  db.prepare("UPDATE projects SET status='已归档' WHERE id=?").run(PID);
+ });
+ try{
+  assert.equal((await req("admin","DELETE","/api/contracts/"+id)).status,409);
+ }finally{sql(db=>db.prepare("UPDATE projects SET status='筹备中' WHERE id=?").run(PID));}
+ const result=await req("exec","DELETE","/api/contracts/"+id);
+ assert.equal(result.status,200,JSON.stringify(result.body));
+ assert.ok(sql(db=>db.prepare("SELECT deleted_at FROM contracts WHERE id=?").get(id)).deleted_at);
+ assert.ok(!(await req("admin","GET","/api/contracts?pid="+PID)).body.rows.some(c=>c.id===id));
 });
 
 test("项目结算或归档后拒绝原路恢复，避免绕开冻结；原件仍可由管理员查看",async()=>{
