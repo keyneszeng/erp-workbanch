@@ -11,7 +11,7 @@ Page({
    const r=await app.api("/projects/"+encodeURIComponent(this.data.id));
    const p=r.project,ps=app.globalData.perms||[];
    const idx=stages.indexOf(p.status);
-   const canMaterials=ps.includes("material:write")&&!["已结算","已归档"].includes(p.status);
+   const canMaterials=ps.includes("material:write")&&r.sectionAccess?.materials===true;
    const canApprove=["project:approve","verify:exception_approve","payment:approve","contract:approve"].some(x=>ps.includes(x));
    const statusNotes={
      "草稿":"填写会议资料与初版议程后，提交立项审批。",
