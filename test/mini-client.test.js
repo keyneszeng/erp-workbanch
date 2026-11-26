@@ -532,3 +532,50 @@ test("小程序合同上传复用正式台账、OCR与签署流程，不重复�
  assert.match(xml,/bindtap="pickContractFile"/);
  assert.match(xml,/bindtap="saveContract"/);
 });
+
+test("已归档会议的普通材料仍可查看原件，删除与上传保持冻结",async()=>{
+ const pid="MP-ARCHIVE",key="a".repeat(32)+".pdf";
+ let opened=[],requests=[],allowed=true,deleted=false,page,errors=[];
+ const app={api:async(url,method)=>{
+  requests.push({url,method});
+  if(url==="/projects/"+pid)return {sectionAccess:{materials:allowed},
+   materials:[{id:7,kind:"课件",file_key:key,deleted_at:deleted?"2026-11-26":null}]};
+  throw Error("Unexpected "+url);
+ },openOriginal:async k=>opened.push(k)};
+ vm.runInNewContext(fs.readFileSync(path.join(__dirname,"../miniprogram/pages/materials/index.js"),"utf8"),
+  {getApp:()=>app,Page:x=>page=x,wx:{showToast:o=>errors.push(o.title)}});
+ page.setData=p=>Object.assign(page.data,p);
+ page.setData({pid,locked:true,kind:"课件",materialRows:[{id:7,kind:"课件",filename:"课件.pdf"}]});
+ page.syncVisibleFiles();
+ const event={currentTarget:{dataset:{id:7}}};
+ await page.openMaterialOriginal(event);
+ assert.deepEqual(opened,[key]);
+ await page.removeUploaded(event);
+ await page.addFile();
+ assert.equal(requests.length,1,"归档后不得上传或删除");
+ allowed=false;
+ await page.openMaterialOriginal(event);
+ assert.equal(opened.length,1);
+ assert.match(errors.at(-1),/无材料原件查看权限/);
+ allowed=true;deleted=true;
+ await page.openMaterialOriginal(event);
+ assert.equal(opened.length,1);
+ assert.match(errors.at(-1),/已删除/);
+ await page.openMaterialOriginal({currentTarget:{dataset:{id:99}}});
+ assert.equal(requests.length,3,"不查阅不属于当前材料列表的记录");
+});
+test("已归档会议详情保留授权材料入口，图片原件使用原生预览",async()=>{
+ const page=miniPage("miniprogram/pages/project/index.js",{
+  globalData:{perms:["material:write"]},
+  api:async()=>({project:{id:"ARCHIVED",status:"已归档",name:"会议"},sectionAccess:{materials:true}})
+ });
+ page.data.id="ARCHIVED";await page.load();
+ assert.equal(page.data.canMaterials,true);
+ const {app,wx}=client("https://erp-prod.example.org/api",()=>{});
+ app.setSession({accessToken:"session-test",user:{id:1},perms:[]});
+ wx.downloadFile=o=>o.success({statusCode:200,tempFilePath:"/tmp/photo.jpg"});
+ let imagePath="";
+ wx.previewImage=o=>{imagePath=o.current;o.success();};
+ await app.openOriginal("b".repeat(32)+".jpg");
+ assert.equal(imagePath,"/tmp/photo.jpg");
+});
