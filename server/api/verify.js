@@ -661,15 +661,30 @@ function register(router) {
       : (direct?[requested]:[]);
     if(linked.length>1)throw conflict("多份合同共用同一原件，需先由管理员核对关联关系","SHARED_CONTRACT_FILE");
     const c=direct?requested:linked[0];
+    let sponsor=null,sponsorRightsSnapshot=[];
     if(c){
       assertCan(ctx.user,"contract:write","该材料已关联正式合同，需要合同录入权限才能同步删除");
       if(!["草稿","待签署","已签署"].includes(c.status))
         throw conflict("当前合同状态不允许直接删除","CONTRACT_LOCKED");
       // 已签署合同允许纠错软删除；权限与已签署合同类别修改一致。
       if(c.status==="已签署")assertCan(ctx.user,"contract:approve","删除已签署合同须由有签署审批权限的管理员办理");
-      if(c.category==="企业赞助"||
-        db.prepare("SELECT 1 FROM meeting_sponsor_contracts WHERE ledger_contract_id=?").get(c.id))
-        throw conflict("合同已关联赞助收入及权益，请在合同管理流程中处理，不能单独删除原件","SPONSOR_CONTRACT_LINKED");
+      const sponsors=db.prepare("SELECT * FROM meeting_sponsor_contracts WHERE ledger_contract_id=?").all(c.id);
+      if(c.category==="企业赞助"||sponsors.length){
+        if(archiveOverride)throw conflict("归档赞助合同须先办理收入及权益更正","SPONSOR_CONTRACT_LINKED");
+        if(c.category!=="企业赞助"||sponsors.length!==1||sponsors[0].pid!==p.id||sponsors[0].file_key!==c.file_key)
+          throw conflict("赞助收入关联异常，请联系管理员核对","SPONSOR_LINK_MISSING");
+        sponsor=sponsors[0];
+        if(db.prepare("SELECT 1 FROM meeting_sponsor_contracts WHERE pid=? AND file_key=? AND id<>?").get(p.id,c.file_key,sponsor.id))
+          throw conflict("合同原件关联其他赞助收入，须先核对","SHARED_CONTRACT_FILE");
+        sponsorRightsSnapshot=db.prepare("SELECT * FROM sponsor_rights WHERE sponsor_id=? ORDER BY id").all(sponsor.id);
+        if(!["待确认","已签署","已驳回"].includes(sponsor.status)||
+           db.prepare("SELECT 1 FROM meeting_sponsor_receipts WHERE sponsor_id=? UNION SELECT 1 FROM meeting_sponsor_invoices WHERE sponsor_id=?").get(sponsor.id,sponsor.id)||
+           sponsorRightsSnapshot.some(x=>x.confirmed)||
+           db.prepare("SELECT 1 FROM materials WHERE sponsor_right_id IN (SELECT id FROM sponsor_rights WHERE sponsor_id=?) LIMIT 1").get(sponsor.id))
+          throw conflict("赞助合同已有回款、开票或确认/交付权益（含历史材料），须先办理收入及权益更正","SPONSOR_RECONCILIATION_REQUIRED");
+        if(db.prepare("SELECT 1 FROM verify_steps WHERE pid=? AND step_no=7 AND result IN ('通过','已解例外')").get(p.id))
+          throw conflict("赞助权益已核验，须先办理核销更正","CONTRACT_VERIFIED");
+      }
       if(!archiveOverride&&(["已核销","已结算"].includes(p.status)||
          db.prepare("SELECT 1 FROM verify_steps WHERE pid=? AND step_no=6 AND result='通过'").get(p.id)))
         throw conflict("合同已进入核票或核销，需先办理核销更正","CONTRACT_VERIFIED");
@@ -719,6 +734,14 @@ function register(router) {
         const signature=()=>{const v=verification(p.id);return JSON.stringify({complete:v.complete,steps:v.steps.map(x=>[x.no,x.required,x.result,x.evidence]),materialGate:materialsStatus(p.id).ok});};
         frozenVerification={signature,before:signature()};
       }
+      if(sponsor){
+        // 赞助台账是合同的派生记录，未发生实际收入/权益时可撤销。
+        // 完整快照供废件箱恢复，原始合同、附件、审批始终软删留存。
+        db.prepare("INSERT INTO admin_content_revisions(pid,entity_type,record_id,reason,before_json,after_json,changed_by,changed_at) VALUES (?,?,?,?,?,?,?,?)")
+          .run(p.id,"sponsor_contract_delete",String(c.id),"撤销误录赞助合同及未发生业务的派生收入记录",JSON.stringify({sponsor,rights:sponsorRightsSnapshot}),JSON.stringify({deleted_at:at}),ctx.user.name,at);
+        db.prepare("DELETE FROM sponsor_rights WHERE sponsor_id=?").run(sponsor.id);
+        db.prepare("DELETE FROM meeting_sponsor_contracts WHERE id=? AND ledger_contract_id=?").run(sponsor.id,c.id);
+      }
       if(c){
         if(fileKey)db.prepare("UPDATE materials SET deleted_at=?,deleted_by=? WHERE pid=? AND file_key=? "+
           "AND deleted_at IS NULL AND (kind LIKE '%合同%' OR kind LIKE '%协议%')")
@@ -740,6 +763,10 @@ function register(router) {
         return {materialIds:removed.map(x=>x.id),resetSteps:[]};
       }
       const result=detachDeletedMaterialEvidence(db,p.id,removed,at,ctx.user.name);
+      if(sponsor){
+        db.prepare("UPDATE verify_steps SET result='待判定',remark='赞助合同已删除，请重新核验权益',evidence_json=NULL,invoice_amount=NULL,checked_by=NULL,checked_at=NULL WHERE pid=? AND step_no=7").run(p.id);
+        result.resetSteps=[...new Set([...result.resetSteps,7])].sort((a,b)=>a-b);
+      }
       // 无附件草稿也需要撤销可能依赖合同台账的核销结论。
       if(c&&!removed.length){
         const steps=c.category==="劳务专家"?[5]:[6];
@@ -750,7 +777,7 @@ function register(router) {
     });
     if(!archiveOverride)logAudit({user:ctx.user,module:"材料中心",action:c?"软删合同及关联材料":"软删材料及核销解绑",
       target:p.id,detail:(m?`移入废件箱：${m.kind}：${m.name}`:`软删无附件合同：${c.id} · ${c.name}`)+
-        (c?"；同步退出合同看板："+c.id+"；删除前状态："+c.status:"")+
+        (c?"；同步退出合同看板："+c.id+"；删除前状态："+c.status:"")+(sponsor?"；同步撤销赞助收入 "+sponsor.id+" 及未确认权益，保留完整快照":"")+
         "；核销待重新判定步骤："+(cleanup.resetSteps.join("、")||"无"),ip:ctx.ip});
     return {materialsStatus:materialsStatus(p.id),linkedContract:c?.id||null,
       resetSteps:cleanup.resetSteps,removedMaterialIds:cleanup.materialIds,
