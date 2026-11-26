@@ -167,12 +167,12 @@ function mockMaterialsPage(files,api){
   showModal:opts=>{seen.modalCount++;seen.lastModal=opts;
    opts.success({confirm:seen.confirmDelete,cancel:!seen.confirmDelete});},
  };
- const app={api};
+ const app={api,globalData:{perms:["material:write","material:file:replace"]}};
  vm.runInNewContext(fs.readFileSync(path.join(__dirname,"../miniprogram/pages/materials/index.js"),"utf8"),
   {getApp:()=>app,Page:obj=>page=obj,wx,Promise,Number,String,Map,Date,encodeURIComponent});
  page.setData=function(changes){this.data={...this.data,...changes};};
  page.data.pid="MP-2026-001";
- page.data.locked=false;
+ page.data.locked=false;page.data.canMaterialWrite=true;page.data.canMaterialRead=true;
  return {page,seen};
 }
 test("微信小程序的讲者照片允许10文件多选并按原文件名逐份关联",async()=>{
@@ -273,9 +273,9 @@ test("小程序材料类别与录入合并：切换类别显示历史文件名�
   if(url==="/projects?page=1&size=100"){
    return {rows:[{id:projectId,name:"2027年专题会议",status:"筹备中"}]};
   }
-  if(url==="/projects/"+encodeURIComponent(projectId)+"/material-workbench"){
+  if(url==="/projects/"+encodeURIComponent(projectId)){
    listRequests++;
-   return {kinds:["课件","签到表","权益照片","会务发票"],modules:[],materials:rows.map(x=>({...x}))};
+   return {project:{id:projectId,status:"筹备中"},sectionAccess:{materials:true},materialsStatus:{categoryCatalog:{active:["课件","签到表","权益照片","会务发票"],disabled:[],history:[]}},materials:rows.map(x=>({...x,file_name:x.filename,file_key:"a".repeat(32)+".pdf"}))};
   }
   if(url.startsWith("/uploads?pid=")){
    uploads++;
@@ -321,9 +321,8 @@ test("小程序退役劳务收集表：旧服务端类别与历史文件统一�
  const {page}=mockMaterialsPage([],async(url)=>{
   if(url==="/projects?page=1&size=100")
     return {rows:[{id:pid,name:"测试劳务会议",status:"筹备中"}]};
-  if(url==="/projects/"+pid+"/material-workbench")
-    return {kinds:["劳务收集表","劳务表","课件"],
-      modules:[],materials:rows.map(x=>({...x}))};
+  if(url==="/projects/"+pid)
+    return {project:{id:pid,status:"筹备中"},sectionAccess:{materials:true},materialsStatus:{categoryCatalog:{active:["劳务收集表","劳务表","课件"],disabled:[],history:[]}},materials:rows.map(x=>({...x,file_name:x.filename,file_key:"a".repeat(32)+".xlsx"}))};
   throw Error("unexpected API "+url);
  });
  page.data.pid=pid;
@@ -346,8 +345,8 @@ test("小程序材料误传：已归档文件可逐份确认删除，调用服�
  const {page,seen}=mockMaterialsPage([],async(url,method)=>{
   if(url==="/projects?page=1&size=100")
    return {rows:[{id:pid,name:"会议材料",status:"筹备中"}]};
-  if(url==="/projects/"+pid+"/material-workbench")
-   return {kinds:["课件","签到表"],modules:[],materials:files.map(x=>({...x}))};
+  if(url==="/projects/"+pid)
+   return {project:{id:pid,status:"筹备中"},sectionAccess:{materials:true},materialsStatus:{categoryCatalog:{active:["课件","签到表"],disabled:[],history:[]}},materials:files.map(x=>({...x,file_name:x.filename,file_key:"a".repeat(32)+".pdf"}))};
   if(url==="/materials/71"&&method==="DELETE"){
    deleted.push(71);
    files.splice(files.findIndex(x=>x.id===71),1);
@@ -402,7 +401,7 @@ test("小程序已录入材料必须有逐项删除按钮，锁定时隐藏并�
  const js=fs.readFileSync(path.join(__dirname,"../miniprogram/pages/materials/index.js"),"utf8");
  assert.match(xml,/catchtap="removeUploaded"/);
  assert.match(xml,/data-id="{{item.id}}"/);
- assert.match(xml,/wx:if="{{!locked}}"/);
+ assert.match(xml,/wx:if="{{canMaterialWrite&&!materialMutationLocked}}"/);
  assert.match(xml,/disabled="{{busy}}"/);
  assert.match(js,/showModal\(/);
  assert.match(js,/app\.api\("\/materials\/"\+id,"DELETE"\)/);
@@ -414,7 +413,7 @@ test("小程序材料工作台同一个表单显示类别、上传与已录入�
  const js=fs.readFileSync(path.join(__dirname,"../miniprogram/pages/materials/index.js"),"utf8");
  const backend=fs.readFileSync(path.join(__dirname,"../server/api/material-workbench.js"),"utf8");
  assert.equal((xml.match(/class="form-section"/g)||[]).length,1,"不应再拆成选类别和填材料两块表单");
- assert.match(xml,/按类别直接录入材料/);
+ assert.match(xml,/按类别查看及录入材料/);
  assert.doesNotMatch(xml,/填写材料信息/);
  assert.match(xml,/已录入文件/);
  assert.match(xml,/visibleFiles/);
@@ -538,15 +537,15 @@ test("已归档会议的普通材料仍可查看原件，删除与上传保持�
  let opened=[],requests=[],allowed=true,deleted=false,page,errors=[];
  const app={api:async(url,method)=>{
   requests.push({url,method});
-  if(url==="/projects/"+pid)return {sectionAccess:{materials:allowed},
-   materials:[{id:7,kind:"课件",file_key:key,deleted_at:deleted?"2026-11-26":null}]};
+  if(url==="/projects/"+pid)return {project:{id:pid,status:"已归档"},sectionAccess:{materials:allowed},materialsStatus:{categoryCatalog:{active:["课件"],history:["工作总结"],disabled:[]}},
+   materials:[{id:7,kind:"课件",file_key:key,file_name:"课件.pdf",deleted_at:deleted?"2026-11-26":null}]};
   throw Error("Unexpected "+url);
  },openOriginal:async k=>opened.push(k)};
  vm.runInNewContext(fs.readFileSync(path.join(__dirname,"../miniprogram/pages/materials/index.js"),"utf8"),
   {getApp:()=>app,Page:x=>page=x,wx:{showToast:o=>errors.push(o.title)}});
  page.setData=p=>Object.assign(page.data,p);
- page.setData({pid,locked:true,kind:"课件",materialRows:[{id:7,kind:"课件",filename:"课件.pdf"}]});
- page.syncVisibleFiles();
+ page.setData({pid,locked:true,kind:"课件"});
+ await page.loadKinds(pid);
  const event={currentTarget:{dataset:{id:7}}};
  await page.openMaterialOriginal(event);
  assert.deepEqual(opened,[key]);
@@ -554,19 +553,21 @@ test("已归档会议的普通材料仍可查看原件，删除与上传保持�
  await page.addFile();
  assert.equal(requests.length,1,"归档后不得上传或删除");
  allowed=false;
+ await page.loadKinds(pid);
  await page.openMaterialOriginal(event);
  assert.equal(opened.length,1);
- assert.match(errors.at(-1),/无材料原件查看权限/);
+ assert.equal(page.data.canMaterialRead,false);
  allowed=true;deleted=true;
+ await page.loadKinds(pid);
  await page.openMaterialOriginal(event);
  assert.equal(opened.length,1);
- assert.match(errors.at(-1),/已删除/);
+ assert.equal(page.data.visibleFiles.length,0);
  await page.openMaterialOriginal({currentTarget:{dataset:{id:99}}});
  assert.equal(requests.length,3,"不查阅不属于当前材料列表的记录");
 });
 test("已归档会议详情保留授权材料入口，图片原件使用原生预览",async()=>{
  const page=miniPage("miniprogram/pages/project/index.js",{
-  globalData:{perms:["material:write"]},
+  globalData:{perms:[]},
   api:async()=>({project:{id:"ARCHIVED",status:"已归档",name:"会议"},sectionAccess:{materials:true}})
  });
  page.data.id="ARCHIVED";await page.load();
@@ -578,4 +579,35 @@ test("已归档会议详情保留授权材料入口，图片原件使用原生�
  wx.previewImage=o=>{imagePath=o.current;o.success();};
  await app.openOriginal("b".repeat(32)+".jpg");
  assert.equal(imagePath,"/tmp/photo.jpg");
+});
+
+test("合同与材料同源：归档只读、签署合同管理员删除及材料替换权限",async()=>{
+ const pid="PARITY",key="a".repeat(32)+".pdf",photo="b".repeat(32)+".jpg";
+ let phase="已归档",calls=[],page;
+ const app={globalData:{perms:["material:write","material:file:replace","contract:write","contract:approve"]},
+  api:async(url,method,body)=>{
+   calls.push({url,method,body});
+   if(url==="/projects/"+pid)return {project:{id:pid,status:phase},sectionAccess:{materials:true,contracts:true},materialsStatus:{categoryCatalog:{active:["课件"],history:["现场照片"],disabled:["现场照片"]}},
+    materials:[{id:1,kind:"课件",file_key:key,file_name:"课件.pdf"},{id:2,kind:"现场照片",file_key:photo,file_name:"照片.jpg"},{id:3,kind:"合同",file_key:key,file_name:"合同.pdf"},{id:4,kind:"课件",file_key:key,deleted_at:"2026-11-26"}],
+    contracts:[{id:"C-1",name:"合同",category:"会务需求",status:"已签署",amount:123,file_key:key}]};
+   if(url==="/contracts/C-1"&&method==="DELETE")return {message:"已删除"};
+   throw Error("unexpected "+url);
+  },openOriginal:async k=>calls.push({key:k})};
+ vm.runInNewContext(fs.readFileSync(path.join(__dirname,"../miniprogram/pages/materials/index.js"),"utf8"),
+  {getApp:()=>app,Page:x=>page=x,wx:{showToast(){},showModal:o=>o.success({confirm:true})}});
+ page.setData=p=>Object.assign(page.data,p);
+ page.setData({pid,kind:"课件"});await page.loadKinds(pid);
+ assert.equal(page.data.visibleFiles.length,1);
+ assert.equal(page.data.materialMutationLocked,true);
+ page.chooseKind({currentTarget:{dataset:{kind:"现场照片"}}});
+ assert.equal(page.data.categoryDisabled,true);
+ await page.openMaterialOriginal({currentTarget:{dataset:{id:2}}});
+ assert.equal(calls.at(-1).key,photo);
+ await page.chooseContracts();assert.equal(page.data.contractRows[0].canDelete,false);
+ phase="筹备中";await page.loadKinds(pid);await page.loadContracts(pid);
+ assert.equal(page.data.contractRows[0].canDelete,true);
+ assert.equal(page.data.contractRows[0].canReplace,true);
+ assert.equal(page.data.contractRows[0].amount,"123.00");
+ await page.contractAction({currentTarget:{dataset:{id:"C-1",action:"delete"}}});
+ assert.ok(calls.some(x=>x.url==="/contracts/C-1"&&x.method==="DELETE"));
 });
