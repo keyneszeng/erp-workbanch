@@ -59,7 +59,7 @@
     <view wx:if="{{isExecutor}}" class="card">
       <view class="section-head"><view class="section-caption">业务协作</view><view class="micro">按权限显示</view></view>
       <view class="quick-grid">
-        <view wx:if="{{canMaterials}}" class="quick-tile quick-blue" bindtap="materials"><view class="quick-icon">材</view><view class="quick-title">材料收集</view><view class="quick-sub">{{p.status==='已结算'||p.status==='已归档'?'查阅已上传原件':'拍照上传 · 查阅原件'}}</view></view>
+        <view wx:if="{{canMaterials}}" class="quick-tile quick-blue" bindtap="materials"><view class="quick-icon">材</view><view class="quick-title">材料收集</view><view class="quick-sub">{{p.status==='已结算'||p.status==='已归档'||!canMaterialWrite?'查阅合同与材料':'拍照上传 · 查阅原件'}}</view></view>
         <view wx:if="{{canApprove}}" class="quick-tile quick-green" bindtap="approvals"><view class="quick-icon">批</view><view class="quick-title">审批管理</view><view class="quick-sub">处理已授权审批类型</view></view>
       </view>
     </view>
