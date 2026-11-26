@@ -78,8 +78,19 @@ App({
           if (r.statusCode === 401 && this.globalData.token === token) this.clearSession();
           return reject(new Error("材料原件下载失败（" + r.statusCode + "）"));
         }
+        // 图片不能依赖 openDocument；使用微信原生图片预览，其余文档走原有预览能力。
+        const ext = String(fileKey).split(".").pop().toLowerCase();
+        if (["jpg","jpeg","png","webp","gif"].includes(ext)) {
+          wx.previewImage({
+            current: r.tempFilePath, urls: [r.tempFilePath],
+            success: () => resolve(true),
+            fail: () => reject(new Error("图片预览失败，请在网页端下载查看"))
+          });
+          return;
+        }
         wx.openDocument({
           filePath: r.tempFilePath, showMenu: true,
+          ...(["pdf","doc","docx","xls","xlsx","ppt","pptx"].includes(ext)?{fileType:ext}:{}),
           success: () => resolve(true),
           fail: () => reject(new Error("当前文件格式无法直接预览，请在网页端下载查看"))
         });
