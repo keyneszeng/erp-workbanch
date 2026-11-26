@@ -135,28 +135,56 @@ test("未签署合同删除后可与原件联动恢复，但只能恢复草稿�
  assert.equal((await file("exec",up.key)).status,200);
 });
 
-test("合同台账可直接软删无附件草稿，签署或归档后拒绝删除",async()=>{
+test("已签署合同可由管理员软删，执行人员及归档项目仍受保护",async()=>{
+ const up=await upload("已签署误录合同.pdf");
+ const made=await req("exec","POST","/api/contracts",{
+  pid:PID,name:"已签署误录合同",vendor:"测试供应商",amount:100,
+  category:"会务需求",status:"草稿",file_key:up.key,file_name:up.name,file_size:up.size,file_mime:up.mime
+ });
+ assert.equal(made.status,200,JSON.stringify(made.body));
+ const id=made.body.contract.id;
+ const submitted=await req("exec","POST","/api/contracts/"+id+"/transition",{action:"submit"});
+ assert.equal(submitted.status,200,JSON.stringify(submitted.body));
+ const mat=(await req("admin","GET","/api/projects/"+PID)).body.materials.find(x=>x.file_key===up.key);
+ assert.ok(mat);
+ sql(db=>{
+  db.prepare("UPDATE contracts SET status='已签署',sign_date='2026-11-26' WHERE id=?").run(id);
+  db.prepare("UPDATE approvals SET status='已通过' WHERE ref_id=? AND type='合同审批'").run(id);
+ });
+ const denied=await req("exec","DELETE","/api/contracts/"+id);
+ assert.equal(denied.status,403);
+ sql(db=>db.prepare("UPDATE projects SET status='已归档' WHERE id=?").run(PID));
+ try{
+  assert.equal((await req("admin","DELETE","/api/contracts/"+id)).status,409);
+ }finally{sql(db=>db.prepare("UPDATE projects SET status='筹备中' WHERE id=?").run(PID));}
+ const result=await req("admin","DELETE","/api/contracts/"+id);
+ assert.equal(result.status,200,JSON.stringify(result.body));
+ const deleted=sql(db=>db.prepare("SELECT deleted_at,status FROM contracts WHERE id=?").get(id));
+ assert.ok(deleted.deleted_at);
+ assert.equal(deleted.status,"已签署","软删保留原签署状态");
+ assert.ok(!(await req("admin","GET","/api/contracts?pid="+PID)).body.rows.some(c=>c.id===id));
+ assert.ok((await list("已签署误录合同")).rows.some(x=>x.id===mat.id));
+ assert.equal((await file("admin",up.key)).status,200);
+ const restored=await req("admin","POST","/api/recycle-bin/materials/"+mat.id+"/restore",{});
+ assert.equal(restored.status,200,JSON.stringify(restored.body));
+ const restoredContract=sql(db=>db.prepare("SELECT status,sign_date,deleted_at FROM contracts WHERE id=?").get(id));
+ assert.equal(restoredContract.status,"草稿");
+ assert.equal(restoredContract.sign_date,"");
+ assert.equal(restoredContract.deleted_at,null);
+ const history=sql(db=>db.prepare("SELECT status FROM approvals WHERE ref_id=? AND type='合同审批'").all(id));
+ assert.ok(history.some(x=>x.status==="已通过"),"已完成审批保留历史");
+ assert.ok(!history.some(x=>x.status==="待审批"),"旧审批不可自动复活");
+});
+test("无附件草稿仍可直接软删除",async()=>{
  const made=await req("exec","POST","/api/contracts",{
   pid:PID,name:"无附件误录合同",vendor:"测试供应商",amount:100,
   category:"会务需求",status:"草稿"
  });
  assert.equal(made.status,200,JSON.stringify(made.body));
  const id=made.body.contract.id;
- sql(db=>db.prepare("UPDATE contracts SET status='已签署' WHERE id=?").run(id));
- const signed=await req("admin","DELETE","/api/contracts/"+id);
- assert.equal(signed.status,409);
- assert.equal(signed.body.error.code,"SIGNED_CONTRACT_LOCKED");
- sql(db=>{
-  db.prepare("UPDATE contracts SET status='草稿' WHERE id=?").run(id);
-  db.prepare("UPDATE projects SET status='已归档' WHERE id=?").run(PID);
- });
- try{
-  assert.equal((await req("admin","DELETE","/api/contracts/"+id)).status,409);
- }finally{sql(db=>db.prepare("UPDATE projects SET status='筹备中' WHERE id=?").run(PID));}
  const result=await req("exec","DELETE","/api/contracts/"+id);
  assert.equal(result.status,200,JSON.stringify(result.body));
  assert.ok(sql(db=>db.prepare("SELECT deleted_at FROM contracts WHERE id=?").get(id)).deleted_at);
- assert.ok(!(await req("admin","GET","/api/contracts?pid="+PID)).body.rows.some(c=>c.id===id));
 });
 
 test("项目结算或归档后拒绝原路恢复，避免绕开冻结；原件仍可由管理员查看",async()=>{
