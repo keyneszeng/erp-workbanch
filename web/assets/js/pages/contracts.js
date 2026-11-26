@@ -24,7 +24,7 @@ function groupContracts(rows,projects){
   return [...groups.values()];
 }
 function projectDirectory(groups){
-  return table([{t:"项目编号",w:"135px"},{t:"项目名称"},{t:"所属协会",w:"150px"},{t:"项目状态",w:"100px"},{t:"合同数",w:"80px",cls:"num"},{t:"支出合同金额",w:"130px",cls:"num"},{t:"赞助合同金额",w:"130px",cls:"num"},{t:"操作",w:"100px"}],groups.map(g=>{
+  return table([{t:"项目编码",w:"150px"},{t:"项目名称"},{t:"所属协会",w:"150px"},{t:"项目状态",w:"100px"},{t:"合同数",w:"80px",cls:"num"},{t:"支出合同金额",w:"130px",cls:"num"},{t:"赞助合同金额",w:"130px",cls:"num"},{t:"操作",w:"100px"}],groups.map(g=>{
     const sum=category=>g.rows.filter(r=>r.status!=="已终止"&&(r.category==="企业赞助")===category).reduce((n,r)=>n+Number(r.amount||0),0);
     const href="contracts/"+esc(g.id);
     return {c:[`<span class="mono">${esc(g.id)}</span>`,`<button class="link" data-go="${href}"><b>${esc(g.name)}</b></button>`,esc(g.assoc||"—"),badge(g.status),String(g.rows.length),"¥"+money(sum(false)),"¥"+money(sum(true)),`<button class="link" data-go="${href}">查看合同</button>`]};
@@ -89,7 +89,7 @@ export async function render(root, params) {
     </div>
     <div class="panel mt">
       <div class="panel-h"><h2>${view.pid?"合同清单 · "+esc(selected?.name||view.pid):"合同清单 · 项目目录"}</h2><span class="hint">${view.pid?"":groups.length+" 个项目 · "}${rows.length} 份 · 原件 ${withFile} 份</span></div>
-      <div class="filters">${view.pid?'<button class="btn btn-o" data-go="contracts">← 返回项目目录</button>':""}<input type="search" id="q" placeholder="${view.pid?"搜索本项目合同 / 签约方 / 类别":"搜索项目 / 合同 / 签约方 / 协会"}" value="${esc(view.pid?view.query:q)}"></div>
+      <div class="filters">${view.pid?'<button class="btn btn-o" data-go="contracts">← 返回项目目录</button>':""}<input type="search" id="q" placeholder="${view.pid?"搜索本项目合同 / 签约方 / 类别":"搜索项目编码 / 项目名称 / 合同 / 签约方 / 协会"}" value="${esc(view.pid?view.query:q)}"></div>
       ${!view.pid?'<div class="hint" style="padding:0 16px 12px">按会议项目汇总，点击项目名称或查看合同进入该项目的完整清单。</div>'+projectDirectory(groups):table(
         [{ t: "合同编号", w: "112px" }, { t: "项目", w: "170px" }, { t: "合同名称" }, { t: "签约方", w: "150px" },
          { t: "金额", w: "104px", cls: "num" }, { t: "签署日期", w: "100px" }, { t: "状态", w: "80px" },
