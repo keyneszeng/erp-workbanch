@@ -98,6 +98,33 @@ App({
       fail: () => reject(new Error("原件下载失败，请检查网络或稍后重试"))
     }));
   },
+  // 仅允许生成当前会议的 PDF/PPTX 卷宗，沿用 Bearer 会话和服务端归档下载权限。
+  openArchiveExport(pid,format,body) {
+    const base=this.globalData.apiBase,token=this.globalData.token;
+    if(blockedOrigin(base)||!token)return Promise.reject(new Error("请先登录正式服务"));
+    if(!pid||!["pdf","pptx"].includes(format))return Promise.reject(new Error("无效的导出参数"));
+    const url=base+"/projects/"+encodeURIComponent(pid)+"/archive-"+format;
+    return new Promise((resolve,reject)=>wx.request({
+      url,method:"POST",data:body,responseType:"arraybuffer",timeout:120000,
+      header:{"Content-Type":"application/json",Authorization:"Bearer "+token},
+      success:r=>{
+        if(r.statusCode!==200||!r.data?.byteLength){
+          if(r.statusCode===401&&this.globalData.token===token)this.clearSession();
+          return reject(new Error("卷宗生成失败（"+r.statusCode+"），请核对下载权限或改用网页端"));
+        }
+        const headers=r.header||{},type=String(headers["Content-Type"]||headers["content-type"]||"");
+        if(format==="pdf"&&!type.includes("application/pdf")||format==="pptx"&&!type.includes("presentationml.presentation"))
+          return reject(new Error("服务器未返回有效卷宗文件"));
+        const fs=wx.getFileSystemManager(),safePid=String(pid).replace(/[^a-zA-Z0-9_-]/g,"_").slice(0,80);
+        const filePath=wx.env.USER_DATA_PATH+"/会议卷宗-"+safePid+"-"+Date.now()+"."+format;
+        if(this._lastArchiveExport)fs.unlink({filePath:this._lastArchiveExport,fail:()=>{}});
+        fs.writeFile({filePath,data:r.data,success:()=>{
+          this._lastArchiveExport=filePath;
+          wx.openDocument({filePath,fileType:format,showMenu:true,success:()=>resolve(true),fail:()=>reject(new Error("卷宗已生成，但当前设备不支持预览，请在网页端下载"))});
+        },fail:()=>reject(new Error("卷宗保存失败，请检查设备剩余空间或改用网页端"))});
+      },fail:()=>reject(new Error("卷宗生成请求失败，较大文件请在网页端导出"))
+    }));
+  },
   request(path, method = "GET", data = null) { return this.api(path, method, data); },
   wechatCode() {
     return new Promise((resolve, reject) => wx.login({
