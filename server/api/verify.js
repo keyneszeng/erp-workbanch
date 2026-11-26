@@ -16,7 +16,7 @@ const {buildSettlementBreakdown}=require("../lib/settlement-breakdown");
 const {settlementTotals}=require("../lib/budget-fee");
 const verifyOcr=require("../lib/verify-ocr-compare");
 const {photoName}=require("../lib/verify-agenda-evidence");
-const {detachDeletedMaterialEvidence}=require("../lib/deleted-material-cleanup");
+const {detachDeletedMaterialEvidence,evidenceReferencesDeleted}=require("../lib/deleted-material-cleanup");
 const {sponsorRights:currentSponsorRights,validateRightsEvidence}=require("../lib/sponsor-rights");
 let scanningVerification=false;
 
@@ -620,7 +620,11 @@ function register(router) {
   });
 
   // 两个入口共用删除事务：合同台账按合同ID，材料中心按材料ID。
-  async function deleteMaterialOrContract(ctx,contractId=null) {
+  async function deleteMaterialOrContract(ctx,contractId=null,archiveOverride=false) {
+    // 特殊删除只接受独立的总管理员接口，不接受普通删除请求中的绕过参数。
+    if(archiveOverride&&!isSuper(ctx.user))throw forbidden("归档合同特殊删除仅限总管理员");
+    const reason=archiveOverride?String(ctx.body?.reason||"").trim():"";
+    if(archiveOverride&&(reason.length<8||reason.length>500))throw bad("特殊删除须填写8～500字的原因");
     const direct=contractId!==null;
     const requested=direct?db.prepare("SELECT * FROM contracts WHERE id=? AND deleted_at IS NULL").get(contractId):null;
     if(direct&&!requested)throw notFound("合同不存在或已删除");
@@ -631,11 +635,13 @@ function register(router) {
     const p = getProject(direct?requested.pid:m.pid);
     assertProjectVisible(ctx.user, p);
     assertCan(ctx.user,direct?"contract:write":"material:write",direct?"当前角色无合同删除权限":"当前角色无材料删除权限");
-    if (p.status === "已归档") throw conflict("已归档项目材料不可删除");
+    if(archiveOverride&&p.status!=="已归档")throw conflict("仅已归档会议可使用特殊删除入口","ARCHIVE_DELETE_STATE");
+    if (p.status === "已归档"&&!archiveOverride) throw conflict("已归档项目禁止普通删除；总管理员须使用特殊删除入口","ARCHIVED_CONTRACT_LOCKED");
     // 结算单一旦生成，材料就是结算与核销的原始凭证，删了等于销毁证据链。
     // 这里用「有没有结算单」判断而不是只看 status：状态可能被人为改过，
     // 但结算单存在与否是硬事实。
-    if (settlementOf(p.id)) {
+    const settlement=settlementOf(p.id);
+    if (settlement&&!archiveOverride) {
       throw conflict("结算单已生成，材料作为核销凭证已冻结，不可删除", "FROZEN", { status: p.status });
     }
     if (p.status === "已核销")
@@ -664,14 +670,20 @@ function register(router) {
       if(c.category==="企业赞助"||
         db.prepare("SELECT 1 FROM meeting_sponsor_contracts WHERE ledger_contract_id=?").get(c.id))
         throw conflict("合同已关联赞助收入及权益，请在合同管理流程中处理，不能单独删除原件","SPONSOR_CONTRACT_LINKED");
-      if(["已核销","已结算"].includes(p.status)||
-         db.prepare("SELECT 1 FROM verify_steps WHERE pid=? AND step_no=6 AND result='通过'").get(p.id))
+      if(!archiveOverride&&(["已核销","已结算"].includes(p.status)||
+         db.prepare("SELECT 1 FROM verify_steps WHERE pid=? AND step_no=6 AND result='通过'").get(p.id)))
         throw conflict("合同已进入核票或核销，需先办理核销更正","CONTRACT_VERIFIED");
       // 同一合同可能有多份按不同类别登记的原件引用。同步软删所有
       // 合同/协议类别的同 key 材料；如被发票或其他非合同资料复用，拒绝
       // 自动删除，防止错误移除其他业务原件。
-      if(db.prepare("SELECT 1 FROM payments WHERE pid=? AND status IN ('待审批','已审批','已付款') LIMIT 1").get(p.id))
+      const effectivePayments=db.prepare("SELECT 1 FROM payments WHERE pid=? AND status<>'已驳回' LIMIT 1").get(p.id);
+      if(!archiveOverride&&effectivePayments)
         throw conflict("项目已有有效付款，不能直接删除合同，请先办理财务更正","CONTRACT_PAYMENT_LINKED");
+      if(archiveOverride){
+        if(c.status==="已签署"&&(settlement||effectivePayments))throw conflict("已签署合同涉及结算或付款，须先办理财务更正，不可特殊删除","ARCHIVE_CONTRACT_FINANCIAL_LOCK");
+        if(db.prepare("SELECT 1 FROM payments WHERE pid=? AND status<>'已驳回' AND (payee_source_id=? OR (COALESCE(payee_source_id,'')='' AND payee=?)) LIMIT 1").get(p.id,"contract:"+c.id,c.vendor))
+          throw conflict("该合同有关联付款，须先办理财务更正","CONTRACT_PAYMENT_LINKED");
+      }
       if(db.prepare("SELECT 1 FROM contract_amendments WHERE contract_id=? AND status='待审批'").get(c.id))
         throw conflict("合同存在待审批更正，请先处理更正申请","CONTRACT_AMENDMENT_PENDING");
       if(direct&&fileKey&&!m)throw conflict("合同原件归档关联缺失，请管理员核对后再删除","CONTRACT_MATERIAL_MISSING");
@@ -689,6 +701,24 @@ function register(router) {
         ?(fileKey?db.prepare("SELECT id,kind,file_key FROM materials WHERE pid=? AND file_key=? "+
           "AND deleted_at IS NULL AND (kind LIKE '%合同%' OR kind LIKE '%协议%')").all(p.id,fileKey):[])
         :[{id:m.id,kind:m.kind,file_key:m.file_key}];
+      let frozenVerification=null;
+      if(archiveOverride){
+        // 归档卷宗仍然封存：只允许纠正未参与账目及核销的误录合同。
+        // 禁止删除已被证据引用的原件，亦不重置任何已封存的核销结论。
+        const ids=new Set(removed.map(x=>Number(x.id))),keys=new Set(removed.map(x=>String(x.file_key||"")).filter(Boolean));
+        const steps=db.prepare("SELECT evidence_json FROM verify_steps WHERE pid=?").all(p.id);
+        for(const step of steps){
+          if(!step.evidence_json)continue;
+          let evidence;try{evidence=JSON.parse(step.evidence_json);}catch{throw conflict("历史核销证据无法确认，须先复核","ARCHIVE_EVIDENCE_LOCK");}
+          if(evidenceReferencesDeleted(evidence,ids,keys)||JSON.stringify(evidence).includes(JSON.stringify(c.id)))throw conflict("合同或原件已被归档核销引用，须先办理核销更正","ARCHIVE_EVIDENCE_LOCK");
+        }
+        for(const item of removed){
+          if(db.prepare("SELECT 1 FROM meeting_material_tasks WHERE pid=? AND material_id=?").get(p.id,item.id)||db.prepare("SELECT 1 FROM exceptions WHERE pid=? AND evidence_material_id=?").get(p.id,item.id))
+            throw conflict("原件仍关联核销任务或例外单，须先办理更正","ARCHIVE_EVIDENCE_LOCK");
+        }
+        const signature=()=>{const v=verification(p.id);return JSON.stringify({complete:v.complete,steps:v.steps.map(x=>[x.no,x.required,x.result,x.evidence]),materialGate:materialsStatus(p.id).ok});};
+        frozenVerification={signature,before:signature()};
+      }
       if(c){
         if(fileKey)db.prepare("UPDATE materials SET deleted_at=?,deleted_by=? WHERE pid=? AND file_key=? "+
           "AND deleted_at IS NULL AND (kind LIKE '%合同%' OR kind LIKE '%协议%')")
@@ -702,6 +732,13 @@ function register(router) {
         db.prepare("UPDATE materials SET deleted_at=?,deleted_by=? WHERE id=? AND deleted_at IS NULL")
           .run(at,ctx.user.name,m.id);
       }
+      if(archiveOverride){
+        if(frozenVerification.signature()!==frozenVerification.before)throw conflict("删除会改变封存的核销结果或材料门禁，须先办理核销更正","ARCHIVE_EVIDENCE_LOCK");
+        db.prepare("INSERT INTO admin_content_revisions(pid,entity_type,record_id,reason,before_json,after_json,changed_by,changed_at) VALUES (?,?,?,?,?,?,?,?)")
+          .run(p.id,"contracts",String(c.id),reason,JSON.stringify({status:c.status,deleted_at:null,materialIds:removed.map(x=>x.id)}),JSON.stringify({status:c.status,deleted_at:at,deleted_by:ctx.user.name,materialIds:removed.map(x=>x.id)}),ctx.user.name,at);
+        logAudit({user:ctx.user,module:"总管理员内容修订",action:"归档合同特殊软删除",target:p.id,detail:c.id+"；"+c.name+"；原因："+reason+"；保留原件、历史审批、封存核销和结算",ip:ctx.ip});
+        return {materialIds:removed.map(x=>x.id),resetSteps:[]};
+      }
       const result=detachDeletedMaterialEvidence(db,p.id,removed,at,ctx.user.name);
       // 无附件草稿也需要撤销可能依赖合同台账的核销结论。
       if(c&&!removed.length){
@@ -711,16 +748,17 @@ function register(router) {
       }
       return result;
     });
-    logAudit({user:ctx.user,module:"材料中心",action:c?"软删合同及关联材料":"软删材料及核销解绑",
+    if(!archiveOverride)logAudit({user:ctx.user,module:"材料中心",action:c?"软删合同及关联材料":"软删材料及核销解绑",
       target:p.id,detail:(m?`移入废件箱：${m.kind}：${m.name}`:`软删无附件合同：${c.id} · ${c.name}`)+
         (c?"；同步退出合同看板："+c.id+"；删除前状态："+c.status:"")+
         "；核销待重新判定步骤："+(cleanup.resetSteps.join("、")||"无"),ip:ctx.ip});
     return {materialsStatus:materialsStatus(p.id),linkedContract:c?.id||null,
       resetSteps:cleanup.resetSteps,removedMaterialIds:cleanup.materialIds,
-      message:c?(m?"合同及关联材料已移入废件箱，原核销证据已解除":"无附件合同已软删除并留痕"):"材料已移入废件箱并解除核销关联"};
+      message:archiveOverride?"归档合同已特殊软删除，原件及修订记录保留，核销与结算不变":c?(m?"合同及关联材料已移入废件箱，原核销证据已解除":"无附件合同已软删除并留痕"):"材料已移入废件箱并解除核销关联"};
   }
   router.delete("/api/materials/:id",ctx=>deleteMaterialOrContract(ctx));
   router.delete("/api/contracts/:id",ctx=>deleteMaterialOrContract(ctx,String(ctx.params.id)));
+  router.post("/api/contracts/:id/archive-delete",ctx=>deleteMaterialOrContract(ctx,String(ctx.params.id),true));
 
   /** 已生成结算单的四项汇总和四类已付款明细，必须先财务授权再校验项目范围。 */
   router.get("/api/settlements/:id/breakdown", async (ctx) => {
