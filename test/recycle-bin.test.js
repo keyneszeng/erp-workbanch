@@ -187,6 +187,39 @@ test("无附件草稿仍可直接软删除",async()=>{
  assert.ok(sql(db=>db.prepare("SELECT deleted_at FROM contracts WHERE id=?").get(id)).deleted_at);
 });
 
+test("归档合同普通删除禁止，仅总管理员可填写理由特殊删除不影响核销的误录草稿",async()=>{
+ const made=await req("exec","POST","/api/contracts",{pid:PID,name:"归档特殊删除误录",vendor:"独立测试供应商",amount:123,category:"会务需求",status:"草稿"});
+ assert.equal(made.status,200,JSON.stringify(made.body));const id=made.body.contract.id;
+ const reason="归档前误录的无附件草稿，未参与核销结算";
+ const old=sql(db=>db.prepare("SELECT status FROM projects WHERE id=?").get(PID).status);
+ const existing=sql(db=>db.prepare("SELECT id FROM settlements WHERE pid=?").get(PID));
+ if(!existing)sql(db=>db.prepare("INSERT INTO settlements(id,pid,income,expense,profit,tax_fee_rate,created_at) VALUES (?,?,?,?,?,?,?)").run("ARCHIVE-DELETE-TEST",PID,1000,0,1000,0,"2026-11-26"));
+ sql(db=>db.prepare("UPDATE projects SET status='已归档' WHERE id=?").run(PID));
+ try{
+  const before=(await req("admin","GET","/api/projects/"+PID+"/verify")).body;
+  for(const user of ["exec","assoc","admin"]){
+   const x=await req(user,"DELETE","/api/contracts/"+id);
+   assert.equal(x.status,409,JSON.stringify(x.body));assert.equal(x.body.error.code,"ARCHIVED_CONTRACT_LOCKED");
+  }
+  for(const user of ["exec","assoc"])assert.equal((await req(user,"POST","/api/contracts/"+id+"/archive-delete",{reason})).status,403);
+  assert.equal((await req("admin","POST","/api/contracts/"+id+"/archive-delete",{reason:"太短"})).status,400);
+  sql(db=>db.prepare("UPDATE contracts SET status='已签署',sign_date='2026-11-26' WHERE id=?").run(id));
+  const paid=await req("admin","POST","/api/contracts/"+id+"/archive-delete",{reason});
+  assert.equal(paid.status,409);assert.equal(paid.body.error.code,"ARCHIVE_CONTRACT_FINANCIAL_LOCK");
+  sql(db=>db.prepare("UPDATE contracts SET status='草稿',sign_date='' WHERE id=?").run(id));
+  const x=await req("admin","POST","/api/contracts/"+id+"/archive-delete",{reason});
+  assert.equal(x.status,200,JSON.stringify(x.body));assert.deepEqual(x.body.resetSteps,[]);
+  const after=(await req("admin","GET","/api/projects/"+PID+"/verify")).body;
+  assert.deepEqual(after.verification.steps,before.verification.steps);
+  assert.deepEqual(after.settlement,before.settlement);
+  assert.equal(after.project.status,"已归档");
+  assert.ok(sql(db=>db.prepare("SELECT deleted_at FROM contracts WHERE id=?").get(id)).deleted_at);
+  assert.equal(sql(db=>db.prepare("SELECT reason FROM admin_content_revisions WHERE record_id=? AND entity_type='contracts' ORDER BY id DESC LIMIT 1").get(id)).reason,reason);
+ }finally{
+  sql(db=>{db.prepare("UPDATE projects SET status=? WHERE id=?").run(old,PID);if(!existing)db.prepare("DELETE FROM settlements WHERE id=?").run("ARCHIVE-DELETE-TEST");});
+ }
+});
+
 test("项目结算或归档后拒绝原路恢复，避免绕开冻结；原件仍可由管理员查看",async()=>{
  const {m,up}=await material("已冻结的删除资料.pdf");
  assert.equal((await req("exec","DELETE","/api/materials/"+m.id)).status,200);
