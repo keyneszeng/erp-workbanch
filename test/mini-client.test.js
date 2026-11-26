@@ -620,3 +620,16 @@ test("合同与材料同源：归档只读、签署合同管理员删除及材�
  await page.contractAction({currentTarget:{dataset:{id:"C-1",action:"delete"}}});
  assert.ok(calls.some(x=>x.url==="/contracts/C-1"&&x.method==="DELETE"));
 });
+
+test("归档合同仅总管理员显示特殊删除，普通删除不可发请求",async()=>{
+ const pid="ARCHIVE-DELETE",reason="误录合同未参加结算和核销";let page,calls=[];
+ const app={globalData:{user:{role:"assoc"},perms:["contract:write","contract:approve","material:write"]},
+ api:async(url,method,body)=>{calls.push({url,method,body});if(url==="/projects/"+pid)return {project:{id:pid,status:"已归档"},sectionAccess:{contracts:true,materials:true},materialsStatus:{categoryCatalog:{active:["课件"],history:[],disabled:[]}},contracts:[{id:"C1",name:"误录",status:"草稿",category:"会务需求"}],materials:[]};if(url==="/contracts/C1/archive-delete"&&method==="POST")return {message:"已特殊删除"};throw Error(url);}};
+ vm.runInNewContext(fs.readFileSync(path.join(__dirname,"../miniprogram/pages/materials/index.js"),"utf8"),{getApp:()=>app,Page:p=>page=p,wx:{showModal:o=>o.success({confirm:true,content:reason})}});
+ page.setData=p=>Object.assign(page.data,p);page.setData({pid});await page.chooseContracts();
+ assert.equal(page.data.contractRows[0].canDelete,false);assert.equal(page.data.contractRows[0].canArchiveDelete,false);
+ const event=action=>({currentTarget:{dataset:{id:"C1",action}}});
+ const count=calls.length;await page.contractAction(event("delete"));await page.contractAction(event("archiveDelete"));assert.equal(calls.length,count);
+ app.globalData.user.role="admin";await page.loadContracts(pid);assert.equal(page.data.contractRows[0].canArchiveDelete,true);assert.equal(page.data.contractRows[0].canDelete,false);
+ await page.contractAction(event("archiveDelete"));assert.ok(calls.some(c=>c.url==="/contracts/C1/archive-delete"&&c.method==="POST"&&c.body.reason===reason));
+});
