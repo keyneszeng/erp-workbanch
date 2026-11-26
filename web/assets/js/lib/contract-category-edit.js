@@ -1,5 +1,5 @@
 import {api,can} from "./api.js";
-import {closeModal,esc,modal,toast} from "./ui.js";
+import {closeModal,confirmBox,esc,modal,toast} from "./ui.js";
 
 export const CONTRACT_CATEGORY_OPTIONS=[
  {value:"会务需求",label:"会务协议"},
@@ -48,4 +48,25 @@ export function openContractCategoryEdit(contract,onDone=()=>{}){
    btn.disabled=false;btn.textContent="保存合同类别";
   }
  };
+}
+
+
+// 合同台账与项目详情使用同一删除入口。是否可删最终由服务端事务判定。
+export function contractDeleteButton(c,projectStatus="",settled=false){
+ if(!can("contract:write"))return "";
+ const phase=projectStatus||c.pstatus||"";
+ const reason=settled||["已核销","已结算","已归档"].includes(phase)?"会议已核销或封存，须先办理正式更正":
+  !["草稿","待签署"].includes(c.status)?"已签署或终止合同须走正式更正或终止流程":
+  c.category==="企业赞助"?"赞助合同已关联收入与权益，须先办理收入更正":"";
+ return ' <button class="link danger" data-delete-contract="'+esc(c.id)+'"'+
+  (reason?' disabled title="'+esc(reason)+'"':'')+'>删除</button>';
+}
+export async function deleteContract(c,onDone=()=>{}){
+ const ok=await confirmBox("确定删除「"+c.name+"」？"+(c.file_key?"合同及关联原件将移入废件箱，只有总管理员可恢复为草稿。":"无附件合同将软删除并保留操作记录，暂不支持从材料废件箱恢复。")+" 待签署审批会撤销，关联核销结论需重新核验。",{title:"删除合同",ok:"确认删除"});
+ if(!ok)return;
+ try{
+  const r=await api.del("/api/contracts/"+encodeURIComponent(c.id));
+  toast(r.message||"合同已删除","ok");
+  await onDone();
+ }catch(e){toast(e.message||"删除合同失败","warn");}
 }
