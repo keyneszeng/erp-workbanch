@@ -12,7 +12,7 @@ Page({
   // 类别由服务端统一下发；不维护独立的客户端类别清单。
   activeKinds:[],historyKinds:[],disabledKinds:[],categoryDisabled:false,materialRows:[],visibleFiles:[],filesLoading:false,
   custom:false,customKind:"",locked:false,canMaterialWrite:false,canMaterialRead:false,canContractRead:false,canMaterialReplace:false,materialMutationLocked:false,batchResults:[],speakerFiles:[],deletingId:0,
-  archiveAllowed:false,archiveOpen:false,archiveSources:[],archiveCustomWatermark:false,archiveWatermarkMode:0,archiveWatermarkText:"",historyContract:"",historyRows:[],contractMode:false,contractsLoading:false,contractRows:[],contractError:"",canUploadContract:false,
+  archiveAllowed:false,archiveOpen:false,archiveSources:[],archiveCustomWatermark:false,archiveWatermarkMode:0,archiveWatermarkOptions:["操作员＋时间","无水印","自定义水印"],archiveWatermarkText:"",historyContract:"",historyRows:[],contractMode:false,contractsLoading:false,contractRows:[],contractError:"",canUploadContract:false,
   contractTypes:CONTRACT_TYPES,contractStatuses:["草稿","待签署","已签署"],contractDraft:emptyContract(),contractNotice:"",
   sponsorRights:[{id:"",label:"请选择赞助权益类目"}],rightIndex:0,rightId:""},
  onLoad(q){if(q.pid)this.setData({pid:q.pid});},
@@ -20,7 +20,13 @@ Page({
  async load(){
   try{
    const r=await app.api("/projects?page=1&size=100");
-   const projects=r.rows||[];
+   const projects=(r.rows||[]).slice();
+   // 归档项目可能在后续分页；不只显示最近100场会议。
+   const pages=Number(r.pages)||Math.ceil(Number(r.total||projects.length)/100);
+   for(let page=2;page<=pages;page++){
+    const next=await app.api("/projects?page="+page+"&size=100");
+    for(const p of next.rows||[])if(!projects.some(x=>x.id===p.id))projects.push(p);
+   }
    // 指定项目可能不在第一页；不能悄悄把材料归档到另一场会议。
    if(this.data.pid&&!projects.some(x=>x.id===this.data.pid)){
     try{
@@ -30,7 +36,7 @@ Page({
    }
    let index=projects.findIndex(x=>x.id===this.data.pid);if(index<0)index=0;
    const p=projects[index];
-   this.setData({projects,index,pid:p?.id||"",locked:!p||["已结算","已归档"].includes(p.status),canMaterialWrite:false,canMaterialRead:false,canContractRead:false,canMaterialReplace:false,materialMutationLocked:!p||frozenStatus(p.status),
+   this.setData({projects,index,pid:p?.id||"",archiveAllowed:false,locked:!p||["已结算","已归档"].includes(p.status),canMaterialWrite:false,canMaterialRead:false,canContractRead:false,canMaterialReplace:false,materialMutationLocked:!p||frozenStatus(p.status),
      materialRows:[],visibleFiles:[],historyKinds:[],filesLoading:!!p,contractRows:[],contractError:"",contractsLoading:false,canUploadContract:false});
    if(p){await this.loadKinds(p.id);if(this.data.contractMode&&this.data.canContractRead)await this.loadContracts(p.id);else if(this.data.kind==="权益照片"&&this.data.canMaterialWrite&&!this.data.locked)await this.loadRights(p.id);}
   }catch(e){this.setData({error:e.message});}
@@ -82,7 +88,7 @@ Page({
    this.syncVisibleFiles();
   }catch(e){
    if(this.data.pid===pid&&this._materialSeq===seq){
-    this.setData({filesLoading:false,canMaterialWrite:false,canMaterialReplace:false,canMaterialRead:false,canContractRead:false,materialRows:[],visibleFiles:[],activeKinds:[],historyKinds:[],error:"材料文件列表读取失败："+e.message});
+    this.setData({filesLoading:false,archiveAllowed:false,canMaterialWrite:false,canMaterialReplace:false,canMaterialRead:false,canContractRead:false,materialRows:[],visibleFiles:[],activeKinds:[],historyKinds:[],error:"材料文件列表读取失败："+e.message});
    }
   }
  },
@@ -116,7 +122,7 @@ Page({
    const data=await app.api("/projects/"+encodeURIComponent(pid));
    if(this.data.pid!==pid||this._contractSeq!==seq)return;
    if(data.sectionAccess?.contracts!==true){
-    this.setData({contractsLoading:false,contractError:"当前账号无合同目录查看权限，请联系管理员授权"});return;
+    this.setData({contractsLoading:false,canContractRead:false,contractError:"当前账号无合同目录查看权限，请联系管理员授权"});return;
    }
    const labels={"会务需求":"会务协议","劳务专家":"劳务协议","企业赞助":"企业赞助合同"};
    const status=data.project?.status||this.data.projects[this.data.index]?.status;
@@ -277,7 +283,7 @@ Page({
   return app.api("/uploads?pid="+encodeURIComponent(pid),"POST",raw,{"Content-Type":"application/octet-stream","X-File-Name":encodeURIComponent(name)});
  },
  async replaceOriginal(e){
-  if(this.data.busy||this.data.materialMutationLocked)return;
+  if(this.data.busy||this.data.locked||this.data.materialMutationLocked)return;
   const pid=this.data.pid,contract=this.data.contractMode?this.contractRow(e):null;
   const item=contract?(contract.canReplace?{id:contract.materialId,file_key:contract.fileKey,kind:"合同"}:null):
     (this.data.canMaterialReplace?this.data.visibleFiles.find(x=>Number(x.id)===Number(e.currentTarget.dataset.id)):null);
