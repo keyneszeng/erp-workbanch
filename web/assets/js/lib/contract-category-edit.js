@@ -1,5 +1,5 @@
-import {api,can} from "./api.js";
-import {closeModal,confirmBox,esc,modal,toast} from "./ui.js";
+import {api,can,state} from "./api.js";
+import {closeModal,confirmBox,esc,modal,promptBox,toast} from "./ui.js";
 
 export const CONTRACT_CATEGORY_OPTIONS=[
  {value:"会务需求",label:"会务协议"},
@@ -55,6 +55,10 @@ export function openContractCategoryEdit(contract,onDone=()=>{}){
 export function contractDeleteButton(c,projectStatus="",settled=false){
  if(!can("contract:write"))return "";
  const phase=projectStatus||c.pstatus||"";
+ if(phase==="已归档"){
+  if(!state.super||!["草稿","待签署","已签署"].includes(c.status)||c.category==="企业赞助")return "";
+  return ' <button class="link danger" data-delete-contract="'+esc(c.id)+'">特殊删除</button>';
+ }
  const reason=settled||["已核销","已结算","已归档"].includes(phase)?"会议已核销或封存，须先办理正式更正":
   !["草稿","待签署","已签署"].includes(c.status)?"当前合同状态不允许直接删除":
   c.status==="已签署"&&!can("contract:approve")?"删除已签署合同须由有签署审批权限的管理员办理":
@@ -63,6 +67,14 @@ export function contractDeleteButton(c,projectStatus="",settled=false){
   (reason?' disabled title="'+esc(reason)+'"':'')+'>删除</button>';
 }
 export async function deleteContract(c,onDone=()=>{}){
+ if(c.pstatus==="已归档"){
+  if(!state.super)return;
+  const reason=await promptBox({title:"总管理员特殊删除归档合同",label:"填写修订原因（8～500字）。仅允许不影响封存核销及结算的误录合同；原件、历史审批与修订记录保留。",ph:"说明具体误录原因",ok:"确认特殊删除"});
+  if(reason==null||reason===false)return;
+  const value=String(reason).trim();if(value.length<8||value.length>500){toast("特殊删除须填写8～500字原因","warn");return;}
+  try{const r=await api.post("/api/contracts/"+encodeURIComponent(c.id)+"/archive-delete",{reason:value});toast(r.message,"ok");await onDone();}catch(e){toast(e.message||"特殊删除失败","warn");}
+  return;
+ }
  const ok=await confirmBox("确定删除「"+c.name+"」？"+(c.file_key?"合同及关联原件将移入废件箱，只有总管理员可恢复为草稿。":"无附件合同将软删除并保留操作记录，暂不支持从材料废件箱恢复。")+" 待签署审批会撤销，关联核销结论需重新核验。"+(c.status==="已签署"?" 已完成签署审批记录保留；系统删除不等同于解除法律合同。":""),{title:"删除合同",ok:"确认删除"});
  if(!ok)return;
  try{
