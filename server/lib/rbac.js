@@ -110,7 +110,7 @@ const NAV_MODULE = {
 const PROJECT_CONTEXT_MODULES = ["projects","prep","demand","exec","materials","verify","finance","archive"];
 const PROJECT_CONTEXT_PERMS = ["project:create","project:approve","project:transition","project:change",
   "project:edit","project:member","mini:apply","contract:write","contract:approve","invite:manage",
-  "demand:write","material:write","payment:create","payment:approve","payment:pay","settle:create",
+  "demand:write","material:write","material:file:replace","payment:create","payment:approve","payment:pay","settle:create",
   "verify:check","verify:exception","verify:exception_approve","verify:conclude","archive:write",
   "archive:download","ledger:read"];
 function canReadProjects(user) {
