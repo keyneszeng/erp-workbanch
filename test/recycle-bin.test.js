@@ -220,6 +220,39 @@ test("归档合同普通删除禁止，仅总管理员可填写理由特殊删�
  }
 });
 
+test("未发生回款开票或权益确认的企业赞助合同可删除并从废件箱恢复",async()=>{
+ const up=await upload("误录赞助合同.pdf");
+ const made=await req("exec","POST","/api/contracts",{pid:PID,name:"误录赞助合同",vendor:"测试赞助企业",amount:3000,category:"企业赞助",status:"草稿",rightsCategories:["展位展示"],file_key:up.key,file_name:up.name,file_size:up.size,file_mime:up.mime});
+ assert.equal(made.status,200,JSON.stringify(made.body));
+ const id=made.body.contract.id;
+ const sponsor=sql(db=>db.prepare("SELECT * FROM meeting_sponsor_contracts WHERE ledger_contract_id=?").get(id));
+ assert.ok(sponsor);
+ const mat=(await req("admin","GET","/api/projects/"+PID)).body.materials.find(m=>m.file_key===up.key);
+ assert.ok(mat);
+ // 已确认权益的合同不能删除（即使没有照片、回款或发票）。
+ sql(db=>db.prepare("UPDATE sponsor_rights SET confirmed=1 WHERE sponsor_id=?").run(sponsor.id));
+ const blocked=await req("admin","DELETE","/api/contracts/"+id);
+ assert.equal(blocked.status,409,JSON.stringify(blocked.body));
+ assert.equal(blocked.body.error.code,"SPONSOR_RECONCILIATION_REQUIRED");
+ sql(db=>db.prepare("UPDATE sponsor_rights SET confirmed=0 WHERE sponsor_id=?").run(sponsor.id));
+ const removed=await req("exec","DELETE","/api/contracts/"+id);
+ assert.equal(removed.status,200,JSON.stringify(removed.body));
+ assert.ok(removed.body.resetSteps.includes(7));
+ assert.ok(sql(db=>db.prepare("SELECT deleted_at FROM contracts WHERE id=?").get(id)).deleted_at);
+ assert.equal(sql(db=>db.prepare("SELECT COUNT(*) AS n FROM meeting_sponsor_contracts WHERE ledger_contract_id=?").get(id)).n,0);
+ assert.ok((await list("误录赞助合同")).rows.some(x=>x.id===mat.id));
+ assert.equal((await file("admin",up.key)).status,200);
+ const restored=await req("admin","POST","/api/recycle-bin/materials/"+mat.id+"/restore",{});
+ assert.equal(restored.status,200,JSON.stringify(restored.body));
+ const next=sql(db=>db.prepare("SELECT * FROM meeting_sponsor_contracts WHERE ledger_contract_id=?").get(id));
+ assert.equal(next.status,"待确认");assert.equal(next.amount,3000);
+ const rights=sql(db=>db.prepare("SELECT category,confirmed FROM sponsor_rights WHERE sponsor_id=?").all(next.id));
+ assert.equal(rights.length,1);assert.equal(rights[0].category,"展位展示");assert.equal(rights[0].confirmed,0);
+ assert.equal(sql(db=>db.prepare("SELECT status FROM contracts WHERE id=?").get(id)).status,"草稿");
+ // 清除本测试草稿，避免影响后续测试。
+ assert.equal((await req("exec","DELETE","/api/contracts/"+id)).status,200);
+});
+
 test("项目结算或归档后拒绝原路恢复，避免绕开冻结；原件仍可由管理员查看",async()=>{
  const {m,up}=await material("已冻结的删除资料.pdf");
  assert.equal((await req("exec","DELETE","/api/materials/"+m.id)).status,200);
