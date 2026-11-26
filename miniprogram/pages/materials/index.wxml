@@ -95,6 +95,7 @@
             <button wx:if="{{item.canEdit}}" size="mini" class="btn ghost" data-id="{{item.id}}" disabled="{{busy}}" bindtap="editContractCategory">修改</button>
             <button wx:if="{{item.canReplace}}" size="mini" class="btn ghost" data-id="{{item.id}}" disabled="{{busy}}" bindtap="replaceOriginal">更换原件</button>
             <button wx:if="{{item.canDelete}}" size="mini" type="warn" data-id="{{item.id}}" data-action="delete" disabled="{{busy}}" bindtap="contractAction">删除</button>
+            <button wx:if="{{item.canArchiveDelete}}" size="mini" type="warn" data-id="{{item.id}}" data-action="archiveDelete" disabled="{{busy}}" bindtap="contractAction">特殊删除（总管理员）</button>
             <button wx:if="{{item.canSubmit}}" size="mini" class="btn ghost" data-id="{{item.id}}" data-action="submit" disabled="{{busy}}" bindtap="contractAction">提交签署</button>
             <button wx:if="{{item.canSign}}" size="mini" class="btn ghost" data-id="{{item.id}}" data-action="sign" disabled="{{busy}}" bindtap="contractAction">确认签署</button>
             <button wx:if="{{item.canSign}}" size="mini" type="warn" data-id="{{item.id}}" data-action="reject" disabled="{{busy}}" bindtap="contractAction">驳回</button>
