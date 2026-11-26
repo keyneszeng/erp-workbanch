@@ -11,7 +11,7 @@ import { bindFilePicker, fileUrl, UPLOAD_ACCEPT, UPLOAD_TIP } from "../lib/uploa
 import { exStepLabel, openStepDetail } from "../lib/verify-detail.js";
 import {openOcrJudge} from "../lib/verify-ocr-judge.js";
 import { openContractMaterialReplace } from "../lib/contract-material-replace.js";
-import {canEditContractCategory,openContractCategoryEdit} from "../lib/contract-category-edit.js";
+import {canEditContractCategory,openContractCategoryEdit,contractDeleteButton,deleteContract} from "../lib/contract-category-edit.js";
 import { flowHint, flowOf, openContractDetail } from "../lib/contract-detail.js";
 import { reachable } from "../lib/nav.js";
 import {renderSettlementBreakdown} from "../lib/settlement-breakdown.js";
@@ -342,7 +342,7 @@ function contractFlowBtn(c, locked) {
 function tabContracts(d, p) {
   const locked = CONTRACT_LOCKED.includes(p.status);
   return panel("合同目录详情", `${d.contracts.length} 份${locked ? " · 已封存" : ""}`, table(
-    [{ t: "合同编号", w: "112px" }, { t: "合同名称" }, { t: "签约方", w: "150px" }, { t: "金额", w: "100px", cls: "num" }, { t: "签署日期", w: "100px" }, { t: "状态", w: "80px" }, { t: "原件", w: "104px" }, { t: "操作", w: "150px" }],
+    [{ t: "合同编号", w: "112px" }, { t: "合同名称" }, { t: "签约方", w: "150px" }, { t: "金额", w: "100px", cls: "num" }, { t: "签署日期", w: "100px" }, { t: "状态", w: "80px" }, { t: "原件", w: "104px" }, { t: "操作", w: "200px" }],
     d.contracts.map((c) => ({
       c: [`<span class="mono">${c.id}</span>`,
         `${esc(c.name)}<span class="cat">${esc(c.category || "未分类")}</span>`,
@@ -355,7 +355,7 @@ function tabContracts(d, p) {
           (can("material:file:replace") && c.file_key && !d.settlement &&
             !["已核销","已结算","已归档"].includes(p.status) &&
             d.materials.some(m=>m.kind==="合同" && !m.deleted_at && m.file_key===c.file_key)
-            ? ` <button class="link" data-replace-material="${d.materials.find(m=>m.kind==="合同" && !m.deleted_at && m.file_key===c.file_key).id}">更换原件</button>` : "")]
+            ? ` <button class="link" data-replace-material="${d.materials.find(m=>m.kind==="合同" && !m.deleted_at && m.file_key===c.file_key).id}">更换原件</button>` : "")+contractDeleteButton(c,p.status,!!d.settlement)]
     })),
     { empty: "暂无合同" }),
     locked ? `<span class="foot-note">项目${p.status === "已归档" ? "已归档，卷宗封存" : "已结算，台账封账"}，不可再录入合同</span>`
@@ -579,6 +579,10 @@ function wire(root, pid, d, body) {
   body.querySelectorAll("[data-edit-contract-category]").forEach(b=>b.onclick=()=>{
     const contract=d.contracts.find(x=>x.id===b.dataset.editContractCategory);
     if(contract)openContractCategoryEdit({...contract,pstatus:d.project.status},()=>refresh(root,pid));
+  });
+  body.querySelectorAll("[data-delete-contract]").forEach(b=>b.onclick=()=>{
+    const row=d.contracts.find(c=>c.id===b.dataset.deleteContract);
+    if(row)deleteContract(row,()=>refresh(root,pid));
   });
   body.querySelectorAll("[data-replace-material]").forEach(b=>b.onclick=()=>{
     const m=d.materials.find(x=>Number(x.id)===Number(b.dataset.replaceMaterial));
