@@ -167,7 +167,16 @@ function mockMaterialsPage(files,api){
   showModal:opts=>{seen.modalCount++;seen.lastModal=opts;
    opts.success({confirm:seen.confirmDelete,cancel:!seen.confirmDelete});},
  };
- const app={api,globalData:{perms:["material:write","material:file:replace"]}};
+ // Upload-only fixtures omit the post-save project read; emulate the normal scoped
+ // project response for those specific tests without overriding explicit fixtures.
+ const app={globalData:{perms:["material:write","material:file:replace"]},api:async(url,method,body,headers)=>{
+  try{return await api(url,method,body,headers);}
+  catch(err){
+   if(url==="/projects/MP-2026-001"&&/^Unexpected API:/i.test(err.message))
+    return {project:{id:"MP-2026-001",status:"筹备中"},sectionAccess:{materials:true},materialsStatus:{categoryCatalog:{active:[page.data.kind||"课件"],history:[],disabled:[]}},materials:[]};
+   throw err;
+  }
+ }};
  vm.runInNewContext(fs.readFileSync(path.join(__dirname,"../miniprogram/pages/materials/index.js"),"utf8"),
   {getApp:()=>app,Page:obj=>page=obj,wx,Promise,Number,String,Map,Date,encodeURIComponent});
  page.setData=function(changes){this.data={...this.data,...changes};};
