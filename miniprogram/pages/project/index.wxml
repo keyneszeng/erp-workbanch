@@ -33,7 +33,7 @@
         <view class="verify-score">{{verifySummary.passed}}<text class="verify-total"> / {{verifySummary.total}}</text></view>
         <view class="grow"><view class="title">核销项已通过</view><view class="muted">查看关联原件与各步骤判定结果</view></view>
       </view>
-      <view class="muted space">手机端只读展示，与网页测试版共用核销结果及原件权限。</view>
+      <view class="muted space">手机端只读展示，与网页端共用核销结果及原件权限。</view>
       <button class="btn ghost" bindtap="verification">查看核销详情 <text class="button-arrow">›</text></button>
     </view>
 

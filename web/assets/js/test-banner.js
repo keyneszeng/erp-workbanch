@@ -1,9 +1,10 @@
 /**
- * 测试环境横幅：只有 /api/health 返回 env=test 时才渲染。
- * 生产环境该请求返回 env=production，脚本直接退出，零副作用。
- * 目的：让人一眼看出这不是正式业务系统，避免测试数据被当真。
+ * 环境提示横幅：系统已正式上线，正式版默认不显示。
+ * 仅当内部调试需要时，在控制台执行 localStorage.setItem('showEnvBanner','1')
+ * 才会渲染；正常情况下脚本零副作用。
  */
 (function () {
+  try { if (localStorage.getItem("showEnvBanner") !== "1") return; } catch (e) { return; }
   fetch("/api/health", { headers: { accept: "application/json" } })
     .then(function (res) { return res.ok ? res.json() : null; })
     .then(function (data) {
@@ -19,7 +20,7 @@
       document.head.appendChild(style);
       var bar = document.createElement("div");
       bar.id = "testEnvBanner";
-      bar.textContent = "测试环境 · 仅供功能验证，非正式业务系统";
+      bar.textContent = "接口环境提示：当前连接测试标识（env=test）";
       document.body.insertBefore(bar, document.body.firstChild);
     })
     .catch(function () { /* 健康检查失败不影响页面使用 */ });
