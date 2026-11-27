@@ -134,6 +134,14 @@ CREATE TABLE IF NOT EXISTS projects (
 CREATE INDEX IF NOT EXISTS idx_projects_status ON projects(status);
 CREATE INDEX IF NOT EXISTS idx_projects_assoc  ON projects(assoc);
 
+-- 超预算提醒只记录已读，不修改项目或财务原始数据。
+CREATE TABLE IF NOT EXISTS budget_todo_reads (
+  pid TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  overrun_cents INTEGER NOT NULL CHECK(overrun_cents > 0),
+  read_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS project_members (
   project_id  TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
   user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -989,6 +997,9 @@ function migrate() {
   // 原来 exec / finance 的数据范围是 `p.owner = ?`（比对姓名），
   // 于是新建一个同名账号就能看到别人名下的项目；负责人改名后又把自己名下的项目全丢了。
   addColumn("projects", "owner_id", "owner_id INTEGER");
+  db.exec(`CREATE TRIGGER IF NOT EXISTS budget_todo_owner_changed
+    AFTER UPDATE OF owner_id ON projects WHEN OLD.owner_id IS NOT NEW.owner_id
+    BEGIN DELETE FROM budget_todo_reads WHERE pid=NEW.id; END;`);
   try {
     db.exec(
       `UPDATE projects
