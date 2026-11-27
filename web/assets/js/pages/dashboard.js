@@ -107,19 +107,32 @@ export async function render(root) {
 
   <div class="foot-note">当前登录：${esc(state.user.name)} · ${esc(state.role.name)} · 数据范围「${esc(state.role.scope)}」
     ${state.super ? "· 总管理员拥有全部模块与全部数据权限" : ""}</div>`;
+  bindBudgetReads(root,d.todos,()=>render(root));
+}
+
+// 项目业务已授权、工作台未授权时，仅展示本人的超预算提醒，不调用完整工作台接口。
+export async function renderBudgetOnly(root){
+  const d=await api.get("/api/my-budget-todos");
+  const rows=d.rows||[];
+  root.innerHTML=`<div class="mt">${panel("我的待办", `${rows.length} 项`, table(
+    [{t:"类型",w:"86px"},{t:"事项"},{t:"项目",w:"190px"},{t:"时限",w:"132px"},{t:"操作",w:"76px"}],
+    rows.map(t=>({c:[badge(badgeForTodo(t)),`<b style="font-size:12.8px;color:var(--red)">${esc(t.title)}</b>`,esc(t.pname||t.pid),esc(t.sla),`<button class="link" data-budget-read="${esc(t.pid)}">查看</button>`]})),{empty:"当前没有超预算待办"}))}</div>`;
+  bindBudgetReads(root,rows,()=>renderBudgetOnly(root));
+}
+function bindBudgetReads(root,todos,refresh){
   root.querySelectorAll("[data-budget-read]").forEach(button=>button.onclick=async()=>{
     if(button.disabled)return;
-    const item=d.todos.find(t=>t.kind==="超预算"&&t.pid===button.dataset.budgetRead);
+    const item=todos.find(t=>t.kind==="超预算"&&t.pid===button.dataset.budgetRead);
     if(!item)return;
     button.disabled=true;
     try{
       await api.post("/api/my-budget-todos/"+encodeURIComponent(item.pid)+"/read",{overrun:item.overrun});
       const href=todoHref(item);
       if(href)location.hash="#/"+href;
-      else await render(root);
+      else await refresh();
     }catch(e){
       toast(e.message||"确认已读失败，请重试","warn");
-      if(e.code==="BUDGET_TODO_CHANGED")await render(root);
+      if(e.code==="BUDGET_TODO_CHANGED")await refresh();
     }finally{button.disabled=false;}
   });
 }
