@@ -10,7 +10,7 @@ const STATUS_CLS = {
   "草稿": "b-gray", "待审批": "b-orange", "已立项": "b-blue", "筹备中": "b-blue",
   "执行中": "b-teal", "待核销": "b-orange", "已核销": "b-green", "已结算": "b-green", "已归档": "b-steel",
   "通过": "b-green", "不通过": "b-red", "待判定": "b-gray", "不适用": "b-gray", "已解例外": "b-purple",
-  "待审批(付款)": "b-orange", "已审批": "b-blue", "已付款": "b-green", "已驳回": "b-red",
+  "待审批(付款)": "b-orange", "已审批": "b-blue", "已付款": "b-green", "已驳回": "b-red", "超预算": "b-red",
   "待邀请": "b-gray", "待确认": "b-orange", "已确认": "b-green", "已通过": "b-green",
   "待开始": "b-gray", "进行中": "b-blue", "已完成": "b-green", "处理中": "b-orange", "已解决": "b-green",
   "已签署": "b-green", "待签署": "b-orange", "已生成": "b-green", "已启用": "b-green", "已停用": "b-gray",
