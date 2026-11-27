@@ -8,6 +8,7 @@ export function targetForTodo(t) {
     case "待核销":
     case "核销": return `verify/${t.pid}`;
     case "付款": return `finance/${t.pid}`;
+    case "超预算":
     case "筹备":
     case "结算":
     case "归档":
@@ -17,6 +18,7 @@ export function targetForTodo(t) {
 }
 
 const BADGES = {
+  "超预算": "超预算",
   "审批": "待审批",
   "筹备": "待筹备",
   "待核销": "待核销",
