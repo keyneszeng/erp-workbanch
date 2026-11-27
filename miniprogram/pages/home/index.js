@@ -1,9 +1,9 @@
 const app=getApp();
 Page({
  data:{user:null,userInitial:"会",role:"",loading:true,error:"",canApprove:false,canMaterials:false,
-   canApply:false,canMeetings:false,isExecutor:false,dashboard:null,stats:[]},
+   canApply:false,canMeetings:false,isExecutor:false,dashboard:null,stats:[],budgetTodos:[]},
  async onShow(){
-  this.setData({loading:true,error:""});
+  this.setData({loading:true,error:"",budgetTodos:[]});
   try{
    const state=await app.resume();if(!state)return;
    if(state.user?.mustChangePassword){wx.navigateTo({url:"/pages/account/index"});return;}
@@ -18,19 +18,31 @@ Page({
      try { dashboard=await app.api("/dashboard"); }
      catch(e){if(e.status!==403)throw e;}
    }
+   // 与 Web 工作台同源；没有工作台模块的项目业务账号只读本人的专项待办。
+   let budgetTodos=Array.isArray(dashboard.todos)?dashboard.todos.filter(t=>t.kind==="超预算"):[];
+   if(!Array.isArray(dashboard.todos)&&canMeetings){
+    try{budgetTodos=(await app.api("/my-budget-todos")).rows||[];}
+    catch(e){if(e.status!==403)throw e;}
+   }
+   budgetTodos=budgetTodos.filter(t=>t.kind==="超预算"&&Number(t.balance)<0).map(t=>({...t,overrunText:Number(t.overrun).toFixed(2)}));
    const counts=dashboard.counts||{};
    const stats=state.role?.modules?.includes("dashboard") || user?.role==="admin" ? [
     {label:"待审批",value:counts["待审批"]||0},
     {label:"执行中",value:counts["执行中"]||0},
     {label:"待核销",value:counts["待核销"]||0}
    ] : [];
-   this.setData({user,userInitial:String(user?.name||"会").slice(0,1),role:state.role?.name||"",dashboard,stats,canApprove,canMaterials,
+   this.setData({user,userInitial:String(user?.name||"会").slice(0,1),role:state.role?.name||"",dashboard,stats,budgetTodos,canApprove,canMaterials,
      canApply,canMeetings,isExecutor:canMaterials||canApprove,loading:false});
   }catch(e){this.setData({error:e.message,loading:false});}
  },
  go(e){
   const page=e.currentTarget.dataset.page;
   if(page)wx.navigateTo({url:"/pages/"+page+"/index"});
+ },
+ openBudgetTodo(e){
+  const pid=String(e.currentTarget.dataset.pid||"");
+  if(!this.data.canMeetings||!this.data.budgetTodos.some(t=>t.pid===pid))return;
+  wx.navigateTo({url:"/pages/project/index?id="+encodeURIComponent(pid)});
  },
  myApplications(){wx.navigateTo({url:"/pages/projects/index?tab=mine"});},
  meetingList(){wx.navigateTo({url:"/pages/projects/index?tab=all"});}
