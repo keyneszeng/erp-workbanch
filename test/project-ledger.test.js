@@ -100,6 +100,28 @@ test("项目台账列表及明细均展示可用预算和实时结余，不依�
   if(detail.body.settlement)assert.equal(summary.settlement_profit,detail.body.settlement.profit,"冻结结算快照仍保留");
  }
 });
+test("按负责人汇总全部项目，跨分页、同名账号隔离、负结余相抵且重复ID不重复计算",async()=>{
+ const all=await request("admin","/api/project-ledger?size=100");
+ assert.equal(all.status,200);
+ const projects=all.body.rows.filter(r=>Number.isSafeInteger(r.owner_id)&&r.owner_id>0);
+ const ids=[...new Set(projects.map(r=>r.owner_id))].slice(0,2);
+ assert.ok(ids.length>0);
+ const url="/api/project-ledger/owner-summary";
+ const expected=projects.filter(r=>ids.includes(r.owner_id));
+ const result=await request("admin",url,"POST",{owner_ids:[...ids,ids[0]]});
+ assert.equal(result.status,200,JSON.stringify(result.body));
+ const sum=field=>expected.reduce((a,r)=>a+Math.round(r.financial_summary[field]*100),0)/100;
+ assert.equal(result.body.total.project_count,expected.length);
+ for(const key of ["available_budget","payment_paid","balance"])assert.equal(result.body.total[key],sum(key));
+ for(const g of result.body.owners){
+  const group=expected.filter(r=>r.owner_id===g.owner_id);
+  assert.equal(g.project_count,group.length);
+  assert.equal(g.balance,group.reduce((a,r)=>a+Math.round(r.financial_summary.balance*100),0)/100);
+ }
+ assert.equal((await request("admin",url,"POST",{owner_ids:[]})).status,400);
+ assert.equal((await request("admin",url,"POST",{owner_ids:["1"]})).status,400);
+ for(const role of ["assoc","exec","finance","guest"])assert.equal((await request(role,url,"POST",{owner_ids:ids})).status,403);
+});
 test("超预算结余为负数，待审批和驳回付款不计入实时结余，CSV口径一致",async()=>{
  const {DatabaseSync}=require("node:sqlite");
  const pid="MP-2026-005";
