@@ -36,6 +36,16 @@
     </view>
   </view>
 
+  <view wx:if="{{!loading && budgetTodos.length}}" class="card">
+    <view class="section-head"><view class="section-caption">我的待办</view><view style="color:#b91c1c;font-weight:600">{{budgetTodos.length}} 项超预算</view></view>
+    <view wx:for="{{budgetTodos}}" wx:key="pid" style="margin-top:16rpx;padding:20rpx;border:1rpx solid #fecaca;border-radius:12rpx;background:#fff1f2;color:#991b1b" data-pid="{{item.pid}}" bindtap="openBudgetTodo">
+      <view style="font-weight:700">超预算 · {{item.pname}}</view>
+      <view style="font-size:24rpx;margin-top:8rpx">{{item.pid}} · {{item.project_status}}</view>
+      <view style="font-weight:600;margin-top:8rpx">结余 -¥{{item.overrunText}}</view>
+      <view style="font-size:24rpx;margin-top:8rpx">请核对超预算支出{{canMeetings ? " · 查看会议" : ""}}</view>
+    </view>
+  </view>
+
   <view wx:if="{{!loading}}" class="section-head space-sm">
     <view>
       <view class="page-kicker">QUICK ACCESS</view>
