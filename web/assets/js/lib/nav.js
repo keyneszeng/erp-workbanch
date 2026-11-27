@@ -42,7 +42,7 @@ export function canVisit(nav) {
     ["projects","prep","demand","exec","materials","verify","finance","archive"].some(m=>mods.includes(m)) ||
     ["project:create","project:approve","project:transition","project:change","project:edit",
      "project:member","mini:apply","contract:write","contract:approve","invite:manage",
-     "demand:write","material:write","payment:create","payment:approve","payment:pay","settle:create",
+     "demand:write","material:write","material:file:replace","payment:create","payment:approve","payment:pay","settle:create",
      "verify:check","verify:exception","verify:exception_approve","verify:conclude","archive:write",
      "archive:download","ledger:read"].some(can)))return true;
   // 合同录入/审批权独立于其他筹备模块；可用合同权限访问合同台账与审批中心。
