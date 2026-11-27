@@ -7,7 +7,7 @@
 const { db }=require("../lib/db");
 const { assertCan,scopeFilter,assertProjectVisible }=require("../lib/rbac");
 const { getProject }=require("../lib/workflow");
-const {availableBudget,settlementTotals}=require("../lib/budget-fee");
+const {liveBudgetBalance,settlementTotals}=require("../lib/budget-fee");
 const { bad, yuan, cents }=require("../lib/util");
 const { PAYMENT_TYPES }=require("../lib/constants");
 
@@ -65,8 +65,7 @@ function summarize(x){
   const sponsorContracts=contracts.filter(r=>r.category==="企业赞助");
   const paid=total(payments,r=>r.status==="已付款");
   // 台账按项目现行预算及真实已付款实时对账；结算单保留独立冻结快照。
-  const usable=availableBudget(p);
-  const balance=(cents(usable)-cents(paid))/100;
+  const {available_budget:usable,balance}=liveBudgetBalance(p,paid);
   const active=total(payments,r=>r.status!=="已驳回");
   const pending=total(payments,r=>r.status==="待审批"||r.status==="已审批");
   const payTypes=summarizePaymentTypes(payments);
