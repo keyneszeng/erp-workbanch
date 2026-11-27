@@ -1000,6 +1000,28 @@ function migrate() {
   db.exec(`CREATE TRIGGER IF NOT EXISTS budget_todo_owner_changed
     AFTER UPDATE OF owner_id ON projects WHEN OLD.owner_id IS NOT NEW.owner_id
     BEGIN DELETE FROM budget_todo_reads WHERE pid=NEW.id; END;`);
+  // 已读只覆盖本次超预算事件。结余恢复非负时清除已读；
+  // 在付款或预算实际变动的事务内执行，哪怕两次变动之间没人登录，也不会漏掉再次超支。
+  // 和 budget-fee.js 统一按分及万分比计算；付款金额来自两位小数的原始业务记录。
+  const clearResolvedBudgetRead=(pidExpr)=>`DELETE FROM budget_todo_reads
+    WHERE pid=${pidExpr} AND EXISTS (SELECT 1 FROM projects p WHERE p.id=budget_todo_reads.pid
+      AND ROUND(ROUND(p.budget*100)*(10000-ROUND(COALESCE(p.tax_fee_rate,0)*100))/10000)
+        >= COALESCE((SELECT SUM(ROUND(y.amount*100)) FROM payments y WHERE y.pid=p.id AND y.status='已付款'),0))`;
+  db.exec(`CREATE TRIGGER IF NOT EXISTS budget_todo_budget_resolved
+    AFTER UPDATE OF budget,tax_fee_rate ON projects
+    BEGIN ${clearResolvedBudgetRead("NEW.id")}; END;`);
+  db.exec(`CREATE TRIGGER IF NOT EXISTS budget_todo_payment_insert_resolved
+    AFTER INSERT ON payments WHEN NEW.status='已付款'
+    BEGIN ${clearResolvedBudgetRead("NEW.pid")}; END;`);
+  db.exec(`CREATE TRIGGER IF NOT EXISTS budget_todo_payment_update_resolved
+    AFTER UPDATE OF pid,amount,status ON payments WHEN OLD.status='已付款' OR NEW.status='已付款'
+    BEGIN ${clearResolvedBudgetRead("OLD.pid")}; ${clearResolvedBudgetRead("NEW.pid")}; END;`);
+  db.exec(`CREATE TRIGGER IF NOT EXISTS budget_todo_payment_delete_resolved
+    AFTER DELETE ON payments WHEN OLD.status='已付款'
+    BEGIN ${clearResolvedBudgetRead("OLD.pid")}; END;`);
+  // 修复上线前已恢复正常但未清掉的旧已读记录；负结余的原已读仍保持。
+  db.exec(clearResolvedBudgetRead("budget_todo_reads.pid"));
+
   try {
     db.exec(
       `UPDATE projects
