@@ -21,10 +21,12 @@ function countsByStatus(user) {
 }
 
 // 实时预警，不写入第二份待办记录；负责人调整或结余恢复时自动消失。
-function myBudgetTodos(user) {
+function myBudgetTodos(user,includeRead=false) {
   const {sql,params}=scopeFilter(user);
-  const rows=db.prepare(`SELECT p.id,p.name,p.budget,p.tax_fee_rate,p.status,y.amount AS paid_amount
+  const rows=db.prepare(`SELECT p.id,p.name,p.budget,p.tax_fee_rate,p.status,y.amount AS paid_amount,
+      r.overrun_cents AS read_overrun_cents
     FROM projects p JOIN payments y ON y.pid=p.id AND y.status='已付款'
+    LEFT JOIN budget_todo_reads r ON r.pid=p.id AND r.user_id=p.owner_id
     WHERE p.owner_id=? AND (${sql}) ORDER BY p.id,y.id`).all(user.id,...params);
   const owned=new Map();
   for(const row of rows){
@@ -35,6 +37,7 @@ function myBudgetTodos(user) {
   for(const {project:p,paidCents} of owned.values()){
     const {balance}=liveBudgetBalance(p,paidCents/100);
     if(balance>=0)continue;
+    if(!includeRead&&cents(-balance)<=Number(p.read_overrun_cents||0))continue;
     const overrun=-balance,amount=overrun.toLocaleString("zh-CN",{minimumFractionDigits:2,maximumFractionDigits:2});
     todos.push({kind:"超预算",level:"紧急",title:"项目结余为负，超可用预算 ¥"+amount,
       pid:p.id,pname:p.name,ref:p.id,sla:"请核对超预算支出",go:"projects",
@@ -379,7 +382,7 @@ function toFlag(v) {
  */
 const RESET_TABLES = RESET_DATA_TABLES;
 const RESET_LABEL = {
-  projects: "项目", users: "账号", payments: "付款单", contracts: "合同", contract_amendments: "合同更正版本",
+  budget_todo_reads: "超预算提醒已读记录", projects: "项目", users: "账号", payments: "付款单", contracts: "合同", contract_amendments: "合同更正版本",
   settlements: "结算单", materials: "材料", audit_logs: "审计记录",
   uploaded_files: "上传文件归属", sessions: "登录会话", exports: "导出记录", sms_challenges: "短信验证码挑战", mini_bindings: "微信账号绑定",
   exceptions: "例外单", verify_steps: "核销判定", approvals: "审批记录",
@@ -407,6 +410,24 @@ function register(router) {
   router.get("/api/my-budget-todos",async ctx=>{
     if(!canReadProjects(ctx.user)&&!hasModule(ctx.user,"dashboard"))throw forbidden("当前账号无项目或工作台查看权限");
     return {rows:myBudgetTodos(ctx.user)};
+  });
+  router.post("/api/my-budget-todos/:pid/read",async ctx=>{
+    if(!canReadProjects(ctx.user)&&!hasModule(ctx.user,"dashboard"))throw forbidden("当前账号无项目或工作台查看权限");
+    const pid=String(ctx.params.pid);
+    const seen=ctx.body?.overrun;
+    if(typeof seen!=="number"||!Number.isFinite(seen)||seen<=0||!Number.isSafeInteger(cents(seen))||Math.abs(seen*100-cents(seen))>1e-5)
+      throw bad("超预算金额无效，请刷新待办");
+    const {sql,params}=scopeFilter(ctx.user);
+    if(!db.prepare(`SELECT 1 FROM projects p WHERE p.id=? AND p.owner_id=? AND (${sql})`).get(pid,ctx.user.id,...params))
+      throw forbidden("仅当前项目负责人可确认已读");
+    const current=myBudgetTodos(ctx.user,true).find(t=>t.pid===pid);
+    if(!current)return {message:"该提醒已解除",read:true};
+    if(cents(current.overrun)>cents(seen))throw conflict("超预算金额已增加，请刷新后查看最新提醒","BUDGET_TODO_CHANGED");
+    db.prepare(`INSERT INTO budget_todo_reads(pid,user_id,overrun_cents,read_at) VALUES (?,?,?,?)
+      ON CONFLICT(pid) DO UPDATE SET user_id=excluded.user_id,
+      overrun_cents=CASE WHEN budget_todo_reads.user_id=excluded.user_id THEN MAX(budget_todo_reads.overrun_cents,excluded.overrun_cents) ELSE excluded.overrun_cents END,
+      read_at=excluded.read_at`).run(pid,ctx.user.id,cents(current.overrun),now());
+    return {message:"超预算提醒已读",read:true};
   });
 
   const {validateAssociations,listForUser,updateForUser}=require("../lib/user-associations");
