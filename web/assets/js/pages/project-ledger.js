@@ -8,6 +8,7 @@ import {esc,money,table,pager,bindPager,toast,badge} from "../lib/ui.js";
 const PAGE_SIZE=30;
 let search="",page=1,selected="";
 const num=v=>"¥"+money(v==null?0:v);
+const balance=v=>Number(v)<0?'<span style="color:var(--red);font-weight:600">-¥'+money(Math.abs(Number(v)))+'</span>':num(v);
 const td=s=>esc(s==null?"—":s);
 const anchor=(pid)=>'<button class="link" data-open-ledger="'+esc(pid)+'">'+esc(pid)+'</button>';
 const file=(row)=>row.file_key ?
@@ -23,7 +24,7 @@ export async function render(root,params=[]){
     '<div class="filters"><input id="ledgerSearch" type="search" placeholder="会议编号 / 会议名称 / 协会" value="'+esc(search)+'">'+
     '<button class="btn btn-o" id="ledgerSearchBtn">搜索</button></div><div id="ledgerList"></div></div>'+
     '<div id="ledgerDetail"></div>'+
-    '<p class="foot-note">重要：项目台账直接读取原始业务表，不另外建账、不修改财务状态。发票号≠发票原件，现有厂家款类型≠真实厂家到账凭证；差额需要按实际业务口径人工复核。</p>';
+    '<p class="foot-note">重要：项目台账直接读取原始业务表，不另外建账、不修改财务状态。发票号≠发票原件，现有厂家款类型≠真实厂家到账凭证；可用预算扣除税费管理费，结余按实际已付款实时计算，负数表示超预算。历史结算差异仍需人工复核。</p>';
   root.querySelector("#ledgerSearchBtn").onclick=()=>{search=root.querySelector("#ledgerSearch").value.trim();page=1;load(root)};
   root.querySelector("#ledgerSearch").onkeydown=e=>{if(e.key==="Enter"){search=e.target.value.trim();page=1;load(root)}};
   await load(root);
@@ -33,13 +34,13 @@ async function load(root){
   const data=await api.get("/api/project-ledger?"+qs);
   const box=root.querySelector("#ledgerList");
   box.innerHTML=table(
-    [{t:"会议编号",w:"150px"},{t:"会议名称"},{t:"协会"},{t:"会议预算",w:"115px"},{t:"合同总额",w:"110px"},
+    [{t:"会议编号",w:"150px"},{t:"会议名称"},{t:"协会"},{t:"会议预算",w:"115px"},{t:"可用预算",w:"115px"},{t:"合同总额",w:"110px"},
       {t:"已付款",w:"110px"},{t:"结余",w:"110px"},{t:"提示",w:"65px"}],
     data.rows.map(x=>({c:[
       anchor(x.meeting_no),td(x.project_name),td(x.association),
-      num(x.financial_summary.budget),num(x.financial_summary.contract_total),
+      num(x.financial_summary.budget),num(x.financial_summary.available_budget),num(x.financial_summary.contract_total),
       num(x.financial_summary.payment_paid),
-      x.financial_summary.settlement_profit===null?"未生成":num(x.financial_summary.settlement_profit),
+      balance(x.financial_summary.balance),
       '<span title="'+esc(x.warnings.join("；"))+'">'+x.warnings.length+' 项</span>'
     ]})),{empty:"当前没有会议项目"}
   )+pager(data,{unit:"个项目"});
@@ -62,15 +63,15 @@ async function open(root,pid){
     td(x.id),td(x.kind),td(x.name),td(x.version),file(x)
   ]}));
   const kpis=[
-    ["预算",s.budget],["合同总额",s.contract_total],["已签署合同",s.signed_contracts],
+    ["会议预算",s.budget],["可用预算",s.available_budget],["合同总额",s.contract_total],["已签署合同",s.signed_contracts],
     ["已付款",s.payment_paid],["待审批/待付款",s.payment_pending],
-    ["结算支出",s.settlement_expense],["结算与付款差额",s.settlement_vs_paid]
+    ["结算支出",s.settlement_expense],["结余",s.balance]
   ];
   const box=root.querySelector("#ledgerDetail");
   box.innerHTML='<div class="panel mt">'+
     '<div class="panel-h"><div><h2>项目对照 · '+esc(d.meeting_no)+'</h2><p class="hint">'+esc(d.project_name)+' · '+esc(d.association)+' · '+esc(d.project_status)+'</p></div>'+
     '<div class="acts"><button class="btn btn-o" id="ledgerGoProject">会议项目</button> <button class="btn btn-p" id="ledgerCsv">导出项目台账 CSV</button></div></div>'+
-    '<div class="grid g4">'+kpis.map(x=>'<div class="kpi"><div class="t">'+esc(x[0])+'</div><div class="v">'+(x[1]===null?"—":num(x[1]))+'</div></div>').join("")+'</div>'+
+    '<div class="grid g4">'+kpis.map(x=>'<div class="kpi"><div class="t">'+esc(x[0])+'</div><div class="v">'+(x[0]==="结余"?balance(x[1]):x[1]===null?"—":num(x[1]))+'</div></div>').join("")+'</div><p class="hint" style="margin-top:10px">可用预算 = 会议预算 ×（1 − 税费管理费率）；结余 = 可用预算 − 已付款。负数表示超预算。</p>'+
     '<h3 style="margin:22px 0 10px">分类付款对照</h3>'+
     '<p class="hint">专家劳务费对应原付款单类型「专家费」；按实际付款单汇总，不把合同报酬或待审批款视为已付款。</p>'+
     table([{t:"付款类型"},{t:"单据数"},{t:"有效申请金额"},{t:"已付款金额"}],
@@ -86,7 +87,7 @@ async function open(root,pid){
     table([{t:"材料ID"},{t:"材料类别"},{t:"资料名称"},{t:"版本"},{t:"原件"}],docs,{empty:"暂无已关联的财务资料"})+
     '<h3 style="margin:22px 0 10px">结算单</h3>'+
     (d.settlement?'<p>结算编号 <strong>'+td(d.settlement.id)+'</strong>　项目预算 '+num(d.settlement.income)+
-      '　支出 '+num(d.settlement.expense)+'　结余 '+num(d.settlement.profit)+'</p>':'<p class="hint">本项目尚未生成结算单。</p>')+
+      '　可用预算 '+num(d.settlement.available_budget)+'　支出 '+num(d.settlement.expense)+'　结算结余 '+balance(d.settlement.profit)+'</p>':'<p class="hint">本项目尚未生成结算单。</p>')+
     '<h3 style="margin:22px 0 10px">核对提醒</h3>'+
     (d.warnings.length?'<div class="gate">'+d.warnings.map(x=>'<p>• '+esc(x)+'</p>').join("")+'</div>':
       '<p class="hint">目前没有自动识别的差异；不代表已完成逐票人工核销。</p>')+
