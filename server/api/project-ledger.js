@@ -7,7 +7,7 @@
 const { db }=require("../lib/db");
 const { assertCan,scopeFilter,assertProjectVisible }=require("../lib/rbac");
 const { getProject }=require("../lib/workflow");
-const {settlementTotals}=require("../lib/budget-fee");
+const {availableBudget,settlementTotals}=require("../lib/budget-fee");
 const { bad, yuan, cents }=require("../lib/util");
 const { PAYMENT_TYPES }=require("../lib/constants");
 
@@ -64,6 +64,9 @@ function summarize(x){
   const signedTotal=total(contracts,r=>r.category!=="企业赞助"&&r.status!=="已终止");
   const sponsorContracts=contracts.filter(r=>r.category==="企业赞助");
   const paid=total(payments,r=>r.status==="已付款");
+  // 台账按项目现行预算及真实已付款实时对账；结算单保留独立冻结快照。
+  const usable=availableBudget(p);
+  const balance=(cents(usable)-cents(paid))/100;
   const active=total(payments,r=>r.status!=="已驳回");
   const pending=total(payments,r=>r.status==="待审批"||r.status==="已审批");
   const payTypes=summarizePaymentTypes(payments);
@@ -72,13 +75,14 @@ function summarize(x){
   const paymentVoucherFiles=materials.filter(r=>/付款凭证|厂家付款凭证/.test(r.kind)&&!!r.file_key).length;
   const contractFileCount=contracts.filter(r=>!!r.file_key).length;
   const warnings=[];
+  if(balance<0) warnings.push("已付款超过可用预算 ¥"+(-balance).toFixed(2)+"，请核对超预算支出");
   if(payments.some(r=>r.status==="待审批"||r.status==="已审批")) warnings.push("仍有待审批/待支付的付款单，未完成对账");
   if(invoiceNumberCount>0 && invoiceFileCount===0) warnings.push("存在发票号码登记，但没有关联的发票原件；仅有发票号不代表发票已归档");
   if(payments.some(r=>r.type==="厂家款")) warnings.push("现有「厂家款」属于付款类型，并不能据此判定厂家款已到账；厂家付款凭证需要独立关联");
   if(settlement && cents(settlement.expense)!==cents(paid)) warnings.push("结算单支出与已付款合计不一致，请人工核对口径与时点");
   if(contracts.some(r=>r.status==="已签署"&&!r.file_key)) warnings.push("存在已签署合同但未关联电子合同原件");
   const sums={
-    budget:val(p.budget),
+    budget:val(p.budget),available_budget:usable,balance,
     contract_total:signedTotal,signed_contracts:signed,
     sponsor_contract_total:total(sponsorContracts),sponsor_contract_signed:total(sponsorContracts,r=>r.status==="已签署"),
     payment_effective:active,payment_paid:paid,payment_pending:pending,
@@ -111,7 +115,8 @@ function buildDetail(pid,user){
     payment_approvals:data.approvals,
     notes:[
       "所有记录均通过原始业务表的 pid=会议编号关联，项目台账不复制第二套账。",
-      "已签署合同、付款和结算金额口径不同，差异仅是人工核对线索，不代表必然有错。",
+      "可用预算=会议预算扣除税费管理费；实时结余=可用预算−已付款，超预算允许为负数。待审批、待付款和已驳回不计入已付支出。",
+      "已签署合同、付款和结算金额口径不同；已生成结算单保留冻结时的预算、费率及支出，历史差异仍需人工核对。",
       "付款单发票号与材料发票附件并非一对一关联；若无逐票关联不能宣称完整核对成功。",
       "厂家款历史类型不等同于厂家付款凭证或企业真实到账证明。"
     ]
@@ -136,8 +141,10 @@ function exportCsv(detail){
       group.type+" / 已付款金额",group.paid,"","","统计仅包括已付款记录"]);
   }
   rows.push([n,"对账摘要","",detail.project_name,"预算",detail.financial_summary.budget,"","",""]);
+  rows.push([n,"对账摘要","",detail.project_name,"可用预算",detail.financial_summary.available_budget,"","","扣除税费管理费后的项目预算"]);
   rows.push([n,"对账摘要","",detail.project_name,"已签署合同金额",detail.financial_summary.signed_contracts,"","",""]);
   rows.push([n,"对账摘要","",detail.project_name,"已付款金额",detail.financial_summary.payment_paid,"","",""]);
+  rows.push([n,"对账摘要","",detail.project_name,"结余",detail.financial_summary.balance,"","","可用预算减已付款金额，负数表示超预算"]);
   for(const w of detail.warnings) rows.push([n,"待核对","",detail.project_name,"提示","","","",w]);
   return "\ufeff"+rows.map(csvRow).join("\r\n")+"\r\n";
 }
