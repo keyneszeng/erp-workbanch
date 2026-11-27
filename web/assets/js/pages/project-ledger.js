@@ -21,7 +21,7 @@ export async function render(root,params=[]){
   selected=params[0]||selected;
   root.innerHTML='<div class="phead"><div><h2>项目台账</h2><p>唯一会议编号关联全流程财务资料 · 仅总管理员 · 只读对账</p></div></div>'+
     '<div class="panel"><div class="panel-h"><h2>按会议编号对照</h2></div>'+
-    '<div class="filters"><input id="ledgerSearch" type="search" placeholder="会议编号 / 会议名称 / 协会" value="'+esc(search)+'">'+
+    '<div class="filters"><input id="ledgerSearch" type="search" placeholder="会议编号 / 会议名称 / 协会 / 负责人" value="'+esc(search)+'">'+
     '<button class="btn btn-o" id="ledgerSearchBtn">搜索</button></div><div id="ledgerList"></div></div>'+
     '<div id="ledgerDetail"></div>'+
     '<p class="foot-note">重要：项目台账直接读取原始业务表，不另外建账、不修改财务状态。发票号≠发票原件，现有厂家款类型≠真实厂家到账凭证；可用预算扣除税费管理费，结余按实际已付款实时计算，负数表示超预算。历史结算差异仍需人工复核。</p>';
@@ -35,13 +35,13 @@ async function load(root){
   const box=root.querySelector("#ledgerList");
   box.innerHTML=table(
     [{t:"会议编号",w:"150px"},{t:"会议名称"},{t:"协会"},{t:"会议预算",w:"115px"},{t:"可用预算",w:"115px"},{t:"合同总额",w:"110px"},
-      {t:"已付款",w:"110px"},{t:"结余",w:"110px"},{t:"操作",w:"90px"}],
+      {t:"已付款",w:"110px"},{t:"结余",w:"110px"},{t:"负责人",w:"100px"}],
     data.rows.map(x=>({c:[
       anchor(x.meeting_no),td(x.project_name),td(x.association),
       num(x.financial_summary.budget),num(x.financial_summary.available_budget),num(x.financial_summary.contract_total),
       num(x.financial_summary.payment_paid),
       balance(x.financial_summary.balance),
-      '<button class="link" data-open-ledger="'+esc(x.meeting_no)+'">查看详情</button>'
+      td(x.owner||"—")
     ]})),{empty:"当前没有会议项目"}
   )+pager(data,{unit:"个项目"});
   box.querySelectorAll("[data-open-ledger]").forEach(el=>el.onclick=()=>open(root,el.dataset.openLedger));
@@ -69,7 +69,7 @@ async function open(root,pid){
   ];
   const box=root.querySelector("#ledgerDetail");
   box.innerHTML='<div class="panel mt">'+
-    '<div class="panel-h"><div><h2>项目对照 · '+esc(d.meeting_no)+'</h2><p class="hint">'+esc(d.project_name)+' · '+esc(d.association)+' · '+esc(d.project_status)+'</p></div>'+
+    '<div class="panel-h"><div><h2>项目对照 · '+esc(d.meeting_no)+'</h2><p class="hint">'+esc(d.project_name)+' · '+esc(d.association)+' · '+esc(d.project_status)+' · 负责人：'+td(d.owner||"—")+'</p></div>'+
     '<div class="acts"><button class="btn btn-o" id="ledgerGoProject">会议项目</button> <button class="btn btn-p" id="ledgerCsv">导出项目台账 CSV</button></div></div>'+
     '<div class="grid g4">'+kpis.map(x=>'<div class="kpi"><div class="t">'+esc(x[0])+'</div><div class="v">'+(x[0]==="结余"?balance(x[1]):x[1]===null?"—":num(x[1]))+'</div></div>').join("")+'</div><p class="hint" style="margin-top:10px">可用预算 = 会议预算 ×（1 − 税费管理费率）；结余 = 可用预算 − 已付款。负数表示超预算。</p>'+
     '<h3 style="margin:22px 0 10px">分类付款对照</h3>'+
