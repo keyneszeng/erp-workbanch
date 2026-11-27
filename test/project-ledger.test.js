@@ -80,7 +80,9 @@ test("列表搜索可按会议编号定位并保留跨模块只读汇总",async(
 test("项目台账列表及明细均展示可用预算和实时结余，不依赖是否已生成结算单",async()=>{
  const source=fs.readFileSync(path.join(__dirname,"..","web/assets/js/pages/project-ledger.js"),"utf8");
  assert.ok(source.includes('{t:"可用预算",w:"115px"}'));
- assert.ok(source.includes('{t:"结余",w:"110px"}'));
+ assert.ok(source.includes('{t:"结余",w:"110px"},{t:"负责人",w:"100px"}'));
+ assert.ok(source.includes('td(x.owner||"—")'));
+ assert.ok(source.includes('anchor(x.meeting_no)'));
  assert.ok(source.includes('balance(x.financial_summary.balance)'));
  assert.ok(source.includes('["结余",s.balance]'));
  assert.ok(!source.includes("结算与付款差额"));
@@ -93,6 +95,8 @@ test("项目台账列表及明细均展示可用预算和实时结余，不依�
   assert.equal(summary.balance,(Math.round(summary.available_budget*100)-Math.round(summary.payment_paid*100))/100);
   assert.equal(summary.available_budget,detail.body.financial_summary.available_budget);
   assert.equal(summary.balance,detail.body.financial_summary.balance);
+  assert.equal(typeof row.owner,"string");
+  assert.equal(row.owner,detail.body.owner);
   if(detail.body.settlement)assert.equal(summary.settlement_profit,detail.body.settlement.profit,"冻结结算快照仍保留");
  }
 });
