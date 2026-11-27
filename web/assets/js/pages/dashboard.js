@@ -88,10 +88,10 @@ export async function render(root) {
     [{ t: "类型", w: "86px" }, { t: "事项" }, { t: "项目", w: "190px" }, { t: "时限", w: "132px" }, { t: "操作", w: "76px" }],
     d.todos.map((t) => ({
       c: [badge(badgeForTodo(t)),
-        `<b style="font-size:12.8px">${esc(t.title)}</b>`,
+        `<b style="font-size:12.8px${t.kind==="超预算"?";color:var(--red)":""}">${esc(t.title)}</b>`,
         `<span class="mono">${esc(t.pname || t.pid || "—")}</span>`,
         `<span style="font-size:12px;color:var(--sub)">${esc(t.sla || "")}</span>`,
-        todoHref(t) ? `<button class="link" data-go="${todoHref(t)}">处理</button>` : `<span style="color:var(--mute)">—</span>`],
+        todoHref(t) ? `<button class="link" data-go="${todoHref(t)}">${t.kind==="超预算"?"查看":"处理"}</button>` : `<span style="color:var(--mute)">—</span>`],
       attrs: ""
     })), { empty: "当前没有待办，保持这个状态" }) : `<div class="empty">当前没有待办</div>`,
     reachable("flow") ? `<button class="btn btn-o btn-sm" data-go="flow">看全流程</button>` : "")}</div>
