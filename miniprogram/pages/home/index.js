@@ -1,7 +1,7 @@
 const app=getApp();
 Page({
  data:{user:null,userInitial:"会",role:"",loading:true,error:"",canApprove:false,canMaterials:false,
-   canApply:false,canMeetings:false,isExecutor:false,dashboard:null,stats:[],budgetTodos:[]},
+   canApply:false,canMeetings:false,isExecutor:false,dashboard:null,stats:[],budgetTodos:[],readingBudgetPid:""},
  async onShow(){
   this.setData({loading:true,error:"",budgetTodos:[]});
   try{
@@ -39,10 +39,19 @@ Page({
   const page=e.currentTarget.dataset.page;
   if(page)wx.navigateTo({url:"/pages/"+page+"/index"});
  },
- openBudgetTodo(e){
+ async openBudgetTodo(e){
   const pid=String(e.currentTarget.dataset.pid||"");
-  if(!this.data.canMeetings||!this.data.budgetTodos.some(t=>t.pid===pid))return;
-  wx.navigateTo({url:"/pages/project/index?id="+encodeURIComponent(pid)});
+  const item=this.data.budgetTodos.find(t=>t.pid===pid);
+  if(!item||this.data.readingBudgetPid)return;
+  this.setData({readingBudgetPid:pid});
+  try{
+   await app.api("/my-budget-todos/"+encodeURIComponent(pid)+"/read","POST",{overrun:item.overrun});
+   this.setData({budgetTodos:this.data.budgetTodos.filter(t=>t.pid!==pid)});
+   if(this.data.canMeetings)wx.navigateTo({url:"/pages/project/index?id="+encodeURIComponent(pid)});
+  }catch(e){
+   wx.showToast({title:e.message||"确认已读失败，请重试",icon:"none"});
+   if(e.code==="BUDGET_TODO_CHANGED")await this.onShow();
+  }finally{this.setData({readingBudgetPid:""});}
  },
  myApplications(){wx.navigateTo({url:"/pages/projects/index?tab=mine"});},
  meetingList(){wx.navigateTo({url:"/pages/projects/index?tab=all"});}
