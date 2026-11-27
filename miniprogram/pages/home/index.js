@@ -12,7 +12,7 @@ Page({
    const canMaterials=!!state.role?.modules?.some(x=>["materials","verify","prep","finance"].includes(x))||ps.some(x=>["material:write","material:file:replace","contract:write","contract:approve","verify:check","verify:conclude","archive:write","archive:download"].includes(x))||user?.role==="admin";
    const canApply=ps.includes("mini:apply");
    const canMeetings=!!state.role?.modules?.some(x=>["projects","prep","demand","exec","materials","verify","finance","archive"].includes(x)) ||
-     canMaterials || ps.some(x=>["mini:apply","material:write","payment:create","verify:check","project:create","project:transition","archive:download"].includes(x)) || user?.role==="admin";
+     canMaterials || ps.some(x=>["project:create","project:approve","project:transition","project:change","project:edit","project:member","mini:apply","contract:write","contract:approve","invite:manage","demand:write","material:write","material:file:replace","payment:create","payment:approve","payment:pay","settle:create","verify:check","verify:exception","verify:exception_approve","verify:conclude","archive:write","archive:download","ledger:read"].includes(x)) || user?.role==="admin";
    let dashboard={counts:{}};
    if(state.role?.modules?.includes("dashboard") || user?.role==="admin") {
      try { dashboard=await app.api("/dashboard"); }
