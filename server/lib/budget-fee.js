@@ -16,6 +16,11 @@ function availableBudget(projectOrBudget,rate) {
   const basis=Math.round(parseTaxFeeRate(percent)*100);
   return Math.round(cents(budget)*(10000-basis)/10000)/100;
 }
+/** 实时台账口径：已付款金额使用已付款记录的整数分合计，不包含待付款。 */
+function liveBudgetBalance(project,paid){
+  const usable=availableBudget(project);
+  return {available_budget:usable,balance:(cents(usable)-cents(paid))/100};
+}
 function withBudgetFee(p){
   return {...p,tax_fee_rate:Number(p.tax_fee_rate)||0,available_budget:availableBudget(p)};
 }
@@ -25,4 +30,4 @@ function settlementTotals(s,projectRate=0){
   const usable=availableBudget(s.income,rate);
   return {...s,tax_fee_rate:rate,available_budget:usable,profit:(cents(usable)-cents(s.expense))/100};
 }
-module.exports={parseTaxFeeRate,availableBudget,withBudgetFee,settlementTotals};
+module.exports={parseTaxFeeRate,availableBudget,liveBudgetBalance,withBudgetFee,settlementTotals};
