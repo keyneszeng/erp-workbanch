@@ -93,7 +93,7 @@ function summarize(x){
   };
   return {
     meeting_no:p.id,project_name:p.name,association:p.assoc,meeting_date:p.date,
-    project_status:p.status,owner:p.owner||"",canonical_key:"projects.id",
+    project_status:p.status,owner:p.owner||"",owner_id:p.owner_id??null,canonical_key:"projects.id",
     financial_summary:sums,payment_types:payTypes,
     document_coverage:{contracts:contracts.length,contract_original_files:contractFileCount,
       invoice_numbers:invoiceNumberCount,invoice_original_files:invoiceFileCount,
@@ -147,7 +147,45 @@ function exportCsv(detail){
   for(const w of detail.warnings) rows.push([n,"待核对","",detail.project_name,"提示","","","",w]);
   return "\ufeff"+rows.map(csvRow).join("\r\n")+"\r\n";
 }
+/** 按负责人账号汇总其数据范围内的全部项目（不受列表分页、搜索影响）。
+ * 逐项目使用与台账相同的可用预算及已付款结余公式；金额按整数分累加。
+ */
+function summarizeOwners(rows){
+  const projects=new Map();
+  for(const row of rows){
+    if(!projects.has(row.id))projects.set(row.id,{project:row,paidCents:0});
+    if(row.paid_amount!=null)projects.get(row.id).paidCents+=cents(row.paid_amount);
+  }
+  const groups=new Map();
+  for(const {project:p,paidCents} of projects.values()){
+    const {available_budget,balance}=liveBudgetBalance(p,paidCents/100);
+    if(!groups.has(p.owner_id))groups.set(p.owner_id,{owner_id:p.owner_id,owner:p.owner_name||p.owner||"",project_count:0,availableCents:0,paidCents:0,balanceCents:0});
+    const g=groups.get(p.owner_id);
+    g.project_count++;g.availableCents+=cents(available_budget);g.paidCents+=paidCents;g.balanceCents+=cents(balance);
+  }
+  const totals={project_count:0,availableCents:0,paidCents:0,balanceCents:0};
+  const result=[...groups.values()].map(g=>{
+    for(const k of Object.keys(totals))totals[k]+=g[k];
+    return {owner_id:g.owner_id,owner:g.owner,project_count:g.project_count,
+      available_budget:g.availableCents/100,payment_paid:g.paidCents/100,balance:g.balanceCents/100};
+  });
+  return {owners:result,total:{project_count:totals.project_count,available_budget:totals.availableCents/100,
+    payment_paid:totals.paidCents/100,balance:totals.balanceCents/100}};
+}
 function register(router){
+  router.post("/api/project-ledger/owner-summary",async ctx=>{
+    requireAdmin(ctx);
+    const ids=ctx.body?.owner_ids;
+    if(!Array.isArray(ids)||!ids.length||ids.length>500||ids.some(id=>!Number.isSafeInteger(id)||id<=0))
+      throw bad("请选择有效的项目负责人（最多500人）");
+    const selected=[...new Set(ids)];
+    const {sql,params}=scopeFilter(ctx.user);
+    const rows=db.prepare(`SELECT p.id,p.owner_id,p.owner,p.budget,p.tax_fee_rate,u.name AS owner_name,y.amount AS paid_amount
+      FROM projects p LEFT JOIN users u ON u.id=p.owner_id
+      LEFT JOIN payments y ON y.pid=p.id AND y.status='已付款'
+      WHERE (${sql}) AND p.owner_id IN (${selected.map(()=>"?").join(",")}) ORDER BY p.owner_id,p.id,y.id`).all(...params,...selected);
+    return summarizeOwners(rows);
+  });
   router.get("/api/project-ledger",async ctx=>{
     requireAdmin(ctx);
     const keyword=String(ctx.query.q||"").trim();
@@ -172,4 +210,4 @@ function register(router){
     return {__csv:exportCsv(detail),__filename:detail.meeting_no+"-项目台账.csv"};
   });
 }
-module.exports={register,buildDetail,exportCsv,summarizePaymentTypes,displayPaymentType};
+module.exports={register,buildDetail,exportCsv,summarizePaymentTypes,displayPaymentType,summarizeOwners};
