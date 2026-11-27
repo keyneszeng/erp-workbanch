@@ -127,6 +127,45 @@ test("超预算结余为负数，待审批和驳回付款不计入实时结余�
   db.close();
  }
 });
+test("超预算待办仅发送当前负责人，按真实付款实时计算，转交负责人及结余恢复自动更新",async()=>{
+ const {DatabaseSync}=require("node:sqlite");
+ const pid="MP-2026-005",paymentId="LEDGER-OWNER-OVER-BUDGET";
+ const db=new DatabaseSync(DB);
+ const before=db.prepare("SELECT budget,tax_fee_rate,owner_id,owner FROM projects WHERE id=?").get(pid);
+ const executor=db.prepare("SELECT id,name FROM users WHERE username='exec'").get();
+ const administrator=db.prepare("SELECT id,name FROM users WHERE username='admin'").get();
+ const read=async role=>{
+  const r=await request(role,"/api/dashboard");
+  assert.equal(r.status,200,JSON.stringify(r.body));
+  return r.body.todos.filter(t=>t.kind==="超预算"&&t.pid===pid);
+ };
+ try{
+  db.prepare("UPDATE projects SET budget=1000,tax_fee_rate=10,owner_id=?,owner=? WHERE id=?").run(executor.id,executor.name,pid);
+  db.prepare("INSERT INTO payments(id,pid,type,payee,amount,status,created_at) VALUES(?,?,?,?,?,?,?)").run(paymentId,pid,"协会报销","测试",1000.25,"已付款","2026-11-27");
+  const detail=await request("admin","/api/project-ledger/"+pid);
+  const balance=detail.body.financial_summary.balance;
+  assert.ok(balance<0);
+  const own=await read("exec");
+  assert.equal(own.length,1);assert.equal(own[0].balance,balance);assert.equal(own[0].overrun,-balance);
+  const mini=await request("exec","/api/my-budget-todos");
+  assert.equal(mini.status,200);
+  assert.deepEqual(mini.body.rows.filter(t=>t.pid===pid),own);
+  assert.equal((await read("admin")).length,0,"总管理员不是负责人，不应收到该条本人待办");
+  db.prepare("UPDATE projects SET owner_id=?,owner=? WHERE id=?").run(administrator.id,administrator.name,pid);
+  assert.equal((await read("exec")).length,0);
+  assert.equal((await read("admin")).length,1);
+  const paid=detail.body.financial_summary.payment_paid;
+  db.prepare("UPDATE projects SET budget=?,tax_fee_rate=0 WHERE id=?").run(paid,pid);
+  assert.equal((await read("admin")).length,0,"结余为零时解除提醒");
+  db.prepare("UPDATE projects SET budget=? WHERE id=?").run(paid+100,pid);
+  assert.equal((await read("admin")).length,0,"正结余不产生提醒");
+  assert.equal((await request(null,"/api/my-budget-todos")).status,401);
+ }finally{
+  db.prepare("DELETE FROM payments WHERE id=?").run(paymentId);
+  db.prepare("UPDATE projects SET budget=?,tax_fee_rate=?,owner_id=?,owner=? WHERE id=?").run(before.budget,before.tax_fee_rate,before.owner_id,before.owner,pid);
+  db.close();
+ }
+});
 test("金额基于真实业务字段；发票号码与发票原件不被混为一项",async()=>{
  const out=await request("admin","/api/project-ledger/MP-2026-006");
  assert.equal(out.status,200);
