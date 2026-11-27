@@ -1,5 +1,5 @@
 import { api, state } from "../lib/api.js";
-import { badge, esc, money, panel, table } from "../lib/ui.js";
+import { badge, esc, money, panel, table, toast } from "../lib/ui.js";
 import { reachable } from "../lib/nav.js";
 import { targetForTodo, badgeForTodo } from "../lib/todo-target.js";
 
@@ -91,7 +91,7 @@ export async function render(root) {
         `<b style="font-size:12.8px${t.kind==="超预算"?";color:var(--red)":""}">${esc(t.title)}</b>`,
         `<span class="mono">${esc(t.pname || t.pid || "—")}</span>`,
         `<span style="font-size:12px;color:var(--sub)">${esc(t.sla || "")}</span>`,
-        todoHref(t) ? `<button class="link" data-go="${todoHref(t)}">${t.kind==="超预算"?"查看":"处理"}</button>` : `<span style="color:var(--mute)">—</span>`],
+        t.kind==="超预算"?`<button class="link" data-budget-read="${esc(t.pid)}">查看</button>`:todoHref(t)?`<button class="link" data-go="${todoHref(t)}">处理</button>`:`<span style="color:var(--mute)">—</span>`],
       attrs: ""
     })), { empty: "当前没有待办，保持这个状态" }) : `<div class="empty">当前没有待办</div>`,
     reachable("flow") ? `<button class="btn btn-o btn-sm" data-go="flow">看全流程</button>` : "")}</div>
@@ -107,4 +107,19 @@ export async function render(root) {
 
   <div class="foot-note">当前登录：${esc(state.user.name)} · ${esc(state.role.name)} · 数据范围「${esc(state.role.scope)}」
     ${state.super ? "· 总管理员拥有全部模块与全部数据权限" : ""}</div>`;
+  root.querySelectorAll("[data-budget-read]").forEach(button=>button.onclick=async()=>{
+    if(button.disabled)return;
+    const item=d.todos.find(t=>t.kind==="超预算"&&t.pid===button.dataset.budgetRead);
+    if(!item)return;
+    button.disabled=true;
+    try{
+      await api.post("/api/my-budget-todos/"+encodeURIComponent(item.pid)+"/read",{overrun:item.overrun});
+      const href=todoHref(item);
+      if(href)location.hash="#/"+href;
+      else await render(root);
+    }catch(e){
+      toast(e.message||"确认已读失败，请重试","warn");
+      if(e.code==="BUDGET_TODO_CHANGED")await render(root);
+    }finally{button.disabled=false;}
+  });
 }
