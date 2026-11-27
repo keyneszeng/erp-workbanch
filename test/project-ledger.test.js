@@ -188,6 +188,20 @@ test("超预算待办仅发送当前负责人，按真实付款实时计算，�
   assert.equal((await request("exec",readUrl,"POST",{overrun:-balance})).status,409,"过期提醒不能确认新金额");
   assert.equal((await request("exec",readUrl,"POST",{overrun:increased[0].overrun})).status,200);
   db.prepare("UPDATE payments SET amount=amount-0.01 WHERE id=?").run(paymentId);
+  // 两次业务变动之间不读取工作台，也应认出新一轮超预算。
+  db.prepare("UPDATE projects SET budget=?,tax_fee_rate=0 WHERE id=?").run(detail.body.financial_summary.payment_paid,pid);
+  db.prepare("UPDATE projects SET budget=? WHERE id=?").run(detail.body.financial_summary.payment_paid-0.01,pid);
+  const again=await read("exec");assert.equal(again.length,1,"结余恢复后再次超支，即使金额更小也应提醒");
+  assert.equal(again[0].overrun,0.01);
+  assert.equal((await request("exec",readUrl,"POST",{overrun:0.01})).status,200);
+  // 只撤销完整工作台授权，项目业务权限仍在：专项提醒接口仍能读到本人待办。
+  db.prepare("DELETE FROM user_module_grants WHERE user_id=? AND module='dashboard'").run(executor.id);
+  try{
+   db.prepare("UPDATE projects SET budget=budget-0.01 WHERE id=?").run(pid);
+   const only=await request("exec","/api/my-budget-todos");
+   assert.equal(only.status,200);assert.equal(only.body.rows.find(t=>t.pid===pid).overrun,0.02);
+   assert.equal((await request("exec","/api/dashboard")).status,403);
+  }finally{db.prepare("INSERT OR IGNORE INTO user_module_grants(user_id,module) VALUES(?,'dashboard')").run(executor.id);}
   db.prepare("UPDATE projects SET owner_id=?,owner=? WHERE id=?").run(administrator.id,administrator.name,pid);
   assert.equal((await read("exec")).length,0);
   assert.equal((await read("admin")).length,1);
