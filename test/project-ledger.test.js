@@ -77,19 +77,54 @@ test("列表搜索可按会议编号定位并保留跨模块只读汇总",async(
  assert.equal((await request("admin","/api/project-ledger?page=0")).status,400);
  assert.equal((await request("admin","/api/project-ledger?size=1000")).status,400);
 });
-test("按会议编号对照应展示结余（结算利润）而非结算支出",async()=>{
+test("项目台账列表及明细均展示可用预算和实时结余，不依赖是否已生成结算单",async()=>{
  const source=fs.readFileSync(path.join(__dirname,"..","web/assets/js/pages/project-ledger.js"),"utf8");
+ assert.ok(source.includes('{t:"可用预算",w:"115px"}'));
  assert.ok(source.includes('{t:"结余",w:"110px"}'));
- assert.ok(source.includes('x.financial_summary.settlement_profit===null?"未生成":num(x.financial_summary.settlement_profit)'));
- assert.ok(!source.includes('{t:"结算支出",w:"110px"}'));
+ assert.ok(source.includes('balance(x.financial_summary.balance)'));
+ assert.ok(source.includes('["结余",s.balance]'));
+ assert.ok(!source.includes("结算与付款差额"));
  const list=await request("admin","/api/project-ledger?page=1&size=100");
  assert.equal(list.status,200);
- const settled=list.body.rows.filter(x=>x.financial_summary.settlement_profit!==null);
- assert.ok(settled.length>0,"测试数据应包含已有结算单的会议");
- for(const row of settled){
+ for(const row of list.body.rows){
   const detail=await request("admin","/api/project-ledger/"+row.meeting_no);
   assert.equal(detail.status,200);
-  assert.equal(row.financial_summary.settlement_profit,detail.body.settlement.profit);
+  const summary=row.financial_summary;
+  assert.equal(summary.balance,(Math.round(summary.available_budget*100)-Math.round(summary.payment_paid*100))/100);
+  assert.equal(summary.available_budget,detail.body.financial_summary.available_budget);
+  assert.equal(summary.balance,detail.body.financial_summary.balance);
+  if(detail.body.settlement)assert.equal(summary.settlement_profit,detail.body.settlement.profit,"冻结结算快照仍保留");
+ }
+});
+test("超预算结余为负数，待审批和驳回付款不计入实时结余，CSV口径一致",async()=>{
+ const {DatabaseSync}=require("node:sqlite");
+ const pid="MP-2026-005";
+ const db=new DatabaseSync(DB);
+ const previous=db.prepare("SELECT budget,tax_fee_rate FROM projects WHERE id=?").get(pid);
+ const ids=["LEDGER-BALANCE-PAID","LEDGER-BALANCE-PENDING","LEDGER-BALANCE-REJECTED"];
+ try{
+  const previousPaid=db.prepare("SELECT COALESCE(SUM(amount),0) AS n FROM payments WHERE pid=? AND status='已付款'").get(pid).n;
+  db.prepare("UPDATE projects SET budget=?,tax_fee_rate=? WHERE id=?").run(1000,10,pid);
+  const insert=db.prepare("INSERT INTO payments(id,pid,type,payee,amount,status,created_at) VALUES(?,?,?,?,?,?,?)");
+  insert.run(ids[0],pid,"协会报销","测试",1000.25,"已付款","2026-11-27");
+  insert.run(ids[1],pid,"协会报销","测试",800,"待审批","2026-11-27");
+  insert.run(ids[2],pid,"协会报销","测试",900,"已驳回","2026-11-27");
+  const r=await request("admin","/api/project-ledger/"+pid);
+  assert.equal(r.status,200);
+  const x=r.body.financial_summary;
+  assert.equal(x.available_budget,900);
+  assert.equal(x.payment_paid,(Math.round(previousPaid*100)+100025)/100);
+  assert.equal(x.balance,(90000-Math.round(x.payment_paid*100))/100);
+  assert.ok(x.balance<0);
+  assert.ok(r.body.warnings.some(w=>w.includes("已付款超过可用预算")));
+  const csv=await request("admin","/api/project-ledger/"+pid+"/export");
+  assert.equal(csv.status,200);
+  assert.ok(csv.body.includes('"可用预算","900"'));
+  assert.ok(csv.body.includes('"结余","'+x.balance+'"'));
+ }finally{
+  for(const id of ids)db.prepare("DELETE FROM payments WHERE id=?").run(id);
+  db.prepare("UPDATE projects SET budget=?,tax_fee_rate=? WHERE id=?").run(previous.budget,previous.tax_fee_rate,pid);
+  db.close();
  }
 });
 test("金额基于真实业务字段；发票号码与发票原件不被混为一项",async()=>{
