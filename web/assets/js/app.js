@@ -167,13 +167,14 @@ async function route() {
   // 线上接口 2~3 秒，纯文字会让人以为卡死；骨架屏先把版式占住，内容一到就替换。
   box.innerHTML = skeletonHtml();
   content.replaceChildren(box);
-  if(hit.nav==="dashboard"&&!state.role?.modules?.includes("dashboard")){
+  if(hit.nav==="dashboard"&&!state.role?.modules?.includes("dashboard")&&!canVisit("projects")){
     box.innerHTML='<div class="panel" style="max-width:570px;margin:50px auto;padding:28px;text-align:center">'+
       '<h2>账号尚未获得功能授权</h2><p class="hint" style="margin-top:10px">请联系总管理员分配可访问模块及操作权限。此页面不会展示任何业务数据。</p></div>';
     return;
   }
   try {
-    await hit.page.render(box, hit.params, hit);
+    if(hit.nav==="dashboard"&&!state.role?.modules?.includes("dashboard"))await dashboard.renderBudgetOnly(box);
+    else await hit.page.render(box, hit.params, hit);
     if (seq !== routeSeq) return;
   } catch (e) {
     if (seq !== routeSeq) return; // 已经切走，别拿错误页盖住新页面
