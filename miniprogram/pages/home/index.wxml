@@ -42,7 +42,7 @@
       <view style="font-weight:700">超预算 · {{item.pname}}</view>
       <view style="font-size:24rpx;margin-top:8rpx">{{item.pid}} · {{item.project_status}}</view>
       <view style="font-weight:600;margin-top:8rpx">结余 -¥{{item.overrunText}}</view>
-      <view style="font-size:24rpx;margin-top:8rpx">请核对超预算支出{{canMeetings ? " · 查看会议" : ""}}</view>
+      <view style="font-size:24rpx;margin-top:8rpx">{{readingBudgetPid===item.pid ? "正在确认已读…" : "请核对超预算支出 · 查看"}}</view>
     </view>
   </view>
 
