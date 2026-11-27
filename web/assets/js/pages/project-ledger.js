@@ -35,13 +35,13 @@ async function load(root){
   const box=root.querySelector("#ledgerList");
   box.innerHTML=table(
     [{t:"会议编号",w:"150px"},{t:"会议名称"},{t:"协会"},{t:"会议预算",w:"115px"},{t:"可用预算",w:"115px"},{t:"合同总额",w:"110px"},
-      {t:"已付款",w:"110px"},{t:"结余",w:"110px"},{t:"提示",w:"65px"}],
+      {t:"已付款",w:"110px"},{t:"结余",w:"110px"},{t:"操作",w:"90px"}],
     data.rows.map(x=>({c:[
       anchor(x.meeting_no),td(x.project_name),td(x.association),
       num(x.financial_summary.budget),num(x.financial_summary.available_budget),num(x.financial_summary.contract_total),
       num(x.financial_summary.payment_paid),
       balance(x.financial_summary.balance),
-      '<span title="'+esc(x.warnings.join("；"))+'">'+x.warnings.length+' 项</span>'
+      '<button class="link" data-open-ledger="'+esc(x.meeting_no)+'">查看详情</button>'
     ]})),{empty:"当前没有会议项目"}
   )+pager(data,{unit:"个项目"});
   box.querySelectorAll("[data-open-ledger]").forEach(el=>el.onclick=()=>open(root,el.dataset.openLedger));
