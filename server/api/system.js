@@ -1,8 +1,8 @@
 "use strict";
 const { db } = require("../lib/db");
-const {settlementTotals}=require("../lib/budget-fee");
-const { now, today, nextId, toCsv, bad, notFound, conflict, forbidden } = require("../lib/util");
-const { assertCan, scopeFilter, isSuper, hasModule, ROLES, can, canVisitNav, STATUSES } = require("../lib/rbac");
+const {settlementTotals,liveBudgetBalance}=require("../lib/budget-fee");
+const { now, today, nextId, toCsv, bad, notFound, conflict, forbidden, cents } = require("../lib/util");
+const { assertCan, scopeFilter, isSuper, hasModule, ROLES, can, canVisitNav, canReadProjects, STATUSES } = require("../lib/rbac");
 const { logAudit } = require("../lib/audit");
 const { hashPassword, validatePassword } = require("../lib/auth");
 const { listProjects } = require("./projects");
@@ -20,9 +20,32 @@ function countsByStatus(user) {
   return { map, rows };
 }
 
+// 实时预警，不写入第二份待办记录；负责人调整或结余恢复时自动消失。
+function myBudgetTodos(user) {
+  const {sql,params}=scopeFilter(user);
+  const rows=db.prepare(`SELECT p.id,p.name,p.budget,p.tax_fee_rate,p.status,y.amount AS paid_amount
+    FROM projects p JOIN payments y ON y.pid=p.id AND y.status='已付款'
+    WHERE p.owner_id=? AND (${sql}) ORDER BY p.id,y.id`).all(user.id,...params);
+  const owned=new Map();
+  for(const row of rows){
+    if(!owned.has(row.id))owned.set(row.id,{project:row,paidCents:0});
+    owned.get(row.id).paidCents+=cents(row.paid_amount);
+  }
+  const todos=[];
+  for(const {project:p,paidCents} of owned.values()){
+    const {balance}=liveBudgetBalance(p,paidCents/100);
+    if(balance>=0)continue;
+    const overrun=-balance,amount=overrun.toLocaleString("zh-CN",{minimumFractionDigits:2,maximumFractionDigits:2});
+    todos.push({kind:"超预算",level:"紧急",title:"项目结余为负，超可用预算 ¥"+amount,
+      pid:p.id,pname:p.name,ref:p.id,sla:"请核对超预算支出",go:"projects",
+      project_status:p.status,balance,overrun});
+  }
+  return todos.sort((a,b)=>b.overrun-a.overrun||a.pid.localeCompare(b.pid));
+}
+
 function myTodos(user) {
   const { sql, params } = scopeFilter(user);
-  const todos = [];
+  const todos = myBudgetTodos(user);
   // 公众活动申请由总管理员统一接收与处理；作为工作台正式待办聚合。
   if(isSuper(user) && canVisitNav(user,"public-proposals")) {
     const proposals=db.prepare("SELECT id,topic,received_at FROM public_event_proposals WHERE status='已接收' ORDER BY received_at ASC").all();
@@ -380,6 +403,11 @@ function resetSnapshot() {
 
 function register(router) {
   router.get("/api/dashboard", async (ctx) => {require("../lib/rbac").assertModule(ctx.user,"dashboard");return dashboard(ctx.user);});
+  // 小程序无工作台模块的项目业务账号仅可读取自己的超预算提醒，不开放全量财务台账。
+  router.get("/api/my-budget-todos",async ctx=>{
+    if(!canReadProjects(ctx.user)&&!hasModule(ctx.user,"dashboard"))throw forbidden("当前账号无项目或工作台查看权限");
+    return {rows:myBudgetTodos(ctx.user)};
+  });
 
   const {validateAssociations,listForUser,updateForUser}=require("../lib/user-associations");
   // 老版逐人「修改材料文件」授权与新版权限表保持兼容，由总管理员独占写入权。
