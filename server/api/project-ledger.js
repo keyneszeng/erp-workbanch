@@ -93,7 +93,7 @@ function summarize(x){
   };
   return {
     meeting_no:p.id,project_name:p.name,association:p.assoc,meeting_date:p.date,
-    project_status:p.status,canonical_key:"projects.id",
+    project_status:p.status,owner:p.owner||"",canonical_key:"projects.id",
     financial_summary:sums,payment_types:payTypes,
     document_coverage:{contracts:contracts.length,contract_original_files:contractFileCount,
       invoice_numbers:invoiceNumberCount,invoice_original_files:invoiceFileCount,
@@ -156,8 +156,8 @@ function register(router){
     if(!Number.isInteger(page)||page<1||page>100000 || !Number.isInteger(size)||size<1||size>100)
       throw bad("分页参数无效");
     const scope=scopeFilter(ctx.user);
-    const all=db.prepare("SELECT id,name,assoc,status,date FROM projects p WHERE "+scope.sql+" ORDER BY date DESC,id DESC").all(...scope.params);
-    const filtered=keyword?all.filter(p=>[p.id,p.name,p.assoc].some(v=>String(v||"").includes(keyword))):all;
+    const all=db.prepare("SELECT id,name,assoc,status,date,owner FROM projects p WHERE "+scope.sql+" ORDER BY date DESC,id DESC").all(...scope.params);
+    const filtered=keyword?all.filter(p=>[p.id,p.name,p.assoc,p.owner].some(v=>String(v||"").includes(keyword))):all;
     const rows=filtered.slice((page-1)*size,page*size).map(p=>summarize(raw(p.id)));
     return {rows,total:filtered.length,page,size,pages:Math.max(1,Math.ceil(filtered.length/size)),
       source:"projects.id / contracts.pid / payments.pid / settlements.pid / materials.pid"};
