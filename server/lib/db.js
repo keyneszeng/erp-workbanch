@@ -886,6 +886,7 @@ function migrate() {
   // 付款期次：分期付款常常两期金额相同，只靠「类型+收款方+金额」去重会把第二期误判成重复。
   addColumn("payments", "period", "period TEXT");
   addColumn("payments", "payee_source_id", "payee_source_id TEXT");
+  db.exec("CREATE UNIQUE INDEX IF NOT EXISTS ux_expense_payment_source ON payments(pid,payee_source_id) WHERE payee_source_id LIKE 'expense:%' AND status<>'已驳回'");
   // Finance direct payment: bound receipt remains part of the payment record.
   addColumn("payments", "receipt_file_key", "receipt_file_key TEXT");
   addColumn("payments", "receipt_file_name", "receipt_file_name TEXT");
