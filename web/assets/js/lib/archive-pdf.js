@@ -52,7 +52,7 @@ export async function downloadArchivePdf(pid,button){
        '第一页为会议信息、第二页为唯一的付款明细对照表；从第三页起，按当前勾选和排序逐项展示原件内容。无法渲染的文件将标注原因并保留原件。</p>':'')+
     '<p class="hint">原始文件包（ZIP）：仅打包勾选的真实原件，不生成系统摘要、不重新编排、不加水印、不改变文件内容。同名文件自动加后缀。</p>'+
     (ENABLE_GENERATED_DOCS?wmHtml:
-      '<p class="hint">材料下载仅提供原始文件包（ZIP），不生成系统摘要、不重新编排、不改变文件内容。</p>'),
+      '<p class="hint">材料下载仅提供原始文件包（ZIP）：每份原件各自打成一个压缩包，按原文件名命名；下载后解压即可得到逐份独立的 ZIP。不生成系统摘要、不改变原件内容。</p>'),
    footer:'<button class="btn btn-o" data-cancel>取消</button>'+
     '<button class="btn btn-p" data-export-zip>原始文件包</button>'+
     (ENABLE_GENERATED_DOCS?

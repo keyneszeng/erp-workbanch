@@ -107,7 +107,9 @@ function originalEntryName(source,used){
 async function buildOriginalZip(selected,store){
  const maxBytes=(store.name==="r2"?50:100)*1024*1024;
  let total=0;
- const zip=new PizZip(),used=new Set();
+ // 外层包内含 N 个「单文件压缩包」：每份原件各自打成一个 ZIP，
+ // 该内层 ZIP 以原件文件名命名（如「合同.pdf.zip」），里面只有该原件一份文件。
+ const outer=new PizZip(),used=new Set();
  for(const source of selected){
   if(!source.file_key||source.generated)throw bad("原始文件包只能下载实际留存的原件");
   // Read metadata first where available, then enforce actual byte length.
@@ -120,9 +122,16 @@ async function buildOriginalZip(selected,store){
   if(!file?.buffer?.length)throw conflict("原件缺失或为空："+source.name,"ARCHIVE_ORIGINAL_MISSING");
   total+=file.buffer.length;
   if(total>maxBytes)throw bad("原始文件包总大小超过 "+maxBytes/1048576+" MB，请分批下载");
-  zip.file(originalEntryName(source,used),file.buffer,{binary:true,compression:"STORE"});
+  // 内层 ZIP：仅本份原件，文件名沿用真实原件名（路径安全由 originalEntryName 保证）。
+  const inner=new PizZip();
+  inner.file(originalEntryName(source,new Set()),file.buffer,{binary:true,compression:"STORE"});
+  const innerBytes=inner.generate({type:"nodebuffer",compression:"STORE"});
+  // 外层条目名 = 原件文件名 + .zip；同名原件加 (2)/(3) 后缀，避免覆盖。
+  const outerName=originalEntryName({file_key:source.file_key,
+    file_name:String(source.file_name||source.file_key||"").split(/[\\/]/).pop()+".zip"},used);
+  outer.file(outerName,innerBytes,{binary:true,compression:"STORE"});
  }
- return zip.generate({type:"nodebuffer",compression:"STORE"});
+ return outer.generate({type:"nodebuffer",compression:"STORE"});
 }
 function register(router){
  router.get("/api/projects/:id/archive-pdf/options",async ctx=>{
@@ -183,7 +192,7 @@ function register(router){
    if(chosen.some(s=>s.generated||!s.file_key))throw bad("系统生成摘要不属于原始文件，请仅选择真实原件");
    const buffer=await buildOriginalZip(chosen,storage());
    logAudit({user:ctx.user,module:"档案中心",action:"原始文件包下载",target:project.id,
-     detail:"原件 "+chosen.length+" 份；不转换、不加水印、不按内容去重；来源："+ids.join("、"),ip:ctx.ip});
+     detail:"原件 "+chosen.length+" 份；逐份独立压缩包（按原文件名）；不转换、不加水印、不按内容去重；来源："+ids.join("、"),ip:ctx.ip});
    return {__file:{buffer,mime:"application/zip",name:"会议原始文件包_"+project.id+".zip",download:true,cache:"no-store"}};
  });
  router.post("/api/projects/:id/archive-pdf",async ctx=>generate(ctx));
