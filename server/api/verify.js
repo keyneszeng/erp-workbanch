@@ -471,6 +471,7 @@ function register(router) {
       fk = String(file_key);
       assertUploadAttachable(fk, p.id, ctx.user);
     }
+    if (["协会报销","其他费用"].includes(kind) && !fk)throw bad("报销及其他费用必须上传票据原件");
     if (finalAgenda && !fk)
       throw bad("终版议程必须上传一份文件，保存即确认，不需要其他操作");
     // “讲者照片”是独立的照片类目，不允许仅填名称标记已收，
