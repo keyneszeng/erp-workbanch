@@ -1,5 +1,6 @@
 "use strict";
 const path=require("node:path");
+const liteparse=require("./liteparse-provider");
 const MAX_PAGES=3, MAX_SIZE=Math.max(1,Number(process.env.ERP_MAX_FILE_MB||50))*1024*1024;
 function fail(code,message,status=503){return Object.assign(new Error(message),{status,code});}
 function enabled(){return typeof process!=="undefined"&&process.env?.ERP_OCR_ENABLED==="1";}
@@ -8,8 +9,12 @@ async function execNative(program,args,opts={}){
   if(!child)throw fail("OCR_UNAVAILABLE","当前部署不支持本地 OCR");
   return new Promise((resolve,reject)=>child.execFile(program,args,{
     encoding:"utf8",timeout:opts.timeout||20000,maxBuffer:opts.maxBuffer||2*1024*1024,
-    windowsHide:true,shell:false,env:{...process.env,OMP_THREAD_LIMIT:"1"}
-  },(e,stdout)=>{
+    windowsHide:true,shell:false,killSignal:"SIGKILL",env:{...process.env,OMP_THREAD_LIMIT:"1",
+      ...(opts.localOcr?{NO_PROXY:"127.0.0.1,localhost",no_proxy:"127.0.0.1,localhost",HTTP_PROXY:"",HTTPS_PROXY:"",ALL_PROXY:"",http_proxy:"",https_proxy:"",all_proxy:""}:{})}
+  },(e,stdout,stderr)=>{
+    // Upstream may return successful JSON despite failed page OCR; do not treat partial OCR as complete.
+    if(!e&&opts.rejectPartialOcr&&/\[ocr\][^\r\n]*(?:failed|partial)|\[liteparse\][^\r\n]*failed to extract/i.test(String(stderr||"")))
+      return reject(fail("OCR_PARTIAL","LiteParse OCR 部分页面失败，使用原有解析路径",422));
     if(!e)return resolve(String(stdout||""));
     if(e.code==="ENOENT")return reject(fail("OCR_ENGINE_MISSING","OCR 依赖尚未安装："+program));
     if(e.killed||e.code==="ETIMEDOUT")return reject(fail("OCR_TIMEOUT","OCR 超时，请缩小文件或提高扫描质量",422));
@@ -31,7 +36,7 @@ function cleanText(x){return String(x||"").replace(/\0/g,"").replace(/\r\n?/g,"\
  * 升级 RapidOCR 后必须重识别图像；PDF 文本层可直接复用。
  */
 function providerMatches(engine){
-  return engine==="RapidOCR (rapidocr/ONNXRuntime)" || engine==="Poppler pdftotext";
+  return engine==="RapidOCR (rapidocr/ONNXRuntime)" || engine==="Poppler pdftotext" || (liteparse.enabled()&&engine===liteparse.ENGINE);
 }
 /**
  * PDF 扫描页渲染成 PNG。
@@ -174,6 +179,16 @@ async function recognize(buffer,ext,opts={}){
       const match=/^Pages:\s+(\d+)/im.exec(info);
       if(!match||!(+match[1]>0))throw fail("OCR_INVALID_PDF","PDF 页数无效或文件已加密",422);
       totalPages=+match[1];pages=Math.min(totalPages,maxPages);truncated=totalPages>maxPages;
+      // Optional hybrid parse first; keep forced visual covers and the native-only API unchanged.
+      if(liteparse.enabled()&&!opts.forceVisual){
+        try{
+          const parsed=await liteparse.recognizePdf(file,pages,totalPages,exec);
+          return {...parsed,text:cleanText(parsed.text)};
+        }catch{
+          // No document contents/paths in logs. Fall back to the established Poppler/RapidOCR route.
+          console.warn("[ocr] optional LiteParse unavailable or incomplete; using existing provider");
+        }
+      }
       layer=cleanText(await exec("pdftotext",["-f","1","-l",String(pages),"-layout",file,"-"],{timeout:10000}));
       // Ordinary documents prefer their reliable text layer. Course covers
       // additionally OCR the first page: a title can be flattened to artwork
