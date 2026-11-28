@@ -71,7 +71,7 @@ function openExpenseReview(pid,t,onSaved){
   };
   async function save(state){
     if(busy)return;lock(true);
-    try{const d=await api.post(endpoint+"/review",{state,expected_file_key:t.file_key,payee:el("payee").value.trim(),ticket_no:el("no").value.trim(),amount:Number(el("amount").value),reason:el("reason").value.trim()});closeModal();toast(d.message,"ok");await onSaved();}
+    try{const d=await api.post(endpoint+"/review",{state,expected_file_key:t.file_key,expected_reviewed_at:t.reviewed_at??null,payee:el("payee").value.trim(),ticket_no:el("no").value.trim(),amount:Number(el("amount").value),reason:el("reason").value.trim()});closeModal();toast(d.message,"ok");await onSaved();}
     catch(e){el("note").textContent=e.message;lock(false);}
   }
   el("confirm").onclick=()=>save("confirmed");
@@ -194,7 +194,7 @@ export async function render(root, params = []) {
   root.querySelectorAll("[data-pay-source]").forEach(b=>b.onclick=()=>{
     const option=options.find(o=>o.id===b.dataset.paySource);
     if(!option)return;
-    const expected=option.source==="expense"?{expected_amount:Number(option.amount),expected_payee:option.payee,expected_label:option.label}:{};
+    const expected=option.source==="expense"?{expected_amount:Number(option.amount),expected_payee:option.payee,expected_label:option.label,expected_reviewed_at:option.reviewed_at}:{};
     return confirmRow(b,"/api/projects/"+encodeURIComponent(selected.id)+"/payments/confirm",{payee_option_id:option.id,confirm_paid:true,...expected});
   });
   root.querySelectorAll("[data-expense-review]").forEach(b=>b.onclick=()=>{
