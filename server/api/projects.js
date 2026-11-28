@@ -233,7 +233,7 @@ function detail(project, user) {
   const issues = db.prepare("SELECT * FROM issues WHERE pid = ? ORDER BY id").all(pid);
   // Project detail only exposes ACTIVE materials; deleted originals remain in the
    // audit trail/database but must never reappear in the archive-materials list.
-   const materials = db.prepare("SELECT * FROM materials WHERE pid = ? AND deleted_at IS NULL ORDER BY id").all(pid);
+   const materials = db.prepare("SELECT m.*, sr.category AS sponsor_right_category, sc.enterprise AS sponsor_enterprise FROM materials m LEFT JOIN sponsor_rights sr ON sr.id=m.sponsor_right_id AND sr.pid=m.pid LEFT JOIN meeting_sponsor_contracts sc ON sc.id=sr.sponsor_id AND sc.pid=m.pid WHERE m.pid = ? AND m.deleted_at IS NULL ORDER BY m.id").all(pid);
   const timeline = db.prepare(
     "SELECT at, user_name, role, action, detail FROM audit_logs WHERE target = ? ORDER BY id DESC LIMIT 30"
   ).all(pid);
