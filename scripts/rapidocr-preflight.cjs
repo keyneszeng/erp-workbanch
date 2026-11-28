@@ -7,6 +7,9 @@ function checkRapidOcr(env = process.env, spawn = spawnSync) {
   const flag = env.ERP_OCR_ENABLED;
   if (flag && !["0", "1"].includes(flag))
     throw new Error("ERP_OCR_ENABLED 必须为 0 或 1");
+  const liteFlag=env.ERP_LITEPARSE_ENABLED;
+  if(liteFlag&&!["0","1"].includes(liteFlag))throw new Error("ERP_LITEPARSE_ENABLED 必须为 0 或 1");
+  if(liteFlag==="1"&&flag!=="1")throw new Error("LiteParse 需要 ERP_OCR_ENABLED=1");
   if (flag !== "1") return;
 
   const python = String(env.ERP_RAPIDOCR_PYTHON || "/opt/rapidocr-venv/bin/python");
@@ -24,5 +27,10 @@ function checkRapidOcr(env = process.env, spawn = spawnSync) {
   });
   if (res.error || res.status !== 0)
     throw new Error("已启用 OCR 但 RapidOCR 不可用（Python 依赖或解释器错误）；请执行 deploy/aliyun/install-rapidocr.sh");
+  if(liteFlag==="1"){
+    const {binary}=require("../server/lib/liteparse-provider");
+    const probe=spawn(binary(env),["--version"],{encoding:"utf8",timeout:10000,maxBuffer:65536});
+    if(probe.error||probe.status!==0||!String(probe.stdout||"").includes("2.21.4"))throw new Error("LiteParse 2.21.4 未正确安装，请执行 deploy/aliyun/install-liteparse.sh");
+  }
 }
 module.exports = { checkRapidOcr };
