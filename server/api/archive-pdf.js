@@ -4,6 +4,7 @@ const {getProject}=require("../lib/workflow");
 const {can,isSuper,assertProjectVisible}=require("../lib/rbac");
 const {bad,forbidden,conflict}=require("../lib/util");
 const {storage}=require("../lib/storage");
+const PizZip=require("pizzip");
 const {logAudit}=require("../lib/audit");
 const {buildSelectedMaterialsPdf}=require("../lib/material-export-pdf");
 const {buildDetail}=require("./project-ledger");
@@ -89,6 +90,40 @@ function parseWatermark(user,body={}){
    throw bad("自定义水印必须为1至80个有效字符");
  return {mode,text};
 }
+// ZIP contains only selected, stored originals. Flat names, no generated pages,
+// watermark, conversion, image compression or content-based deduplication.
+function originalEntryName(source,used){
+ const fallback=String(source.file_key||"").split(/[\\/]/).pop()||"原始文件";
+ let name=String(source.file_name||fallback).split(/[\\/]/).pop()
+  .replace(/[\u0000-\u001f\u007f<>:"|?*]/g,"_").replace(/[. ]+$/g,"").trim();
+ if(!name||name==="."||name==="..")name=fallback;
+ if(/^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(name))name="_"+name;
+ const pos=name.lastIndexOf("."),ext=pos>0?name.slice(pos):"",stem=pos>0?name.slice(0,pos):name;
+ let candidate=name,n=2;
+ while(used.has(candidate.normalize("NFC").toLowerCase()))candidate=stem+" ("+n+++ ")" +ext;
+ used.add(candidate.normalize("NFC").toLowerCase());
+ return candidate;
+}
+async function buildOriginalZip(selected,store){
+ const maxBytes=(store.name==="r2"?50:100)*1024*1024;
+ let total=0;
+ const zip=new PizZip(),used=new Set();
+ for(const source of selected){
+  if(!source.file_key||source.generated)throw bad("原始文件包只能下载实际留存的原件");
+  // Read metadata first where available, then enforce actual byte length.
+  if(typeof store.stat==="function"){
+   const stat=await store.stat(source.file_key);
+   if(!stat)throw conflict("原件缺失："+source.name,"ARCHIVE_ORIGINAL_MISSING");
+   if(total+Number(stat.size)>maxBytes)throw bad("原始文件包总大小超过 "+maxBytes/1048576+" MB，请分批下载");
+  }
+  const file=await store.get(source.file_key);
+  if(!file?.buffer?.length)throw conflict("原件缺失或为空："+source.name,"ARCHIVE_ORIGINAL_MISSING");
+  total+=file.buffer.length;
+  if(total>maxBytes)throw bad("原始文件包总大小超过 "+maxBytes/1048576+" MB，请分批下载");
+  zip.file(originalEntryName(source,used),file.buffer,{binary:true,compression:"STORE"});
+ }
+ return zip.generate({type:"nodebuffer",compression:"STORE"});
+}
 function register(router){
  router.get("/api/projects/:id/archive-pdf/options",async ctx=>{
    const project=getAllowedProject(ctx);
@@ -137,6 +172,20 @@ function register(router){
    return {__file:{buffer:pdf,mime:"application/pdf",
        name:"会议材料_"+project.id+".pdf",download:true,cache:"no-store"}};
  };
+ router.post("/api/projects/:id/archive-zip",async ctx=>{
+   const project=getAllowedProject(ctx),ids=ctx.body?.source_ids;
+   if(!Array.isArray(ids)||!ids.length||ids.length>120||
+      ids.some(id=>typeof id!=="string"||!id||id.length>120)||new Set(ids).size!==ids.length)
+     throw bad("请选择1～120份不重复的原始文件");
+   const lookup=new Map(archiveIndex.listArchiveSources(project).map(s=>[s.source_id,s]));
+   if(ids.some(id=>!lookup.has(id)))throw bad("存在不属于当前会议的原件，请刷新后重选");
+   const chosen=ids.map(id=>lookup.get(id));
+   if(chosen.some(s=>s.generated||!s.file_key))throw bad("系统生成摘要不属于原始文件，请仅选择真实原件");
+   const buffer=await buildOriginalZip(chosen,storage());
+   logAudit({user:ctx.user,module:"档案中心",action:"原始文件包下载",target:project.id,
+     detail:"原件 "+chosen.length+" 份；不转换、不加水印、不按内容去重；来源："+ids.join("、"),ip:ctx.ip});
+   return {__file:{buffer,mime:"application/zip",name:"会议原始文件包_"+project.id+".zip",download:true,cache:"no-store"}};
+ });
  router.post("/api/projects/:id/archive-pdf",async ctx=>generate(ctx));
  // 兼容旧链接：默认导出所有类别并强制操作员/时间水印，不保留无水印漏洞。
  router.get("/api/projects/:id/archive-pdf",async ctx=>generate(ctx,true));
@@ -175,4 +224,4 @@ function register(router){
 
  return router;
 }
-module.exports={register,assertArchiveDownloadAccess,selectMaterials,parseWatermark,availableKinds,availableMaterials};
+module.exports={register,assertArchiveDownloadAccess,selectMaterials,parseWatermark,availableKinds,availableMaterials,buildOriginalZip};

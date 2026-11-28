@@ -31,7 +31,7 @@ export async function downloadArchivePdf(pid,button){
     '<input name="watermark_text" maxlength="80" placeholder="输入水印文字"></div>'
    :'<p class="hint">PDF 每页标注操作员及生成时间；仅总管理员可修改水印。</p>';
   const m=modal({
-   title:"数字卷宗 · 自动材料归集与付款PPT",width:"850px",
+   title:"数字卷宗 · 材料下载",width:"850px",
    body:'<p class="hint" style="margin-bottom:14px"><b>'+esc(data.project.name)+'</b> · '+
       esc(data.project.assoc)+' · '+esc(data.project.id)+'</p>'+
     '<div class="gate ok" style="margin-bottom:14px"><b>已按预设15类自动排序并关联合同、赞助、回单、发票、邀请函、会议材料与需求单。</b>'+
@@ -45,8 +45,9 @@ export async function downloadArchivePdf(pid,button){
     '<div data-material-file-list class="material-export-options" style="max-height:340px;overflow:auto"></div>'+
     '<p class="hint" style="margin:12px 0">PDF 第1页为会议封面，第2页为项目台账结算单＋分类付款对照；随后严格按预设15类优先级合并原件，类别内部沿用当前顺序，相同原件只合并一次。下载 PPT 独立生成，'+
        '第一页为会议信息、第二页为唯一的付款明细对照表；从第三页起，按当前勾选和排序逐项展示原件内容。无法渲染的文件将标注原因并保留原件。</p>'+
-    wmHtml,
+    '<p class="hint">原始文件包（ZIP）：仅打包勾选的真实原件，不生成系统摘要、不重新编排、不加水印、不改变文件内容。同名文件自动加后缀。</p>'+wmHtml,
    footer:'<button class="btn btn-o" data-cancel>取消</button>'+
+    '<button class="btn btn-o" data-export-zip>原始文件包</button>'+
     '<button class="btn btn-o" data-export-pptx>生成并下载 PPT</button>'+
     '<button class="btn btn-p" data-export>生成并下载 PDF</button>'
   });
@@ -118,6 +119,22 @@ export async function downloadArchivePdf(pid,button){
     m.classList.remove("open");toast("已下载会议资料PDF："+out.name,"ok");
    }catch(e){toast("PDF生成失败："+e.message,"warn");}
    finally{pdf.disabled=false;pdf.textContent="生成并下载 PDF";}
+  };
+  const originalZip=m.querySelector("[data-export-zip]");
+  originalZip.onclick=async()=>{
+   if(originalZip.disabled)return;
+   const enabled=new Set(controls.filter(x=>x.checked).map(x=>x.value));
+   const originals=ordered.filter(s=>enabled.has(s.kind)&&checkedIds.has(s.source_id)&&!s.generated);
+   if(!originals.length){toast("请至少勾选一份真实原件（不含系统摘要）","warn");return;}
+   if(originals.length>120){toast("单次最多120份原件，请分批下载","warn");return;}
+   originalZip.disabled=true;originalZip.textContent="正在打包原件…";
+   try{
+    const out=await api.download("/api/projects/"+encodeURIComponent(pid)+"/archive-zip",{
+     method:"POST",body:{source_ids:originals.map(s=>s.source_id)}
+    });
+    m.classList.remove("open");toast("已下载原始文件包："+out.name,"ok");
+   }catch(e){toast("原始文件包下载失败："+e.message,"warn");}
+   finally{originalZip.disabled=false;originalZip.textContent="原始文件包";}
   };
   const ppt=m.querySelector("[data-export-pptx]");
   ppt.onclick=async()=>{

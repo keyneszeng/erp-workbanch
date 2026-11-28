@@ -449,9 +449,10 @@ Page({
  archiveWatermarkInput(e){if(!this.data.busy&&this.data.archiveCustomWatermark)this.setData({archiveWatermarkText:e.detail.value});},
  async exportArchive(e){
   if(this.data.busy||!this.data.archiveOpen||!this.data.archiveAllowed)return;
-  const ids=this.data.archiveSources.filter(x=>x.checked).map(x=>x.id),format=e.currentTarget.dataset.format;
-  if(!["pdf","pptx"].includes(format))return;
-  if(!ids.length||ids.length>120){this.setData({archiveError:"请选择1～120份资料"});return;}
+  const format=e.currentTarget.dataset.format;
+  if(!["pdf","pptx","zip"].includes(format))return;
+  const ids=this.data.archiveSources.filter(x=>x.checked&&(format!=="zip"||!x.generated)).map(x=>x.id);
+  if(!ids.length||ids.length>120){this.setData({archiveError:format==="zip"?"请选择1～120份真实原件（不含系统摘要）":"请选择1～120份资料"});return;}
   const mode=this.data.archiveCustomWatermark?["default","none","custom"][this.data.archiveWatermarkMode]||"default":"default",text=this.data.archiveWatermarkText.trim();
   if(format==="pdf"&&mode==="custom"&&(!text||text.length>80)){this.setData({archiveError:"自定义水印须填写1～80字"});return;}
   this.setData({busy:true,archiveError:""});

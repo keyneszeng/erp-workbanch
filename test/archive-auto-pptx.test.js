@@ -235,3 +235,33 @@ test("PPT资料选择禁止跨会议、重复和伪造来源ID",async()=>{
  assert.equal((await req(execUser,"POST",projectUrl+"/archive-pptx",
   {source_ids:["auto:notice"]})).status,403);
 });
+
+
+test("原始文件包仅包含勾选原件，原始字节完全一致，无编排或水印",async()=>{
+ const ids=["sponsor-invoice:SI-AUTO-001","sponsor-contract:SC-AUTO-001"];
+ const response=await req(admin,"POST",projectUrl+"/archive-zip",{source_ids:ids});
+ assert.equal(response.status,200,JSON.stringify(response.data));
+ assert.match(response.res.headers.get("content-type"),/application\/zip/);
+ assert.equal(response.res.headers.get("cache-control"),"no-store");
+ const zip=new PizZip(Buffer.from(await response.res.arrayBuffer()));
+ assert.deepEqual(Object.keys(zip.files),["赞助发票.pdf","赞助合同.pdf"]);
+ assert.deepEqual(Buffer.from(zip.file("赞助发票.pdf").asUint8Array()),fs.readFileSync(path.join(uploadDir,"33","33333333333333333333333333333333.pdf")));
+ assert.deepEqual(Buffer.from(zip.file("赞助合同.pdf").asUint8Array()),fs.readFileSync(path.join(uploadDir,"11","11111111111111111111111111111111.pdf")));
+ assert.equal((await req(assoc,"POST",projectUrl+"/archive-zip",{source_ids:ids})).status,200);
+ assert.equal((await req(execUser,"POST",projectUrl+"/archive-zip",{source_ids:ids})).status,403);
+ for(const bad of [[],[ids[0],ids[0]],["auto:notice"],["material:99999999"],["../secret"]])
+  assert.equal((await req(admin,"POST",projectUrl+"/archive-zip",{source_ids:bad})).status,400);
+ assert.ok([400,403,409].includes((await req(admin,"POST","/api/projects/"+other+"/archive-zip",{source_ids:ids})).status));
+});
+
+test("ZIP 同名原件不覆盖、不按内容去重，路径安全且缺失文件拒绝导出",async()=>{
+ const {buildOriginalZip}=require("../server/api/archive-pdf");
+ const bytes=Buffer.from("identical original");
+ const chosen=[{file_key:"a.pdf",file_name:"../合同.pdf",name:"A"},{file_key:"b.pdf",file_name:"合同.pdf",name:"B"}];
+ const store={get:async()=>({buffer:bytes})};
+ const zip=new PizZip(await buildOriginalZip(chosen,store));
+ assert.deepEqual(Object.keys(zip.files),["合同.pdf","合同 (2).pdf"]);
+ for(const n of Object.keys(zip.files))assert.deepEqual(Buffer.from(zip.file(n).asUint8Array()),bytes);
+ await assert.rejects(buildOriginalZip(chosen,{get:async()=>null}),/原件缺失/);
+ await assert.rejects(buildOriginalZip(chosen,{stat:async()=>({size:101*1024*1024}),get:async()=>{throw Error("must not read oversized");}}),/总大小/);
+});

@@ -46,7 +46,7 @@
   </view>
 
   <view wx:if="{{archiveAllowed}}" class="card">
-    <button class="btn ghost" disabled="{{busy||archiveOpen}}" bindtap="openArchive">材料下载 · PDF / PPTX</button>
+    <button class="btn ghost" disabled="{{busy||archiveOpen}}" bindtap="openArchive">材料下载 · PDF / PPTX / ZIP</button>
     <view wx:if="{{archiveError&&!archiveOpen}}" class="error">{{archiveError}}</view>
   </view>
   <view wx:if="{{archiveOpen}}" class="card">
@@ -62,6 +62,8 @@
     <view wx:if="{{archiveError}}" class="error">{{archiveError}}</view>
     <button class="btn primary" data-format="pdf" bindtap="exportArchive" loading="{{busy}}" disabled="{{busy}}">生成并查看 PDF</button>
     <button class="btn ghost" data-format="pptx" bindtap="exportArchive" disabled="{{busy}}">生成并查看 PPTX</button>
+    <button class="btn ghost" data-format="zip" bindtap="exportArchive" disabled="{{busy}}">原始文件包（ZIP）</button>
+    <view class="muted">ZIP 仅包含勾选的真实原件，不转换、不加水印，不生成摘要；下载后可通过微信文件转发保存。</view>
   </view>
   <view wx:if="{{!archiveOpen}}" class="form-section">
     <view class="section-head"><view class="row"><view class="section-index">01</view><view class="section-caption">按类别查看及录入材料</view></view></view>
