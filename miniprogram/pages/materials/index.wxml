@@ -4,10 +4,9 @@
       <view class="page-kicker">MATERIAL WORKBENCH</view>
       <view class="heading">材料收集</view>
       <view class="subtitle">按项目名称建立目录，点击项目查看材料详情、上传记录与附件</view>
-      <view wx:if="{{directoryStats}}" class="material-stat-grid">
+      <view wx:if="{{directoryStats}}" class="material-stat-grid material-stat-grid-directory">
         <view class="material-stat"><text class="material-stat-value">{{directoryStats.projects}}</text><text>项目目录</text></view>
         <view class="material-stat"><text class="material-stat-value">{{directoryStats.uploaded}}</text><text>已收集材料项目</text></view>
-        <view class="material-stat"><text class="material-stat-value">{{directoryStats.total}}</text><text>已登记材料</text></view>
       </view>
     </view>
     <view class="card">

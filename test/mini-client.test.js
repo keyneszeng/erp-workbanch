@@ -652,7 +652,7 @@ test("小程序材料目录与Web共享统计、搜索、项目选择及报销�
  assert.equal(page.data.directoryOpen,true);
  assert.equal(page.data.directoryStats.projects,2);
  assert.equal(page.data.directoryStats.uploaded,1);
- assert.equal(page.data.directoryStats.total,3);
+ assert.equal(page.data.directoryStats.total,undefined,"首页仅保留两项项目维度统计");
  page.searchDirectory({detail:{value:"甲会议"}});
  assert.equal(page.data.directoryProjects.length,1);
  await page.openDirectoryProject({currentTarget:{dataset:{pid}}});
@@ -701,4 +701,21 @@ test("小程序普通材料确认后才上传，登记失败重试复用已上�
  const over=mockMaterialsPage([{...file,size:50*1024*1024+1}],async()=>{throw Error("oversized file must not upload");});
  await over.page.addFile();
  assert.match(over.page.data.error,/50 MB/);
+});
+
+
+test("材料收集首页 Web 和小程序只展示两项项目统计，项目详情保留材料统计",()=>{
+ const web=fs.readFileSync(path.join(__dirname,"../web/assets/js/pages/materials.js"),"utf8");
+ const xml=fs.readFileSync(path.join(__dirname,"../miniprogram/pages/materials/index.wxml"),"utf8");
+ const webHome=web.slice(web.indexOf("if (!pid) {"),web.indexOf("const refresh ="));
+ const miniHome=xml.slice(0,xml.indexOf('<block wx:else>\n  <view class="card card-accent">'));
+ for(const view of [webHome,miniHome]){
+  assert.match(view,/项目目录/);
+  assert.match(view,/已收集材料项目/);
+  assert.doesNotMatch(view,/已登记材料/);
+ }
+ assert.match(web.slice(web.indexOf("const refresh =")),/已登记材料/);
+ assert.match(xml,/materialStats.count/);
+ assert.match(webHome,/grid g2/);
+ assert.match(miniHome,/material-stat-grid-directory/);
 });

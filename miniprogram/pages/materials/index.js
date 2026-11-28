@@ -50,7 +50,7 @@ Page({
    const d=await app.api("/materials?page=1&size=1");
    if(this._directorySeq!==seq||!this.data.directoryOpen)return;
    const projects=(d.projects||[]).map(p=>({...p,have:p.have||[]}));
-   this.setData({projects,directoryStats:{projects:projects.length,uploaded:projects.filter(p=>p.uploadedCount>0).length,total:d.total??0}});
+   this.setData({projects,directoryStats:{projects:projects.length,uploaded:projects.filter(p=>p.uploadedCount>0).length}});
    this.filterDirectory();
   }catch(e){
    if(this._directorySeq!==seq||!this.data.directoryOpen)return;

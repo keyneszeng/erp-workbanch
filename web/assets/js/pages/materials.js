@@ -33,10 +33,9 @@ export async function render(root, params = []) {
     const uploaded = d.projects.filter(p => p.uploadedCount > 0).length;
     root.innerHTML = '<div class="phead"><div><h2>材料收集</h2><p>按项目名称建立目录，点击项目查看材料详情、上传记录与附件</p></div>' +
       '</div>' +
-      '<div class="grid g3">' +
+      '<div class="grid g2">' +
         '<div class="kpi"><div class="t">项目目录</div><div class="v">' + d.projects.length + '<span class="u">个</span></div></div>' +
         '<div class="kpi k2"><div class="t">已收集材料项目</div><div class="v">' + uploaded + '<span class="u">个</span></div></div>' +
-        '<div class="kpi k4"><div class="t">已登记材料</div><div class="v">' + d.total + '<span class="u">份</span></div></div>' +
       '</div>' +
       '<div class="panel mt"><div class="panel-h"><h2>项目材料目录</h2><span class="hint" id="materialFolderCount">' + d.projects.length + ' 个项目</span></div>' +
         '<div class="filters"><input type="search" id="materialFolderSearch" aria-label="搜索项目材料目录" placeholder="搜索项目名称 / 会议编号 / 状态" value="' + esc(projectSearch) + '"></div>' +
