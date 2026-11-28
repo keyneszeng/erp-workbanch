@@ -1,6 +1,10 @@
 import {api,state,can} from "./api.js";
 import {esc,modal,toast} from "./ui.js";
 
+// 数字卷宗材料下载：暂不开放「生成并下载 PPT / PDF」两个入口。
+// 原始文件包（ZIP）与水印配置保持可用；需要恢复时把此开关改为 true 即可。
+const ENABLE_GENERATED_DOCS = false;
+
 /** 会议卷宗按 15 类系统目录自动汇集全部有权限的源文件，不只查询材料上传表。 */
 export function canDownloadArchivePdf(project){
  const me=state.user;
@@ -43,13 +47,17 @@ export async function downloadArchivePdf(pid,button){
     '<div class="material-export-tools" style="margin-top:14px"><b>自动关联的文件与系统摘要</b>'+
       '<span class="hint">已关联 '+sources.length+' 项；仅支持同一类别内调整顺序，合并时自动去重</span></div>'+
     '<div data-material-file-list class="material-export-options" style="max-height:340px;overflow:auto"></div>'+
-    '<p class="hint" style="margin:12px 0">PDF 第1页为会议封面，第2页为项目台账结算单＋分类付款对照；随后严格按预设15类优先级合并原件，类别内部沿用当前顺序，相同原件只合并一次。下载 PPT 独立生成，'+
-       '第一页为会议信息、第二页为唯一的付款明细对照表；从第三页起，按当前勾选和排序逐项展示原件内容。无法渲染的文件将标注原因并保留原件。</p>'+
-    '<p class="hint">原始文件包（ZIP）：仅打包勾选的真实原件，不生成系统摘要、不重新编排、不加水印、不改变文件内容。同名文件自动加后缀。</p>'+wmHtml,
+    (ENABLE_GENERATED_DOCS?
+      '<p class="hint" style="margin:12px 0">PDF 第1页为会议封面，第2页为项目台账结算单＋分类付款对照；随后严格按预设15类优先级合并原件，类别内部沿用当前顺序，相同原件只合并一次。下载 PPT 独立生成，'+
+       '第一页为会议信息、第二页为唯一的付款明细对照表；从第三页起，按当前勾选和排序逐项展示原件内容。无法渲染的文件将标注原因并保留原件。</p>':'')+
+    '<p class="hint">原始文件包（ZIP）：仅打包勾选的真实原件，不生成系统摘要、不重新编排、不加水印、不改变文件内容。同名文件自动加后缀。</p>'+
+    (ENABLE_GENERATED_DOCS?wmHtml:
+      '<p class="hint">材料下载仅提供原始文件包（ZIP），不生成系统摘要、不重新编排、不改变文件内容。</p>'),
    footer:'<button class="btn btn-o" data-cancel>取消</button>'+
-    '<button class="btn btn-o" data-export-zip>原始文件包</button>'+
-    '<button class="btn btn-o" data-export-pptx>生成并下载 PPT</button>'+
-    '<button class="btn btn-p" data-export>生成并下载 PDF</button>'
+    '<button class="btn btn-p" data-export-zip>原始文件包</button>'+
+    (ENABLE_GENERATED_DOCS?
+      '<button class="btn btn-o" data-export-pptx>生成并下载 PPT</button>'+
+      '<button class="btn btn-o" data-export>生成并下载 PDF</button>':'')
   });
   const controls=[...m.querySelectorAll('input[name="material_category"]')];
   const all=m.querySelector("[data-select-all]"),clear=m.querySelector("[data-clear-all]");
@@ -100,7 +108,7 @@ export async function downloadArchivePdf(pid,button){
    mode.onchange=sync;sync();
   }
   const pdf=m.querySelector("[data-export]");
-  pdf.onclick=async()=>{
+  if(pdf)pdf.onclick=async()=>{
    if(pdf.disabled)return;
    const active=new Set(controls.filter(x=>x.checked).map(x=>x.value));
    const ids=ordered.filter(s=>active.has(s.kind)&&checkedIds.has(s.source_id)).map(s=>s.source_id);
@@ -137,7 +145,7 @@ export async function downloadArchivePdf(pid,button){
    finally{originalZip.disabled=false;originalZip.textContent="原始文件包";}
   };
   const ppt=m.querySelector("[data-export-pptx]");
-  ppt.onclick=async()=>{
+  if(ppt)ppt.onclick=async()=>{
    if(ppt.disabled)return;
    ppt.disabled=true;ppt.textContent="正在生成付款对照 PPT…";
    try{
