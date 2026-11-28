@@ -91,6 +91,7 @@ async function load(root) {
   list.innerHTML = table(
     [{ t: "会议编号", w: "120px" }, { t: "会议名称" }, { t: "协会", w: "118px" }, { t: "形式", w: "58px" },
      { t: "会期", w: "92px" }, { t: "预算", w: "92px", cls: "num" }, { t: "负责人", w: "72px" },
+     { t: "外部联系人", w: "92px" },
      { t: "状态", w: "84px" }, { t: "操作", w: "120px" }],
     d.rows.map((p) => ({
       attrs: ` class="clickable" data-pid="${p.id}"`,
@@ -99,6 +100,7 @@ async function load(root) {
         `<b style="font-size:12.8px">${esc(p.name)}</b>`,
         esc(p.assoc), esc(p.form), `<span class="mono">${esc(p.date)}</span>`,
         !budgetVisible ? "—" : `¥${money(p.budget)}<div class="hint">可用 ¥${money(p.available_budget ?? p.budget)}</div>`, esc(p.owner || "—"),
+        esc(p.external_contact || "—"),
         badge(p.status) + (canDownloadArchivePdf(p) ? ` <button class="link" data-archive-pdf="${p.id}">材料下载</button>` : ""),
         `<div class="tacts"><button class="link" data-go="projects/${p.id}">详情</button>
          ${p.status === "待核销" && can("verify:check") ? `<button class="link" data-go="verify/${p.id}">核销</button>` : ""}</div>`
