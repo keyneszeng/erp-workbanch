@@ -1,5 +1,5 @@
 "use strict";
-/** New project IDs: ASSOCIATION-YEAR-NN, with year from the meeting start. */
+/** New project IDs: ASSOCIATION-YEAR-NNN, with year from the meeting start. */
 const {bad,conflict}=require("./util");
 const {getCode}=require("./associations");
 function nextMeetingId(db,association,date){
@@ -13,15 +13,15 @@ function nextMeetingId(db,association,date){
  // been deleted. Caller MUST wrap this allocation and project insert in transaction().
  const rows=db.prepare("SELECT id FROM projects WHERE id LIKE ?").all(code+"-"+y+"-%");
  let seen=0;
- const matcher=new RegExp("^"+code+"-"+y+"-([0-9]{2})$");
+ const matcher=new RegExp("^"+code+"-"+y+"-([0-9]{2,3})$");
  for(const row of rows){
   const m=matcher.exec(row.id);
   if(m)seen=Math.max(seen,Number(m[1]));
  }
  const next=Math.max(Number(record?.last_seq)||0,seen)+1;
- if(next>99)throw conflict("该协会在"+y+"年已达到99场会议，两位会议序号已用完，请联系总管理员调整编码方案","MEETING_CODE_EXHAUSTED");
+ if(next>999)throw conflict("该协会在"+y+"年已达到999场会议，三位会议序号已用完，请联系总管理员调整编码方案","MEETING_CODE_EXHAUSTED");
  db.prepare("INSERT INTO meeting_code_sequences(code,year,last_seq) VALUES (?,?,?) "+
    "ON CONFLICT(code,year) DO UPDATE SET last_seq=excluded.last_seq").run(code,year,next);
- return code+"-"+y+"-"+String(next).padStart(2,"0");
+ return code+"-"+y+"-"+String(next).padStart(3,"0");
 }
 module.exports={nextMeetingId};
