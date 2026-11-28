@@ -187,7 +187,11 @@ export async function openOcrJudge(pid,no,d,onDone){
    area.insertAdjacentHTML("beforeend",'<div class="gate">'+esc(e.message)+'</div>');
   }finally{
    busy=false;
-   if(!closed){rescan.disabled=false;manualModeBtn.disabled=!report;}
+   if(!closed){
+    rescan.disabled=false;
+    manualModeBtn.disabled=!report;
+    area.querySelectorAll("[data-manual-pass],[data-manual-reject]").forEach(x=>x.disabled=false);
+   }
   }
  };
 
