@@ -204,6 +204,8 @@ const GUARDS = {
       .prepare("SELECT COUNT(*) AS c FROM payments WHERE pid = ? AND status IN ('待审批','已审批')")
       .get(p.id).c;
     if (pending) return `还有 ${pending} 笔付款未完成（待审批 / 已审批），需先处理完才能结算`;
+    const tickets=require("./expense-tickets").pending(p.id);
+    if(tickets)return `还有 ${tickets} 份报销票据待确认或付款，请在付款明细处理后再结算`;
     if (!isDemoMode()) {
       const paid = db.prepare("SELECT COUNT(*) AS n, COALESCE(SUM(amount),0) AS total FROM payments WHERE pid=? AND status='已付款'").get(p.id);
       if (!paid.n) return "结算前必须由财务完成实际线下付款并登记凭证，不能跳过付款直接结算";
@@ -215,8 +217,9 @@ const GUARDS = {
           return "已建立会务需求表时必须先完成第6项会务合同与发票关联核对";
       }
       const signedTotal=db.prepare("SELECT COALESCE(SUM(amount),0) AS total FROM contracts WHERE pid=? AND deleted_at IS NULL AND status='已签署' AND COALESCE(category,'')<>'企业赞助'").get(p.id).total;
-      if(cents(paid.total)!==cents(signedTotal))
-        return `已付款总额 ¥${yuan(paid.total)} 与已核销合同请款总额 ¥${yuan(signedTotal)} 不一致，不能结算；含免票专家劳务费`;
+      const contractPaid=db.prepare("SELECT COALESCE(SUM(amount),0) AS total FROM payments WHERE pid=? AND status='已付款' AND COALESCE(payee_source_id,'') NOT LIKE 'expense:%'").get(p.id).total;
+      if(cents(contractPaid)!==cents(signedTotal))
+        return `合同口径已付款总额 ¥${yuan(contractPaid)} 与已核销合同请款总额 ¥${yuan(signedTotal)} 不一致，不能结算；含免票专家劳务费`;
     }
     return null;
   },
