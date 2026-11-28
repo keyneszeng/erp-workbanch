@@ -24,7 +24,7 @@ function list(pid){
 function options(pid){
  return list(pid).filter(m=>m.state==="confirmed"&&Number(m.amount)>0).map(m=>({
   id:m.source_id,source:"expense",type:m.kind,payee:m.payee,amount:m.amount,
-  label:m.kind+" · "+(m.ticket_no||m.name),bank:"",maskedAccount:""
+  label:m.kind+" · "+(m.ticket_no||m.name),reviewed_at:m.reviewed_at,bank:"",maskedAccount:""
  }));
 }
 function resolve(pid,id){
@@ -36,7 +36,7 @@ function validate(body){
  const payee=String(body.payee||"").trim(),ticketNo=String(body.ticket_no||"").normalize("NFKC").trim(),amount=Number(body.amount);
  if(!payee||payee.length>60)throw bad("请填写实际收款方（60字以内）");
  if(!ticketNo||ticketNo.length>40||!normalizeTicket(ticketNo))throw bad("请填写票据号码或原始单据唯一编号（40字以内）");
- if(!Number.isFinite(amount)||amount<=0||amount>1e9||cents(amount)/100!==amount)throw bad("报销金额必须大于0，最多两位小数");
+ if(!["number","string"].includes(typeof body.amount)||!Number.isFinite(amount)||amount<=0||amount>1e9||cents(amount)/100!==amount)throw bad("报销金额必须大于0，最多两位小数");
  return {payee,ticketNo,ticketKey:normalizeTicket(ticketNo),amount};
 }
 function assertUnique(m,v,hash){
