@@ -49,7 +49,7 @@ Page({
   try{
    const d=await app.api("/materials?page=1&size=1");
    if(this._directorySeq!==seq||!this.data.directoryOpen)return;
-   const projects=d.projects||[];
+   const projects=(d.projects||[]).map(p=>({...p,have:p.have||[]}));
    this.setData({projects,directoryStats:{projects:projects.length,uploaded:projects.filter(p=>p.uploadedCount>0).length,total:d.total??0}});
    this.filterDirectory();
   }catch(e){
@@ -129,7 +129,7 @@ Page({
     }catch(err){
      if(this.data.pid!==pid||this._materialSeq!==seq)return;
      if(err.status===401)throw err;
-     shared={active:[],history:(data.materials||[]).filter(m=>m.file_key&&!m.deleted_at).map(m=>m.kind),disabled:data.materialsStatus?.disabled||[]};
+     shared={active:[],history:(data.materials||[]).filter(m=>!m.deleted_at).map(m=>m.kind),disabled:data.materialsStatus?.disabled||[]};
      this.setData({canMaterialWrite:false});
     }
    }
@@ -357,7 +357,7 @@ Page({
   const pid=this.data.pid,contract=this.data.contractMode?this.contractRow(e):null;
   const item=contract?(contract.canReplace?{id:contract.materialId,file_key:contract.fileKey,kind:"合同"}:null):
     (this.data.canMaterialReplace?this.data.visibleFiles.find(x=>Number(x.id)===Number(e.currentTarget.dataset.id)):null);
-  if(!item?.id||!item.file_key)return;
+  if(!item?.id||!item.file_key||(!contract&&item.contractEvidence))return;
   this.setData({busy:true,error:"",contractNotice:""});
   try{
    if(!await this.confirmAction("更换原件","替换后旧原件不再是当前文件；合同退回草稿，相关核销须重新核验。确认继续？"))return;
@@ -482,7 +482,7 @@ Page({
  chooseCustom(){
   if(this.data.busy||this.data.locked||!this.data.canMaterialWrite)return;
   this._batch=null;
-  this.setData({custom:true,kind:"",customKind:"",rightId:"",uploaded:"",error:"",contractMode:false,
+  this.setData({custom:true,kind:"",customKind:"",rightId:"",uploaded:"",error:"",contractMode:false,allMaterials:false,
     batchResults:[],speakerFiles:[]});
   this.syncVisibleFiles();
  },
