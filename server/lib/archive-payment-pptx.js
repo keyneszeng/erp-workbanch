@@ -55,7 +55,7 @@ function slideXml(shapes){
   '<p:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/><a:chOff x="0" y="0"/><a:chExt cx="0" cy="0"/></a:xfrm></p:grpSpPr>'+
   shapes.join("")+'</p:spTree></p:cSld><p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr></p:sld>';
 }
-function first(project){
+function first(project,watermarkText="会规智云 · 内部归档"){
  shapeId=2;
  const items=[rect(0,0,W,H,COLORS.ink),rect(0,0,95000,H,COLORS.teal),
   rect(670000,920000,4100000,35000,COLORS.teal),
@@ -66,7 +66,8 @@ function first(project){
   textBox(String(project.date||"待确定")+(Number(project.days)>1?"（"+project.days+"天）":""),2670000,4490000,8500000,520000,1800,{color:COLORS.white,bold:true}),
   textBox("主办协会",750000,5220000,1800000,480000,1550,{color:"9FB8C5"}),
   textBox(project.assoc||"—",2670000,5190000,8500000,520000,1800,{color:COLORS.white,bold:true}),
-  textBox("会议编号："+String(project.id||""),670000,6300000,8000000,300000,1050,{color:"8EAFC1"})];
+  textBox("会议编号："+String(project.id||""),670000,6300000,8000000,300000,1050,{color:"8EAFC1"}),
+  textBox(cut(watermarkText+" · 第 1 页",120),670000,6530000,10400000,190000,850,{color:"8EAFC1"})];
  return slideXml(items);
 }
 function normalized(s){return String(s||"").normalize("NFKC").replace(/\s+/g,"").toLowerCase();}
@@ -104,7 +105,7 @@ function oneTableRows(rows){
   receipt:"凭证 "+g.receipts+"/"+g.count,contract:null
  })),note:"付款单超过18笔，已在本表按类目汇总；逐笔流水请查财务台账。"};
 }
-function financeSlide(project,allRows,stats){
+function financeSlide(project,allRows,stats,watermarkText="会规智云 · 内部归档"){
  shapeId=2;
  const {rows,note}=oneTableRows(allRows);
  const shapes=[rect(0,0,W,H,COLORS.paper),rect(0,0,W,1080000,COLORS.blue),
@@ -146,7 +147,7 @@ function financeSlide(project,allRows,stats){
   520000,6070000,11000000,240000,1070,{color:COLORS.muted}));
  shapes.push(textBox("已签合同－实际已付："+money(diff)+"；只统计状态为“已付款”的实际付款。",
   520000,6350000,10800000,220000,1080,{color:COLORS.blue}));
- shapes.push(textBox("会规智云 · 付款对照 · 第 2 页",9600000,6530000,2100000,200000,850,{color:COLORS.muted,align:"r"}));
+ shapes.push(textBox(cut(watermarkText+" · 第 2 页",120),520000,6530000,11000000,200000,850,{color:COLORS.muted,align:"r"}));
  return slideXml(shapes);
 }
 /** Image media is embedded into OOXML slides, not replaced by a filename. */
@@ -178,14 +179,14 @@ function imageShape(slide,relId="rId2"){
   '<p:spPr><a:xfrm><a:off x="'+x+'" y="'+y+'"/><a:ext cx="'+width+'" cy="'+height+'"/></a:xfrm>'+
   '<a:prstGeom prst="rect"><a:avLst/></a:prstGeom><a:ln><a:noFill/></a:ln></p:spPr></p:pic>';
 }
-function materialSlide(slide,index){
+function materialSlide(slide,index,watermarkText="会规智云 · 内部归档"){
  shapeId=2;
  const title=cut(slide.source_group+" · "+slide.source_name,75);
  const items=[rect(0,0,W,H,COLORS.paper),rect(0,0,W,940000,COLORS.blue),
   rect(0,910000,W,22000,COLORS.teal),
   textBox(title,520000,220000,11000000,520000,2010,{color:COLORS.white,bold:true}),
-  textBox("第 "+(index+3)+" 页 · "+(slide.page||1)+"/"+(slide.total||1)+
-    (slide.generated?" · 系统生成摘要":""),700000,6490000,10800000,200000,1050,{color:COLORS.muted})];
+  textBox(cut("第 "+(index+3)+" 页 · "+(slide.page||1)+"/"+(slide.total||1)+
+    (slide.generated?" · 系统生成摘要":"")+" · "+watermarkText,145),700000,6490000,10800000,200000,850,{color:COLORS.muted})];
  if(slide.kind==="image"){
   items.push(imageShape(slide));
  }else{
@@ -197,16 +198,17 @@ function materialSlide(slide,index){
 }
 
 const wrap=inner=> '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'+inner;
-function buildPaymentPptx(project,payments,contracts,dossier={slides:[],attachments:[]}){
+function buildPaymentPptx(project,payments,contracts,dossier={slides:[],attachments:[]},options={}){
  if(!project?.id||!project?.name)throw Error("会议基本资料缺失");
+ const watermarkText=String(options.watermarkText||"会规智云 · 内部归档").trim()||"会规智云 · 内部归档";
  const rows=buildPaymentRows(payments,contracts);
  const signed=(contracts||[]).filter(x=>x.status==="已签署"&&!x.deleted_at&&x.category!=="企业赞助")
   .reduce((sum,x)=>sum+cents(x.amount),0)/100;
  const stats={signed,paid:(payments||[]).filter(p=>p.status==="已付款").reduce((sum,x)=>sum+cents(x.amount),0)/100,
   pending:(payments||[]).filter(p=>p.status!=="已付款"&&p.status!=="已驳回").reduce((sum,x)=>sum+cents(x.amount),0)/100};
  const materialPages=dossier.slides||[];
- const slides=[first(project),financeSlide(project,rows,stats),
-  ...materialPages.map((m,i)=>materialSlide(m,i))];
+ const slides=[first(project,watermarkText),financeSlide(project,rows,stats,watermarkText),
+  ...materialPages.map((m,i)=>materialSlide(m,i,watermarkText))];
  const zip=new PizZip();
  const contentTypes='<Types xmlns="'+CT+'">'+
   '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'+

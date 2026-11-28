@@ -166,9 +166,11 @@ test("生成有效 PPTX，首页有会议名称时间协会，第二页为真实
    "ppt/slideMasters/slideMaster1.xml","ppt/slideLayouts/slideLayout1.xml"])
   assert.ok(zip.file(name),name+" missing");
  const cover=zip.file("ppt/slides/slide1.xml").asText();
+ assert.ok(cover.includes("操作员：")&&cover.includes("北京时间"),"PPTX封面必须带简体中文操作员/北京时间水印");
  assert.ok(cover.includes(p.name)&&cover.includes(p.date)&&cover.includes(p.assoc),
   "cover contains real project name, date and association");
  const slide2=zip.file("ppt/slides/slide2.xml").asText();
+ assert.ok(slide2.includes("操作员：")&&slide2.includes("北京时间"),"PPTX财务页必须带北京时间水印");
  assert.match(slide2,/付款明细对照表/);
  assert.match(slide2,/关联合同额/);
  assert.match(slide2,/已存档|未附回单/);

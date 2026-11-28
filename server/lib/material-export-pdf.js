@@ -6,7 +6,7 @@
  * - 所有原件来源由服务端按项目/类目查询，不接受请求体指定文件key。
  */
 const {PDFDocument,degrees}=require("pdf-lib");
-const {HttpError}=require("./util");
+const {HttpError,formatBeijingDateTime}=require("./util");
 const {compressOriginal}=require("./file-compress");
 const VISIBLE_OFFICE_EXT=new Set(["pptx","xlsx","docx"]);
 const extOfFile=name=>String(name||"").split(".").pop().toLowerCase();
@@ -92,7 +92,7 @@ function ledgerPages(detail){
  line("一、项目台账结算单",{size:14,step:31,color:"0.04 0.27 0.48"});
  if(settlement){
   line("结算编号："+sanitize(settlement.id)+"　状态："+sanitize(settlement.status||"已生成"));
-  line("生成日期："+sanitize(settlement.created_at||""));
+  line("生成日期："+formatBeijingDateTime(settlement.created_at));
   line("结算预算收入：¥"+Number(settlement.income||0).toFixed(2));
   line("结算单原始支出：¥"+Number(settlement.expense||0).toFixed(2));
   line("结算单结余：¥"+Number(settlement.profit||0).toFixed(2));

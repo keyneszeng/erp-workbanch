@@ -18,6 +18,20 @@ App({
   onLaunch() {
     this.globalData.token = wx.getStorageSync("erp_mini_token") || "";
   },
+  // 固定按北京时间显示系统时间；不受手机所在时区影响。
+  formatDateTime(value, fallback = "—") {
+    if (value == null || value === "") return fallback;
+    const raw = String(value).trim();
+    if (/^\\d{4}-\\d{2}-\\d{2}$/.test(raw)) return raw;
+    const local = raw.match(/^(\\d{4}-\\d{2}-\\d{2})[ T](\\d{2}):(\\d{2})(?::(\\d{2}))?(?:\\.\\d+)?$/);
+    if (local) return local[1] + " " + local[2] + ":" + local[3];
+    const ms = typeof value === "number" ? value : Date.parse(raw);
+    if (!Number.isFinite(ms)) return raw;
+    const d = new Date(ms + 8 * 60 * 60 * 1000);
+    const pad = n => String(n).padStart(2, "0");
+    return d.getUTCFullYear() + "-" + pad(d.getUTCMonth() + 1) + "-" + pad(d.getUTCDate()) +
+      " " + pad(d.getUTCHours()) + ":" + pad(d.getUTCMinutes());
+  },
   setSession(data) {
     this.globalData.token = data.accessToken;
     this.globalData.user = data.user;

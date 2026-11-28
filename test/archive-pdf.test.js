@@ -5,6 +5,7 @@ const assert=require("node:assert/strict");
 const {spawn}=require("node:child_process");
 const {DatabaseSync}=require("node:sqlite");
 const {PDFDocument,PDFName}=require("pdf-lib");
+const {makeLines}=require("../server/lib/archive-pdf");
 const fs=require("node:fs"),os=require("node:os"),path=require("node:path");
 const dir=fs.mkdtempSync(path.join(os.tmpdir(),"erp-select-pdf-"));
 const dbFile=path.join(dir,"db.sqlite"),uploadDir=path.join(dir,"uploads");
@@ -206,4 +207,26 @@ test("逐份材料选择拒绝跨项目、重复、未勾选类别和非数字ID
  }
  const wrong=await call("admin","POST",uri(pid),{categories:["签到表"],material_ids:[one.id]});
  assert.equal(wrong.status,400);
+});
+
+
+test("归档PDF系统生成时间、核销和材料时间统一标注北京时间", () => {
+ const stamp="2026-11-27T16:00:00.000Z";
+ const report=makeLines({
+  project:{id:"MP-2026-015",name:"测试会议",assoc:"测试协会",status:"已归档",
+   date:"2026-11-27",days:1,form:"线下",owner:"测试负责人",people:10,budget:1000,
+   agenda:"议程",status_at:stamp},
+  verifySteps:[{step_no:1,name:"通知",result:"通过",checked_by:"核验员",checked_at:stamp,remark:""}],
+  materials:[{kind:"课件",name:"终版课件",version:"v1",uploader:"负责人",created_at:stamp,
+   file_name:"课件.pdf"}],
+  exceptions:[],demandSheet:{confirmed:1,confirmed_by:"负责人",confirmed_at:stamp},
+  demandItems:[],contracts:[],payments:[{id:"PY-1",type:"费用",payee:"供应商",amount:10,
+   status:"已付款",paid_at:stamp}],settlement:{id:"ST-1",income:10,expense:10,profit:0,
+   status:"已生成",created_at:stamp},approvals:[],auditLogs:[{at:stamp,user_name:"管理员",
+   module:"档案中心",action:"归档",detail:"测试"}]
+ },[]);
+ const text=report.lines.map(x=>x.text).join("\n");
+ assert.match(text,/生成时间：\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}（北京时间）/);
+ assert.match(text,/2026-11-28 00:00/);
+ assert.doesNotMatch(text,/ UTC/);
 });

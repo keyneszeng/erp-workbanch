@@ -6,6 +6,21 @@ export const esc = (s) =>
 export const money = (n) => Number(n || 0).toLocaleString("zh-CN");
 export const yuan = (n) => `¥${money(n)}`;
 
+/** 固定按北京时间显示系统时间；纯日期不转换，避免会议日期跨日。 */
+export function formatDateTime(value, fallback = "—") {
+  if (value == null || value === "") return fallback;
+  const raw = String(value).trim();
+  if (/^\\d{4}-\\d{2}-\\d{2}$/.test(raw)) return raw;
+  const local = raw.match(/^(\\d{4}-\\d{2}-\\d{2})[ T](\\d{2}):(\\d{2})(?::(\\d{2}))?(?:\\.\\d+)?$/);
+  if (local) return local[1] + " " + local[2] + ":" + local[3];
+  const ms = typeof value === "number" ? value : Date.parse(raw);
+  if (!Number.isFinite(ms)) return raw;
+  const d = new Date(ms + 8 * 60 * 60 * 1000);
+  const pad = n => String(n).padStart(2, "0");
+  return d.getUTCFullYear() + "-" + pad(d.getUTCMonth() + 1) + "-" + pad(d.getUTCDate()) +
+    " " + pad(d.getUTCHours()) + ":" + pad(d.getUTCMinutes());
+}
+
 const STATUS_CLS = {
   "草稿": "b-gray", "待审批": "b-orange", "已立项": "b-blue", "筹备中": "b-blue",
   "执行中": "b-teal", "待核销": "b-orange", "已核销": "b-green", "已结算": "b-green", "已归档": "b-steel",

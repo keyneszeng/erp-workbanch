@@ -135,7 +135,7 @@ function makeLines(d, sources) {
     rows.forEach((r, i) => add("  " + (i + 1) + ". " + map(r)));
   };
   add("核销资料封存卷宗", "title");
-  add("生成时间：" + formatBeijingDateTime() + "（北京时间）");
+  add("生成时间：" + formatBeijingDateTime(new Date(), true) + "（北京时间）");
   add("会议编号：" + p.id + "   资料来源：会规智云归档状态快照");
   add("提示：仅有登记信息的材料不会被虚构为原文件；缺失和无法转换项均单独列出。");
   section("一、会议概况");
@@ -148,11 +148,11 @@ function makeLines(d, sources) {
   item("参会人数", p.people);
   item("项目预算", amt(p.budget));
   item("会议议程", p.agenda);
-  item("归档日期", p.status_at);
+  item("归档日期", formatBeijingDateTime(p.status_at));
   section("二、会后核销七步");
   simpleRecords(records.verifySteps, s => "第" + s.step_no + "步 " + s.name +
     "｜" + s.result + "｜判定人 " + display(s.checked_by) +
-    "｜时间 " + display(s.checked_at) + "｜备注 " + display(s.remark), "  无核销判定记录");
+    "｜时间 " + formatBeijingDateTime(s.checked_at) + "｜备注 " + display(s.remark), "  无核销判定记录");
   section("三、核销例外审批");
   simpleRecords(records.exceptions, e => e.id + " / 第" + e.step_no + "步 / " + e.status +
     " / 原因：" + e.reason + " / 审批人：" + display(e.approved_by) +
@@ -161,12 +161,12 @@ function makeLines(d, sources) {
   add("  说明：以下列出全部材料登记记录；各原始文件的分页和内嵌情况详见附件目录。");
   simpleRecords(records.materials, m => "[" + m.kind + "] " + m.name +
     " / 版本 " + display(m.version) + " / 登记者 " + display(m.uploader) +
-    " / 日期 " + display(m.created_at) + " / 文件 " +
+    " / 日期 " + formatBeijingDateTime(m.created_at) + " / 文件 " +
     display(m.file_name || m.file_key, "仅登记，未上传原件"), "  无材料");
   section("五、会务需求与费用对照");
   if (records.demandSheet) {
     item("确认归档", records.demandSheet.confirmed ? "是" : "否");
-    item("确认人/时间", display(records.demandSheet.confirmed_by) + " / " + display(records.demandSheet.confirmed_at));
+    item("确认人/时间", display(records.demandSheet.confirmed_by) + " / " + formatBeijingDateTime(records.demandSheet.confirmed_at));
   }
   simpleRecords(records.demandItems, r => "[" + r.grp + "] " + r.item +
     " / 需求：" + display(r.need) + " / 规格：" + display(r.spec) +
@@ -178,7 +178,7 @@ function makeLines(d, sources) {
   section("七、付款及报销记录");
   simpleRecords(records.payments, y => y.id + " [" + y.type + "] " +
     y.payee + " / " + amt(y.amount) + " / 状态：" + y.status +
-    " / 发票：" + display(y.invoice_no) + " / 付款时间：" + display(y.paid_at), "  无付款单");
+    " / 发票：" + display(y.invoice_no) + " / 付款时间：" + formatBeijingDateTime(y.paid_at), "  无付款单");
   section("八、财务结算");
   if (records.settlement) {
     const s = records.settlement;
@@ -189,14 +189,14 @@ function makeLines(d, sources) {
     item("收款方", s.payee);
     item("开户行", s.payee_bank);
     item("结算状态", s.status);
-    item("生成日期", s.created_at);
+    item("生成日期", formatBeijingDateTime(s.created_at));
   } else add("  无结算单（归档项目应核查此异常）");
   section("九、关联审批单");
   simpleRecords(records.approvals, a => a.id + " [" + a.type + "] " + a.title +
     " / " + a.status + " / 申请：" + display(a.by_user) +
     " / 审批：" + display(a.decided_by) + " / 意见：" + display(a.comment), "  无关联审批记录");
   section("十、核销与归档操作留痕");
-  simpleRecords(records.auditLogs, a => display(a.at) + " / " +
+  simpleRecords(records.auditLogs, a => formatBeijingDateTime(a.at) + " / "
     display(a.user_name) + " / " + a.module + " / " + a.action +
     " / " + display(a.detail), "  无操作记录");
   section("十一、资料原件目录");

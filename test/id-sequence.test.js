@@ -12,14 +12,14 @@
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
 const { DatabaseSync } = require("node:sqlite");
-const { nextId } = require("../server/lib/util");
+const { nextId, today } = require("../server/lib/util");
 
 function freshDb() {
   const db = new DatabaseSync(":memory:");
   db.exec("CREATE TABLE t (id TEXT PRIMARY KEY)");
   return db;
 }
-const year = new Date().getFullYear();
+const year = Number(today().slice(0, 4));
 const ins = (db) => db.prepare("INSERT INTO t VALUES (?)");
 
 test("空表从 001 开始", () => {

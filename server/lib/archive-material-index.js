@@ -5,6 +5,7 @@
  * materials upload table. No cross-project ID or client-supplied file key.
  */
 const {db}=require("./db");
+const {formatBeijingDateTime}=require("./util");
 const {createReportPdf}=require("./archive-pdf");
 const {invitationPdf}=require("./prep-invitation");
 const {canonicalMaterialKind}=require("./constants");
@@ -160,7 +161,7 @@ function toPdfLines(project,source){
  if(v.type==="notice"){
   const s=v.snapshot;
   return [heading("立项资料说明"),...intro,
-   ...(s?[b("审批快照时间："+v.approved_at+"；审批人："+v.approved_by),
+   ...(s?[b("审批快照时间："+formatBeijingDateTime(v.approved_at)+"；审批人："+v.approved_by),
     b("通知函标题："+(s["通知函标题"]||"")),
     b("立项函标题："+(s["立项函标题"]||"")),
     b(s["立项函正文"]||"")]:
@@ -174,7 +175,7 @@ function toPdfLines(project,source){
   b("会议议程："+(project.agenda||"未登记")),b("此说明书根据当前项目数据生成，不等于已签署或盖章的会议文件。")];
  if(v.type==="demand")return [heading("会务需求单（系统生成）"),...intro,
   b("确认状态："+(v.sheet.confirmed?"已确认":"未确认")),
-  b("确认人："+(v.sheet.confirmed_by||"—")+"，确认日期："+(v.sheet.confirmed_at||"—")),
+  b("确认人："+(v.sheet.confirmed_by||"—")+"，确认日期："+formatBeijingDateTime(v.sheet.confirmed_at)),
   ...v.rows.map(r=>b(r.grp+" / "+r.item+" / "+r.need+" / "+(r.spec||"")+" / 数量："+(r.quantity||"—")+
    " / 单价："+(r.unit_price||"—")+" / 预算："+(r.budget||"—")))];
  return [heading("系统项目资料"),...intro];

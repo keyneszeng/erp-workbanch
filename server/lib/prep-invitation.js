@@ -3,7 +3,7 @@
  * 筹备阶段内置模板：立项通过后直接从会议项目取字段匹配。
  * 不使用任意代码/HTML 模板执行；生成邀请函时固定项目快照，避免后续静默变更已发送版本。
  */
-const { bad } = require("./util");
+const { bad, formatBeijingDate } = require("./util");
 const { createReportPdf } = require("./archive-pdf");
 
 const TEMPLATES = Object.freeze({
@@ -57,7 +57,7 @@ function projectFields(project, date = new Date()) {
     "会议形式": clean(project.form, "会议形式", 40) || "待确认",
     "会议议程": clean(project.agenda, "会议议程", 2000) || "以最终确认的议程为准",
     "项目负责人": clean(project.owner, "项目负责人", 80) || "会务组",
-    "生成日期": date.toISOString().slice(0, 10)
+    "生成日期": formatBeijingDate(date)
   };
 }
 

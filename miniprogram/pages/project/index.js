@@ -37,7 +37,7 @@ Page({
    const settlementGroups=(breakdown?.groups||[]).map(g=>({
       key:g.key,label:g.label,count:g.count,amount:Number(g.amount||0).toFixed(2),
       items:(g.items||[]).map(y=>({id:y.id,type:y.type,payee:y.payee,
-        amount:Number(y.amount||0).toFixed(2),paidAt:y.paid_at||"—",remark:y.remark||""}))
+        amount:Number(y.amount||0).toFixed(2),paidAt:app.formatDateTime(y.paid_at),remark:y.remark||""}))
    }));
    const verifySummary=canVerify&&r.verification?{
       passed:r.verification.passed||0,total:r.verification.total||0,

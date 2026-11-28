@@ -156,7 +156,7 @@ function register(router){
      materialRows=selectMaterials(project.id,supplied,categories);
    }
    const watermark=parseWatermark(ctx.user,supplied);
-   const generatedAt=formatBeijingDateTime()+"（北京时间）";
+   const generatedAt=formatBeijingDateTime(new Date(),true)+"（北京时间）";
    const text=watermark.mode==="default"?"操作员："+String(ctx.user.name||ctx.user.username||"未知")+"  时间："+generatedAt:watermark.text;
    // Read the exact 项目台账 snapshot (settlement + categorized payments);
    // never recompute a parallel financial summary inside the PDF exporter.
@@ -210,10 +210,12 @@ function register(router){
    const contracts=db.prepare(
      "SELECT id,vendor,amount,category,status,deleted_at FROM contracts WHERE pid=? AND deleted_at IS NULL ORDER BY created_at,id"
    ).all(project.id);
-   const pptx=buildPaymentPptx(project,payments,contracts,dossier);
+   const generatedAt=formatBeijingDateTime(new Date(),true);
+   const watermarkText="操作员："+String(ctx.user.name||ctx.user.username||"未知")+"  时间："+generatedAt+"（北京时间）";
+   const pptx=buildPaymentPptx(project,payments,contracts,dossier,{watermarkText});
    logAudit({user:ctx.user,module:"档案中心",action:"生成会议材料归集PPTX",target:project.id,
      detail:"封面1页+付款对照表1页+材料"+chosen.length+"份（可见页"+dossier.slides.length+"页）；"+
-       "材料类别与PDF相同、用户指定的序列保持不变",
+       "材料类别与PDF相同、用户指定的序列保持不变；水印时间："+generatedAt+"（北京时间）",
      ip:ctx.ip});
    return {__file:{buffer:pptx,
      mime:"application/vnd.openxmlformats-officedocument.presentationml.presentation",

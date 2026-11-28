@@ -13,12 +13,26 @@ function beijingParts(d = new Date()) {
   return Object.fromEntries(parts.filter(p => p.type !== "literal").map(p => [p.type, p.value]));
 }
 function formatBeijingDateTime(d = new Date(), withSeconds = false) {
-  const p = beijingParts(d);
-  return `${p.year}-${p.month}-${p.day} ${p.hour}:${p.minute}${withSeconds ? ":" + p.second : ""}`;
+  if (d == null || d === "") return "";
+  if (typeof d === "string") {
+    const raw = d.trim();
+    if (/^\\d{4}-\\d{2}-\\d{2}$/.test(raw)) return raw;
+    const local = raw.match(/^(\\d{4}-\\d{2}-\\d{2})[ T](\\d{2}):(\\d{2})(?::(\\d{2}))?(?:\\.\\d+)?$/);
+    if (local) return local[1] + " " + local[2] + ":" + local[3] +
+      (withSeconds && local[4] ? ":" + local[4] : "");
+  }
+  const instant = d instanceof Date ? d : new Date(d);
+  if (!Number.isFinite(instant.getTime())) return String(d);
+  const p = beijingParts(instant);
+  return p.year + "-" + p.month + "-" + p.day + " " + p.hour + ":" + p.minute +
+    (withSeconds ? ":" + p.second : "");
 }
 function formatBeijingDate(d = new Date()) {
-  const p = beijingParts(d);
-  return `${p.year}-${p.month}-${p.day}`;
+  if (typeof d === "string" && /^\\d{4}-\\d{2}-\\d{2}$/.test(d.trim())) return d.trim();
+  const instant = d instanceof Date ? d : new Date(d);
+  if (!Number.isFinite(instant.getTime())) return String(d);
+  const p = beijingParts(instant);
+  return p.year + "-" + p.month + "-" + p.day;
 }
 function now(d = new Date()) { return formatBeijingDateTime(d); }
 function today(d = new Date()) { return formatBeijingDate(d); }
