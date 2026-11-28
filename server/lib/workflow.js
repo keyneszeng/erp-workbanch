@@ -219,7 +219,7 @@ const GUARDS = {
       const signedTotal=db.prepare("SELECT COALESCE(SUM(amount),0) AS total FROM contracts WHERE pid=? AND deleted_at IS NULL AND status='已签署' AND COALESCE(category,'')<>'企业赞助'").get(p.id).total;
       const contractPaid=db.prepare("SELECT COALESCE(SUM(amount),0) AS total FROM payments WHERE pid=? AND status='已付款' AND COALESCE(payee_source_id,'') NOT LIKE 'expense:%'").get(p.id).total;
       if(cents(contractPaid)!==cents(signedTotal))
-        return `合同口径已付款总额 ¥${yuan(contractPaid)} 与已核销合同请款总额 ¥${yuan(signedTotal)} 不一致，不能结算；含免票专家劳务费`;
+        return `已付款总额 ¥${yuan(contractPaid)} 与已核销合同请款总额 ¥${yuan(signedTotal)} 不一致，不能结算；仅比较合同口径，含免票专家劳务费`;
     }
     return null;
   },
