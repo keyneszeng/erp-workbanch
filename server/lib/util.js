@@ -2,16 +2,27 @@
 const crypto = require("node:crypto");
 
 const pad = (n) => String(n).padStart(2, "0");
+const BUSINESS_TIME_ZONE = "Asia/Shanghai";
 
-function now(d = new Date()) {
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+// 业务时间统一按北京时间计算，不依赖服务器、容器或浏览器所在时区。
+function beijingParts(d = new Date()) {
+  const parts = new Intl.DateTimeFormat("zh-CN-u-nu-latn", {
+    timeZone: BUSINESS_TIME_ZONE, year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23"
+  }).formatToParts(d);
+  return Object.fromEntries(parts.filter(p => p.type !== "literal").map(p => [p.type, p.value]));
 }
-function today(d = new Date()) {
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+function formatBeijingDateTime(d = new Date(), withSeconds = false) {
+  const p = beijingParts(d);
+  return `${p.year}-${p.month}-${p.day} ${p.hour}:${p.minute}${withSeconds ? ":" + p.second : ""}`;
 }
-function nowIso() {
-  return new Date().toISOString();
+function formatBeijingDate(d = new Date()) {
+  const p = beijingParts(d);
+  return `${p.year}-${p.month}-${p.day}`;
 }
+function now(d = new Date()) { return formatBeijingDateTime(d); }
+function today(d = new Date()) { return formatBeijingDate(d); }
+function nowIso(d = new Date()) { return formatBeijingDateTime(d, true) + "+08:00"; }
 
 /**
  * 生成业务单号：MP-2026-019 / PY-2026-041
@@ -23,7 +34,7 @@ function nowIso() {
  * 付款单一年上千笔对协会是常态，这个坑必须堵。
  */
 function nextId(db, table, column, prefix, width = 3) {
-  const year = new Date().getFullYear();
+  const year = Number(beijingParts().year);
   const like = `${prefix}-${year}-%`;
   const rows = db.prepare(`SELECT ${column} AS id FROM ${table} WHERE ${column} LIKE ?`).all(like);
   let max = 0;
@@ -123,4 +134,4 @@ const forbidden = (msg = "当前角色无权执行该操作", code = "FORBIDDEN"
 const notFound = (msg = "对象不存在", code = "NOT_FOUND") => new HttpError(404, code, msg);
 const conflict = (msg, code = "CONFLICT", extra) => new HttpError(409, code, msg, extra);
 
-module.exports = { now, today, nowIso, nextId, randToken, money, cents, yuan, toCsv, csvCell, parseBankAccount, parseBankName, HttpError, bad, forbidden, notFound, conflict, pad };
+module.exports = { BUSINESS_TIME_ZONE, beijingParts, formatBeijingDateTime, formatBeijingDate, now, today, nowIso, nextId, randToken, money, cents, yuan, toCsv, csvCell, parseBankAccount, parseBankName, HttpError, bad, forbidden, notFound, conflict, pad };
