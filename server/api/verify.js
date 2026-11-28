@@ -103,13 +103,10 @@ function register(router) {
     // 防止绕过UI直接构造“已OCR一致”的请求；每次判定验证材料版本与缓存哈希。
     const ocrReport=isAuto?verifyOcr.verifiedReport(p.id,no,ctx.body?.scanToken):null;
     /**
-     * 第 6 步 OCR 是辅助：scan() 会尝试识别已关联的会务协议/合同 PDF、会务发票 PDF，
-     * 但结构化关联、签署状态、预算金额一致性仍是门禁，OCR和发票金额不是。
-     * 因此不能要求 scanned>0，图片PDF尚未识别时仍允许人工核实原件，否则
-     * OCR_EVIDENCE_REQUIRED，人工判定通过永远提交不了。
+     * OCR 只是辅助展示与提取，不是判定门禁。
+     * 识别内容缺失、疑点、不一致都不拦截人工判定——是否通过以操作员的判定动作为准。
+     * 业务侧门禁（原件齐备、预算一致、例外单闭环等）在下方独立校验，与 OCR 无关。
      */
-    if(isAuto && result==="通过" && (!ocrReport.total || (!ocrReport.scanned && ![3,6,7].includes(no))))
-      throw conflict("未取得有效的OCR比对资料，不能直接判定通过；请先上传可识别的PDF或图片原件","OCR_EVIDENCE_REQUIRED");
     let remark=isAuto
       ?(result==="不通过"?
         "OCR比对异常/人工未认可："+(ocrReport.checks.filter(x=>x.status!=="一致").slice(0,3)

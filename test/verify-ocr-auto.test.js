@@ -475,3 +475,23 @@ test("核销第5项OCR与证据：仅关联劳务登记表和劳务专家合同�
  assert.equal(stale.status,409,JSON.stringify(stale.data));
  assert.equal(stale.data.error.code,"OCR_REPORT_STALE");
 });
+
+test("OCR只是辅助：识别内容不一致也不拦截人工判定通过",async()=>{
+ // 第4步：制造一个 OCR 比对不一致的报告，确认仍能人工判定通过（以人工动作为准）。
+ const before=await call("admin","POST",pathStep(4)+"/scan",{});
+ assert.equal(before.status,200,JSON.stringify(before.data));
+ const cover=db.prepare("SELECT material_id FROM material_ocr_cover_results WHERE pid=? LIMIT 1").get(pid);
+ if(!cover)return; // 没有封面缓存时本用例不适用，不强制制造
+ db.prepare("UPDATE material_ocr_cover_results SET recognized_text='完全不匹配的课件主题XYZ' WHERE material_id=? AND pid=?").run(cover.material_id,pid);
+ const rep=await call("admin","POST",pathStep(4)+"/scan",{});
+ assert.equal(rep.status,200,JSON.stringify(rep.data));
+ const hasIssue=rep.data.report.summary.mismatch>0||rep.data.report.summary.uncertain>0;
+ const pass=await call("admin","POST",pathStep(4),{
+   result:"通过",auto:true,scanToken:rep.data.report.token
+ });
+ // 核心：OCR 疑点/资料不足不得返回 OCR_EVIDENCE_REQUIRED 之类的内容门禁；
+ // 若业务原件门禁仍不满足可返回对应业务码，但绝不能因 OCR 内容本身拦截。
+ assert.notEqual(pass.data?.error?.code,"OCR_EVIDENCE_REQUIRED",JSON.stringify(pass.data));
+ if(hasIssue&&pass.status===200)
+   assert.match(pass.data.message||"",/判定：通过/);
+});
