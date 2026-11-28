@@ -368,6 +368,24 @@ CREATE TABLE IF NOT EXISTS materials (
 );
 CREATE INDEX IF NOT EXISTS idx_materials_pid ON materials(pid);
 
+-- 财务人工确认的报销原件；一份原件一笔付款，票号和内容哈希全平台防重。
+CREATE TABLE IF NOT EXISTS expense_ticket_reviews (
+  material_id INTEGER PRIMARY KEY REFERENCES materials(id) ON DELETE CASCADE,
+  pid TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  file_key TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  state TEXT NOT NULL CHECK(state IN ('confirmed','excluded')),
+  payee TEXT,
+  amount REAL,
+  ticket_no TEXT,
+  ticket_key TEXT UNIQUE,
+  file_hash TEXT UNIQUE,
+  reason TEXT,
+  reviewed_by INTEGER NOT NULL,
+  reviewed_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_expense_ticket_reviews_pid ON expense_ticket_reviews(pid);
+
 -- 固定材料模块启停与议程结构化待办，历史不物理删除。
 CREATE TABLE IF NOT EXISTS meeting_material_modules (
   pid TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
