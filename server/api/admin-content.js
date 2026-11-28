@@ -178,6 +178,11 @@ function register(router){
    if(JSON.stringify(value)!==JSON.stringify(before[k]))patch[k]=value;
   }
   if(!Object.keys(patch).length)return {row:before,message:"内容无变化"};
+  // 已付款票据必须与确认记录、原件版本一致；禁止通过强制编辑绕开票据防重。
+  if(kind==="payments"&&db.prepare("SELECT 1 FROM payments WHERE id=? AND pid=? AND payee_source_id LIKE 'expense:%'").get(id,pid)&&Object.keys(patch).some(k=>["type","payee","amount","invoice_no","period","status"].includes(k)))
+    throw conflict("报销付款已绑定原件，不允许直接修订付款关键字段","EXPENSE_PAID_LOCKED");
+  if(kind==="materials"&&"kind" in patch&&db.prepare("SELECT 1 FROM expense_ticket_reviews WHERE material_id=? AND pid=?").get(id,pid))
+    throw conflict("已确认或排除的报销票据不得直接修改材料类别","EXPENSE_REVIEW_LOCKED");
   if(kind==="contracts"&&(patch.status==="已签署"||(!("status" in patch)&&before.status==="已签署"))&&!(patch.sign_date||before.sign_date))
    throw bad("已签署合同必须具有签署日期");
   if(kind==="settlements"&&("income" in patch||"expense" in patch))
