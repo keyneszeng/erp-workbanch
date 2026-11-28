@@ -45,14 +45,14 @@ export async function downloadArchivePdf(pid,button){
       '<button type="button" class="link" data-clear-all>清空</button></div>'+
     '<div class="material-export-options" data-archive-groups>'+groupRows+'</div>'+
     '<div class="material-export-tools" style="margin-top:14px"><b>自动关联的文件与系统摘要</b>'+
-      '<span class="hint">已关联 '+sources.length+' 项；仅支持同一类别内调整顺序，合并时自动去重</span></div>'+
+      '<span class="hint">已关联 '+sources.length+' 项；按资料类目自动分组打包，同类原件放入同一个压缩包</span></div>'+
     '<div data-material-file-list class="material-export-options" style="max-height:340px;overflow:auto"></div>'+
     (ENABLE_GENERATED_DOCS?
       '<p class="hint" style="margin:12px 0">PDF 第1页为会议封面，第2页为项目台账结算单＋分类付款对照；随后严格按预设15类优先级合并原件，类别内部沿用当前顺序，相同原件只合并一次。下载 PPT 独立生成，'+
        '第一页为会议信息、第二页为唯一的付款明细对照表；从第三页起，按当前勾选和排序逐项展示原件内容。无法渲染的文件将标注原因并保留原件。</p>':'')+
     '<p class="hint">原始文件包（ZIP）：仅打包勾选的真实原件，不生成系统摘要、不重新编排、不加水印、不改变文件内容。同名文件自动加后缀。</p>'+
     (ENABLE_GENERATED_DOCS?wmHtml:
-      '<p class="hint">材料下载仅提供原始文件包（ZIP）：每份原件各自打成一个压缩包，按原文件名命名；下载后解压即可得到逐份独立的 ZIP。不生成系统摘要、不改变原件内容。</p>'),
+      '<p class="hint">材料下载仅提供原始文件包（ZIP）：按资料类目分组，每个类目打成一个压缩包并以类目名命名（如「签到表.zip」），同类原件放在同一个包里；下载后解压即可得到逐类目的 ZIP。不生成系统摘要、不改变原件内容。</p>'),
    footer:'<button class="btn btn-o" data-cancel>取消</button>'+
     '<button class="btn btn-p" data-export-zip>原始文件包</button>'+
     (ENABLE_GENERATED_DOCS?
@@ -71,31 +71,18 @@ export async function downloadArchivePdf(pid,button){
   const renderFiles=()=>{
    const enabled=new Set(controls.filter(x=>x.checked).map(x=>x.value));
    const visible=ordered.filter(s=>enabled.has(s.kind));
-   list.innerHTML=visible.length?visible.map((s,i)=>
+   list.innerHTML=visible.length?visible.map(s=>
      '<div class="material-export-choice" data-source-id="'+esc(s.source_id)+'" style="display:flex;align-items:center;gap:9px">'+
      '<input type="checkbox" data-file-select="'+esc(s.source_id)+'"'+(checkedIds.has(s.source_id)?' checked':'')+'>'+
      '<span style="flex:1;min-width:0"><b>'+esc(s.name)+'</b>'+
       '<small>'+esc(s.kind)+' · '+esc(s.source_type||"材料库")+
         (s.generated?' · 系统生成摘要/记录':' · '+esc(s.file_name||"原件"))+
-        shortSize(s)+'</small></span>'+
-     '<button type="button" class="link" data-move-up="'+esc(s.source_id)+'"'+(i===0||visible[i-1].kind!==s.kind?' disabled':'')+'>上移</button>'+
-     '<button type="button" class="link" data-move-down="'+esc(s.source_id)+'"'+(i===visible.length-1||visible[i+1].kind!==s.kind?' disabled':'')+'>下移</button></div>'
+        shortSize(s)+'</small></span></div>'
    ).join(""):'<div class="hint">当前选中目录没有资料</div>';
    list.querySelectorAll("[data-file-select]").forEach(el=>el.onchange=()=>{
     if(el.checked)checkedIds.add(el.dataset.fileSelect);
     else checkedIds.delete(el.dataset.fileSelect);
    });
-   const move=(id,delta)=>{
-    const from=ordered.findIndex(s=>s.source_id===id);
-    const ix=visible.findIndex(s=>s.source_id===id);
-    const target=visible[ix+delta];
-    if(from<0||!target||ordered[from].kind!==target.kind)return;
-    const to=ordered.findIndex(s=>s.source_id===target.source_id);
-    [ordered[from],ordered[to]]=[ordered[to],ordered[from]];
-    renderFiles();
-   };
-   list.querySelectorAll("[data-move-up]").forEach(el=>el.onclick=()=>move(el.dataset.moveUp,-1));
-   list.querySelectorAll("[data-move-down]").forEach(el=>el.onclick=()=>move(el.dataset.moveDown,1));
   };
   all.onclick=()=>{controls.forEach(x=>{if(!x.disabled)x.checked=true});renderFiles();};
   clear.onclick=()=>{controls.forEach(x=>x.checked=false);renderFiles();};

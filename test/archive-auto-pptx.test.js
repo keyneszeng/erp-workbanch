@@ -246,12 +246,12 @@ test("原始文件包仅包含勾选原件，原始字节完全一致，无编�
  assert.match(response.res.headers.get("content-type"),/application\/zip/);
  assert.equal(response.res.headers.get("cache-control"),"no-store");
  const zip=new PizZip(Buffer.from(await response.res.arrayBuffer()));
- // 外层包内含每份原件各自的单文件 ZIP，ZIP 名按原件文件名命名。
- assert.deepEqual(Object.keys(zip.files),["赞助发票.pdf.zip","赞助合同.pdf.zip"]);
- const invoiceInner=new PizZip(zip.file("赞助发票.pdf.zip").asUint8Array());
- const contractInner=new PizZip(zip.file("赞助合同.pdf.zip").asUint8Array());
- assert.deepEqual(Object.keys(invoiceInner.files),["赞助发票.pdf"]);
+ // 外层包按资料类目分组：每个类目一个 ZIP，同名类目不重复。
+ assert.deepEqual(Object.keys(zip.files),["赞助企业合同.zip","赞助企业合同关联发票.zip"]);
+ const contractInner=new PizZip(zip.file("赞助企业合同.zip").asUint8Array());
+ const invoiceInner=new PizZip(zip.file("赞助企业合同关联发票.zip").asUint8Array());
  assert.deepEqual(Object.keys(contractInner.files),["赞助合同.pdf"]);
+ assert.deepEqual(Object.keys(invoiceInner.files),["赞助发票.pdf"]);
  assert.deepEqual(Buffer.from(invoiceInner.file("赞助发票.pdf").asUint8Array()),fs.readFileSync(path.join(uploadDir,"33","33333333333333333333333333333333.pdf")));
  assert.deepEqual(Buffer.from(contractInner.file("赞助合同.pdf").asUint8Array()),fs.readFileSync(path.join(uploadDir,"11","11111111111111111111111111111111.pdf")));
  assert.equal((await req(assoc,"POST",projectUrl+"/archive-zip",{source_ids:ids})).status,200);
@@ -267,13 +267,33 @@ test("ZIP 同名原件不覆盖、不按内容去重，路径安全且缺失文�
  const chosen=[{file_key:"a.pdf",file_name:"../合同.pdf",name:"A"},{file_key:"b.pdf",file_name:"合同.pdf",name:"B"}];
  const store={get:async()=>({buffer:bytes})};
  const zip=new PizZip(await buildOriginalZip(chosen,store));
- // 外层按文件名命名单文件 ZIP；同源同名不覆盖，后缀加在外层 ZIP 名上。
- assert.deepEqual(Object.keys(zip.files),["合同.pdf.zip","合同.pdf (2).zip"]);
- for(const n of Object.keys(zip.files)){
-  const inner=new PizZip(zip.file(n).asUint8Array());
-  assert.equal(Object.keys(inner.files).length,1);
-  assert.deepEqual(Buffer.from(Object.values(inner.files)[0].asUint8Array()),bytes);
- }
+ // 无类目来源归入其他材料；同类目原件打进同一个 ZIP，组内同名不覆盖。
+ assert.deepEqual(Object.keys(zip.files),["其他材料.zip"]);
+ const inner=new PizZip(zip.file("其他材料.zip").asUint8Array());
+ assert.deepEqual(Object.keys(inner.files),["合同.pdf","合同 (2).pdf"]);
+ for(const n of Object.keys(inner.files))
+  assert.deepEqual(Buffer.from(inner.file(n).asUint8Array()),bytes);
  await assert.rejects(buildOriginalZip(chosen,{get:async()=>null}),/原件缺失/);
  await assert.rejects(buildOriginalZip(chosen,{stat:async()=>({size:101*1024*1024}),get:async()=>{throw Error("must not read oversized");}}),/总大小/);
+});
+
+test("原始文件包按资料类目分组：同类多文件进同一 ZIP，跨类目各自独立",async()=>{
+ const {buildOriginalZip}=require("../server/api/archive-pdf");
+ const bytes=Buffer.from("original bytes");
+ const chosen=[
+  {file_key:"a.pdf",file_name:"签到1.pdf",kind:"签到表",name:"A"},
+  {file_key:"b.pdf",file_name:"签到2.pdf",kind:"签到表",name:"B"},
+  {file_key:"c.pdf",file_name:"合同1.pdf",kind:"赞助企业合同",name:"C"}
+ ];
+ const store={get:async()=>({buffer:bytes})};
+ const zip=new PizZip(await buildOriginalZip(chosen,store));
+ assert.deepEqual(Object.keys(zip.files),["赞助企业合同.zip","签到表.zip"]);
+ const sign=new PizZip(zip.file("签到表.zip").asUint8Array());
+ const contract=new PizZip(zip.file("赞助企业合同.zip").asUint8Array());
+ assert.deepEqual(Object.keys(sign.files),["签到1.pdf","签到2.pdf"]);
+ assert.deepEqual(Object.keys(contract.files),["合同1.pdf"]);
+ for(const n of [...Object.keys(sign.files),...Object.keys(contract.files)]){
+  const inner=n.startsWith("签到")?sign:contract;
+  assert.deepEqual(Buffer.from(inner.file(n).asUint8Array()),bytes);
+ }
 });
