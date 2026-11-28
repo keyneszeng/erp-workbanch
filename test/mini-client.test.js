@@ -633,3 +633,43 @@ test("归档合同仅总管理员显示特殊删除，普通删除不可发请�
  app.globalData.user.role="admin";await page.loadContracts(pid);assert.equal(page.data.contractRows[0].canArchiveDelete,true);assert.equal(page.data.contractRows[0].canDelete,false);
  await page.contractAction(event("archiveDelete"));assert.ok(calls.some(c=>c.url==="/contracts/C1/archive-delete"&&c.method==="POST"&&c.body.reason===reason));
 });
+
+test("小程序材料目录与Web共享统计、搜索、项目选择及报销票据历史详情",async()=>{
+ const pid="MP-2026-001",other="MP-2026-002";
+ const {page}=mockMaterialsPage([],async(url)=>{
+  if(url==="/materials?page=1&size=1")return {total:3,projects:[
+   {id:pid,name:"甲会议",status:"已核销",count:3,uploadedCount:2,have:["协会报销","其他费用","课件"]},
+   {id:other,name:"乙会议",status:"筹备中",count:0,uploadedCount:0,have:[]}]};
+  if(url==="/projects/"+pid)return {project:{id:pid,status:"已核销"},sectionAccess:{materials:true},
+   materialsStatus:{categoryCatalog:{active:["课件","协会报销","其他费用"],disabled:[],history:[]}},
+   materials:[{id:1,kind:"协会报销",name:"车票",file_key:"a".repeat(32)+".pdf"},
+    {id:2,kind:"其他费用",name:"票据",file_key:"b".repeat(32)+".pdf"},
+    {id:3,kind:"课件",name:"历史登记无附件",file_key:null}]};
+  throw Error("unexpected API "+url);
+ });
+ page.data.pid="";
+ await page.onShow();
+ assert.equal(page.data.directoryOpen,true);
+ assert.equal(page.data.directoryStats.projects,2);
+ assert.equal(page.data.directoryStats.uploaded,1);
+ assert.equal(page.data.directoryStats.total,3);
+ page.searchDirectory({detail:{value:"甲会议"}});
+ assert.equal(page.data.directoryProjects.length,1);
+ await page.openDirectoryProject({currentTarget:{dataset:{pid}}});
+ assert.equal(page.data.pid,pid);
+ assert.equal(page.data.directoryOpen,false);
+ assert.equal(page.data.materialStats.count,3);
+ assert.equal(page.data.materialStats.uploaded,2);
+ assert.equal(page.data.materialMutationLocked,true);
+ page.chooseKind({currentTarget:{dataset:{kind:"协会报销"}}});
+ assert.equal(page.data.visibleFiles[0].name,"车票");
+ page.chooseKind({currentTarget:{dataset:{kind:"其他费用"}}});
+ assert.equal(page.data.visibleFiles[0].name,"票据");
+ page.toggleAllMaterials({currentTarget:{dataset:{mode:"all"}}});
+ assert.equal(page.data.visibleFiles.length,3);
+ assert.ok(page.data.visibleFiles.some(m=>!m.file_key));
+ await page.backDirectory();
+ assert.equal(page.data.pid,"");
+ assert.equal(page.data.directoryOpen,true);
+ assert.equal(page.data.directoryProjects.length,1);
+});
