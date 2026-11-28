@@ -1,0 +1,16 @@
+.wrap { display: flex; flex-direction: column; height: 100vh; padding: 20rpx; box-sizing: border-box; }
+.hd { padding-bottom: 14rpx; }
+.title { font-size: 30rpx; font-weight: 600; word-break: break-all; }
+.hint { color: #8a94a6; font-size: 26rpx; padding: 24rpx 0; }
+.err { color: #d4380d; }
+.tabs { white-space: nowrap; padding-bottom: 12rpx; }
+.tab { display: inline-block; margin-right: 12rpx; }
+.tab.on { color: #1d4ed8; font-weight: 600; }
+.sheet { flex: 1; border: 1rpx solid #d9e0ea; background: #fff; }
+.grid { display: grid; width: max-content; }
+.cell {
+  border-right: 1rpx solid #d9e0ea; border-bottom: 1rpx solid #d9e0ea;
+  padding: 10rpx 12rpx; font-size: 24rpx; line-height: 1.5; color: #1f2937;
+  word-break: break-all; background: #fff;
+}
+.cell.num { text-align: right; }

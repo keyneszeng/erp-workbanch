@@ -1,0 +1,18 @@
+<view class="wrap">
+  <view class="hd"><text class="title">{{name}}</text></view>
+
+  <view wx:if="{{loading}}" class="hint">正在按原表格结构读取…</view>
+  <view wx:elif="{{error}}" class="hint err">{{error}}</view>
+
+  <block wx:else>
+    <scroll-view wx:if="{{sheets.length > 1}}" class="tabs" scroll-x>
+      <button wx:for="{{sheets}}" wx:key="name" size="mini" class="tab {{current === index ? 'on' : ''}}"
+        data-index="{{index}}" bindtap="switchSheet">{{item.name}}</button>
+    </scroll-view>
+    <scroll-view class="sheet" scroll-x scroll-y>
+      <view class="grid" style="{{gridStyle}}">
+        <view wx:for="{{cells}}" wx:key="key" class="cell {{item.num ? 'num' : ''}}" style="{{item.style}}">{{item.v}}</view>
+      </view>
+    </scroll-view>
+  </block>
+</view>

@@ -19,6 +19,7 @@ const { logAudit } = require("../lib/audit");
 const { getProject } = require("../lib/workflow");
 const { HttpError } = require("../lib/util");
 const { officeToPdf, OFFICE_EXT } = require("../lib/file-preview");
+const { parseXlsxTable } = require("../lib/xlsx-render");
 const { storage, newKey, checkMime, sniffMime, safeName, MAX_BYTES, ALLOWED_MIME } = require("../lib/storage");
 
 const EXT_MIME = {
@@ -163,6 +164,11 @@ function register(router) {
 
     const ext = key.split(".").pop();
     const name = owner?.file_name ? safeName(owner.file_name) : key;
+    // ?preview=table：xlsx 原表格结构（行列/合并单元格/列宽），前端用 <table> 原样渲染。
+    // 权限校验已在上面完整走完；不改原件、不转 PDF、不改变内容编排。
+    if (ctx.query.preview === "table" && ext === "xlsx") {
+      return { name, ...parseXlsxTable(obj.buffer) };
+    }
     // ?preview=1：在线预览模式。权限校验已在上面全部走完，这里只改返回形态。
     // Office 原件用 LibreOffice 转 PDF 后内联返回，前端弹窗 iframe 直接看。
     if (ctx.query.preview === "1" && OFFICE_EXT.has(ext)) {

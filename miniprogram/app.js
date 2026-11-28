@@ -84,15 +84,17 @@ App({
       return Promise.reject(new Error(devMode
         ? "请先登录测试服务"
         : "请先登录已配置的正式 HTTPS 服务"));
-    // txt/csv 不在 wx.openDocument 支持列表里：跳到原生文本预览页，
-    // 该页用同一个 Bearer 会话读取 ?preview=1 的内联文本，与 Web 端弹窗预览对齐。
     const ext0 = String(fileKey).split(".").pop().toLowerCase();
-    if (["txt", "csv"].includes(ext0)) {
+    // txt/csv 不在 wx.openDocument 支持列表里：跳到原生文本预览页。
+    // xlsx 走原表格结构预览页（行列/合并单元格），不转 PDF、不改变内容编排。
+    // 两处都用同一个 Bearer 会话读取，与 Web 端原样预览对齐。
+    if (["txt", "csv", "xlsx"].includes(ext0)) {
+      const page = ext0 === "xlsx" ? "file-sheet" : "file-text";
       return new Promise((resolve, reject) => wx.navigateTo({
-        url: "/pages/file-text/index?key=" + encodeURIComponent(fileKey) + "&name=" +
-          encodeURIComponent(String(fileKey).split("/").pop() || "文本原件"),
+        url: "/pages/" + page + "/index?key=" + encodeURIComponent(fileKey) + "&name=" +
+          encodeURIComponent(String(fileKey).split("/").pop() || "原件"),
         success: () => resolve(true),
-        fail: () => reject(new Error("文本预览页打开失败，请稍后重试"))
+        fail: () => reject(new Error("预览页打开失败，请稍后重试"))
       }));
     }
     return new Promise((resolve, reject) => wx.downloadFile({
