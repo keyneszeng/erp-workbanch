@@ -102,6 +102,44 @@ test("会务需求预算与已签会务合同总额不一致仍然拦截", async
   db.prepare("UPDATE demand_items SET budget=? WHERE pid=?").run(3175, pid);
 });
 
+
+test("OCR扫描不可用时允许人工核验第6步通过，并明确记录未使用OCR",async()=>{
+ const note="已人工逐项查看会务需求表、已签会务合同和会务发票原件，核对结果一致。";
+ const r=await request("POST",`/api/projects/${pid}/verify/steps/6`,{
+  result:"通过",manual:true,evidence:{
+   manualConfirmed:true,manualNote:note,
+   demandReviewed:true,meetingContractReviewed:true,meetingInvoiceReviewed:true
+  }
+ },cookie);
+ assert.equal(r.status,200,JSON.stringify(r.body));
+ assert.match(r.body?.message||"",/人工核验判定：通过/);
+ const saved=db.prepare("SELECT result,remark,evidence_json FROM verify_steps WHERE pid=? AND step_no=6").get(pid);
+ assert.equal(saved.result,"通过");
+ assert.equal(saved.remark,note);
+ const evidence=JSON.parse(saved.evidence_json);
+ assert.equal(evidence.origin,"manual-human-review");
+ assert.equal(evidence.mode,"manual");
+ assert.equal(evidence.manualConfirmed,true);
+ assert.equal(evidence.demandSopSignature!==undefined,true);
+});
+test("人工核验通过必须确认已查看原件并填写说明",async()=>{
+ const missingCheck=await request("POST",`/api/projects/${pid}/verify/steps/6`,{
+  result:"通过",manual:true,evidence:{
+   manualConfirmed:false,manualNote:"已核对需求合同发票原件，内容一致。",
+   demandReviewed:true,meetingContractReviewed:true,meetingInvoiceReviewed:true
+  }
+ },cookie);
+ assert.equal(missingCheck.status,409,JSON.stringify(missingCheck.body));
+ assert.equal(missingCheck.body?.error?.code,"MANUAL_CONFIRMATION_REQUIRED");
+ const missingNote=await request("POST",`/api/projects/${pid}/verify/steps/6`,{
+  result:"通过",manual:true,evidence:{
+   manualConfirmed:true,manualNote:"一致",
+   demandReviewed:true,meetingContractReviewed:true,meetingInvoiceReviewed:true
+  }
+ },cookie);
+ assert.equal(missingNote.status,400,JSON.stringify(missingNote.body));
+ assert.equal(missingNote.body?.error?.code,"MANUAL_NOTE_REQUIRED");
+});
 test("“会务协议”就是会务合同：已签历史其他类别、PDF原件关联均有效",async()=>{
  try{
   db.prepare("UPDATE materials SET kind='会务协议',name='已签会务服务协议' WHERE pid=? AND file_key='meet.pdf'").run(pid);

@@ -28,3 +28,15 @@ test("ECS environment install, preflight and CI require RapidOCR, not Tesseract"
   const preflight=read("scripts/rapidocr-preflight.cjs");
   assert.match(preflight,/from rapidocr import RapidOCR/);
 });
+
+test("核销OCR失败时提供有审计留痕的人工核验兜底",()=>{
+  const judge=read("web/assets/js/lib/verify-ocr-judge.js");
+  const api=read("server/api/verify.js");
+  const sop=read("server/lib/meeting-sop.js");
+  assert.match(judge,/renderManualPanel/);
+  assert.match(judge,/data-manual-pass/);
+  assert.match(judge,/manual:true/);
+  assert.match(api,/validateManualSopEvidence/);
+  assert.match(sop,/manual-human-review/);
+  assert.match(sop,/MANUAL_CONFIRMATION_REQUIRED/);
+});

@@ -6,7 +6,7 @@
  */
 const { bad, conflict, cents } = require("./util");
 const {laborSheetInfo}=require("./labor-sop");
-const {linkLaborContracts}=require("./labor-contracts");
+const {linkLaborContracts,contractPool}=require("./labor-contracts");
 const {demandSopState}=require("./meeting-demand-sop");
 const {validateRightsEvidence}=require("./sponsor-rights");
 const {photoName,compareNames,speakerName}=require("./verify-agenda-evidence");
@@ -162,4 +162,98 @@ function validateSopEvidence(no, evidence, project, db, invoiceAmount) {
     default: throw bad("核销步骤必须为 1~7");
   }
 }
-module.exports = {validateSopEvidence, sameNames};
+
+/**
+ * OCR不可用或扫描失败时的人工核验兜底。
+ * 人工确认不等于跳过业务门禁：仍检查每一步所需的原件、关联关系和财务硬条件；
+ * 操作人必须逐项勾选核对项并填写说明，结果明确标记为未使用OCR。
+ */
+function validateManualSopEvidence(no,evidence,project,db,invoiceAmount){
+  if(!evidence||typeof evidence!=="object"||Array.isArray(evidence))
+    throw bad("人工核验必须提交核验依据","MANUAL_EVIDENCE_REQUIRED");
+  const e=evidence,pid=project.id,note=String(e.manualNote||"").trim();
+  if(e.manualConfirmed!==true)
+    fail("请确认已逐一查看本步骤相关原件并完成核对","MANUAL_CONFIRMATION_REQUIRED");
+  if(note.length<10)throw bad("人工核验说明至少填写10个字","MANUAL_NOTE_REQUIRED");
+  const base={origin:"manual-human-review",mode:"manual",manualConfirmed:true,manualNote:note};
+  const finalAgenda=()=>Number(db.prepare(
+    "SELECT COUNT(*) AS n FROM materials WHERE pid=? AND kind='终版议程' AND version='终版' "+
+    "AND (deleted_at IS NULL OR deleted_at='') AND file_key IS NOT NULL AND file_key<>''"
+  ).get(pid)?.n||0)>0;
+  switch(no){
+    case 1:{
+      const kind=String(e.documentKind||"");
+      if(!["会议通知","招商函"].includes(kind)||!materialExists(db,pid,[kind],true))
+        fail("第一步缺少已上传的盖章会议通知或招商函原件","SOP_MATERIAL_MISSING");
+      if(!materialExists(db,pid,["串场"],true)||!finalAgenda())
+        fail("第一步须同时上传串场及当前终版议程原件","SOP_MATERIAL_MISSING");
+      if(e.stampedFinal!==true||e.letterMatchesHost!==true||e.agendaMatches!==true)
+        fail("请确认函件已盖章且为终版，并已人工核对函件、串场和终版议程","MANUAL_CHECK_INCOMPLETE");
+      return {...base,documentKind:kind,stamped:true,final:true,
+        manualChecks:{letterMatchesHost:true,agendaMatches:true},
+        matchedSources:[kind,"串场","终版议程"]};
+    }
+    case 2:{
+      if(!finalAgenda())fail("第二步缺少当前终版议程原件","SOP_MATERIAL_MISSING");
+      const photos=db.prepare(
+        "SELECT id FROM materials WHERE pid=? AND kind='讲者照片' "+
+        "AND (deleted_at IS NULL OR deleted_at='') AND file_key IS NOT NULL AND file_key<>''"
+      ).all(pid);
+      if(!photos.length)fail("第二步缺少讲者照片原件","SOP_MATERIAL_MISSING");
+      if(e.photosMatchAgenda!==true)
+        fail("请确认每张讲者照片的姓名均能在当前终版议程中找到","MANUAL_CHECK_INCOMPLETE");
+      return {...base,matchedPeople:photos.length,matchedSources:["终版议程","讲者照片"],
+        photoRecordsManuallyReviewed:true};
+    }
+    case 3:{
+      const form=project.form;
+      if(!["线上","线下","混合"].includes(form))fail("项目会议形式不明确，无法核对参会数据");
+      const onlineMinutes=["线上","混合"].includes(form)?Number(e.onlineMinutes):null;
+      if(onlineMinutes!==null&&!(onlineMinutes>30))
+        fail("线上/混合会议的有效讲者在线时长必须大于30分钟");
+      if(["线下","混合"].includes(form)&&
+        (e.signedAttendance!==true||!materialExists(db,pid,["签到表"],true)))
+        fail("线下/混合会议须提供签到表原件并确认签到");
+      return {...base,format:form,onlineMinutes,
+        signedAttendance:["线下","混合"].includes(form)?true:null};
+    }
+    case 4:{
+      const explicitCourse=materialExists(db,pid,["课件","串场课件"],true);
+      const hostPresent=explicitCourse?false:db.prepare(
+        "SELECT name,file_name,file_key FROM materials WHERE pid=? AND kind='串场' "+
+        "AND (deleted_at IS NULL OR deleted_at='') AND file_key IS NOT NULL AND file_key<>''"
+      ).all(pid).some(m=>/\.pptx?$/i.test(m.file_name||m.file_key||"")||
+        (/课件|演示|slides?/i.test((m.name||"")+" "+(m.file_name||""))&&/\.pdf$/i.test(m.file_name||m.file_key||"")));
+      if(!explicitCourse&&!hostPresent)fail("第四步缺少课件或串场演示课件原件","SOP_MATERIAL_MISSING");
+      if(!finalAgenda())fail("第四步缺少当前终版议程原件","SOP_MATERIAL_MISSING");
+      if(e.courseTopicsMatch!==true)
+        fail("请确认已逐项核对课件主题均包含在当前终版议程中","MANUAL_CHECK_INCOMPLETE");
+      return {...base,comparedWith:"终版议程",courseTopicsManuallyReviewed:true};
+    }
+    case 5:{
+      const source=laborSheetInfo(db,pid),pool=contractPool(db,pid);
+      if(!source.required)fail("第五步缺少劳务表原件","SOP_MATERIAL_MISSING");
+      if(!pool.rows.length)fail("第五步缺少可核对的劳务专家合同原件","SOP_PERSON_CONTRACT_MISSING");
+      if(e.laborFieldsMatch!==true)
+        fail("请确认已逐人核对劳务表与劳务专家合同的姓名、时间、角色、金额及账号","MANUAL_CHECK_INCOMPLETE");
+      return {...base,laborSourceSignature:source.signature,contractPoolSignature:pool.signature,
+        matchedContracts:pool.rows.length,matchedFields:5,laborFieldsManuallyReviewed:true,
+        accountDataStored:false};
+    }
+    case 6:{
+      const checked=validateSopEvidence(no,{
+        demandReviewed:e.demandReviewed===true,
+        meetingContractReviewed:e.meetingContractReviewed===true,
+        meetingInvoiceReviewed:e.meetingInvoiceReviewed===true
+      },project,db,invoiceAmount);
+      return {...base,...checked};
+    }
+    case 7:{
+      const checked=validateRightsEvidence(db,pid,{verifiedRights:e.verifiedRights});
+      return {...base,...checked};
+    }
+    default:throw bad("核销步骤必须为1~7");
+  }
+}
+
+module.exports = {validateSopEvidence, validateManualSopEvidence, sameNames};

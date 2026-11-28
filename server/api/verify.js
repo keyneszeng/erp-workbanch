@@ -10,7 +10,7 @@ const { readPaging, countOf } = require("../lib/paginate");
 const { storage } = require("../lib/storage");
 const { sniffMime, safeName, ALLOWED_MIME, MAX_BYTES } = require("../lib/storage");
 const { assertUploadAttachable } = require("../lib/upload-ownership");
-const { validateSopEvidence } = require("../lib/meeting-sop");
+const { validateSopEvidence, validateManualSopEvidence } = require("../lib/meeting-sop");
 const {sponsorRights}=require("../lib/sponsor-rights");
 const {buildSettlementBreakdown}=require("../lib/settlement-breakdown");
 const {settlementTotals}=require("../lib/budget-fee");
@@ -98,6 +98,8 @@ function register(router) {
 
     const { result } = ctx.body || {};
     const isAuto=ctx.body?.auto===true;
+    const isManual=ctx.body?.manual===true;
+    if(isAuto&&isManual)throw bad("一次判定不能同时选择OCR辅助和人工核验");
     // 防止绕过UI直接构造“已OCR一致”的请求；每次判定验证材料版本与缓存哈希。
     const ocrReport=isAuto?verifyOcr.verifiedReport(p.id,no,ctx.body?.scanToken):null;
     /**
@@ -113,7 +115,7 @@ function register(router) {
         "OCR比对异常/人工未认可："+(ocrReport.checks.filter(x=>x.status!=="一致").slice(0,3)
          .map(x=>x.name+"（"+x.detail+"）").join("；")||"原件复核不通过")
         :"OCR比对后由人工核验通过；OCR疑点"+ocrReport.summary.mismatch+"项，待确认"+ocrReport.summary.uncertain+"项")
-      :String(ctx.body?.remark||"");
+      :String(ctx.body?.remark|| (isManual?ctx.body?.evidence?.manualNote:"") || "");
     if (!["通过", "不通过"].includes(result)) throw bad("判定结果只能是「通过」或「不通过」");
     if (String(remark || "").length > 1000) throw bad(`问题描述不能超过 1000 字（当前 ${String(remark).length} 字）`);
     if (result === "不通过" && !String(remark || "").trim()) throw bad("判定不通过必须填写问题描述");
@@ -159,8 +161,12 @@ function register(router) {
       const snap=currentSponsorRights(db,p.id);
       validateRightsEvidence(db,p.id,{verifiedRights:snap.requiredRights.map(r=>r.id)});
     }
-    const validated=isAuto ? ocrReport.evidence : (!isDemoMode() && result==="通过"
-      ? validateSopEvidence(no,ctx.body?.evidence,p,db,invoiceAmount) : null);
+    const validated=isAuto ? ocrReport.evidence
+      : isManual ? (result==="通过"
+        ? validateManualSopEvidence(no,ctx.body?.evidence,p,db,invoiceAmount)
+        : {origin:"manual-human-review",mode:"manual",manualNote:String(ctx.body?.evidence?.manualNote||remark||"")})
+      : (!isDemoMode() && result==="通过"
+        ? validateSopEvidence(no,ctx.body?.evidence,p,db,invoiceAmount) : null);
     const at = now();
     // 重新核验仅更新当前步骤；不清除其他步骤的判定、依据或发票核对结果。
     db.prepare(
@@ -192,7 +198,7 @@ function register(router) {
       }
     }
 
-    let message = `第 ${no} 步「${def.name}」判定：${result}`;
+    let message = `第 ${no} 步「${def.name}」${isManual?"人工核验":""}判定：${result}${isManual?"（未使用 OCR）":""}`;
     let exId = "";
     let exNote = ""; // 例外单的处理说明，message 与审计共用一套措辞
     const openEx = db
@@ -240,7 +246,7 @@ function register(router) {
 
     logAudit({
       user: ctx.user, module: "会后核销", action: "结论", target: p.id,
-      detail: `第 ${no} 步「${def.name}」判定${result}${remark ? "：" + remark : ""}${exNote ? `；${exNote}` : ""}`,
+      detail: `第 ${no} 步「${def.name}」判定${result}${isManual ? "；判定方式：人工核验（未使用 OCR）" : isAuto ? "；判定方式：OCR辅助核验" : ""}${remark ? "：" + remark : ""}${exNote ? `；${exNote}` : ""}`,
       ip: ctx.ip
     });
     // 判定「不通过」会自动生成例外单（一条待审批的审批项），必须和手工提交走同一条审计口径。
@@ -251,7 +257,7 @@ function register(router) {
         detail: `${exId}（第 ${no} 步判定不通过${openEx.length ? "沿用" : "自动生成"}）：${String(remark).trim()}`, ip: ctx.ip
       });
     }
-    return { verification: verification(p.id), message };
+    return { verification: verification(p.id), message, reviewMode:isManual?"人工核验（未使用 OCR）":isAuto?"OCR辅助核验":"结构化人工核验" };
   });
 
   /** 提交例外单（补录） */
