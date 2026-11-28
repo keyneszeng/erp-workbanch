@@ -4,6 +4,9 @@ import {esc,modal,toast} from "./ui.js";
 // 数字卷宗材料下载：暂不开放「生成并下载 PPT / PDF」两个入口。
 // 原始文件包（ZIP）与水印配置保持可用；需要恢复时把此开关改为 true 即可。
 const ENABLE_GENERATED_DOCS = false;
+// 隐藏「自动关联文件与系统摘要」逐文件列表：按资料类目打包时类目即最小选择单位。
+// 恢复时改为 true，并同步把 ENABLE_GENERATED_DOCS 改回 true（逐文件勾选主要服务于 PDF/PPT）。
+const SHOW_FILE_LIST = false;
 
 /** 会议卷宗按 15 类系统目录自动汇集全部有权限的源文件，不只查询材料上传表。 */
 export function canDownloadArchivePdf(project){
@@ -44,9 +47,10 @@ export async function downloadArchivePdf(pid,button){
       '<button type="button" class="link" data-select-all>全选</button>'+
       '<button type="button" class="link" data-clear-all>清空</button></div>'+
     '<div class="material-export-options" data-archive-groups>'+groupRows+'</div>'+
-    '<div class="material-export-tools" style="margin-top:14px"><b>自动关联的文件与系统摘要</b>'+
-      '<span class="hint">已关联 '+sources.length+' 项；按资料类目自动分组打包，同类原件放入同一个压缩包</span></div>'+
-    '<div data-material-file-list class="material-export-options" style="max-height:340px;overflow:auto"></div>'+
+    (SHOW_FILE_LIST?
+      '<div class="material-export-tools" style="margin-top:14px"><b>自动关联的文件与系统摘要</b>'+
+       '<span class="hint">已关联 '+sources.length+' 项；按资料类目自动分组打包，同类原件放入同一个压缩包</span></div>'+
+      '<div data-material-file-list class="material-export-options" style="max-height:340px;overflow:auto"></div>':'')+
     (ENABLE_GENERATED_DOCS?
       '<p class="hint" style="margin:12px 0">PDF 第1页为会议封面，第2页为项目台账结算单＋分类付款对照；随后严格按预设15类优先级合并原件，类别内部沿用当前顺序，相同原件只合并一次。下载 PPT 独立生成，'+
        '第一页为会议信息、第二页为唯一的付款明细对照表；从第三页起，按当前勾选和排序逐项展示原件内容。无法渲染的文件将标注原因并保留原件。</p>':'')+
@@ -69,6 +73,7 @@ export async function downloadArchivePdf(pid,button){
    return bytes>0?' · '+(bytes/1048576).toFixed(1)+'MB'+(bytes>20*1048576?' · 将尝试压缩':''):'';
   };
   const renderFiles=()=>{
+   if(!list)return; // 逐文件列表已隐藏（按类目打包）时无需渲染
    const enabled=new Set(controls.filter(x=>x.checked).map(x=>x.value));
    const visible=ordered.filter(s=>enabled.has(s.kind));
    list.innerHTML=visible.length?visible.map(s=>
@@ -119,7 +124,8 @@ export async function downloadArchivePdf(pid,button){
   originalZip.onclick=async()=>{
    if(originalZip.disabled)return;
    const enabled=new Set(controls.filter(x=>x.checked).map(x=>x.value));
-   const originals=ordered.filter(s=>enabled.has(s.kind)&&checkedIds.has(s.source_id)&&!s.generated);
+   // 列表隐藏时按勾选类目取全部原件（类目即最小选择单位）；列表显示时尊重逐文件勾选。
+   const originals=ordered.filter(s=>enabled.has(s.kind)&&(SHOW_FILE_LIST?checkedIds.has(s.source_id):true)&&!s.generated);
    if(!originals.length){toast("请至少勾选一份真实原件（不含系统摘要）","warn");return;}
    if(originals.length>120){toast("单次最多120份原件，请分批下载","warn");return;}
    originalZip.disabled=true;originalZip.textContent="正在打包原件…";
