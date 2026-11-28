@@ -628,7 +628,7 @@ function register(router) {
   router.post("/api/projects/:id/expense-tickets/:materialId/review",async ctx=>{
     const {p,m}=expenseContext(ctx);
     const b=ctx.body||{};
-    if(b.expected_file_key!==m.file_key)throw conflict("票据原件已变化，请刷新","MATERIAL_CHANGED");
+    if(b.expected_file_key!==m.file_key||(b.expected_reviewed_at??null)!==(m.reviewed_at??null))throw conflict("票据原件或确认记录已变化，请刷新","MATERIAL_CHANGED");
     if(!["confirmed","excluded"].includes(b.state))throw bad("请选择确认报销或无需付款");
     const excluded=b.state==="excluded";
     const reason=String(b.reason||"").trim();
@@ -687,7 +687,7 @@ function register(router) {
       if(b.confirm_paid!==true)throw bad("请确认实际付款已完成");
       const option=[...require("../lib/verified-payees").options(p.id),...expense.options(p.id)].find(x=>x.id===b.payee_option_id);
       if(!option||!(Number(option.amount)>0))throw bad("收款依据不存在或已变化，请刷新付款明细");
-      if(option.source==="expense"&&(typeof b.expected_amount!=="number"||cents(b.expected_amount)!==cents(option.amount)||b.expected_payee!==option.payee||b.expected_label!==option.label))throw conflict("票据付款信息已变化，请刷新后核对","EXPENSE_CHANGED");
+      if(option.source==="expense"&&(typeof b.expected_amount!=="number"||cents(b.expected_amount)!==cents(option.amount)||b.expected_payee!==option.payee||b.expected_label!==option.label||b.expected_reviewed_at!==option.reviewed_at))throw conflict("票据付款信息已变化，请刷新后核对","EXPENSE_CHANGED");
       const norm=v=>String(v||"").normalize("NFKC").replace(/\s+/g,"").toLowerCase();
       const prior=db.prepare("SELECT id,status,payee,payee_source_id FROM payments WHERE pid=? AND status<>'已驳回'").all(p.id)
         .find(y=>y.payee_source_id===option.id||(option.source!=="expense"&&!y.payee_source_id&&norm(y.payee)===norm(option.payee)));
@@ -815,7 +815,7 @@ function register(router) {
   }
   router.post("/api/payments",ctx=>createPayment(ctx,false));
   router.post("/api/payments/direct",ctx=>createPayment(ctx,true));
-  router.post("/api/projects/:id/payments/confirm",ctx=>createPayment({...ctx,body:{pid:ctx.params.id,payee_option_id:ctx.body?.payee_option_id,confirm_paid:ctx.body?.confirm_paid,expected_amount:ctx.body?.expected_amount,expected_payee:ctx.body?.expected_payee,expected_label:ctx.body?.expected_label}},true,true));
+  router.post("/api/projects/:id/payments/confirm",ctx=>createPayment({...ctx,body:{pid:ctx.params.id,payee_option_id:ctx.body?.payee_option_id,confirm_paid:ctx.body?.confirm_paid,expected_amount:ctx.body?.expected_amount,expected_payee:ctx.body?.expected_payee,expected_label:ctx.body?.expected_label,expected_reviewed_at:ctx.body?.expected_reviewed_at}},true,true));
 
   /**
    * 补录收款账户（V1.2.18）。
