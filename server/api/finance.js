@@ -687,6 +687,7 @@ function register(router) {
       if(b.confirm_paid!==true)throw bad("请确认实际付款已完成");
       const option=[...require("../lib/verified-payees").options(p.id),...expense.options(p.id)].find(x=>x.id===b.payee_option_id);
       if(!option||!(Number(option.amount)>0))throw bad("收款依据不存在或已变化，请刷新付款明细");
+      if(option.source==="expense"&&(typeof b.expected_amount!=="number"||cents(b.expected_amount)!==cents(option.amount)||b.expected_payee!==option.payee||b.expected_label!==option.label))throw conflict("票据付款信息已变化，请刷新后核对","EXPENSE_CHANGED");
       const norm=v=>String(v||"").normalize("NFKC").replace(/\s+/g,"").toLowerCase();
       const prior=db.prepare("SELECT id,status,payee,payee_source_id FROM payments WHERE pid=? AND status<>'已驳回'").all(p.id)
         .find(y=>y.payee_source_id===option.id||(option.source!=="expense"&&!y.payee_source_id&&norm(y.payee)===norm(option.payee)));
@@ -814,7 +815,7 @@ function register(router) {
   }
   router.post("/api/payments",ctx=>createPayment(ctx,false));
   router.post("/api/payments/direct",ctx=>createPayment(ctx,true));
-  router.post("/api/projects/:id/payments/confirm",ctx=>createPayment({...ctx,body:{pid:ctx.params.id,payee_option_id:ctx.body?.payee_option_id,confirm_paid:ctx.body?.confirm_paid}},true,true));
+  router.post("/api/projects/:id/payments/confirm",ctx=>createPayment({...ctx,body:{pid:ctx.params.id,payee_option_id:ctx.body?.payee_option_id,confirm_paid:ctx.body?.confirm_paid,expected_amount:ctx.body?.expected_amount,expected_payee:ctx.body?.expected_payee,expected_label:ctx.body?.expected_label}},true,true));
 
   /**
    * 补录收款账户（V1.2.18）。
@@ -879,7 +880,7 @@ function register(router) {
     const option=[...require("../lib/verified-payees").options(p.id),...expense.options(p.id)].find(x=>x.id===ctx.query.source);
     if(!option)throw notFound("收款依据不存在或已变化");
     const labor=option.source==="labor"||String(option.label).includes("劳务专家");
-    return {payment:{pid:p.id,payee:option.payee,amount:option.amount},evidence:paymentEvidence({pid:p.id,payee:option.payee,payee_source_id:option.id,type:labor?"专家费":"学会公付"}),warning:"项目级劳务表或会务发票可能涵盖多个收款方，请核对原件。"};
+    return {payment:{pid:p.id,payee:option.payee,amount:option.amount},evidence:paymentEvidence({pid:p.id,payee:option.payee,payee_source_id:option.id,type:labor?"专家费":"学会公付"}),warning:option.source==="expense"?"请核对本笔报销原件、实际收款方及确认金额。":"项目级劳务表或会务发票可能涵盖多个收款方，请核对原件。"};
   });
   router.get("/api/payments/:id/evidence", async (ctx) => {
     const y=db.prepare("SELECT * FROM payments WHERE id=?").get(ctx.params.id);
