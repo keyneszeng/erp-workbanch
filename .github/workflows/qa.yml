@@ -47,6 +47,7 @@ jobs:
           node --input-type=module --check < web/assets/js/pages/materials.js
           node --input-type=module --check < web/assets/js/pages/demand.js
           node --check server/api/projects.js
+          node --check test/verification-retraction.test.js
           node --check server/lib/settlement-breakdown.js
           node --check test/settlement-breakdown.test.js
           node --input-type=module --check < web/assets/js/lib/settlement-breakdown.js
@@ -134,6 +135,8 @@ jobs:
           node --input-type=module --check < web/assets/js/pages/invitation-config.js
           node --input-type=module --check < web/assets/js/invitation-public.js
           node --check miniprogram/pages/invite/index.js
+      - name: Verify superadmin verification retraction and project owner re-edit
+        run: ERP_DEMO_MODE=1 node --experimental-sqlite --test test/verification-retraction.test.js
       - name: Install PDF and Word generation dependencies
         run: npm install --no-audit --no-fund
       - name: Verify Excel XLSX attendance worksheet rows, shared strings and invalid entries
