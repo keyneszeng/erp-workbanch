@@ -1,5 +1,7 @@
 "use strict";
 const { db, transaction } = require("../lib/db");
+const expense=require("../lib/expense-tickets");
+const crypto=require("node:crypto");
 const { scanContract } = require("./income");
 const { normalizedCategories } = require("../lib/sponsor-rights");
 const { linkedSponsor,ensureSponsorSignable,setSponsorStatus } = require("../lib/sponsor-ledger");
@@ -601,8 +603,51 @@ function register(router) {
   router.get("/api/projects/:id/payee-options", async ctx => {
     const p=getProject(ctx.params.id);assertProjectVisible(ctx.user,p);
     if(!can(ctx.user,"payment:create")&&!can(ctx.user,"payment:pay"))throw forbidden("无权查看收款人信息");
-    return {rows:require("../lib/verified-payees").options(p.id),
-      note:"候选来自已签署合同与第五步已核验劳务资料，敏感银行账号只显示尾号"};
+    return {rows:[...require("../lib/verified-payees").options(p.id),...expense.options(p.id)],
+      expense_tickets:expense.list(p.id),note:"候选来自已签署合同、核验劳务资料及已确认报销票据"};
+  });
+
+  function expenseContext(ctx){
+    const p=getProject(ctx.params.id);assertProjectVisible(ctx.user,p);
+    assertCan(ctx.user,"payment:pay","需要付款执行权限才能确认报销票据");
+    if(p.status!=="已核销"||settlementOf(p.id))throw conflict("仅已核销且未结算项目可确认票据","VERIFY_GATE");
+    const m=expense.list(p.id).find(x=>String(x.id)===String(ctx.params.materialId));
+    if(!m)throw notFound("报销票据不存在或不属于当前项目");
+    if(m.payment_id)throw conflict("票据已关联付款，不可修改","EXPENSE_PAID_LOCKED");
+    return {p,m};
+  }
+  router.post("/api/projects/:id/expense-tickets/:materialId/scan",async ctx=>{
+    const {m}=expenseContext(ctx);
+    const file=await storage().get(m.file_key);
+    if(!file?.buffer?.length)throw notFound("票据原件不存在");
+    const ext=m.file_key.split(".").pop(),ocr=require("../lib/ocr-engine");
+    const out=await ocr.recognize(file.buffer,ext);
+    const result=require("../lib/invoice-extract").extractInvoice(out.text,out);
+    return {amount:result.fields.amount,ticket_no:result.fields.invoiceNo,note:"OCR仅供参考，实际收款方及报销金额须人工核对原件"};
+  });
+  router.post("/api/projects/:id/expense-tickets/:materialId/review",async ctx=>{
+    const {p,m}=expenseContext(ctx);
+    const b=ctx.body||{};
+    if(b.expected_file_key!==m.file_key)throw conflict("票据原件已变化，请刷新","MATERIAL_CHANGED");
+    if(!["confirmed","excluded"].includes(b.state))throw bad("请选择确认报销或无需付款");
+    const excluded=b.state==="excluded";
+    const reason=String(b.reason||"").trim();
+    if(excluded&&(reason.length<5||reason.length>300))throw bad("无需付款必须填写5～300字原因");
+    const v=excluded?null:expense.validate(b);
+    const file=await storage().get(m.file_key);
+    if(!file?.buffer?.length)throw notFound("票据原件不存在");
+    const hash=crypto.createHash("sha256").update(file.buffer).digest("hex");
+    transaction(()=>{
+      const fresh=expenseContext(ctx).m;
+      if(fresh.file_key!==m.file_key||fresh.kind!==m.kind||fresh.reviewed_at!==m.reviewed_at)throw conflict("票据已变化，请刷新","MATERIAL_CHANGED");
+      if(!excluded)expense.assertUnique(fresh,v,hash);
+      db.prepare(`INSERT INTO expense_ticket_reviews(material_id,pid,file_key,kind,state,payee,amount,ticket_no,ticket_key,file_hash,reason,reviewed_by,reviewed_at)
+       VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(material_id) DO UPDATE SET
+       file_key=excluded.file_key,kind=excluded.kind,state=excluded.state,payee=excluded.payee,amount=excluded.amount,ticket_no=excluded.ticket_no,ticket_key=excluded.ticket_key,file_hash=excluded.file_hash,reason=excluded.reason,reviewed_by=excluded.reviewed_by,reviewed_at=excluded.reviewed_at`)
+       .run(m.id,p.id,m.file_key,m.kind,b.state,v?.payee??null,v?.amount??null,v?.ticketNo??null,v?.ticketKey??null,excluded?null:hash,excluded?reason:null,ctx.user.id,now());
+      logAudit({user:ctx.user,module:"财务结算",action:excluded?"票据无需付款":"确认报销票据",target:p.id,detail:"材料#"+m.id+" "+m.kind+(excluded?"："+reason:" ¥"+v.amount+" → "+v.payee),ip:ctx.ip});
+    });
+    return {message:excluded?"已记录无需付款原因":"票据已确认，自动生成待付款明细"};
   });
 
   /** 付款申请 —— 核销是唯一前置门 */
@@ -640,17 +685,21 @@ function register(router) {
     if(settlementOf(p.id))throw conflict("结算单已生成，不能确认付款","SETTLED");
     if(sourceConfirm){
       if(b.confirm_paid!==true)throw bad("请确认实际付款已完成");
-      const option=require("../lib/verified-payees").options(p.id).find(x=>x.id===b.payee_option_id);
+      const option=[...require("../lib/verified-payees").options(p.id),...expense.options(p.id)].find(x=>x.id===b.payee_option_id);
       if(!option||!(Number(option.amount)>0))throw bad("收款依据不存在或已变化，请刷新付款明细");
       const norm=v=>String(v||"").normalize("NFKC").replace(/\s+/g,"").toLowerCase();
       const prior=db.prepare("SELECT id,status,payee,payee_source_id FROM payments WHERE pid=? AND status<>'已驳回'").all(p.id)
-        .find(y=>y.payee_source_id===option.id||(!y.payee_source_id&&norm(y.payee)===norm(option.payee)));
+        .find(y=>y.payee_source_id===option.id||(option.source!=="expense"&&!y.payee_source_id&&norm(y.payee)===norm(option.payee)));
       if(prior)throw duplicatePaymentError(prior);
       // 金额和收款方全部由服务端的核销来源决定，不接受页面传入的金额或账户。
-      b={pid:p.id,payee_option_id:option.id,type:option.source==="labor"||String(option.label).includes("劳务专家")?"专家费":"学会公付",amount:option.amount,confirm_paid:true};
+      b={pid:p.id,payee_option_id:option.id,type:option.source==="expense"?option.type:option.source==="labor"||String(option.label).includes("劳务专家")?"专家费":"学会公付",amount:option.amount,confirm_paid:true};
     }
     if (!PAYMENT_TYPES.includes(b.type)) throw bad(`付款类型必须是：${PAYMENT_TYPES.join(" / ")}`);
-    const choice=b.payee_option_id ? require("../lib/verified-payees").resolve(p.id,b.payee_option_id) : null;
+    const ticketSource=expense.isExpenseSource(b.payee_option_id);
+    if(ticketSource&&!sourceConfirm)throw bad("报销票据请从付款明细直接确认已付款");
+    if(b.type==="其他费用"&&!ticketSource)throw bad("其他费用必须关联已确认票据");
+    const choice=b.payee_option_id ? (ticketSource?expense.resolve(p.id,b.payee_option_id):require("../lib/verified-payees").resolve(p.id,b.payee_option_id)) : null;
+    if(ticketSource)b={...b,type:choice.type,amount:choice.amount,invoice_no:choice.ticketNo,period:"票据#"+choice.materialId};
     if(!choice && !isDemoMode() && process.env.ERP_REQUIRE_VERIFIED_PAYEES==="1")
       throw bad("必须从核销确认的劳务记录或已签署合同中选择收款方");
     const payee=choice?choice.name:String(b.payee||"").trim();
@@ -667,6 +716,7 @@ function register(router) {
     // 发票属于核销材料，不是付款单字段；专家费个人报销不存在发票号。
     const invoiceNo=String(b.invoice_no||"").trim(); // Legacy API remains readable/deduplicated; new UI omits this field.
     if(invoiceNo.length>40)throw bad("发票号不能超过 40 字");
+    if(invoiceNo&&!ticketSource&&db.prepare("SELECT 1 FROM expense_ticket_reviews WHERE state='confirmed' AND ticket_key=?").get(expense.normalizeTicket(invoiceNo)))throw conflict("该票据已确认独立报销，不可重复付款","DUPLICATE_EXPENSE_TICKET");
     if (!isDemoMode()) {
       const v=verification(p.id);
       // 第 6 步新口径不校验发票金额，这里只要求该步已判定通过；
@@ -674,9 +724,9 @@ function register(router) {
       if(v.demandRequired && v.steps.find(s=>s.no===6)?.result!=="通过")
         throw conflict("存在会务需求时必须先完成第6项会务合同与发票关联核对再请款","INVOICE_CHECK_REQUIRED");
       const signed=db.prepare("SELECT COALESCE(SUM(amount),0) AS total FROM contracts WHERE pid=? AND deleted_at IS NULL AND status='已签署' AND COALESCE(category,'')<>'企业赞助'").get(p.id);
-      const allocated=db.prepare("SELECT COALESCE(SUM(amount),0) AS total FROM payments WHERE pid=? AND status IN ('待审批','已审批','已付款')").get(p.id);
+      const allocated=db.prepare("SELECT COALESCE(SUM(amount),0) AS total FROM payments WHERE pid=? AND status IN ('待审批','已审批','已付款') AND COALESCE(payee_source_id,'') NOT LIKE 'expense:%'").get(p.id);
       const requested=Number(b.amount);
-      if(Number.isFinite(requested) && cents(allocated.total)+cents(requested)>cents(signed.total))
+      if(!ticketSource&&Number.isFinite(requested) && cents(allocated.total)+cents(requested)>cents(signed.total))
         throw conflict("累计请款总额不得超过核销确认的已签署合同总额","CONTRACT_AMOUNT_EXCEEDED");
       if(choice?.source==="labor" && cents(requested)>cents(choice.amount))
         throw conflict("本笔专家费不得超过已核验的个人劳务金额","LABOR_AMOUNT_EXCEEDED");
@@ -731,6 +781,11 @@ function register(router) {
     let id;
     try{
       transaction(()=>{
+        if(ticketSource){
+          const fresh=expense.resolve(p.id,b.payee_option_id);
+          if(fresh.name!==payee||cents(fresh.amount)!==cents(amount)||fresh.ticketNo!==invoiceNo||fresh.fileKey!==choice.fileKey)throw conflict("报销票据已变化，请刷新","MATERIAL_CHANGED");
+          if(db.prepare("SELECT 1 FROM payments WHERE pid=? AND payee_source_id=? AND status<>'已驳回'").get(p.id,b.payee_option_id))throw conflict("该票据已生成付款","DUPLICATE_EXPENSE_TICKET");
+        }
         const same=findExistingPayment(p.id,b.type,payee,amount,period);
         if(same)throw duplicatePaymentError(same);
         id=nextId(db,"payments","id","PY");
@@ -796,6 +851,10 @@ function register(router) {
    * never sponsor agreements or unrelated project files.
    */
   function paymentEvidence(y){
+    if(expense.isExpenseSource(y.payee_source_id)){
+      const m=expense.list(y.pid).find(x=>x.source_id===y.payee_source_id);
+      return m?[{type:m.kind+"票据",id:m.id,name:m.name,fileKey:m.file_key,fileName:m.file_name,mime:m.file_mime}]:[];
+    }
     const selectedContract=String(y.payee_source_id||"").startsWith("contract:")?
       String(y.payee_source_id).slice(9):null;
     const contracts=selectedContract?
@@ -817,7 +876,7 @@ function register(router) {
     const p=getProject(ctx.params.id);
     assertProjectVisible(ctx.user,p);
     assertCan(ctx.user,"payment:pay","需要付款执行权限才能查看付款依据原件");
-    const option=require("../lib/verified-payees").options(p.id).find(x=>x.id===ctx.query.source);
+    const option=[...require("../lib/verified-payees").options(p.id),...expense.options(p.id)].find(x=>x.id===ctx.query.source);
     if(!option)throw notFound("收款依据不存在或已变化");
     const labor=option.source==="labor"||String(option.label).includes("劳务专家");
     return {payment:{pid:p.id,payee:option.payee,amount:option.amount},evidence:paymentEvidence({pid:p.id,payee:option.payee,payee_source_id:option.id,type:labor?"专家费":"学会公付"}),warning:"项目级劳务表或会务发票可能涵盖多个收款方，请核对原件。"};
