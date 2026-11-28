@@ -46,7 +46,7 @@ Page({
    }
    let index=projects.findIndex(x=>x.id===this.data.pid);if(index<0)index=0;
    const p=projects[index];
-   this.setData({projects,index,pid:p?.id||"",archiveAllowed:false,locked:!p||["已结算","已归档"].includes(p.status),canMaterialWrite:false,canMaterialRead:false,canContractRead:false,canMaterialReplace:false,materialMutationLocked:!p||frozenStatus(p.status),
+   this.setData({projects,index,pid:p?.id||"",archiveAllowed:false,locked:!p||p.status==="已归档",canMaterialWrite:false,canMaterialRead:false,canContractRead:false,canMaterialReplace:false,materialMutationLocked:!p||frozenStatus(p.status),
      materialRows:[],visibleFiles:[],historyKinds:[],filesLoading:!!p,contractRows:[],contractError:"",contractsLoading:false,canUploadContract:false});
    if(p){await this.loadKinds(p.id);if(this.data.contractMode&&this.data.canContractRead)await this.loadContracts(p.id);else if(this.data.kind==="权益照片"&&this.data.canMaterialWrite&&!this.data.locked)await this.loadRights(p.id);}
   }catch(e){this.setData({error:e.message});}
@@ -120,7 +120,7 @@ Page({
    const status=data.project?.status||this.data.projects[this.data.index]?.status;
    const perms=app.globalData?.perms||[];
    const canMaterialRead=data.sectionAccess?.materials===true,canContractRead=data.sectionAccess?.contracts===true;
-   const locked=!!data.settlement||["已结算","已归档"].includes(status);
+   const locked=status==="已归档";
    this.setData({archiveAllowed:status==="已归档"&&perms.includes("archive:download"),locked,materialMutationLocked:locked||frozenStatus(status),canMaterialRead,canContractRead,
     canMaterialWrite:canMaterialRead&&perms.includes("material:write"),canMaterialReplace:canMaterialRead&&perms.includes("material:file:replace"),contractMode:canContractRead&&this.data.contractMode});
    if(!canMaterialRead){this.setData({activeKinds:[],historyKinds:[],disabledKinds:[],materialRows:[],visibleFiles:[],filesLoading:false,contractMode:canContractRead,error:canContractRead?"":"当前账号无材料查看权限"});return;}
@@ -166,7 +166,7 @@ Page({
  },
  async select(e){if(this.data.busy||this.data.archiveOpen)return;this._batch=null;const index=Number(e.detail.value),p=this.data.projects[index];
   if(!p)return;
-  this.setData({archiveOpen:false,archiveSources:[],archiveAllowed:false,index,pid:p.id,locked:["已结算","已归档"].includes(p.status),materialMutationLocked:frozenStatus(p.status),canMaterialWrite:false,canMaterialRead:false,canMaterialReplace:false,canContractRead:false,uploaded:"",
+  this.setData({archiveOpen:false,archiveSources:[],archiveAllowed:false,index,pid:p.id,locked:p.status==="已归档",materialMutationLocked:frozenStatus(p.status),canMaterialWrite:false,canMaterialRead:false,canMaterialReplace:false,canContractRead:false,uploaded:"",
    batchResults:[],speakerFiles:[],materialRows:[],visibleFiles:[],activeKinds:[],historyKinds:[],disabledKinds:[],categoryDisabled:false,contractRows:[],contractError:"",contractsLoading:false,canUploadContract:false,contractDraft:emptyContract(),contractNotice:""});
   await this.loadKinds(p.id);
   if(this.data.pid!==p.id)return;
@@ -361,7 +361,7 @@ Page({
   return app.api("/uploads?pid="+encodeURIComponent(pid),"POST",raw,{"Content-Type":"application/octet-stream","X-File-Name":encodeURIComponent(name)});
  },
  async replaceOriginal(e){
-  if(this.data.busy||this.data.locked||this.data.materialMutationLocked)return;
+  if(this.data.busy||this.data.locked)return;
   const pid=this.data.pid,contract=this.data.contractMode?this.contractRow(e):null;
   const item=contract?(contract.canReplace?{id:contract.materialId,file_key:contract.fileKey,kind:"合同"}:null):
     (this.data.canMaterialReplace?this.data.visibleFiles.find(x=>Number(x.id)===Number(e.currentTarget.dataset.id)):null);

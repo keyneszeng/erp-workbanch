@@ -741,3 +741,16 @@ test("小程序相册分三轮累计50张照片，逐份登记且51张拒绝",as
  await over.page.addFile();
  assert.match(over.page.data.error,/50/);
 });
+
+
+test("已结算但未归档项目仍可录入及修改普通材料",async()=>{
+ const {page}=mockMaterialsPage([],async(url)=>{
+  if(url==="/projects/MP-2026-001")return {project:{id:"MP-2026-001",status:"已结算"},settlement:{id:"ST-1"},sectionAccess:{materials:true},materialsStatus:{categoryCatalog:{active:["课件"],history:[],disabled:[]}},materials:[]};
+  throw Error("Unexpected API: "+url);
+ });
+ await page.loadKinds("MP-2026-001");
+ assert.equal(page.data.locked,false);
+ assert.equal(page.data.canMaterialWrite,true);
+ assert.equal(page.data.canMaterialReplace,true);
+ assert.equal(page.data.materialMutationLocked,true,"删除仍按原财务控制");
+});

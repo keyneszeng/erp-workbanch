@@ -55,11 +55,11 @@ async function renderOne(root, pid) {
   const d = await api.get(`/api/projects/${pid}/verify`);
   const p = d.project;
   const v = d.verification;
-  const frozen = !!d.settlement;
+  const frozen = p.status==='已归档'||!!d.settlement&&!d.prearchiveRecheck;
   // 任何一份有效上传原件满足最低材料门槛；七项核销的适用检查和财务审批另行完成
   const materialReady = d.materialsStatus.ok;
   const canJudge = can("verify:check") && !frozen && materialReady
-    && (p.status === "待核销" || (p.status === "已核销" && state.super));
+    && (p.status === "待核销" || (p.status === "已核销" && state.super) || (p.status==="已结算"&&d.prearchiveRecheck));
 
   root.innerHTML = `
   <div class="crumb"><a data-go="verify">核销看板</a> / <span class="mono">${p.id}</span></div>
@@ -95,7 +95,7 @@ async function renderOne(root, pid) {
           ${canJudge && s.required!==false && s.result !== "待判定" ? `<button class="btn btn-o btn-sm" data-judge="${s.no}">重新判定</button>` : ""}
         </div></div>`;
     }).join("")}</div>
-    ${frozen ? '<div class="gate ok" style="margin-top:12px"><b>结论已冻结</b>结算单已生成，核销结论不可修改。</div>' : ""}
+    ${frozen ? '<div class="gate ok" style="margin-top:12px"><b>结论已冻结</b>当前核销结论已封存；归档前修改核销依据后将开启复核。</div>' : ""}
     ${!["待核销", "已核销"].includes(p.status) ? `<div class="gate" style="margin-top:12px"><b>当前状态不可判定</b>只有「待核销」项目可判定，当前为「${p.status}」。</div>` : ""}
   </div>
 

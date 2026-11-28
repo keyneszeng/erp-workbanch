@@ -4,7 +4,7 @@ const {nextMeetingId}=require("../lib/meeting-codes");
 const { now, nextId, bad, notFound, conflict, forbidden, cents, yuan } = require("../lib/util");
 const { assertCan, assertModule, assertProjectVisible, can, isSuper, hasModule, scopeFilter, ROLES, canReadProjects } = require("../lib/rbac");
 const { logAudit } = require("../lib/audit");
-const { getProject, verification, materialsStatus, settlementOf, demandSummary, assertNotFrozen, committed, availableActions, transition } = require("../lib/workflow");
+const { getProject, verification, materialsStatus, settlementOf, demandSummary, assertNotFrozen, prearchiveRecheck, committed, availableActions, transition } = require("../lib/workflow");
 const { ASSOCS, FORMS, DEPTS } = require("../lib/constants");
 const { readPaging, countOf } = require("../lib/paginate");
 const { isDemoMode } = require("../lib/runtime");
@@ -254,6 +254,7 @@ function detail(project, user) {
     sponsorRights:viewContracts?require("../lib/sponsor-rights").sponsorRights(db,pid):{required:false,contracts:[],rights:[],photos:[],activeContracts:[]},
     materialsStatus: viewMaterials?materialsStatus(pid):{uploadedCount:0,ok:false,missing:[]},
     settlement: viewFinance?settlement:null,
+    prearchiveRecheck:project.status==='已结算'&&prearchiveRecheck(pid),
     settlementBreakdown: viewFinance&&settlement ? buildSettlementBreakdown(settlement,project,payments) : null,
     // 核销第 6 项的费用对照基准。项目详情页的核销页签读的是这个接口，
     // 之前只在 /verify 里返回，导致同一个第 3 步在两个页面给出不同答案。
@@ -356,9 +357,7 @@ function register(router) {
       if (p.status === "已归档") throw conflict("已归档项目资料已封存，不可修改");
       // 已结算 = 账目封账，结算单已按当时的预算与合同算完。
       // 此处若不拦，改完预算就和结算单永久对不上了（原来只拦了「已归档」）。
-      if (p.status === "已结算") {
-        throw conflict("已结算项目账目已封账，不可修改资料；如需纠错请联系总管理员", "FROZEN", { status: p.status });
-      }
+      // 非金额项目资料在归档前可以修改。
     }
     const b = ctx.body || {};
     if ("owner_id" in b) {
@@ -378,7 +377,7 @@ function register(router) {
 
     // 金额类字段是结算单的计算基准，已结算 / 已归档后改动会让账实不符。
     // 保留总管理员的纠错能力，但必须显式带 force，和付款超预算的特批口径一致。
-    if (["已结算", "已归档"].includes(p.status)) {
+    if (["已结算", "已归档"].includes(p.status)||settlementOf(p.id)) {
       const touched = MONEY_FIELDS.filter((k) => k in b && Number(b[k]) !== Number(p[k]));
       if (touched.length) {
         if (!(b.force && isSuper(ctx.user))) {

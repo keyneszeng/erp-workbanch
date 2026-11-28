@@ -41,7 +41,7 @@
       <view class="material-stat"><text class="material-stat-value">{{materialStats.uploaded}}</text><text>已上传原件</text></view>
       <view class="material-stat"><text class="material-stat-value">{{materialStats.kinds}}</text><text>材料类别</text></view>
     </view>
-    <view wx:if="{{locked}}" class="lock-banner"><view class="lock-mark">锁</view><view class="grow"><view class="title">材料已冻结</view><view class="muted">项目已结算或归档，仅可查阅已上传原件，不可上传或删除。</view></view></view>
+    <view wx:if="{{locked}}" class="lock-banner"><view class="lock-mark">锁</view><view class="grow"><view class="title">材料已冻结</view><view class="muted">项目已归档，仅可查阅已上传原件，不可上传或修改。</view></view></view>
   </view>
 
   <view wx:if="{{archiveAllowed}}" class="card">
@@ -213,7 +213,7 @@
             <view wx:if="{{!item.file_key}}" class="muted">暂无原件</view>
           </view>
           <button wx:if="{{item.file_key}}" size="mini" class="btn ghost" data-id="{{item.id}}" catchtap="openMaterialOriginal">查看原件</button>
-          <button wx:if="{{item.file_key&&!item.contractEvidence&&canMaterialReplace&&!materialMutationLocked}}" size="mini" class="btn ghost" data-id="{{item.id}}" disabled="{{busy}}" catchtap="replaceOriginal">修改</button>
+          <button wx:if="{{item.file_key&&!item.contractEvidence&&canMaterialReplace&&!locked}}" size="mini" class="btn ghost" data-id="{{item.id}}" disabled="{{busy}}" catchtap="replaceOriginal">修改</button>
           <button wx:if="{{!item.contractEvidence&&canMaterialWrite&&!materialMutationLocked}}" type="warn" size="mini" class="uploaded-file-delete"
             data-id="{{item.id}}" disabled="{{busy}}" loading="{{deletingId===item.id}}"
             catchtap="removeUploaded">删除</button>

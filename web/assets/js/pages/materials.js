@@ -6,8 +6,8 @@ import { openContractMaterialReplace } from "../lib/contract-material-replace.js
 
 const PAGE_SIZE = 50;
 const RETIRED_KINDS=new Set(["合同","会务协议","劳务协议","企业赞助合同","赞助合同","劳务专家合同","专家劳务协议","劳务合同","会务合同"]);
-// 与项目详情页/小程序/后端一致：结算或归档后冻结；权限依然单独校验。
-const canUploadAtStatus=status=>!["已结算","已归档"].includes(status);
+// 与项目详情页/小程序/后端一致：归档后冻结；权限依然单独校验。
+const canUploadAtStatus=status=>status!=="已归档";
 let curPage = 1;
 let lastProject = "";
 let projectSearch = "";
@@ -110,7 +110,7 @@ export async function render(root, params = []) {
                 : '<a href="' + fileUrl(m.file_key) + '" target="_blank" rel="noopener"><img class="thumb" src="' + fileUrl(m.file_key) + '" alt="查看材料图片"></a>')
             : '<span class="hint">—</span>',
           esc(m.version || ""), esc(m.uploader || ""), '<span class="mono">' + esc(m.created_at) + '</span>',
-          (can("material:file:replace") && m.file_key && !["已核销", "已结算", "已归档"].includes(project.status)
+          (can("material:file:replace") && m.file_key && project.status!=="已归档"&&(!RETIRED_KINDS.has(m.kind)||!["已核销","已结算"].includes(project.status))
             ? '<button type="button" class="link" data-replace-material="' + Number(m.id) + '">修改</button>' : "") || "—"
         ]})), {empty:"该项目尚未收集材料"}) +
       pager(d, {unit:"份材料"}) + '</div>';
@@ -142,7 +142,7 @@ export function openMaterialRegistration(root, projects, kinds, defaultPid="", o
     toast("企业赞助合同、会务协议和劳务协议请在合同模块录入，不能从材料收集新增","warn");return;
   }
   if(!projects.length){
-    toast("当前没有可登记材料的项目（已结算、已归档项目不允许新增材料）","warn");
+    toast("当前没有可登记材料的项目（已归档项目不允许新增材料）","warn");
     return;
   }
   const allowedKinds=(kinds||[]).filter(kind=>!RETIRED_KINDS.has(kind));

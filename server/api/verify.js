@@ -4,7 +4,7 @@ const { now, nextId, bad, notFound, conflict, forbidden, yuan, cents } = require
 const { isDemoMode } = require("../lib/runtime");
 const { assertCan, assertModule, assertProjectVisible, isSuper } = require("../lib/rbac");
 const { logAudit } = require("../lib/audit");
-const { getProject, verification, materialsStatus, settlementOf, demandSummary } = require("../lib/workflow");
+const { getProject, verification, materialsStatus, settlementOf, demandSummary, assertNotArchived, prearchiveRecheck, recordMaterialRecheck } = require("../lib/workflow");
 const { MATERIAL_KINDS, RETIRED_MATERIAL_KINDS, MATERIAL_MODULE_KINDS, canonicalMaterialKind } = require("../lib/constants");
 const { readPaging, countOf } = require("../lib/paginate");
 const { storage } = require("../lib/storage");
@@ -16,7 +16,7 @@ const {buildSettlementBreakdown}=require("../lib/settlement-breakdown");
 const {settlementTotals}=require("../lib/budget-fee");
 const verifyOcr=require("../lib/verify-ocr-compare");
 const {photoName}=require("../lib/verify-agenda-evidence");
-const {detachDeletedMaterialEvidence,evidenceReferencesDeleted}=require("../lib/deleted-material-cleanup");
+const {detachDeletedMaterialEvidence,evidenceReferencesDeleted,dependentSteps}=require("../lib/deleted-material-cleanup");
 const {sponsorRights:currentSponsorRights,validateRightsEvidence}=require("../lib/sponsor-rights");
 let scanningVerification=false;
 
@@ -42,6 +42,7 @@ function register(router) {
       verification: verification(p.id),
       materialsStatus: materialsStatus(p.id),
       settlement: settlementOf(p.id),
+      prearchiveRecheck:p.status==='已结算'&&prearchiveRecheck(p.id),
       materials,
       contracts,
       payments,
@@ -84,8 +85,9 @@ function register(router) {
     const no = Number(ctx.params.no);
     if (!(no >= 1 && no <= 7)) throw bad("步骤编号应为 1~7");
     const settled = settlementOf(p.id);
-    if (settled && !isSuper(ctx.user)) throw conflict("结算单已生成，核销结论已冻结，不可修改", "FROZEN");
-    if (!["待核销"].includes(p.status) && !(p.status === "已核销" && isSuper(ctx.user))) {
+    const recheck=p.status==="已结算"&&prearchiveRecheck(p.id);
+    if (settled && !recheck && !isSuper(ctx.user)) throw conflict("结算单已生成，核销结论已冻结，不可修改", "FROZEN");
+    if (!["待核销"].includes(p.status) && !(p.status === "已核销" && isSuper(ctx.user))&&!recheck) {
       throw conflict(`当前状态「${p.status}」不可判定核销，只有「待核销」项目可判定`, "ILLEGAL_STATE", { status: p.status });
     }
     // 不再核验固定材料类别齐备度。任何一份上传原件即可解锁核销入口。
@@ -277,10 +279,10 @@ function register(router) {
 
     // 例外单是核销环节的产物。核销还没开始（草稿 / 待审批 / 已立项 / 筹备中 / 执行中）
     // 就提例外，只会生成一张永远没机会处理的审批单，把审批中心搅浑。
-    if (["已结算", "已归档"].includes(p.status)) {
+    if (p.status==="已归档"||p.status==="已结算"&&!prearchiveRecheck(p.id)) {
       throw conflict(`项目已「${p.status}」，核销结论已冻结，不可再提交例外单`, "FROZEN", { status: p.status });
     }
-    if (!["待核销", "已核销"].includes(p.status)) {
+    if (!["待核销", "已核销"].includes(p.status)&&!(p.status==="已结算"&&prearchiveRecheck(p.id))) {
       throw conflict(
         `「${p.status}」阶段还不能提交核销例外单，只有「待核销」「已核销」项目可提交`,
         "ILLEGAL_STATE", { status: p.status }
@@ -340,7 +342,8 @@ function register(router) {
     const p=getProject(ex.pid);
     assertProjectVisible(ctx.user,p);
     assertCan(ctx.user,"verify:exception","当前角色无例外处理权限");
-    if (settlementOf(p.id)) throw conflict("财务结算已完成，禁止补改例外记录", "FROZEN");
+    assertNotArchived(p,"例外记录");
+    if (settlementOf(p.id)&&!prearchiveRecheck(p.id)) throw conflict("财务结算已完成，禁止补改例外记录", "FROZEN");
     if(ex.status!=="待复核") throw conflict("只有审批后待复核例外可填写处理结果","EXCEPTION_NOT_READY");
     const resolution=String(ctx.body?.resolution||"").trim();
     if(resolution.length<4||resolution.length>500)throw bad("处理结果需填写 4～500 字");
@@ -363,7 +366,8 @@ function register(router) {
     const p=getProject(ex.pid);
     assertProjectVisible(ctx.user,p);
     assertCan(ctx.user,"verify:exception_approve","仅核销审核人可确认整体性例外闭环");
-    if(settlementOf(p.id))throw conflict("项目已结算，核销例外已冻结","FROZEN");
+    assertNotArchived(p,"例外记录");
+    if(settlementOf(p.id)&&!prearchiveRecheck(p.id))throw conflict("项目已结算，核销例外已冻结","FROZEN");
     if(Number(ex.step_no)!==0)throw conflict("七步内例外必须返回原步骤复核，不得直接关闭","RECHECK_REQUIRED");
     if(ex.status!=="待复核"||!ex.resolved_at||!ex.evidence_material_id)
       throw conflict("例外处理人未提交证据与处理结果","EXCEPTION_REMEDIATION_REQUIRED");
@@ -440,7 +444,7 @@ function register(router) {
     assertProjectVisible(ctx.user, p);
     assertCan(ctx.user, "material:write", "当前角色无材料登记权限");
     if (p.status === "已归档") throw conflict("项目已归档，材料清单已封存，不可再登记", "ARCHIVED", { status: p.status });
-    if (settlementOf(p.id)) throw conflict("结算单已生成，材料证据已冻结，不可追加或修改", "FROZEN");
+    // Ordinary evidence is writable until project archive.
     const { kind: rawKind, name, version, file_key, file_name, file_size, file_mime, sponsor_right_id } = ctx.body || {};
     // 材料类别全部自选；推荐类目仅供快速选择，不影响推进权限。
     const kind = canonicalMaterialKind(String(rawKind || "").trim());
@@ -498,6 +502,8 @@ function register(router) {
     // 上传新的终版议程时，旧的终版原件自动降为历史版（保留证据和原始文件）。
     // 数据更新同事务完成，确保一个项目不会因中途失败出现两个当前终版版本。
     transaction(() => {
+      assertNotArchived(getProject(p.id),"会议材料");
+      const before=["已核销","已结算"].includes(p.status)?verification(p.id):null;
       if (finalAgenda)
         db.prepare("UPDATE materials SET version='历史版' WHERE pid=? AND kind='终版议程' AND version='终版' AND deleted_at IS NULL")
           .run(p.id);
@@ -510,6 +516,7 @@ function register(router) {
         fk ? Number(file_size) || null : null, fk ? String(file_mime || "").slice(0, 60) : null,
         sponsorRightId
       );
+      if(before&&fk)recordMaterialRecheck(p,dependentSteps(kind),before,ctx.user,"归档前补录："+kind+" · "+materialName);
     });
 
     logAudit({
@@ -533,8 +540,9 @@ function register(router) {
     assertCan(ctx.user,"material:file:replace","没有合同及材料修改授权，请联系总管理员在用户与权限中开通");
     if(!m.file_key)throw bad("该材料尚未上传原件，请先登记文件");
     if(db.prepare("SELECT 1 FROM payments WHERE pid=? AND payee_source_id=? AND status<>'已驳回'").get(m.pid,"expense:"+m.id))throw conflict("票据已关联付款，不允许替换","EXPENSE_PAID_LOCKED");
-    if(["已核销","已结算","已归档"].includes(p.status)||settlementOf(p.id))
-      throw conflict("项目已核销、结算或归档，合同材料已冻结，不允许替换","FROZEN");
+    assertNotArchived(p,"会议材料");
+    const financialContract=/合同|协议/.test(m.kind)||!!db.prepare("SELECT 1 FROM contracts WHERE pid=? AND file_key=? AND deleted_at IS NULL").get(p.id,m.file_key)||!!db.prepare("SELECT 1 FROM meeting_sponsor_contracts WHERE pid=? AND file_key=?").get(p.id,m.file_key);
+    if(financialContract&&(["已核销","已结算"].includes(p.status)||settlementOf(p.id)))throw conflict("已核销或结算合同原件须通过合同及财务更正办理","FROZEN");
     const body=ctx.body||{}, oldKey=String(m.file_key);
     const expected=String(body.expected_file_key||"");
     if(expected!==oldKey)throw conflict("材料文件已被其他人更新，请刷新页面后重试","MATERIAL_CHANGED");
@@ -557,11 +565,17 @@ function register(router) {
       const current=db.prepare("SELECT file_key,kind,deleted_at FROM materials WHERE id=?").get(id);
       if(!current||current.deleted_at||current.kind!==m.kind||current.file_key!==oldKey)
         throw conflict("原合同材料在上传期间已发生变化，请刷新后重试","MATERIAL_CHANGED");
-      if(settlementOf(p.id)||["已核销","已结算","已归档"].includes(getProject(p.id).status))
-        throw conflict("项目状态发生变化，合同材料不可替换","FROZEN");
+      const latest=getProject(p.id);
+      assertNotArchived(latest,"会议材料");
+      if(financialContract&&(["已核销","已结算"].includes(latest.status)||settlementOf(p.id)))throw conflict("合同已进入财务核验，须先办理更正","FROZEN");
+      if(db.prepare("SELECT 1 FROM payments WHERE pid=? AND payee_source_id=? AND status<>'已驳回'").get(m.pid,"expense:"+m.id))throw conflict("票据已关联付款，不允许替换","EXPENSE_PAID_LOCKED");
+      const before=["已核销","已结算"].includes(latest.status)?verification(p.id):null;
+      const prior=before?db.prepare("SELECT * FROM materials WHERE id=?").get(id):null;
       assertUploadAttachable(newKey,p.id,ctx.user);
       const linked=m.kind==="合同"?db.prepare("SELECT id,status FROM contracts WHERE pid=? AND file_key=? AND deleted_at IS NULL").all(p.id,oldKey):[];
       if(linked.length>1)throw conflict("旧原件关联多个合同，必须由管理员人工处理","SHARED_CONTRACT_FILE");
+      if(prior)db.prepare("INSERT INTO materials(pid,kind,name,version,uploader,created_at,file_key,file_name,file_size,file_mime,sponsor_right_id,deleted_at,deleted_by) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)")
+        .run(prior.pid,prior.kind,prior.name,prior.version,prior.uploader,prior.created_at,prior.file_key,prior.file_name,prior.file_size,prior.file_mime,prior.sponsor_right_id,at,"归档前原件修订");
       db.prepare("UPDATE materials SET file_key=?,file_name=?,file_size=?,file_mime=? WHERE id=?")
         .run(newKey,filename,fileSize,mime,id);
       if(linked.length){
@@ -584,7 +598,11 @@ function register(router) {
         "合同":[5,6],"会务协议":[6],"发票":[6],"会务发票":[6],
         "权益照片":[7]
       };
-      const affected=stepsByKind[m.kind]||[];
+      const affected=[...new Set([...(stepsByKind[m.kind]||[]),...dependentSteps(m.kind)])];
+      if(before){
+        const explicit=before.steps.filter(s=>evidenceReferencesDeleted(s.evidence,new Set([id]),new Set([oldKey]))).map(s=>s.no);
+        recordMaterialRecheck(latest,[...affected,...explicit],{material:prior,verification:before},ctx.user,"归档前替换："+m.name);
+      }
       // 不在合同签署环节以外隐式继承旧核验：只重置与当前材料关联的步骤。
       if(affected.length){
         const placeholders=affected.map(()=>"?").join(",");
@@ -602,7 +620,7 @@ function register(router) {
         "UNION SELECT 1 FROM project_notices WHERE template_key=?"
       ).get(oldKey,oldKey,oldKey,oldKey,oldKey,oldKey,oldKey);
       if(!refs)db.prepare("DELETE FROM uploaded_files WHERE file_key=?").run(oldKey);
-      return {linkedContract:linked[0]?.id||null,canDelete:!refs,oldKey,affected:stepsByKind[m.kind]||[]};
+      return {linkedContract:linked[0]?.id||null,canDelete:!refs,oldKey,affected};
     });
     let oldDeleted=false,warning="";
     if(cleanup.canDelete){

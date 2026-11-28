@@ -152,6 +152,21 @@ function demandSummary(pid) {
  * 但结算单存在与否是硬事实。材料删除、需求单、项目成员等
  * 「结算后不该再动」的写操作统一走这里，避免每个接口各写一套判断。
  */
+function assertNotArchived(p,what="会议资料"){
+ if(p.status==="已归档")throw conflict(`项目已归档，${what}已封存，不可修改`,"ARCHIVED",{status:p.status});
+}
+function prearchiveRecheck(pid){
+ return !!db.prepare("SELECT 1 FROM admin_content_revisions WHERE pid=? AND entity_type='prearchive_material_recheck' LIMIT 1").get(pid);
+}
+function recordMaterialRecheck(p,steps,before,user,reason){
+ const affected=[...new Set(steps)].filter(n=>Number.isInteger(n)&&n>=1&&n<=7);
+ if(!affected.length||!["已核销","已结算"].includes(p.status))return;
+ const at=now();
+ db.prepare("INSERT INTO admin_content_revisions(pid,entity_type,record_id,reason,before_json,after_json,changed_by,changed_at) VALUES (?,?,?,?,?,?,?,?)")
+  .run(p.id,"prearchive_material_recheck",p.id,reason,JSON.stringify(before),JSON.stringify({steps:affected,settlementPreserved:!!settlementOf(p.id)}),user.name,at);
+ for(const no of affected)db.prepare("UPDATE verify_steps SET result='待判定',remark='归档前资料变更，请重新核验',evidence_json=NULL,invoice_amount=NULL,checked_by=NULL,checked_at=NULL WHERE pid=? AND step_no=?").run(p.id,no);
+ if(p.status==="已核销"&&!settlementOf(p.id))db.prepare("UPDATE projects SET status='待核销',updated_at=?,status_at=? WHERE id=?").run(at,at,p.id);
+}
 function assertNotFrozen(p, what = "业务数据") {
   if (p.status === "已归档") {
     throw conflict(`项目已归档，${what}已封存，不可修改`, "ARCHIVED", { status: p.status });
@@ -227,6 +242,8 @@ const GUARDS = {
     const m = materialsStatus(p.id);
     if (!m.ok) return "归档前至少保留一份已上传材料附件";
     if (!settlementOf(p.id)) return "结算单未生成，不能归档";
+    if(prearchiveRecheck(p.id)&&!verification(p.id).complete)return "归档前资料已变更，请完成相关核销复核后再归档";
+    if(require("./expense-tickets").pending(p.id))return "存在尚未确认或付款的报销票据，请先办理财务更正再归档";
     const pending = db
       .prepare("SELECT COUNT(*) AS c FROM payments WHERE pid = ? AND status IN ('待审批','已审批')")
       .get(p.id).c;
@@ -417,4 +434,4 @@ function grantFinanceMember(p, user, ip) {
   });
 }
 
-module.exports = { getProject, verification, materialsStatus, settlementOf, demandSummary, assertNotFrozen, committed, availableActions, transition, GUARDS };
+module.exports = { getProject, verification, materialsStatus, settlementOf, demandSummary, assertNotArchived, assertNotFrozen, prearchiveRecheck, recordMaterialRecheck, committed, availableActions, transition, GUARDS };

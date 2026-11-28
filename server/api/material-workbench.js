@@ -1,7 +1,7 @@
 "use strict";
 const { db } = require("../lib/db");
 const { now, bad, notFound, conflict } = require("../lib/util");
-const { getProject, assertNotFrozen, materialsStatus } = require("../lib/workflow");
+const { getProject, assertNotArchived, materialsStatus } = require("../lib/workflow");
 const { assertProjectVisible, assertCan, assertModule } = require("../lib/rbac");
 const { MATERIAL_MODULE_KINDS, MATERIAL_KINDS, canonicalMaterialKind } = require("../lib/constants");
 const { logAudit } = require("../lib/audit");
@@ -48,7 +48,7 @@ function taskRows(pid) {
 function assertWritable(ctx,p){
   assertProjectVisible(ctx.user,p);
   assertCan(ctx.user,"material:write","无材料管理权限");
-  assertNotFrozen(p,"材料模块与待办",ctx.user,ctx.ip);
+  assertNotArchived(p,"材料模块与待办");
 }
 function register(router) {
   router.get("/api/projects/:id/material-workbench",async ctx=>{

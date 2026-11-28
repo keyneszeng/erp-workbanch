@@ -45,7 +45,7 @@ export async function render(root, [pid]) {
     TABS.filter(([key])=>key==="overview" || (key==="payments"?sections.finance:
       key==="timeline"?sections.audit:!!sections[key]));
   if (!visibleTabs.some(([k])=>k===tab)) tab="overview";
-  const canEdit = can("project:edit") && !["已结算", "已归档"].includes(p.status);
+  const canEdit = can("project:edit") && p.status!=="已归档";
 
   root.innerHTML = `
   <div class="crumb"><a data-go="projects">会议项目</a> / 会议编号：<span class="mono">${esc(p.id)}</span></div>
@@ -233,7 +233,7 @@ function tabOverview(d, p) {
         ? `<div class="gate ok"><b>结算单 ${settle.id} 已生成</b>
              项目预算 ¥${money(settle.income)} · 已付支出 ¥${money(settle.expense)} · 预算结余 ¥${money(settle.profit)}（${settle.created_at}）
            </div>`
-        : `<div class="gate"><b>结算单未生成</b>适用核销项通过后，财务可在核销通过后直接登记付款并上传银行回单，完成金额核对后才能结算；生成后资料冻结。</div>`}</div>
+        : `<div class="gate"><b>结算单未生成</b>适用核销项通过后，财务可在核销通过后直接登记付款并上传银行回单，完成金额核对后才能结算；生成后金额封账，会议材料可维护至归档。</div>`}</div>
       <div style="margin-top:10px">${PAYABLE.includes(p.status)
         ? `<div class="gate ok"><b>付款门禁已放行</b>项目已完成核销，财务人员可直接登记已付款并上传回单。</div>`
         : `<div class="gate"><b>付款门禁锁定</b>当前状态「${p.status}」，适用核销项全部通过（已核销）后才可付款${p.status === "已结算" ? "；结算后账目已封账" : p.status === "已归档" ? "；归档后卷宗已封存" : ""}。</div>`}</div>
@@ -412,7 +412,7 @@ function tabPayments(d, p) {
 /* ---------------- 核销 ---------------- */
 function tabVerify(d, p) {
   const v = d.verification;
-  const frozen = !!d.settlement;
+  const frozen = p.status==='已归档'||!!d.settlement&&!d.prearchiveRecheck;
   const ms = d.materialsStatus;
   // 核销入口只要求项目上传至少一份任意类别的材料附件。
   const materialReady = ms.ok;
@@ -425,7 +425,7 @@ function tabVerify(d, p) {
     `<div class="vsteps">${v.steps.map((s) => {
       const cls = s.required === false ? "s-na" : s.result === "通过" || s.result === "已解例外" ? "s-pass" : s.result === "不通过" ? "s-fail" : "s-wait";
       const canJudge = can("verify:check") && !frozen && materialReady
-        && (p.status === "待核销" || (p.status === "已核销" && state.super));
+        && (p.status === "待核销" || (p.status === "已核销" && state.super) || (p.status==="已结算"&&d.prearchiveRecheck));
       return `<div class="vstep ${cls}">
         <div class="vh"><span class="no">${s.no}</span><span class="nm">${esc(s.name)}</span>
           <span class="who">${esc(s.who)}</span></div>
@@ -439,7 +439,7 @@ function tabVerify(d, p) {
           ${canJudge && s.required!==false && s.result !== "待判定" ? `<button class="btn btn-o btn-sm" data-judge="${s.no}">重新判定</button>` : ""}
         </div></div>`;
     }).join("")}</div>
-    ${frozen ? '<div class="gate ok" style="margin-top:12px"><b>结论已冻结</b>结算单已生成，核销结论不可修改。</div>' : ""}
+    ${frozen ? '<div class="gate ok" style="margin-top:12px"><b>结论已冻结</b>当前核销结论已封存；归档前修改核销依据后将开启复核。</div>' : ""}
     ${p.status !== "待核销" && p.status !== "已核销" ? `<div class="gate" style="margin-top:12px"><b>当前状态不可判定</b>「${p.status}」项目需进入「待核销」后才能判定。</div>` : ""}`)}
 
   ${panel("例外单", `${v.exceptions.length} 张`, table(
@@ -472,7 +472,7 @@ function tabMaterials(d, p) {
     (recommended.includes("课件")?"课件":recommended[0]||otherKinds[0]||"课件");
   const allKinds=[...new Set([...(ms.categoryCatalog?.all||[...recommended,...otherKinds]),...(selected&&!unavailable.has(selected)?[selected]:[])])];
   const current=validMaterials.filter(m=>m.kind===selected);
-  const writable=can("material:write")&&!d.settlement&&!["已结算","已归档"].includes(p.status)&&
+  const writable=can("material:write")&&p.status!=="已归档"&&
     !unavailable.has(selected)&&!retiredKinds.has(selected);
   const contractShortcut=d.sectionAccess?.contracts
     ? '<button type="button" class="material-kind-chip" data-goto-tab="contracts" aria-label="查看本会议合同目录">合同 <span class="hint">查看合同目录</span></button>'
@@ -492,14 +492,14 @@ function tabMaterials(d, p) {
     <div class="material-kind-panel" aria-label="材料类别选择">
       <div class="material-kind-heading">材料收集类别 · 点击类别上传资料</div>
       <div class="material-kind-chips">${contractShortcut}${kindButtons}</div>
-      ${can("material:write")&&!d.settlement&&!["已结算","已归档"].includes(p.status)?
+      ${can("material:write")&&p.status!=="已归档"?
         '<div class="material-custom"><input data-material-custom maxlength="20" placeholder="其他材料类别（可自定义，20 字以内）" aria-label="自定义材料类别">'+
         '<button class="btn btn-o btn-sm" data-material-custom-apply>选择自定义类别</button></div>':""}
       <div class="material-kind-selected"><b>当前类别：${esc(selected)}</b><span>已收集 ${current.length} 份</span></div>
       ${selected==="权益照片"?'<p class="hint">权益照片需关联已签赞助合同对应的权益二级类目。</p>':""}
       ${selected==="讲者照片"?'<p class="hint">讲者照片请用讲者姓名命名文件（例如：张三.jpg），以便核销识别。</p>':""}
       ${selected==="终版议程"?'<p class="hint">批量选择议程时，最后一份作为当前终版，其余保留为历史版。</p>':""}
-      <div class="material-kind-actions"><span class="hint">${unavailable.has(selected)?"当前材料类别已停用，仅可查看历史附件":writable?"点击材料类别即可直接上传资料（每批最多10份）":"当前项目仅可查看已收集材料"}</span></div>
+      <div class="material-kind-actions"><span class="hint">${unavailable.has(selected)?"当前材料类别已停用，仅可查看历史附件":writable?"点击材料类别即可直接上传资料（照片每批最多50张，普通文件10份）":"当前项目仅可查看已收集材料"}</span></div>
     </div>
     ${table([{ t: "类别", w: "104px" }, { t: "材料名称" }, { t: "附件", w: "84px" }, { t: "版本", w: "56px" },
       { t: "上传人", w: "76px" }, { t: "时间", w: "130px" }, { t: "操作", w: "120px" }],
@@ -515,7 +515,7 @@ function tabMaterials(d, p) {
           (can("material:write") && !d.settlement && !["已结算", "已归档"].includes(p.status) && !m.deleted_at
             ? `<button class="link danger" data-del-mat="${m.id}">删除</button>` : "") +
           (can("material:file:replace") && m.file_key && !m.deleted_at &&
-            !["已核销","已结算","已归档"].includes(p.status) && !d.settlement
+            p.status!=="已归档"
             ? ` <button class="link" data-replace-material="${m.id}">修改</button>` : "") || "—"
         ]
       })),
@@ -563,8 +563,8 @@ function wire(root, pid, d, body) {
   });
   body.querySelectorAll("[data-judge]").forEach((b) => b.onclick = () => openJudge(root, pid, Number(b.dataset.judge), d));
   // 七项核销的「详情」：判定前先把该核对的原始数据摆出来（与核销看板共用同一份实现）
-  const canJudgeHere = can("verify:check") && !d.settlement && d.materialsStatus.ok
-    && (d.project.status === "待核销" || (d.project.status === "已核销" && state.super));
+  const canJudgeHere = can("verify:check") && (!d.settlement||d.prearchiveRecheck) && d.materialsStatus.ok
+    && (d.project.status === "待核销" || (d.project.status === "已核销" && state.super) || (d.project.status==="已结算"&&d.prearchiveRecheck));
   body.querySelectorAll("[data-detail]").forEach((b) => b.onclick = () =>
     openStepDetail(d, Number(b.dataset.detail), {
       canJudge: canJudgeHere,
@@ -625,8 +625,8 @@ function wire(root, pid, d, body) {
       const kind=btn.dataset.materialKind;
       selectedMaterialKinds.set(pid,kind);
       await render(root,[pid]);
-      if(can("material:write")&&!d.settlement&&
-        !["已结算","已归档"].includes(d.project.status)&&
+      if(can("material:write")&&
+        d.project.status!=="已归档"&&
         !(d.materialsStatus.disabled||[]).includes(kind)){
         await openMaterial(root,pid,kind);
       }
