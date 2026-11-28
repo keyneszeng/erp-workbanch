@@ -8,7 +8,7 @@ const { linkedSponsor,ensureSponsorSignable,setSponsorStatus } = require("../lib
 const { now, today, nextId, bad, notFound, conflict, forbidden, cents, yuan, parseBankAccount, parseBankName } = require("../lib/util");
 const { assertCan, assertModule, assertProjectVisible, scopeFilter, can, isSuper } = require("../lib/rbac");
 const { logAudit } = require("../lib/audit");
-const { getProject, verification, committed, settlementOf } = require("../lib/workflow");
+const { getProject, verification, committed, settlementOf, recordMaterialRecheck } = require("../lib/workflow");
 const { PAYMENT_TYPES, CONTRACT_CATEGORIES, guessContractCategory } = require("../lib/constants");
 const { readPaging, countOf } = require("../lib/paginate");
 const { transition } = require("../lib/workflow");
@@ -237,10 +237,11 @@ function register(router) {
     assertProjectVisible(ctx.user, p);
     assertCan(ctx.user, "contract:write", "当前角色无合同录入权限");
     if (p.status === "已归档") throw conflict("项目已归档，合同台账已封存，不可再录入合同", "ARCHIVED", { status: p.status });
-    if (p.status === "已结算") throw conflict("项目已结算，合同台账已封账，不可再录入合同", "FROZEN", { status: p.status });
-    if (!isDemoMode()) {
-      if (p.status === "已核销") throw conflict("核销已通过，合同金额已锁定，不得新增合同", "CONTRACT_VERIFIED");
-      const verifiedInvoice = db.prepare("SELECT 1 FROM verify_steps WHERE pid=? AND step_no=6 AND result='通过'").get(p.id);
+    if (p.status === "已结算" || settlementOf(p.id)) throw conflict("项目已结算，财务结算单已封账，不可再新增合同", "FROZEN", { status: p.status });
+    // 已核销但尚未结算：允许补录合同。保存后会撤销受影响核销步骤并退回待核销。
+    // 其他阶段若第6步已通过，仍沿用原门禁，避免绕过正常合同/发票核验。
+    if (!isDemoMode() && p.status !== "已核销") {
+      const verifiedInvoice = db.prepare("SELECT 1 FROM verify_steps WHERE pid=? AND step_no=6 AND result=?").get(p.id,"通过");
       if (verifiedInvoice) throw conflict("发票与合同金额已核对，须先处理核销更正，不得新增合同", "CONTRACT_VERIFIED");
     }
     if (!String(b.name || "").trim()) throw bad("合同名称为必填项");
@@ -291,8 +292,14 @@ function register(router) {
     if(category==="企业赞助"&&!fk)throw bad("企业赞助合同必须上传原件，以便自动关联会议收入");
     const draft=category==="企业赞助" && b.rightsCategories!=null?normalizedCategories(b.rightsCategories):null;
     const scan=category==="企业赞助" && draft===null?await scanContract(fk):null;
-    let id,sponsorId=null;
+    let id,sponsorId=null,recheckTriggered=false;
     transaction(()=>{
+    const currentProject=getProject(p.id);
+    if(currentProject.status==="已归档")throw conflict("项目已归档，合同台账已封存，不可再录入合同","ARCHIVED");
+    if(currentProject.status==="已结算"||settlementOf(p.id))throw conflict("项目已结算，财务结算单已封账，不可再新增合同","FROZEN");
+    if(!isDemoMode()&&currentProject.status!=="已核销"&&db.prepare("SELECT 1 FROM verify_steps WHERE pid=? AND step_no=6 AND result=?").get(p.id,"通过"))
+      throw conflict("发票与合同金额已核对，须先处理核销更正，不得新增合同","CONTRACT_VERIFIED");
+    const before=currentProject.status==="已核销"?verification(p.id):null;
     id=nextId(db, "contracts", "id", "HT");
     db.prepare("INSERT INTO contracts (id,pid,name,vendor,amount,sign_date,status,category,remark,created_by,created_at,file_key,file_name,file_size,file_mime) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
       .run(id, p.id, b.name, b.vendor, amount, isDemoMode() ? signDate : "", st, category, remark, ctx.user.id, now(), fk, fname, fsize, fmime);
@@ -318,10 +325,15 @@ function register(router) {
       db.prepare("INSERT INTO approvals (id,type,title,pid,ref_id,amount,by_user,sla,status,created_at,submitted_by_id) VALUES (?,?,?,?,?,?,?,?,?,?,?)")
         .run(apId, "合同审批", "合同签署：" + b.name, p.id, id, amount, ctx.user.name, "2 个工作日", "待审批", now(), ctx.user.id);
     }
+    if(before){
+      const affected=category==="企业赞助"?[7]:category==="劳务专家"?[5]:[6];
+      recordMaterialRecheck(currentProject,affected,before,ctx.user,"核销后补录合同："+id+" · "+b.name);
+      recheckTriggered=true;
+    }
     });
     logAudit({
       user: ctx.user, module: "筹备管理", action: "合同录入", target: p.id,
-      detail: `${id} ${b.name} / ${b.vendor} / ${category} / ¥${amount.toLocaleString("zh-CN")}${fk ? "（含原件）" : ""}`, ip: ctx.ip
+      detail: `${id} ${b.name} / ${b.vendor} / ${category} / ¥${amount.toLocaleString("zh-CN")}${fk ? "（含原件）" : ""}${recheckTriggered ? "（核销后补录，已触发重新核验）" : ""}`, ip: ctx.ip
     });
 
     // 合同总额超预算是要预警的业务事实（不是错误，可能确需超支）。
@@ -337,7 +349,9 @@ function register(router) {
     return {
       contract: db.prepare("SELECT * FROM contracts WHERE id = ?").get(id),
       sponsorId,
-      message: `合同 ${id} 已保存${!isDemoMode() && st === "待签署" ? "并提交协会管理员或总管理员审批签署" : ""}`,
+      message: recheckTriggered
+        ? `合同 ${id} 已补录，项目已退回「待核销」；请完成受影响核销项复核后再继续`
+        : `合同 ${id} 已保存${!isDemoMode() && st === "待签署" ? "并提交协会管理员或总管理员审批签署" : ""}`,
       warning
     };
   });

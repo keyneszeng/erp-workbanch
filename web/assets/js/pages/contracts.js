@@ -185,13 +185,23 @@ function openCreate(root, projects, preferredPid="") {
   ];
   const m=modal({title:"录入合同",width:"650px",
     body:'<div class="hint" style="padding-bottom:12px">合同编号由系统自动分配（HT-年份-流水号），不用填写。上传合同后可自动识别并预填，保存前请核对原件。</div>'+
-      formHtml(fields,{pid:preferredPid})+'<div class="hint" role="status" data-contract-scan style="padding:10px 0">尚未选择合同文件。</div>',
+      '<div class="hint" data-contract-project-notice hidden style="padding:8px 0"></div>'+formHtml(fields,{pid:preferredPid})+'<div class="hint" role="status" data-contract-scan style="padding:10px 0">尚未选择合同文件。</div>',
     footer:'<button class="btn btn-o" data-x="0">取消</button><button class="btn btn-p" data-x="1">保存</button>'
   });
   const btn=m.querySelector('[data-x="1"]');
   const category=m.querySelector('[name="category"]'),project=m.querySelector('[name="pid"]');
   const note=m.querySelector("[data-contract-scan]");
+  const projectNotice=m.querySelector("[data-contract-project-notice]");
   const rightsField=m.querySelector('[name="rightsCategories"]').closest(".fld");
+  function syncProjectNotice(){
+    const selected=projects.find(p=>p.id===project.value);
+    if(!projectNotice)return;
+    if(selected?.status==="已核销"){
+      projectNotice.hidden=false;
+      projectNotice.textContent="该项目已核销但尚未结算/归档，允许补录合同；保存后项目将退回「待核销」，受影响核销项需要重新核验。";
+    }else projectNotice.hidden=true;
+  }
+  syncProjectNotice();
   let picked=null,uploaded=null,token=0,busy=false,lastScan=null;
   function syncCategory(){
     const sponsor=category.value==="企业赞助";
@@ -206,6 +216,7 @@ function openCreate(root, projects, preferredPid="") {
   m.querySelector('[name="vendor"]').addEventListener("input",e=>{e.target.dataset.userEdited="1";});
   m.querySelector('[name="amount"]').addEventListener("input",e=>{e.target.dataset.userEdited="1";});
   project.addEventListener("change",()=>{
+    syncProjectNotice();
     token++;picked=null;uploaded=null;lastScan=null;busy=false;btn.disabled=false;
     const input=m.querySelector('[name="file"]');if(input)input.value="";
     const filename=input?.closest(".upload")?.querySelector(".fn");

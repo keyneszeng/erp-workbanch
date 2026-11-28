@@ -198,3 +198,44 @@ test("UI 链路：第6步不做OCR也能人工判定通过（scanned=0 不得拦
   assert.equal(r.status, 200, JSON.stringify(r.body));
   assert.match(r.body?.message || "", /判定：通过/);
 });
+
+
+test("生产模式：已核销未结算项目允许补录合同，并自动退回待核销复核",async()=>{
+ db.prepare("UPDATE projects SET status='已核销',status_at='2026-11-28 17:00' WHERE id=?").run(pid);
+ const before=db.prepare("SELECT result FROM verify_steps WHERE pid=? AND step_no=6").get(pid);
+ assert.equal(before.result,"通过","前置条件：第6步已经核验通过");
+ const created=await request("POST","/api/contracts",{
+  pid,name:"核销后补录会务服务合同",vendor:"补录会务公司",amount:1250,
+  category:"会务需求",status:"草稿"
+ },cookie);
+ assert.equal(created.status,200,JSON.stringify(created.body));
+ assert.match(created.body.message,/已退回「待核销」/);
+ assert.ok(created.body.contract?.id);
+ const project=db.prepare("SELECT status FROM projects WHERE id=?").get(pid);
+ assert.equal(project.status,"待核销");
+ const step=db.prepare("SELECT result,remark,checked_by,checked_at FROM verify_steps WHERE pid=? AND step_no=6").get(pid);
+ assert.equal(step.result,"待判定");
+ assert.match(step.remark,/归档前资料变更/);
+ assert.equal(step.checked_by,null);
+ assert.equal(step.checked_at,null);
+ const revision=db.prepare("SELECT reason,after_json FROM admin_content_revisions WHERE pid=? AND entity_type='prearchive_material_recheck' ORDER BY id DESC LIMIT 1").get(pid);
+ assert.match(revision.reason,/核销后补录合同/);
+ assert.match(revision.after_json,/6/);
+});
+
+test("生产模式：已结算或已归档项目仍禁止新增合同",async()=>{
+ db.prepare("UPDATE projects SET status='已结算' WHERE id=?").run(pid);
+ const settled=await request("POST","/api/contracts",{
+  pid,name:"结算后不应补录",vendor:"测试公司",amount:100,
+  category:"会务需求",status:"草稿"
+ },cookie);
+ assert.equal(settled.status,409,JSON.stringify(settled.body));
+ assert.equal(settled.body.error.code,"FROZEN");
+ db.prepare("UPDATE projects SET status='已归档' WHERE id=?").run(pid);
+ const archived=await request("POST","/api/contracts",{
+  pid,name:"归档后不应补录",vendor:"测试公司",amount:100,
+  category:"会务需求",status:"草稿"
+ },cookie);
+ assert.equal(archived.status,409,JSON.stringify(archived.body));
+ assert.equal(archived.body.error.code,"ARCHIVED");
+});
