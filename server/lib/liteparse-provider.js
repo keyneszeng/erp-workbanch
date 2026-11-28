@@ -35,7 +35,7 @@ async function recognizePdf(file,pages,totalPages,exec){
  try{
   const out=await exec(binary(),["parse",file,"--format","json","--ocr-server-url",OCR_URL,
     "--ocr-language","zh","--target-pages",pages===1?"1":"1-"+pages,
-    "--max-pages",String(pages),"--num-workers","1","--dpi","250","--quiet"],
+    "--max-pages",String(pages),"--num-workers","1","--dpi","250","--keep-headers-footers","--preserve-small-text","--quiet"],
     {timeout:120000,maxBuffer:16*1024*1024,rejectPartialOcr:true,localOcr:true});
   return parseResult(out,pages,totalPages);
  }finally{active=false;}
