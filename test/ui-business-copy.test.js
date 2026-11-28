@@ -112,11 +112,13 @@ test("核销劳务收款方自动关联开户行及加密银行账号，无需�
 test("核销判定可在线查看原件，第5步展示脱敏账号供人工核对",()=>{
  const judge=src("web/assets/js/lib/verify-ocr-judge.js");
  const css=src("web/assets/app-extra.css");
- // 在线预览窗口：PDF 用 iframe、图片用 img，并保留新窗口打开入口
+ // 在线预览统一走 file-preview 组件：PDF/Office/文本用 iframe、图片用 img，保留新窗口打开入口
  assert.match(judge,/data-view=/);
- assert.match(judge,/openViewer/);
- assert.match(judge,/iframe src=/);
- assert.match(judge,/新窗口打开/);
+ assert.match(judge,/previewFile/);
+ const preview=src("web/assets/js/lib/file-preview.js");
+ assert.match(preview,/iframe src=/);
+ assert.match(preview,/新窗口打开/);
+ assert.match(preview,/\?preview=1/);
  assert.match(css,/\.fv-box/);
  // 第5步只展示尾号，绝不把完整账号渲染到页面
  assert.match(judge,/laborRecordsMasked/);

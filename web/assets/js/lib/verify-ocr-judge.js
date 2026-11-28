@@ -1,5 +1,6 @@
 import {api} from "./api.js";
 import {esc,modal,toast,confirmBox} from "./ui.js";
+import {previewFile} from "./file-preview.js";
 
 /** 统一核销入口：不再出现任何手工录入或三级表单。 */
 export async function openOcrJudge(pid,no,d,onDone){
@@ -23,30 +24,13 @@ export async function openOcrJudge(pid,no,d,onDone){
  const close=m.querySelector('[data-x="0"]');
  let report=null,busy=false,closed=false,manualMode=false,scanError="";
  close.onclick=()=>{closed=true;m.classList.remove("open");};
- // 在线原件窗口：核对 OCR 结果（尤其第5步银行账号尾号）时不必离开判定页。
- const openViewer=(key,name)=>{
-  const ext=String(key.split(".").pop()||"").toLowerCase();
-  const url="/api/uploads/"+encodeURIComponent(key);
-  const images=["jpg","jpeg","png","webp","gif","bmp"];
-  const box=document.createElement("div");
-  box.className="fv";
-  box.innerHTML='<div class="fv-mask" data-fv-close></div><div class="fv-box">'+
-   '<div class="fv-hd"><b>'+esc(name||"原件")+'</b><span>'+
-    '<a class="link" href="'+url+'" target="_blank" rel="noopener">新窗口打开</a>'+
-    '<button class="btn btn-o" data-fv-close style="margin-left:10px">关闭</button></span></div>'+
-   '<div class="fv-bd">'+(images.includes(ext)?'<img src="'+url+'" alt="原件">':
-     ext==="pdf"?'<iframe src="'+url+'" title="原件预览"></iframe>':
-     '<div class="hint" style="padding:24px">该格式不支持在线预览，请<a class="link" href="'+url+
-       '" target="_blank" rel="noopener">下载后查看</a>。</div>')+
-   '</div></div>';
-  document.body.appendChild(box);
-  box.querySelectorAll("[data-fv-close]").forEach(el=>el.onclick=()=>box.remove());
- };
+ // 在线原件窗口：统一走全系统弹窗预览（图片/PDF/Office/文本都能直接看）。
  area.addEventListener("click",e=>{
   const a=e.target.closest("[data-view]");
   if(!a)return;
   e.preventDefault();
-  openViewer(a.getAttribute("data-view"),a.getAttribute("data-view-name"));
+  e.stopPropagation();
+  previewFile(a.getAttribute("data-view"),a.getAttribute("data-view-name"));
  });
  const fmtStatus=x=>x==="一致"?"<span class='badge b-green'>一致</span>":
    x==="不一致"?"<span class='badge b-red'>不一致</span>":"<span class='badge b-orange'>无法自动确认</span>";

@@ -3,6 +3,7 @@ import {canDownloadArchivePdf,bindArchivePdfButtons} from "../lib/archive-pdf.js
 import { bindPager, esc, formHtml, modal, pager, panel, readForm, table, toast, validate } from "../lib/ui.js";
 import { checkFile, fileUrl, formatBytes, UPLOAD_ACCEPT, UPLOAD_TIP } from "../lib/upload.js";
 import { openContractMaterialReplace } from "../lib/contract-material-replace.js";
+import { bindFilePreview } from "../lib/file-preview.js";
 
 const PAGE_SIZE = 50;
 const RETIRED_KINDS=new Set(["合同","会务协议","劳务协议","企业赞助合同","赞助合同","劳务专家合同","专家劳务协议","劳务合同","会务合同"]);
@@ -106,8 +107,8 @@ export async function render(root, params = []) {
           esc(m.name),
           m.file_key
             ? (m.file_mime === "application/pdf" || /\.(doc|docx|ppt|pptx|xls|xlsx|csv|txt)$/i.test(m.file_key)
-                ? '<a class="link" href="' + fileUrl(m.file_key) + '" target="_blank" rel="noopener">' + esc(m.file_name || "下载附件") + '</a>'
-                : '<a href="' + fileUrl(m.file_key) + '" target="_blank" rel="noopener"><img class="thumb" src="' + fileUrl(m.file_key) + '" alt="查看材料图片"></a>')
+                ? '<a class="link" href="' + fileUrl(m.file_key) + '" data-file-preview="' + esc(m.file_key) + '" data-file-name="' + esc(m.file_name || "附件") + '" target="_blank" rel="noopener">' + esc(m.file_name || "查看附件") + '</a>'
+                : '<a href="' + fileUrl(m.file_key) + '" data-file-preview="' + esc(m.file_key) + '" data-file-name="' + esc(m.file_name || "材料图片") + '" target="_blank" rel="noopener"><img class="thumb" src="' + fileUrl(m.file_key) + '" alt="查看材料图片"></a>')
             : '<span class="hint">—</span>',
           esc(m.version || ""), esc(m.uploader || ""), '<span class="mono">' + esc(m.created_at) + '</span>',
           (can("material:file:replace") && m.file_key && project.status!=="已归档"&&(!RETIRED_KINDS.has(m.kind)||!["已核销","已结算"].includes(project.status))
@@ -117,6 +118,7 @@ export async function render(root, params = []) {
 
   bindPager(root, n => { curPage = n; refresh(); });
   bindArchivePdfButtons(root);
+  bindFilePreview(root);
   root.querySelectorAll("[data-guide-kind]").forEach(btn => {
     btn.onclick = () => openMaterialRegistration(root, [project], d.kinds, pid, refresh, btn.dataset.guideKind);
   });

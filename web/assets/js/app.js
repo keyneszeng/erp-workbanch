@@ -23,6 +23,7 @@ import * as users from "./pages/users.js";
 import * as invitationConfig from "./pages/invitation-config.js";
 import * as flow from "./pages/flow.js";
 import * as publicProposals from "./pages/public-proposals.js";
+import { installFilePreview } from "./lib/file-preview.js";
 
 const ROUTES = [
   { re: /^dashboard$/, page: dashboard, nav: "dashboard", title: "我的工作台", sub: "待办、会议与异常预警" },
@@ -322,6 +323,9 @@ window.addEventListener("erp:unauthorized", () => {
   toast("登录状态已失效，请重新登录", "warn");
   boot();
 });
+
+// 全系统原件链接统一弹窗预览：图片直接看、PDF/Office/文本由后端内联转换。
+installFilePreview();
 
 document.addEventListener("click", (e) => {
   const go = e.target.closest("[data-go]");

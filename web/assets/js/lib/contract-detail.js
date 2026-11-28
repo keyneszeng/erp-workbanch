@@ -56,10 +56,11 @@ function fileBlock(c) {
   const isPdf = c.file_mime === "application/pdf";
   const isImage = /^image\//.test(c.file_mime || "");
 
+  // Office/文本走后端 preview=1（Office 转 PDF）在 iframe 里直接看，不再要求下载。
   const body = isPdf
     ? `<iframe class="cdpdf" src="${url}#view=FitH" title="${name}"></iframe>`
     : isImage ? `<div class="cdimg-wrap"><img class="cdimg" src="${url}" alt="${name}"></div>`
-    : '<div class="cdfile-tip">Office 格式请通过右上角「新窗口打开」下载查看。</div>';
+    : `<iframe class="cdpdf" src="${url}?preview=1" title="${name}"></iframe>`;
 
   return `<div class="cdfile">
     <div class="cdfile-h">

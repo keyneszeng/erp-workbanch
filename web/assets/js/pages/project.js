@@ -10,6 +10,7 @@ import {
 import { bindFilePicker, fileUrl, UPLOAD_ACCEPT, UPLOAD_TIP } from "../lib/upload.js";
 import { exStepLabel, openStepDetail } from "../lib/verify-detail.js";
 import {openOcrJudge} from "../lib/verify-ocr-judge.js";
+import { bindFilePreview } from "../lib/file-preview.js";
 import { openContractMaterialReplace } from "../lib/contract-material-replace.js";
 import {canEditContractCategory,openContractCategoryEdit,contractDeleteButton,deleteContract} from "../lib/contract-category-edit.js";
 import { flowHint, flowOf, openContractDetail } from "../lib/contract-detail.js";
@@ -514,8 +515,8 @@ function tabMaterials(d, p) {
           esc(m.kind)+(m.kind==="权益照片"?`<div class="hint">${esc(sponsorsById.get(rightById.get(Number(m.sponsor_right_id))?.sponsor_id)?.enterprise||"未关联赞助合同")} · ${esc(rightById.get(Number(m.sponsor_right_id))?.category||"未关联权益类目")}</div>`:""), esc(m.name),
           m.file_key
             ? ((m.file_mime === "application/pdf" || /\.(doc|docx|ppt|pptx|xls|xlsx|csv|txt)$/i.test(m.file_key))
-                ? `<a class="link" href="${fileUrl(m.file_key)}" target="_blank" rel="noopener">查看附件</a>`
-                : `<a href="${fileUrl(m.file_key)}" target="_blank" rel="noopener"><img class="thumb" src="${fileUrl(m.file_key)}" alt=""></a>`)
+                ? `<a class="link" href="${fileUrl(m.file_key)}" data-file-preview="${esc(m.file_key)}" data-file-name="${esc(m.file_name || "附件")}" target="_blank" rel="noopener">查看附件</a>`
+                : `<a href="${fileUrl(m.file_key)}" data-file-preview="${esc(m.file_key)}" data-file-name="${esc(m.file_name || "材料图片")}" target="_blank" rel="noopener"><img class="thumb" src="${fileUrl(m.file_key)}" alt=""></a>`)
             : '<span style="color:var(--mute)">—</span>',
           esc(m.version || ""), esc(m.uploader || ""), `<span class="mono">${esc(m.created_at)}</span>`,
           (can("material:write") && !d.settlement && !["已结算", "已归档"].includes(p.status) && !m.deleted_at
@@ -578,6 +579,7 @@ function wire(root, pid, d, body) {
     }));
   body.querySelectorAll("[data-ex-ok]").forEach((b) => b.onclick = () => exDecide(root, pid, b.dataset.exOk, true));
   body.querySelectorAll("[data-ex-no]").forEach((b) => b.onclick = () => exDecide(root, pid, b.dataset.exNo, false));
+  bindFilePreview(body);
   body.querySelectorAll("[data-del-mat]").forEach((b) => b.onclick = () => {
     const m=d.materials.find(x=>Number(x.id)===Number(b.dataset.delMat));
     delMaterial(root,pid,b.dataset.delMat,m?.kind);

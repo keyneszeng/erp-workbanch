@@ -13,8 +13,11 @@ export async function openPaymentExecution(id,onDone){
   const url="/api/uploads/"+encodeURIComponent(f.fileKey);
   const name=esc(f.fileName||f.name||"业务原件");
   const ext=String(f.fileKey).split(".").pop().toLowerCase();
-  const preview=ext==="pdf"?'<iframe title="'+name+'" src="'+url+'#view=FitH" style="width:100%;height:330px;border:1px solid var(--line);border-radius:6px"></iframe>':
-    ["jpg","png","webp","gif"].includes(ext)?'<img alt="'+name+'" src="'+url+'" style="max-width:100%;max-height:360px;object-fit:contain">':"Office 文件请使用下方链接查看原件。";
+  // PDF 内嵌；图片铺开；Office/文本走后端 preview=1（Office 转 PDF）在 iframe 里直接看。
+  const inlineUrl=ext==="pdf"?url+"#view=FitH":url+"?preview=1";
+  const preview=ext==="pdf"?'<iframe title="'+name+'" src="'+inlineUrl+'" style="width:100%;height:330px;border:1px solid var(--line);border-radius:6px"></iframe>':
+    ["jpg","png","webp","gif"].includes(ext)?'<img alt="'+name+'" src="'+url+'" style="max-width:100%;max-height:360px;object-fit:contain">':
+    '<iframe title="'+name+'" src="'+inlineUrl+'" style="width:100%;height:330px;border:1px solid var(--line);border-radius:6px"></iframe>';
   return '<details style="margin:10px 0;padding:9px;border:1px solid var(--line);border-radius:7px"><summary style="cursor:pointer"><b>'+
    esc(f.type)+"</b> · "+name+'</summary><div style="margin-top:8px">'+preview+
    '<div><a class="link" target="_blank" rel="noopener" href="'+url+'">新窗口查看原件</a></div></div></details>';

@@ -206,3 +206,19 @@ test("非法 file_key 被拒绝", async () => {
   assert.equal(r.status, 400);
   assert.match(r.data.error.message, /附件标识不合法/);
 });
+
+test("预览模式：txt 内联显示、Office 非预览仍下载、权限校验不绕过", async () => {
+  const up = await upload(exec, Buffer.from("会议纪要第一行\n第二行", "utf8"), { mime: "text/plain", name: "notes.txt" });
+  assert.equal(up.status, 200, JSON.stringify(up.data));
+  // 预览模式：text/plain 内联，Content-Disposition 为 inline
+  const prev = await fetch(`${BASE}/api/uploads/${up.data.key}?preview=1`, { headers: { cookie: exec } });
+  assert.equal(prev.status, 200);
+  assert.match(prev.headers.get("content-type"), /text\/plain/);
+  assert.match(prev.headers.get("content-disposition") || "inline", /^inline/);
+  // 非预览模式：txt 仍强制下载
+  const dl = await fetch(`${BASE}/api/uploads/${up.data.key}`, { headers: { cookie: exec } });
+  assert.match(dl.headers.get("content-disposition") || "", /^attachment/);
+  // 预览模式同样要鉴权：guest 拿不到
+  const denied = await fetch(`${BASE}/api/uploads/${up.data.key}?preview=1`, { headers: { cookie: guest } });
+  assert.ok([403, 404].includes(denied.status), `guest 不应能预览，实际 ${denied.status}`);
+});
