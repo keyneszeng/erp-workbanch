@@ -156,7 +156,7 @@ function register(router){
      materialRows=selectMaterials(project.id,supplied,categories);
    }
    const watermark=parseWatermark(ctx.user,supplied);
-   const generatedAt=new Date().toISOString().replace("T"," ").slice(0,19)+" UTC";
+   const generatedAt=formatBeijingDateTime()+"（北京时间）";
    const text=watermark.mode==="default"?"操作员："+String(ctx.user.name||ctx.user.username||"未知")+"  时间："+generatedAt:watermark.text;
    // Read the exact 项目台账 snapshot (settlement + categorized payments);
    // never recompute a parallel financial summary inside the PDF exporter.
