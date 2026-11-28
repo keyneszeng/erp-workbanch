@@ -65,7 +65,7 @@ export async function render(root, [pid]) {
   </div>
 
   ${d.ownerReeditEnabled ? '<div class="gate mt"><b>核销已撤回，资料修改窗口已开启</b>项目负责人可修改会议基础资料；保存后需要重新完成核验。</div>' : ""}
-  <div class="panel"><div class="steps">${ORDER.map((s, i) => {}
+  <div class="panel"><div class="steps">${ORDER.map((s, i) => {
     const cur = ORDER.indexOf(p.status);
     const cls = i < cur ? "done" : i === cur ? "cur" : "";
     return `${i ? '<span class="ln"></span>' : ""}<span class="st ${cls}"><i>${i < cur ? "✓" : i + 1}</i>${s}</span>`;
