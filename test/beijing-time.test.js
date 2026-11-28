@@ -11,5 +11,5 @@ test("business time formatting is always Beijing time regardless of host timezon
   assert.equal(formatBeijingDateTime(instant), "2026-11-29 00:30");
   assert.equal(formatBeijingDateTime(instant, true), "2026-11-29 00:30:45");
   assert.equal(formatBeijingDate(instant), "2026-11-29");
-  assert.equal(nowIso(instant), "2026-11-29 00:30:45+08:00");
+  assert.equal(nowIso(instant), "2026-11-29T00:30:45+08:00");
 });
