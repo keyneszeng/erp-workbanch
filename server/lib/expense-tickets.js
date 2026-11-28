@@ -45,8 +45,8 @@ function assertUnique(m,v,hash){
  // Historical payment records may already contain this ticket number, including contract-linked payments.
  const old=db.prepare("SELECT id,invoice_no FROM payments WHERE status<>'已驳回' AND COALESCE(invoice_no,'')<>''").all().find(y=>normalizeTicket(y.invoice_no)===v.ticketKey);
  if(old)throw conflict("该票据号码已有有效付款记录，请核对原付款","DUPLICATE_EXPENSE_TICKET");
- const linked=db.prepare("SELECT 1 FROM contracts WHERE file_key=? AND deleted_at IS NULL UNION SELECT 1 FROM meeting_sponsor_contracts WHERE file_key=? UNION SELECT 1 FROM meeting_sponsor_invoices WHERE file_key=? UNION SELECT 1 FROM meeting_sponsor_receipts WHERE file_key=? UNION SELECT 1 FROM payments WHERE receipt_file_key=?").get(m.file_key,m.file_key,m.file_key,m.file_key,m.file_key);
- if(linked)throw conflict("原件已用于合同、赞助或付款回单，不可作为独立报销票据","DUPLICATE_EXPENSE_TICKET");
+ const linked=db.prepare("SELECT 1 FROM contracts WHERE file_key=? AND deleted_at IS NULL UNION SELECT 1 FROM meeting_sponsor_contracts WHERE file_key=? UNION SELECT 1 FROM meeting_sponsor_invoices WHERE file_key=? UNION SELECT 1 FROM meeting_sponsor_receipts WHERE file_key=? UNION SELECT 1 FROM payments WHERE receipt_file_key=? UNION SELECT 1 FROM materials WHERE file_key=? AND deleted_at IS NULL AND kind IN ('发票','会务发票','合同')").get(m.file_key,m.file_key,m.file_key,m.file_key,m.file_key,m.file_key);
+ if(linked)throw conflict("原件已用于合同、会务发票、赞助或付款回单，不可作为独立报销票据","DUPLICATE_EXPENSE_TICKET");
 }
 function pending(pid){
  return list(pid).filter(m=>m.state!=="excluded"&&(m.state!=="confirmed"||m.payment_status!=="已付款")).length;
