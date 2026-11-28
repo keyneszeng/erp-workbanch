@@ -6,14 +6,14 @@ import { badge, closeModal, esc, modal, money, table, toast } from "../lib/ui.js
 
 
 /** 项目内付款明细；审批状态仅作为历史记录提示，不再作为筛选入口。 */
-function paymentOnePageTable(rows,options=[]){
+function paymentOnePageTable(rows,options=[],tickets=[]){
   const canPay=can("payment:pay");
   const norm=v=>String(v||"").normalize("NFKC").replace(/\s+/g,"").trim();
   // 已存在关联或同名历史付款的收款方不自动生成新付款事项，避免重复登记。
   // 分期或同名历史记录不自动创建重复付款事项。
   const active=rows.filter(y=>y.status!=="已驳回");
   const candidates=options.filter(o=>Number(o.amount)>0&&!active.some(y=>
-    y.payee_source_id===o.id||(!y.payee_source_id&&norm(y.payee)===norm(o.payee))));
+    y.payee_source_id===o.id||(o.source!=="expense"&&!y.payee_source_id&&norm(y.payee)===norm(o.payee))));
   const existing=rows.map(y=>({
     attrs:' data-row="'+esc(y.id)+'" data-pid="'+esc(y.pid)+'"',
     c:[
@@ -37,10 +37,45 @@ function paymentOnePageTable(rows,options=[]){
     (canPay?'<button class="link" data-source-evidence="'+esc(o.id)+'"><b>'+esc(o.payee)+'</b></button>':'<b>'+esc(o.payee)+'</b>')+'<div class="hint">'+esc(o.label||"核销收款资料")+'</div>',
     '¥'+money(o.amount),
     canPay?'<button class="btn btn-p btn-sm" data-pay-source="'+esc(o.id)+'">确认已付款</button>':'<span class="hint">待登记付款</span>',
-    '<span class="hint">确认付款后上传</span>'
+    '<span class="hint">确认付款后上传</span>'+(canPay&&o.source==="expense"?'<div><button class="link" data-expense-review="'+esc(o.id.slice(8))+'">修改票据信息</button></div>':"")
+  ]}));
+  const unreviewed=tickets.filter(t=>!t.payment_id&&t.state!=="confirmed").map(t=>({c:[
+    '<b>'+esc(t.file_name||t.name)+'</b><div class="hint">'+esc(t.kind)+' · '+(t.state==="excluded"?"无需付款":"待确认票据")+'</div>',
+    "—",canPay?'<button class="btn btn-o btn-sm" data-expense-review="'+esc(t.id)+'">'+(t.state==="excluded"?"重新确认":"确认票据信息")+'</button>':badge(t.state==="excluded"?"无需付款":"待确认"),
+    '<a class="link" href="/api/uploads/'+encodeURIComponent(t.file_key)+'" target="_blank" rel="noopener">查看票据原件</a>'+(t.reason?'<div class="hint">'+esc(t.reason)+'</div>':"")
   ]}));
   return table([{t:"收款方"},{t:"金额",w:"120px",cls:"num"},{t:"付款按钮",w:"160px"},{t:"凭证详情",w:"180px"}],
-    [...existing,...pending],{empty:"暂无付款明细，可核对合同及劳务资料后登记付款"});
+    [...existing,...pending,...unreviewed],{empty:"暂无付款明细，可核对合同、劳务及报销票据后登记付款"});
+}
+/** One receipt, one reviewed expense; OCR is only a suggestion. */
+function openExpenseReview(pid,t,onSaved){
+  const endpoint="/api/projects/"+encodeURIComponent(pid)+"/expense-tickets/"+encodeURIComponent(t.id);
+  const m=modal({title:t.kind+" · 票据确认",width:"620px",
+    body:'<p class="hint">请核对原件与实际收款方；上传票据不会自动转账。</p><p><a class="link" href="/api/uploads/'+encodeURIComponent(t.file_key)+'" target="_blank" rel="noopener">'+esc(t.file_name||t.name)+' · 查看原件</a></p>'+
+      '<div class="fld"><label>实际收款方（非必然为开票方）</label><input data-exp-payee maxlength="60" value="'+esc(t.payee||"")+'"></div>'+
+      '<div class="fld"><label>票据号码 / 原始单据唯一编号</label><input data-exp-no maxlength="40" value="'+esc(t.ticket_no||"")+'"></div>'+
+      '<div class="fld"><label>确认报销金额（元）</label><input data-exp-amount type="number" min="0.01" step="0.01" value="'+esc(t.amount??"")+'"></div>'+
+      '<p><button class="btn btn-o btn-sm" data-exp-scan>OCR识别票号与金额</button></p><p class="hint" data-exp-note></p>'+
+      '<div class="fld"><label>无需付款原因（仅重复、无效等情况填写）</label><textarea data-exp-reason maxlength="300">'+esc(t.reason||"")+'</textarea></div>',
+    footer:'<button class="btn btn-o" data-exp-cancel>取消</button><button class="btn btn-o" data-exp-exclude>无需付款</button><button class="btn btn-p" data-exp-confirm>确认报销</button>'});
+  const el=k=>m.querySelector("[data-exp-"+k+"]");
+  let busy=false;function lock(value){busy=value;for(const k of ["scan","confirm","exclude"])el(k).disabled=value;}
+  el("cancel").onclick=()=>{if(!busy)closeModal();};
+  el("scan").onclick=async()=>{
+    if(busy)return;lock(true);el("note").textContent="正在识别，请核对原件后确认。";
+    try{const d=await api.post(endpoint+"/scan",{});
+      if(d.ticket_no&&!el("no").value)el("no").value=d.ticket_no;
+      if(d.amount!=null&&!el("amount").value)el("amount").value=String(d.amount);
+      el("note").textContent=d.note||"识别结果仅供参考。";
+    }catch(e){el("note").textContent="OCR未能识别，请按原件人工填写："+e.message;}finally{lock(false);}
+  };
+  async function save(state){
+    if(busy)return;lock(true);
+    try{const d=await api.post(endpoint+"/review",{state,expected_file_key:t.file_key,payee:el("payee").value.trim(),ticket_no:el("no").value.trim(),amount:Number(el("amount").value),reason:el("reason").value.trim()});closeModal();toast(d.message,"ok");await onSaved();}
+    catch(e){el("note").textContent=e.message;lock(false);}
+  }
+  el("confirm").onclick=()=>save("confirmed");
+  el("exclude").onclick=()=>save("excluded");
 }
 /** 仅查看原件，不触发付款或要求登记信息。 */
 async function showPaymentEvidence(url){
@@ -76,7 +111,7 @@ export async function render(root, params = []) {
   const selected=payableProjects.find(p=>p.id===focusPid);
   const financeDirect=can("payment:pay");
   const incomeReadable=state.user?.role==="finance"||["contract:write","contract:approve","payment:pay","payment:approve"].some(perm=>can(perm));
-  let pay={rows:[],total:0,summary:{}},options=[],detailsError="",optionsError="";
+  let pay={rows:[],total:0,summary:{}},options=[],tickets=[],detailsError="",optionsError="";
   if(selected){
     const result=await Promise.allSettled([
       api.get("/api/payments?pid="+encodeURIComponent(selected.id)),
@@ -84,7 +119,7 @@ export async function render(root, params = []) {
     ]);
     if(result[0].status==="fulfilled")pay=result[0].value;
     else detailsError=result[0].reason?.message||"付款记录读取失败";
-    if(result[1].status==="fulfilled")options=result[1].value.rows||[];
+    if(result[1].status==="fulfilled"){options=result[1].value.rows||[];tickets=result[1].value.expense_tickets||[];}
     else optionsError=result[1].reason?.message||"核销收款方资料读取失败";
   }
   const projectList=payableProjects.length?payableProjects.map(p=>
@@ -115,7 +150,7 @@ export async function render(root, params = []) {
         <div class="panel-h"><h3>${esc(selected.name)} · 付款明细表</h3></div>
         <div class="hint" style="margin-bottom:8px">点击收款方查看关联原件；仅在线下实际付款完成后点击确认已付款。凭证可随后单独上传。</div>
         ${detailsError?'<div class="gate">'+esc(detailsError)+'，请刷新后重试。</div>':
-          (optionsError?'<div class="hint">'+esc(optionsError)+'；已登记记录仍可查看。</div>':"")+paymentOnePageTable(pay.rows||[],options)}
+          (optionsError?'<div class="hint">'+esc(optionsError)+'；已登记记录仍可查看。</div>':"")+paymentOnePageTable(pay.rows||[],options,tickets)}
       </section>`:'<div class="hint" style="padding:20px 0;text-align:center">请选择会议项目查看付款明细。</div>'}
     </div>
 
@@ -156,7 +191,16 @@ export async function render(root, params = []) {
     }catch(e){toast(e.message,"warn");button.disabled=false;}
   }
   root.querySelectorAll("[data-pay]").forEach(b=>b.onclick=()=>confirmRow(b,"/api/payments/"+encodeURIComponent(b.dataset.pay)+"/pay",{confirm_paid:true}));
-  root.querySelectorAll("[data-pay-source]").forEach(b=>b.onclick=()=>confirmRow(b,"/api/projects/"+encodeURIComponent(selected.id)+"/payments/confirm",{payee_option_id:b.dataset.paySource,confirm_paid:true}));
+  root.querySelectorAll("[data-pay-source]").forEach(b=>b.onclick=()=>{
+    const option=options.find(o=>o.id===b.dataset.paySource);
+    if(!option)return;
+    const expected=option.source==="expense"?{expected_amount:Number(option.amount),expected_payee:option.payee,expected_label:option.label}:{};
+    return confirmRow(b,"/api/projects/"+encodeURIComponent(selected.id)+"/payments/confirm",{payee_option_id:option.id,confirm_paid:true,...expected});
+  });
+  root.querySelectorAll("[data-expense-review]").forEach(b=>b.onclick=()=>{
+    const ticket=tickets.find(t=>String(t.id)===b.dataset.expenseReview);
+    if(ticket)openExpenseReview(selected.id,ticket,()=>render(root,params));
+  });
   root.querySelectorAll("[data-pay-evidence]").forEach(b=>b.onclick=()=>showPaymentEvidence("/api/payments/"+encodeURIComponent(b.dataset.payEvidence)+"/evidence"));
   root.querySelectorAll("[data-source-evidence]").forEach(b=>b.onclick=()=>showPaymentEvidence("/api/projects/"+encodeURIComponent(selected.id)+"/payee-evidence?source="+encodeURIComponent(b.dataset.sourceEvidence)));
   // 「登记账户」已并入执行付款弹窗（payment-execution.js），列表不再单独提供入口。
