@@ -6,7 +6,7 @@ const GROUPS=Object.freeze([
   {key:"labor",label:"劳务",types:["专家费"]},
   {key:"meeting",label:"会务",types:["学会公付"]},
   {key:"association",label:"协会报销",types:["个人报销","协会报销"]},
-  {key:"other",label:"其他",types:["厂家款"]}
+  {key:"other",label:"其他",types:["厂家款","其他费用"]}
 ]);
 const groupForType=type=>GROUPS.find(x=>x.types.includes(type))?.key||"other";
 const moneyFromCents=x=>Math.round(x)/100;
