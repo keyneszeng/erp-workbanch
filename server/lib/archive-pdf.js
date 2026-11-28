@@ -11,7 +11,7 @@
  * 不依赖 Worker OS 字体，并在浏览器/常见 PDF 阅读器中可检索和打印。
  */
 const { PDFDocument } = require("pdf-lib");
-const { HttpError } = require("./util");
+const { HttpError, formatBeijingDateTime } = require("./util");
 
 const MAX_FILE_COUNT = 60;
 const MAX_FILE_BYTES = 8 * 1024 * 1024;
@@ -135,7 +135,7 @@ function makeLines(d, sources) {
     rows.forEach((r, i) => add("  " + (i + 1) + ". " + map(r)));
   };
   add("核销资料封存卷宗", "title");
-  add("生成时间：" + new Date().toISOString().replace("T", " ").slice(0, 19) + " UTC");
+  add("生成时间：" + formatBeijingDateTime() + "（北京时间）");
   add("会议编号：" + p.id + "   资料来源：会规智云归档状态快照");
   add("提示：仅有登记信息的材料不会被虚构为原文件；缺失和无法转换项均单独列出。");
   section("一、会议概况");
