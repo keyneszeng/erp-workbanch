@@ -154,6 +154,8 @@ jobs:
         run: ERP_DEMO_MODE=1 node --experimental-sqlite --test test/project-notice.test.js
       - name: Verify demand quantities and unit-price totals before OCR setup
         run: ERP_DEMO_MODE=1 node --experimental-sqlite --test test/demand-pricing.test.js
+      - name: Verify supplementary contracts after verification and targeted recheck
+        run: node --experimental-sqlite --test test/verify-step6-gate.test.js
       - name: Verify signed-review contract replacement and automatic old-file removal
         run: ERP_DEMO_MODE=1 node --experimental-sqlite --test test/contract-replace.test.js
       - name: Verify XLS/DOC/PPT legacy upload, CSV/TXT and download before OCR setup
