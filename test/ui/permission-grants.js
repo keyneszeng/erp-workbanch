@@ -30,7 +30,31 @@ async function run(){
  await page.goto(origin+"/#/users");
  await page.locator("#newU").waitFor({timeout:20000});
  assert.match(await page.locator("#content").innerText(),/按账号分配权限/);
+
+ // The shared association picker must select the current active directory,
+ // allow manual exceptions and never save merely by clicking Select All.
+ await page.locator("#newU").click();
+ const createModal=page.locator("#modal.open");
+ const choices=createModal.locator("[data-assoc-pick]");
+ const totalAssocs=await choices.count();
+ assert.ok(totalAssocs>1);
+ await createModal.locator("[data-assoc-select-all]").click();
+ assert.equal(await createModal.locator("[data-assoc-pick]:checked").count(),totalAssocs);
+ assert.equal(await createModal.locator("[data-assoc-select-all]").isDisabled(),true);
+ await choices.first().uncheck();
+ assert.equal(await createModal.locator("[data-assoc-pick]:checked").count(),totalAssocs-1);
+ assert.equal(await createModal.locator("[data-assoc-select-all]").isEnabled(),true);
+ await createModal.locator('[data-x="0"]').click();
  const user=page.locator('tr').filter({hasText:"刘洋"});
+ await user.locator("[data-edit]").click();
+ const editModal=page.locator("#modal.open");
+ const before=await editModal.locator("[data-assoc-pick]:checked").count();
+ if(before<totalAssocs)await editModal.locator("[data-assoc-select-all]").click();
+ assert.equal(await editModal.locator("[data-assoc-pick]:checked").count(),totalAssocs);
+ await editModal.locator('[data-x="0"]').click();
+ await user.locator("[data-edit]").click();
+ assert.equal(await page.locator("#modal.open [data-assoc-pick]:checked").count(),before,"取消不应修改协会授权");
+ await page.locator('#modal.open [data-x="0"]').click();
  const edit=user.locator("[data-user-access]");
  await edit.click();
  const modal=page.locator("#modal.open");
@@ -77,6 +101,19 @@ async function run(){
   return {status:response.status,payload:await response.json()};
  });
  assert.equal(created.status,200,JSON.stringify(created.payload));
+ await page.reload();
+ const freshUser=page.locator("tr").filter({hasText:"零权限浏览器测试"});
+ await freshUser.locator("[data-edit]").click();
+ const assocModal=page.locator("#modal.open");
+ await assocModal.locator("[data-assoc-select-all]").click();
+ await assocModal.locator('[data-x="1"]').click();
+ await assocModal.waitFor({state:"hidden",timeout:15000});
+ const saved=await page.evaluate(async()=>{
+   const users=await (await fetch("/api/users")).json();
+   const directory=await (await fetch("/api/associations")).json();
+   return {assigned:users.rows.find(x=>x.username==="qa_nogrants").assocs,active:directory.rows};
+ });
+ assert.deepEqual(saved.assigned.slice().sort(),saved.active.slice().sort());
  const anonymous=await browser.newContext({viewport:{width:1100,height:860}});
  const limitedPage=await anonymous.newPage();
  limitedPage.on("pageerror",e=>jsErrors.push(String(e)));

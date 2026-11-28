@@ -4,12 +4,30 @@ import { badge, esc, formHtml, modal, panel, readForm, table, toast, validate } 
 function associationPicker(selected=[]) {
   const values=new Set(selected||[]);
   return `<fieldset class="fld full" style="grid-column:1/-1"><legend>所属协会（可多选）</legend>
+    <div class="material-export-tools" style="margin:6px 0">
+      <button type="button" class="btn btn-o btn-sm" data-assoc-select-all>全选</button>
+      <span class="hint" data-assoc-selection-count aria-live="polite"></span>
+    </div>
     <div class="chips" style="max-height:160px;overflow:auto">
       ${(state.meta.assocs||[]).map(a=>`<label class="chip" style="cursor:pointer">
         <input type="checkbox" data-assoc-pick value="${esc(a)}" ${values.has(a)?"checked":""}> ${esc(a)}
       </label>`).join("")}
     </div><small class="hint">总管理员天然拥有全平台权限；其他账号至少选择一个协会。</small>
   </fieldset>`;
+}
+function bindAssociationPicker(root) {
+  const all=root.querySelector("[data-assoc-select-all]");
+  if(!all)return;
+  const choices=[...root.querySelectorAll("[data-assoc-pick]")];
+  const count=root.querySelector("[data-assoc-selection-count]");
+  const sync=()=>{
+    const selected=choices.filter(x=>x.checked).length;
+    if(count)count.textContent="已选择 "+selected+" / "+choices.length+" 个协会";
+    all.disabled=choices.length===0||selected===choices.length;
+  };
+  all.onclick=()=>{choices.forEach(x=>{if(!x.disabled)x.checked=true;});sync();};
+  choices.forEach(x=>x.addEventListener("change",sync));
+  sync();
 }
 function selectedAssocs(root) {
   return [...root.querySelectorAll("[data-assoc-pick]:checked")].map(x=>x.value);
@@ -30,6 +48,7 @@ function departmentOptions(current = "") {
 export async function render(root) {
   const d = await api.get("/api/users");
   const assocDirectory=state.super?await api.get("/api/associations"):{details:[]};
+  if(state.super&&Array.isArray(assocDirectory.rows))state.meta.assocs=assocDirectory.rows;
   const roles = state.meta.roles;
   const manage = can("user:manage");
 
@@ -55,7 +74,7 @@ export async function render(root) {
 
     ${state.super ? `<div class="panel mt" id="assocManager">
        <div class="panel-h"><h2>协会分类管理</h2><button id="addAssoc" class="btn btn-p btn-sm">+ 增加协会</button></div>
-       <p class="hint">会议编号规则：协会字母简写-举办年份-两位顺序号（例 HDYX-2027-01）。已使用的协会简写不能再修改，以免历史会议编号失真。</p>
+       <p class="hint">会议编号规则：协会字母简写-举办年份-三位顺序号（例 HDYX-2027-001）。已使用的协会简写不能再修改，以免历史会议编号失真。</p>
        <div class="chips mt">${(assocDirectory.details||[]).map(a=>`<span class="chip"><b>${esc(a.name)}</b> <span class="mono">${esc(a.code||"未配置")}</span> <button class="link" data-assoc-code="${esc(a.name)}">${a.code?"修改简写":"设置简写"}</button> <button class="link danger" data-remove-assoc="${esc(a.name)}">停用</button></span>`).join("")}</div>
      </div>` : ""}
     <div class="panel"><div class="panel-h"><h2>按账号分配权限</h2></div><p class="hint" style="padding:12px 16px">协会管理员自动拥有合同录入及签署审批权限；其他岗位的合同录入由总管理员授权，不能授予合同签署审批。其他模块与操作仍按账号单独授权。</p></div>
@@ -78,7 +97,7 @@ export async function render(root) {
     const m=modal({title:"新增协会分类",width:"520px",
       body:'<div class="fld"><label>协会名称 <span class="req">*</span></label><input name="name" maxlength="40" placeholder="例如：医学教育协会"></div>'+
         '<div class="fld"><label>协会字母简写 <span class="req">*</span></label><input name="code" maxlength="10" placeholder="例如：YXYJXH" style="text-transform:uppercase"></div>'+
-        '<p class="hint">新会议自动编号，例如 YXYJXH-2027-01。简写须为2–10位英文字母，同平台不得重复。</p>',
+        '<p class="hint">新会议自动编号，例如 YXYJXH-2027-001。简写须为2–10位英文字母，同平台不得重复。</p>',
       footer:'<button class="btn btn-o" data-cancel>取消</button><button class="btn btn-p" data-save>增加协会</button>'});
     m.querySelector("[data-cancel]").onclick=()=>m.classList.remove("open");
     m.querySelector("[data-save]").onclick=async()=>{
@@ -143,6 +162,7 @@ function openCreate(root, roles) {
   ];
   const m = modal({ title: state.demo ? "新建账号" : "录入手机白名单", width: "600px", body: formHtml(fields)+associationPicker(),
     footer: `<button class="btn btn-o" data-x="0">取消</button><button class="btn btn-p" data-x="1">创建</button>` });
+  bindAssociationPicker(m);
   m.querySelector('[data-x="0"]').onclick = () => m.classList.remove("open");
   m.querySelector('[data-x="1"]').onclick = async () => {
     if (!validate(m, fields)) return;
@@ -225,6 +245,7 @@ function openEdit(root, u, roles) {
   ];
   const m = modal({ title: `编辑账号 · ${esc(u.name)}`, width: "600px", body: formHtml(fields, { ...u, active: String(u.active) })+(state.super?associationPicker(u.assocs||[u.assoc]):""),
     footer: `<button class="btn btn-o" data-x="0">取消</button><button class="btn btn-p" data-x="1">保存</button>` });
+  bindAssociationPicker(m);
   m.querySelector('[data-x="0"]').onclick = () => m.classList.remove("open");
   m.querySelector('[data-x="1"]').onclick = async () => {
     if (!validate(m, fields)) return;
