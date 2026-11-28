@@ -1,6 +1,6 @@
 const app=getApp();
 const MAX_MATERIAL_FILES_PER_BATCH=10;
-const MAX_FILE_BYTES=20*1024*1024;
+const MAX_FILE_BYTES=50*1024*1024; // 与 Web upload.js / server storage.MAX_BYTES 保持一致
 const CONTRACT_TYPES=[{value:"会务需求",label:"会务协议"},{value:"劳务专家",label:"劳务协议"},{value:"企业赞助",label:"企业赞助合同"}];
 const frozenStatus=s=>["已核销","已结算","已归档"].includes(s);
 const emptyContract=()=>({categoryIndex:0,name:"",vendor:"",amount:"",rightsText:"",statusIndex:0,signDate:"",file:null,scanNote:""});
@@ -79,7 +79,7 @@ Page({
   const index=this.data.projects.findIndex(p=>p.id===e.currentTarget.dataset.pid);
   if(index<0)return;
   this._directorySeq=(this._directorySeq||0)+1;
-  this.setData({directoryOpen:false,allMaterials:false,kind:"课件",custom:false,customKind:"",contractMode:false});
+  this.setData({directoryOpen:false,allMaterials:true,kind:"课件",custom:false,customKind:"",contractMode:false});
   await this.select({detail:{value:index}});
  },
  async backDirectory(){
@@ -238,7 +238,7 @@ Page({
   this.setData({busy:true,contractNotice:""});
   try{
    const result=await new Promise((resolve,reject)=>photo?
-    wx.chooseMedia({count:1,mediaType:["image"],sourceType:["album","camera"],success:resolve,fail:reject}):
+    wx.chooseMedia({count:1,mediaType:["image"],sizeType:["original"],sourceType:["album","camera"],success:resolve,fail:reject}):
     wx.chooseMessageFile({count:1,type:"file",extension:["pdf","doc","docx","ppt","pptx","xls","xlsx","csv","txt","jpg","jpeg","png","webp","gif"],success:resolve,fail:reject}));
    const f=result.tempFiles?.[0];
    if(!f)return;
@@ -246,12 +246,12 @@ Page({
    const ext=/\.png$/i.test(filePath)?"png":/\.webp$/i.test(filePath)?"webp":"jpg";
    const name=String(f.name||(photo?"合同-"+Date.now()+"."+ext:"")).trim();
    if(!name||name.length>120||! /\.(pdf|docx?|pptx?|xlsx?|csv|txt|jpe?g|png|webp|gif)$/i.test(name))throw Error("请选择有效合同文件");
-   if(!filePath||Number(f.size)>MAX_FILE_BYTES)throw Error("合同文件不可超过20 MB");
+   if(!filePath||Number(f.size)>MAX_FILE_BYTES)throw Error("合同文件不可超过50 MB");
    if(this.data.pid!==pid||!this.data.contractMode)throw Error("会议已变化，请重新选择");
    const draft={...this.data.contractDraft,name:name.replace(/\.[^.]+$/,"").slice(0,80),vendor:"",amount:"",file:null,scanNote:"正在上传合同原件…"};
    this.setData({contractDraft:draft});
    const raw=await new Promise((resolve,reject)=>wx.getFileSystemManager().readFile({filePath,success:r=>resolve(r.data),fail:reject}));
-   if(!raw?.byteLength||raw.byteLength>MAX_FILE_BYTES)throw Error("合同文件为空或超过20 MB");
+   if(!raw?.byteLength||raw.byteLength>MAX_FILE_BYTES)throw Error("合同文件为空或超过50 MB");
    const up=await app.api("/uploads?pid="+encodeURIComponent(pid),"POST",raw,{"Content-Type":"application/octet-stream","X-File-Name":encodeURIComponent(name)});
    draft.file=up;draft.scanNote="正在识别合同信息…";this.setData({contractDraft:{...draft}});
    try{
@@ -345,10 +345,10 @@ Page({
   const r=await new Promise((resolve,reject)=>wx.chooseMessageFile({count:1,type:"file",extension:["pdf","doc","docx","ppt","pptx","xls","xlsx","csv","txt","jpg","jpeg","png","webp","gif"],success:resolve,fail:reject}));
   const f=r.tempFiles?.[0];if(!f)return null;
   const name=String(f.name||"").trim(),path=f.tempFilePath||f.path;
-  if(!name||name.length>120||!path||Number(f.size)>MAX_FILE_BYTES||!/\.(pdf|docx?|pptx?|xlsx?|csv|txt|jpe?g|png|webp|gif)$/i.test(name))throw Error("请选择20 MB以内的有效文件");
+  if(!name||name.length>120||!path||Number(f.size)>MAX_FILE_BYTES||!/\.(pdf|docx?|pptx?|xlsx?|csv|txt|jpe?g|png|webp|gif)$/i.test(name))throw Error("请选择50 MB以内的有效文件");
   if(["讲者照片","权益照片"].includes(kind)&&!/\.(jpe?g|png|webp)$/i.test(name))throw Error("照片材料仅支持 JPG、PNG、WebP");
   const raw=await new Promise((resolve,reject)=>wx.getFileSystemManager().readFile({filePath:path,success:x=>resolve(x.data),fail:reject}));
-  if(!raw?.byteLength||raw.byteLength>MAX_FILE_BYTES)throw Error("文件为空或超过20 MB");
+  if(!raw?.byteLength||raw.byteLength>MAX_FILE_BYTES)throw Error("文件为空或超过50 MB");
   if(this.data.pid!==pid)throw Error("会议已变化");
   return app.api("/uploads?pid="+encodeURIComponent(pid),"POST",raw,{"Content-Type":"application/octet-stream","X-File-Name":encodeURIComponent(name)});
  },
@@ -491,16 +491,29 @@ Page({
   this.setData({[key]:e.detail.value});
   if(key==="customKind")this.syncVisibleFiles();
  },
+ async confirmMaterialBatch(files,pid,kind,rightId){
+  // Like the Web upload dialog, confirm the destination and selected filenames before writing.
+  if(this.data.pid!==pid||this.data.busy||this.data.locked||!this.data.canMaterialWrite)return false;
+  const currentKind=()=>this.data.custom?this.data.customKind.trim():this.data.kind.trim();
+  if(currentKind()!==kind||this.data.rightId!==rightId)return false;
+  const names=files.slice(0,4).map(f=>String(f.name||"未命名文件")).join("\n");
+  this.setData({busy:true});
+  try{
+   const ok=await this.confirmAction("确认上传资料","项目："+(this.data.projects[this.data.index]?.name||pid)+"\n类别："+kind+"\n共 "+files.length+" 份文件\n"+names+(files.length>4?"\n另有 "+(files.length-4)+" 份":""));
+   return ok&&this.data.pid===pid&&currentKind()===kind&&this.data.rightId===rightId;
+  }finally{this.setData({busy:false});}
+ },
  async addPhoto(){
   if(this.data.busy||this.data.locked||!this.data.canMaterialWrite)return;
   const kind=this.data.custom?this.data.customKind.trim():this.data.kind.trim();
+  const pid=this.data.pid,rightId=this.data.rightId;
   const speaker=kind==="讲者照片";
   if(speaker&&this.data.speakerFiles.length){
    this.setData({error:"已有一批讲者照片待命名，请先上传或移除后再选"});return;
   }
   try{
    const media=await new Promise((resolve,reject)=>wx.chooseMedia({
-    count:MAX_MATERIAL_FILES_PER_BATCH,mediaType:["image"],sourceType:["album","camera"],success:resolve,fail:reject}));
+    count:MAX_MATERIAL_FILES_PER_BATCH,mediaType:["image"],sizeType:["original"],sourceType:["album","camera"],success:resolve,fail:reject}));
    const chosen=media.tempFiles||[];
    if(!chosen.length)throw new Error("没有选中照片");
    const stamp=Date.now();
@@ -510,6 +523,7 @@ Page({
     const safeKind=kind.replace(/[\\/:*?"<>|]/g,"_")||"照片";
     return {...file,path,ext,name:safeKind+"-"+stamp+"-"+(i+1)+"."+ext};
    });
+   if(this.data.pid!==pid||(this.data.custom?this.data.customKind.trim():this.data.kind.trim())!==kind||this.data.rightId!==rightId)return;
    if(speaker){
     // 相册图片没有原始文件名，先让用户逐张填写讲者姓名，姓名即材料名称
     this.setData({speakerFiles:files.map(f=>({
@@ -517,7 +531,7 @@ Page({
     })),error:"",uploaded:""});
     return;
    }
-   await this.uploadBatch(files);
+   if(await this.confirmMaterialBatch(files,pid,kind,rightId))await this.uploadBatch(files);
   }catch(e){
    if(/cancel/i.test(String(e&&e.errMsg||"")))return;
    this.setData({error:e.message||"图片选择失败"});
@@ -561,6 +575,7 @@ Page({
  },
  async addFile(){
   if(this.data.busy||this.data.locked||!this.data.canMaterialWrite)return;
+  const pid=this.data.pid,kind=this.data.custom?this.data.customKind.trim():this.data.kind.trim(),rightId=this.data.rightId;
   try{
    const result=await new Promise((resolve,reject)=>wx.chooseMessageFile({
     count:MAX_MATERIAL_FILES_PER_BATCH,type:"file",
@@ -569,8 +584,8 @@ Page({
    }));
    const files=(result.tempFiles||[]).map(f=>({...f,name:String(f.name||"").trim()}));
    if(!files.length)throw new Error("未选择文件");
-   await this.uploadBatch(files);
-  }catch(e){this.setData({error:e.message||"文件选择失败"});}
+   if(await this.confirmMaterialBatch(files,pid,kind,rightId))await this.uploadBatch(files);
+  }catch(e){if(!/cancel/i.test(String(e?.errMsg||e?.message||"")))this.setData({error:e.message||"文件选择失败"});}
  },
  // 误传纠错：仅删除当前项目已正式登记的这份材料，绝不直接清理存储原件。
  // 后端执行权限/核销/合同冻结校验并软删除至总管理员废件箱。
@@ -651,7 +666,7 @@ Page({
      this.setData({error:kind+"只支持 JPG/PNG/WebP 图片"});return;
     }
     if(Number(f.size)>MAX_FILE_BYTES){
-     this.setData({error:"每份材料不能超过20 MB："+f.name});return;
+     this.setData({error:"每份材料不能超过50 MB："+f.name});return;
     }
    }
    this._batch={
@@ -675,11 +690,16 @@ Page({
     const item=queue[cursor++];
     item.status="上传中";item.error="";sync();
     try{
-     const raw=await new Promise((resolve,reject)=>wx.getFileSystemManager().readFile({
-      filePath:item.file.tempFilePath||item.file.path,success:r=>resolve(r.data),fail:reject
-     }));
-     const uploaded=await app.api("/uploads?pid="+encodeURIComponent(pid),"POST",raw,
-      {"Content-Type":"application/octet-stream","X-File-Name":encodeURIComponent(item.name)});
+     // A successful binary upload is retained if only material registration fails, as on Web.
+     if(!item.upload){
+      const raw=await new Promise((resolve,reject)=>wx.getFileSystemManager().readFile({
+       filePath:item.file.tempFilePath||item.file.path,success:r=>resolve(r.data),fail:reject
+      }));
+      if(!raw?.byteLength||raw.byteLength>MAX_FILE_BYTES)throw Error("文件为空或超过50 MB");
+      item.upload=await app.api("/uploads?pid="+encodeURIComponent(pid),"POST",raw,
+       {"Content-Type":"application/octet-stream","X-File-Name":encodeURIComponent(item.name)});
+     }
+     const uploaded=item.upload;
      item.status="归档中";sync();
      const saved=await app.api("/projects/"+encodeURIComponent(pid)+"/materials","POST",{
       kind,name:item.name,version:final?"终版":"v1",file_key:uploaded.key,
@@ -696,7 +716,9 @@ Page({
    }
   };
   try{
-   await Promise.all(Array.from({length:final?1:Math.min(3,queue.length)},()=>worker()));
+   // Large originals are processed serially to reduce mobile memory pressure.
+   const serial=final||queue.some(x=>Number(x.file.size)>20*1024*1024);
+   await Promise.all(Array.from({length:serial?1:Math.min(3,queue.length)},()=>worker()));
    // Refresh from saved materials, including earlier uploads to this category.
    // If listing is temporarily unavailable, preserve the batch result/error
    // and let onShow() fetch again; never mark a failed file as archived.

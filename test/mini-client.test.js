@@ -660,6 +660,8 @@ test("小程序材料目录与Web共享统计、搜索、项目选择及报销�
  assert.equal(page.data.directoryOpen,false);
  assert.equal(page.data.materialStats.count,3);
  assert.equal(page.data.materialStats.uploaded,2);
+ assert.equal(page.data.allMaterials,true,"从材料目录进入项目默认展示全部材料，与 Web 一致");
+ assert.equal(page.data.visibleFiles.length,3);
  assert.equal(page.data.materialMutationLocked,true);
  page.chooseKind({currentTarget:{dataset:{kind:"协会报销"}}});
  assert.equal(page.data.visibleFiles[0].name,"车票");
@@ -672,4 +674,31 @@ test("小程序材料目录与Web共享统计、搜索、项目选择及报销�
  assert.equal(page.data.pid,"");
  assert.equal(page.data.directoryOpen,true);
  assert.equal(page.data.directoryProjects.length,1);
+});
+
+
+test("小程序普通材料确认后才上传，登记失败重试复用已上传原件",async()=>{
+ const file={name:"协会报销票据.pdf",path:"/tmp/ticket.pdf",size:30*1024*1024};
+ let uploads=0,registrations=0;
+ const {page,seen}=mockMaterialsPage([file],async(url,method,body)=>{
+  if(url.startsWith("/uploads?")){uploads++;return {key:"a".repeat(32)+".pdf",name:file.name,size:file.size,mime:"application/pdf"};}
+  if(url.endsWith("/materials")&&method==="POST"){registrations++;assert.equal(body.kind,"协会报销");if(registrations===1)throw Error("登记暂时失败");return {};}
+  throw Error("Unexpected API: "+url);
+ });
+ page.data.kind="协会报销";
+ seen.confirmDelete=false;
+ await page.addFile();
+ assert.equal(uploads,0);
+ seen.confirmDelete=true;
+ await page.addFile();
+ assert.equal(uploads,1);
+ assert.equal(registrations,1);
+ assert.match(page.data.error,/重试/);
+ await page.retryFailed();
+ assert.equal(uploads,1,"只重试登记，不重复上传票据原件");
+ assert.equal(registrations,2);
+ assert.match(page.data.uploaded,/已归档1份材料/);
+ const over=mockMaterialsPage([{...file,size:50*1024*1024+1}],async()=>{throw Error("oversized file must not upload");});
+ await over.page.addFile();
+ assert.match(over.page.data.error,/50 MB/);
 });

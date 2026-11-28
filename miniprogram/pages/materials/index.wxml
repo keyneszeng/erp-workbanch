@@ -92,7 +92,7 @@
           </picker>
         </view>
         <button class="upload-panel" disabled="{{busy}}" bindtap="pickContractFile" data-source="photo">
-          <view class="upload-icon">照</view><view class="upload-title">拍照或从相册选择合同</view><view class="upload-sub">单份文件不超过20 MB</view>
+          <view class="upload-icon">照</view><view class="upload-title">拍照或从相册选择合同</view><view class="upload-sub">单份文件不超过50 MB</view>
         </button>
         <button class="upload-panel" disabled="{{busy}}" bindtap="pickContractFile" data-source="file">
           <view class="upload-icon">档</view><view class="upload-title">从微信会话选择合同文件</view><view class="upload-sub">支持 PDF、Office、图片等格式</view>
@@ -156,7 +156,7 @@
     </view>
     <view class="category-upload-caption">当前类别：{{custom?(customKind||'请填写自定义类别'):kind}}</view>
     <view wx:if="{{categoryDisabled}}" class="field-hint">当前材料类别已停用，仅可查看历史附件。</view>
-    <view wx:if="{{canMaterialWrite&&!locked}}" class="notice"><text class="notice-icon">i</text><text>每份材料自动采用对应文件名，无须逐份手工填写名称。单批最多10份。</text></view>
+    <view wx:if="{{canMaterialWrite&&!locked}}" class="notice"><text class="notice-icon">i</text><text>每份材料自动采用对应文件名，无须逐份手工填写名称。单批最多10份，确认后上传原件。</text></view>
     <view wx:if="{{canMaterialWrite&&!locked&&!custom&&kind==='讲者照片'}}" class="field-hint">讲者照片：可直接用下方「拍照或从相册选择」批量选图，选完逐张填写讲者姓名（姓名即材料名称）；也可从微信会话选择已用姓名命名的图片（如张三.jpg），系统按文件名关联。</view>
     <view wx:if="{{canMaterialWrite&&!locked&&!custom&&kind==='终版议程'}}" class="field-hint">可同时选择最多10份议程，按选择顺序登记，最后一份作为唯一当前终版，其余为历史版。</view>
     <view wx:if="{{error}}" class="error"><text class="feedback-icon">!</text><text>{{error}}</text></view>
@@ -199,7 +199,7 @@
         <text class="uploaded-file-count">{{visibleFiles.length}} 份</text>
       </view>
       <view class="row"><button size="mini" class="btn {{allMaterials?'primary':'ghost'}}" data-mode="all" bindtap="toggleAllMaterials" disabled="{{busy}}">全部材料</button><button size="mini" class="btn {{!allMaterials?'primary':'ghost'}}" data-mode="category" bindtap="toggleAllMaterials" disabled="{{busy}}">当前类别</button></view>
-      <view class="field-hint">点击文件名或「查看原件」即可查阅已上传附件。合同历史材料通过合同目录管理。</view>
+      <view class="field-hint">已录入文件：点击文件名或「查看原件」即可查阅已上传附件。合同历史材料通过合同目录管理。</view>
       <view wx:if="{{canMaterialWrite&&!materialMutationLocked}}" class="field-hint">文件传错了？点击该文件右侧「删除」并确认。删除后进入废件箱，仅总管理员可恢复。</view>
       <view wx:if="{{filesLoading}}" class="field-hint">正在加载已上传材料…</view>
       <view wx:elif="{{visibleFiles.length}}">
@@ -218,10 +218,10 @@
             catchtap="removeUploaded">删除</button>
         </view>
       </view>
-      <view wx:else class="field-hint">{{locked||!canMaterialWrite?'该类别暂无已上传文件。':'该类别暂无已上传文件，选择上方入口即可录入。'}}</view>
+      <view wx:else class="field-hint">{{allMaterials?'该项目尚未收集材料。':(locked||!canMaterialWrite?'该类别暂无已上传文件。':'该类别暂无已上传文件，选择上方入口即可录入。')}}</view>
     </view>
     <view wx:if="{{!custom&&(kind==='协会报销'||kind==='其他费用')}}" class="field-hint">票据归入本项目，会议核销后在财务付款明细中确认票号、实际收款方和金额。</view>
-    <view class="privacy-note">每批最多10份文件，单个附件不超过20 MB。OCR 仅辅助识别，不代表核销通过。</view>
+    <view class="privacy-note">每批最多10份文件，单个附件不超过50 MB。OCR 仅辅助识别，不代表核销通过。</view>
     </block>
   </view>
   </block>
