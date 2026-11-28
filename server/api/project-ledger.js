@@ -44,13 +44,13 @@ const raw=(pid)=>{
     "SELECT id,pid,name,vendor,category,amount,status,sign_date,file_key,file_name,created_at FROM contracts WHERE pid=? AND deleted_at IS NULL ORDER BY id"
   ).all(pid);
   const payments=db.prepare(
-    "SELECT id,pid,type,payee,amount,status,invoice_no,paid_at,created_at FROM payments WHERE pid=? ORDER BY created_at,id"
+    "SELECT id,pid,type,payee,amount,status,invoice_no,paid_at,created_at,payee_source_id FROM payments WHERE pid=? ORDER BY created_at,id"
   ).all(pid);
   const saved=db.prepare(
     "SELECT id,pid,income,expense,profit,tax_fee_rate,status,created_at FROM settlements WHERE pid=?").get(pid);
   const settlement=saved?settlementTotals(saved,project.tax_fee_rate):null;
   const materials=db.prepare(
-    "SELECT id,pid,kind,name,version,file_key,file_name,created_at FROM materials WHERE pid=? AND deleted_at IS NULL AND (kind LIKE '%发票%' OR kind LIKE '%付款%' OR kind LIKE '%财务%' OR kind LIKE '%结算%' OR kind LIKE '%劳务%' OR kind LIKE '%合同%') ORDER BY id"
+    "SELECT id,pid,kind,name,version,file_key,file_name,created_at FROM materials WHERE pid=? AND deleted_at IS NULL AND (kind LIKE '%发票%' OR kind LIKE '%付款%' OR kind LIKE '%财务%' OR kind LIKE '%结算%' OR kind LIKE '%劳务%' OR kind LIKE '%合同%' OR kind IN ('协会报销','其他费用')) ORDER BY id"
   ).all(pid);
   const approvals=db.prepare(
     "SELECT id,pid,type,ref_id,status,amount,decided_at FROM approvals WHERE pid=? AND type='付款审批' ORDER BY id"
@@ -69,7 +69,7 @@ function summarize(x){
   const active=total(payments,r=>r.status!=="已驳回");
   const pending=total(payments,r=>r.status==="待审批"||r.status==="已审批");
   const payTypes=summarizePaymentTypes(payments);
-  const invoiceNumberCount=payments.filter(r=>String(r.invoice_no||"").trim()).length;
+  const invoiceNumberCount=payments.filter(r=>!String(r.payee_source_id||"").startsWith("expense:")&&String(r.invoice_no||"").trim()).length;
   const invoiceFileCount=materials.filter(r=>/发票/.test(r.kind)&&!!r.file_key).length;
   const paymentVoucherFiles=materials.filter(r=>/付款凭证|厂家付款凭证/.test(r.kind)&&!!r.file_key).length;
   const contractFileCount=contracts.filter(r=>!!r.file_key).length;
@@ -116,7 +116,7 @@ function buildDetail(pid,user){
       "所有记录均通过原始业务表的 pid=会议编号关联，项目台账不复制第二套账。",
       "可用预算=会议预算扣除税费管理费；实时结余=可用预算−已付款，超预算允许为负数。待审批、待付款和已驳回不计入已付支出。",
       "已签署合同、付款和结算金额口径不同；已生成结算单保留冻结时的预算、费率及支出，历史差异仍需人工核对。",
-      "付款单发票号与材料发票附件并非一对一关联；若无逐票关联不能宣称完整核对成功。",
+      "报销及其他费用按付款来源逐票关联原件；历史会务付款与材料发票附件并非一对一关联，仍须核对。",
       "厂家款历史类型不等同于厂家付款凭证或企业真实到账证明。"
     ]
   };
