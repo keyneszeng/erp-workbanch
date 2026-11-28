@@ -154,6 +154,14 @@ test("劳务收集表类别退役：新上传规范为劳务表，旧原件仍�
   const {DatabaseSync}=require("node:sqlite");
   const {laborSheetInfo}=require("../server/lib/labor-sop");
   assert.ok(MATERIAL_KINDS.includes("劳务表"));
+  assert.ok(MATERIAL_KINDS.includes("协会报销"));
+  assert.ok(MATERIAL_KINDS.includes("其他费用"));
+  const {materialCategoryCatalog}=require("../server/lib/constants");
+  for(const kind of ["协会报销","其他费用"]){
+    assert.ok(materialCategoryCatalog().active.includes(kind));
+    assert.ok(!materialCategoryCatalog([kind],[kind]).active.includes(kind));
+    assert.ok(materialCategoryCatalog([kind],[kind]).history.includes(kind));
+  }
   assert.ok(!MATERIAL_KINDS.includes("劳务收集表"));
   assert.ok(MATERIAL_MODULE_KINDS.includes("劳务表"));
   assert.ok(!MATERIAL_MODULE_KINDS.includes("劳务收集表"));
