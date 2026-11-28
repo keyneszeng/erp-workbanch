@@ -1,0 +1,9 @@
+<view class="wrap">
+  <view class="hd">
+    <text class="title">{{name}}</text>
+    <button wx:if="{{text}}" size="mini" class="btn ghost" bindtap="copyText">复制全文</button>
+  </view>
+  <view wx:if="{{loading}}" class="hint">正在读取文本…</view>
+  <view wx:elif="{{error}}" class="hint err">{{error}}</view>
+  <view wx:else class="content">{{text}}</view>
+</view>
