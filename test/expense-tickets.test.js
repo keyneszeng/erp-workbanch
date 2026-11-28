@@ -1,0 +1,43 @@
+"use strict";
+const {test}=require("node:test");
+const assert=require("node:assert/strict");
+const {DatabaseSync}=require("node:sqlite");
+const {db,attachBackend}=require("../server/lib/db");
+const raw=new DatabaseSync(":memory:");
+attachBackend(raw);
+const e=require("../server/lib/expense-tickets");
+raw.exec(`CREATE TABLE materials(id INTEGER PRIMARY KEY,pid TEXT,kind TEXT,name TEXT,file_key TEXT,file_name TEXT,file_mime TEXT,deleted_at TEXT);
+CREATE TABLE expense_ticket_reviews(material_id INTEGER PRIMARY KEY,pid TEXT,file_key TEXT,kind TEXT,state TEXT,payee TEXT,amount REAL,ticket_no TEXT,ticket_key TEXT UNIQUE,file_hash TEXT UNIQUE,reason TEXT,reviewed_at TEXT);
+CREATE TABLE payments(id TEXT,pid TEXT,type TEXT,payee TEXT,amount REAL,invoice_no TEXT,payee_source_id TEXT,status TEXT,receipt_file_key TEXT);
+CREATE TABLE contracts(file_key TEXT,deleted_at TEXT);
+CREATE TABLE meeting_sponsor_contracts(file_key TEXT);
+CREATE TABLE meeting_sponsor_invoices(file_key TEXT);
+CREATE TABLE meeting_sponsor_receipts(file_key TEXT);
+INSERT INTO materials VALUES (1,'P1','协会报销','票据A','a.pdf','a.pdf','application/pdf',NULL),(2,'P1','其他费用','票据B','b.pdf','b.pdf','application/pdf',NULL),(3,'P2','协会报销','票据C','c.pdf','c.pdf','application/pdf',NULL);`);
+test("expenses appear immediately but cannot be paid before review",()=>{
+ assert.equal(e.list("P1").length,2);
+ assert.equal(e.options("P1").length,0);
+ assert.equal(e.pending("P1"),2);
+ assert.throws(()=>e.resolve("P1","expense:1"));
+ assert.throws(()=>e.resolve("P1","expense:3"));
+});
+test("reviewed receipt is a uniquely bound source; paid and excluded tickets resolve pending",()=>{
+ const v=e.validate({payee:"测试收款方",amount:88.88,ticket_no:"TEST-001"});
+ const m=e.list("P1")[0];
+ e.assertUnique(m,v,"hash1");
+ raw.prepare("INSERT INTO expense_ticket_reviews VALUES (?,?,?,?,?,?,?,?,?,?,?,?)").run(1,"P1","a.pdf","协会报销","confirmed",v.payee,v.amount,v.ticketNo,v.ticketKey,"hash1",null,"2026-11-28");
+ assert.equal(e.options("P1")[0].type,"协会报销");
+ assert.equal(e.resolve("P1","expense:1").amount,88.88);
+ assert.throws(()=>e.assertUnique(e.list("P2")[0],v,"hash2"),/重复/);
+ assert.throws(()=>e.assertUnique(e.list("P1")[1],e.validate({payee:"测试",amount:1,ticket_no:"TEST-002"}),"hash1"),/重复/);
+ raw.prepare("INSERT INTO payments VALUES (?,?,?,?,?,?,?,?,?)").run("PY1","P1","协会报销",v.payee,v.amount,v.ticketNo,"expense:1","已付款",null);
+ assert.equal(e.pending("P1"),1);
+ raw.prepare("INSERT INTO expense_ticket_reviews VALUES (?,?,?,?,?,?,?,?,?,?,?,?)").run(2,"P1","b.pdf","其他费用","excluded",null,null,null,null,null,"重复材料无需付款","2026-11-28");
+ assert.equal(e.pending("P1"),0);
+ assert.equal(e.options("P1").length,1);
+});
+test("invalid amount and missing identity are rejected",()=>{
+ for(const amount of [0,-1,1.001,NaN,true])assert.throws(()=>e.validate({payee:"测试",ticket_no:"T",amount}));
+ assert.throws(()=>e.validate({payee:"",ticket_no:"T",amount:1}));
+ assert.throws(()=>e.validate({payee:"测试",ticket_no:"",amount:1}));
+});
