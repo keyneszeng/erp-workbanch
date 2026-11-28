@@ -532,6 +532,7 @@ function register(router) {
     assertProjectVisible(ctx.user,p);
     assertCan(ctx.user,"material:file:replace","没有合同及材料修改授权，请联系总管理员在用户与权限中开通");
     if(!m.file_key)throw bad("该材料尚未上传原件，请先登记文件");
+    if(db.prepare("SELECT 1 FROM payments WHERE pid=? AND payee_source_id=? AND status<>'已驳回'").get(m.pid,"expense:"+m.id))throw conflict("票据已关联付款，不允许替换","EXPENSE_PAID_LOCKED");
     if(["已核销","已结算","已归档"].includes(p.status)||settlementOf(p.id))
       throw conflict("项目已核销、结算或归档，合同材料已冻结，不允许替换","FROZEN");
     const body=ctx.body||{}, oldKey=String(m.file_key);
@@ -652,6 +653,7 @@ function register(router) {
 
     // 关联台账合同与材料必须同生共退。禁止通过删除合同原件绕过签署、赞助和核销流程。
     if (m?.deleted_at) throw conflict("材料已处于历史冻结状态，不能重复删除", "ALREADY_DELETED");
+    if(m&&db.prepare("SELECT 1 FROM payments WHERE pid=? AND payee_source_id=? AND status<>'已驳回'").get(m.pid,"expense:"+m.id))throw conflict("票据已关联付款，不允许删除","EXPENSE_PAID_LOCKED");
     // 旧系统允许把合同原件登记成「会务协议」「专家劳务合同」等自定义类别。
     // 删除时不能仅认 kind='合同'：只要这张材料引用的是该项目合同台账的
     // 同一份原件，就必须同步处理台账，否则合同继续卡住第5/6项核销。
