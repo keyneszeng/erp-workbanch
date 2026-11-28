@@ -1,4 +1,6 @@
 const app=getApp();
+// 北京时间展示：优先用 app 的统一实现；测试或旧运行时缺该方法时原样回退，避免崩溃。
+const fmtTime=(v,fallback="—")=>typeof app?.formatDateTime==="function"?app.formatDateTime(v,fallback):(v==null||v===""?fallback:v);
 const MAX_MATERIAL_FILES_PER_BATCH=10;
 const MAX_MATERIAL_PHOTOS_PER_BATCH=50;
 const materialBatchLimit=(kind,files)=>kind!=="终版议程"&&files.length&&files.every(f=>/\.(jpe?g|png|webp|gif)$/i.test(f.name||""))?MAX_MATERIAL_PHOTOS_PER_BATCH:MAX_MATERIAL_FILES_PER_BATCH;
@@ -149,7 +151,7 @@ Page({
    const rightById=new Map((data.sponsorRights?.rights||[]).map(r=>[Number(r.id),r]));
    const sponsorById=new Map((data.sponsorRights?.contracts||[]).map(c=>[c.id,c]));
    const rows=(data.materials||[]).filter(row=>row&&row.kind&&!row.deleted_at)
-     .map(row=>{const right=rightById.get(Number(row.sponsor_right_id));return {...row,created_at:app.formatDateTime(row.created_at,""),filename:row.file_name||row.name||row.file_key,kind:normalizedKind(row.kind),contractEvidence:retired.has(row.kind),sponsor_right_category:row.sponsor_right_category||right?.category||"",sponsor_enterprise:row.sponsor_enterprise||sponsorById.get(right?.sponsor_id)?.enterprise||""};});
+     .map(row=>{const right=rightById.get(Number(row.sponsor_right_id));return {...row,created_at:fmtTime(row.created_at,""),filename:row.file_name||row.name||row.file_key,kind:normalizedKind(row.kind),contractEvidence:retired.has(row.kind),sponsor_right_category:row.sponsor_right_category||right?.category||"",sponsor_enterprise:row.sponsor_enterprise||sponsorById.get(right?.sponsor_id)?.enterprise||""};});
    const history=[...new Set([...(shared.history||[]),...rows.map(row=>row.kind)].map(normalizedKind))]
      .filter(k=>!kinds.includes(k)&&!retired.has(k)).sort();
    // 历史合同及劳务协议、会务协议仍保存在服务端，不进入材料收集的可选类别。
@@ -204,7 +206,7 @@ Page({
    const rows=(data.contracts||[]).filter(c=>!c.deleted_at).map(c=>{
     const materialId=(data.materials||[]).find(m=>m.kind==="合同"&&!m.deleted_at&&m.file_key===c.file_key)?.id||null;
     return {id:c.id,name:c.name,vendor:c.vendor||"",category:labels[c.category]||c.category||"合同",categoryValue:c.category,
-    status:c.status,fileKey:c.file_key||"",fileName:c.file_name||"",amount:Number(c.amount||0).toFixed(2),signDate:c.sign_date||"",creator:c.created_by_name||"",createdAt:app.formatDateTime(c.created_at),remark:c.remark||"",materialId,
+    status:c.status,fileKey:c.file_key||"",fileName:c.file_name||"",amount:Number(c.amount||0).toFixed(2),signDate:c.sign_date||"",creator:c.created_by_name||"",createdAt:fmtTime(c.created_at),remark:c.remark||"",materialId,
     canEdit:!sealed&&["草稿","待签署","已签署"].includes(c.status)&&(c.status==="已签署"?approve:write),
     canReplace:mutable&&perms.includes("material:file:replace")&&!!c.file_key&&!!materialId&&c.category!=="企业赞助",
     canReviewReplace:mutable&&approve&&c.status==="待签署",
@@ -418,7 +420,7 @@ Page({
   const c=this.contractRow(e);if(!c?.canHistory||this.data.busy)return;
   try{
    const r=await app.api("/contracts/"+encodeURIComponent(c.id)+"/amendments");
-   this.setData({historyContract:c.name,historyRows:(r.rows||[]).map(x=>({id:x.id,status:x.status,kind:x.kind,reason:x.reason,createdAt:app.formatDateTime(x.created_at),oldKey:x.old_file_key,newKey:x.new_file_key,oldName:x.old_file_name,newName:x.new_file_name}))});
+   this.setData({historyContract:c.name,historyRows:(r.rows||[]).map(x=>({id:x.id,status:x.status,kind:x.kind,reason:x.reason,createdAt:fmtTime(x.created_at),oldKey:x.old_file_key,newKey:x.new_file_key,oldName:x.old_file_name,newName:x.new_file_name}))});
   }catch(err){this.setData({contractNotice:err.message||"版本历史读取失败"});}
  },
  closeHistory(){this.setData({historyContract:"",historyRows:[]});},

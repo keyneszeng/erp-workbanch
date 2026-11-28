@@ -196,7 +196,7 @@ function makeLines(d, sources) {
     " / " + a.status + " / 申请：" + display(a.by_user) +
     " / 审批：" + display(a.decided_by) + " / 意见：" + display(a.comment), "  无关联审批记录");
   section("十、核销与归档操作留痕");
-  simpleRecords(records.auditLogs, a => formatBeijingDateTime(a.at) + " / "
+  simpleRecords(records.auditLogs, a => formatBeijingDateTime(a.at) + " / " +
     display(a.user_name) + " / " + a.module + " / " + a.action +
     " / " + display(a.detail), "  无操作记录");
   section("十一、资料原件目录");

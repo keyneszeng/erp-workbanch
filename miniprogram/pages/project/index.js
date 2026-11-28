@@ -1,4 +1,6 @@
 const app=getApp();
+// 北京时间展示：优先用 app 的统一实现；测试或旧运行时缺该方法时原样回退，避免崩溃。
+const fmtTime=(v,fallback="—")=>typeof app?.formatDateTime==="function"?app.formatDateTime(v,fallback):(v==null||v===""?fallback:v);
 const stages=["草稿","待审批","已立项","筹备中","执行中","待核销","已核销","已结算","已归档"];
 Page({
  data:{id:"",p:null,error:"",canMaterials:false,canApprove:false,stagePercent:0,
@@ -37,7 +39,7 @@ Page({
    const settlementGroups=(breakdown?.groups||[]).map(g=>({
       key:g.key,label:g.label,count:g.count,amount:Number(g.amount||0).toFixed(2),
       items:(g.items||[]).map(y=>({id:y.id,type:y.type,payee:y.payee,
-        amount:Number(y.amount||0).toFixed(2),paidAt:app.formatDateTime(y.paid_at),remark:y.remark||""}))
+        amount:Number(y.amount||0).toFixed(2),paidAt:fmtTime(y.paid_at),remark:y.remark||""}))
    }));
    const verifySummary=canVerify&&r.verification?{
       passed:r.verification.passed||0,total:r.verification.total||0,
