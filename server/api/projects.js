@@ -147,7 +147,7 @@ function listProjects(user, { status, q, assoc, stage, page, size } = {}) {
   const args = [...params];
   if (status) { where.push("p.status = ?"); args.push(status); }
   if (assoc) { where.push("p.assoc = ?"); args.push(assoc); }
-  if (q) { where.push("(p.name LIKE ? OR p.id LIKE ? OR p.owner LIKE ?)"); args.push(`%${q}%`, `%${q}%`, `%${q}%`); }
+  if (q) { where.push("(p.name LIKE ? OR p.id LIKE ? OR p.owner LIKE ? OR p.external_contact LIKE ?)"); args.push(`%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`); }
   if (stage) {
     const map = {
       draft: ["草稿", "待审批"], prep: ["已立项", "筹备中"],

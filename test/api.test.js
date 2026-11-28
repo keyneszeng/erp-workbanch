@@ -154,6 +154,25 @@ test("立项必填校验：缺议程被拒", async () => {
 /* ---------------- 工作流 ---------------- */
 let pid;
 
+test("项目列表可按外部联系人搜索",async()=>{
+  const contact="外部联系人搜索测试甲";
+  const created=await assoc("POST","/api/projects",{
+    name:"外部联系人搜索测试会议",assoc:"华东医学会",form:"线下",date:"2026-12-21",
+    budget:1000,tax_fee_rate:0,people:10,owner:"王敏",agenda:"09:00 开幕",dept:"秘书处",
+    external_contact:contact
+  });
+  assert.equal(created.status,200,JSON.stringify(created.data));
+  assert.equal(created.data.project.external_contact,contact);
+  const hit=await assoc("GET","/api/projects?q="+encodeURIComponent(contact));
+  assert.equal(hit.status,200);
+  const rows=hit.data.rows||hit.data;
+  assert.ok(Array.isArray(rows));
+  assert.ok(rows.some(r=>r.external_contact===contact),"按外部联系人应能搜到项目");
+  const miss=await assoc("GET","/api/projects?q="+encodeURIComponent("不存在的外部联系人XYZ"));
+  const missRows=miss.data.rows||miss.data;
+  assert.ok(!missRows.some(r=>r.external_contact===contact));
+});
+
 test("工作流：新建 → 提交 → 审批 → 筹备 → 执行 → 待核销", async () => {
   const created = await assoc("POST", "/api/projects", {
     name: "回归测试会议", assoc: "华东医学会", form: "线下", date: "2026-12-20",

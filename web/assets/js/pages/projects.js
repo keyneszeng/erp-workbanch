@@ -27,7 +27,7 @@ export async function render(root) {
     <div class="panel">
       <div class="tabs" id="tabs">${TABS.map((t) => `<button data-stage="${t.k}" class="${filter.stage === t.k ? "on" : ""}">${t.n}</button>`).join("")}</div>
       <div class="filters">
-        <input type="search" id="q" placeholder="搜索会议名称 / 编号 / 负责人" value="${esc(filter.q)}">
+        <input type="search" id="q" placeholder="搜索会议名称 / 编号 / 负责人 / 外部联系人" value="${esc(filter.q)}">
         <select id="assoc"><option value="">全部协会</option>
           ${(state.meta.assocs || []).map((a) => `<option value="${esc(a)}"${filter.assoc === a ? " selected" : ""}>${esc(a)}</option>`).join("")}
         </select>
