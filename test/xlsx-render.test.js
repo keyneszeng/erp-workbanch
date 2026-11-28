@@ -49,3 +49,17 @@ test("非 xlsx / 损坏文件被拒绝", () => {
   assert.throws(() => parseXlsxTable(Buffer.from("not a zip")), /不是有效的 XLSX/);
   assert.throws(() => parseXlsxTable(null), /不是有效的 XLSX/);
 });
+
+test("缩放打印注入：只加 fitToPage/fitToWidth，不改单元格内容", () => {
+  const { applyFitToWidth } = require("../server/lib/file-preview");
+  const xml = '<?xml version="1.0"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">' +
+    '<sheetData><row r="1"><c r="A1" t="inlineStr"><is><t>原始内容</t></is></c></row></sheetData></worksheet>';
+  const out = applyFitToWidth(xml);
+  assert.match(out, /<sheetPr><pageSetUpPr fitToPage="1"\/><\/sheetPr>/);
+  assert.match(out, /<pageSetup fitToWidth="1" fitToHeight="0" orientation="landscape"\/>/);
+  assert.match(out, /<pageMargins left="0.25"/);
+  // 单元格内容原样保留
+  assert.match(out, /<c r="A1" t="inlineStr"><is><t>原始内容<\/t><\/is><\/c>/);
+  // schema 顺序：pageMargins 必须在 pageSetup 之前
+  assert.ok(out.indexOf("<pageMargins") < out.indexOf("<pageSetup"));
+});

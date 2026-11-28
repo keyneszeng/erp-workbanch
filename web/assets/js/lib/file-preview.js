@@ -1,5 +1,4 @@
 import { esc } from "./ui.js";
-import { api } from "./api.js";
 
 /**
  * 统一的原件弹窗预览：全系统所有 /api/uploads/<key> 链接共用。
@@ -15,62 +14,6 @@ import { api } from "./api.js";
  * - 弹窗头部保留「新窗口打开」「下载」「关闭」，内嵌失败也能兜底。
  */
 const IMG_EXT = ["jpg", "jpeg", "png", "webp", "gif", "bmp"];
-
-/** 把后端解析出的 sheet 结构渲染成 <table>，还原行列与合并单元格，不改原件。 */
-function renderXlsxSheet(sheet) {
-  const cellMap = new Map();
-  for (const c of sheet.cells || []) cellMap.set(c.r + ":" + c.c, c);
-  const mergeStart = new Map(), covered = new Set();
-  for (const m of sheet.merges || []) {
-    mergeStart.set(m.r + ":" + m.c, m);
-    for (let r = m.r; r < m.r + m.rs; r++)
-      for (let c = m.c; c < m.c + m.cs; c++)
-        if (r !== m.r || c !== m.c) covered.add(r + ":" + c);
-  }
-  const widths = new Map((sheet.widths || []).map(w => [w.col, w.width]));
-  const rows = [];
-  for (let r = 1; r <= (sheet.rows || 0); r++) {
-    const tds = [];
-    for (let c = 1; c <= (sheet.colsCount || 0); c++) {
-      if (covered.has(r + ":" + c)) continue;
-      const cell = cellMap.get(r + ":" + c);
-      const merge = mergeStart.get(r + ":" + c);
-      const attrs = [];
-      if (widths.get(c)) attrs.push('style="min-width:' + Math.min(360, Math.max(60, widths.get(c))) + 'px"');
-      if (merge && merge.rs > 1) attrs.push('rowspan="' + merge.rs + '"');
-      if (merge && merge.cs > 1) attrs.push('colspan="' + merge.cs + '"');
-      if (cell && cell.t === "n") attrs.push('class="num"');
-      tds.push("<td " + attrs.join(" ") + ">" + esc(cell ? cell.v : "") + "</td>");
-    }
-    rows.push("<tr>" + tds.join("") + "</tr>");
-  }
-  return '<table class="xlsx-table"><tbody>' + rows.join("") + "</tbody></table>";
-}
-
-function renderXlsxPreview(box, key, name) {
-  const bd = box.querySelector(".fv-bd");
-  bd.innerHTML = '<p class="hint" style="padding:24px">正在按原表格结构读取…</p>';
-  api.get("/api/uploads/" + encodeURIComponent(key) + "?preview=table")
-    .then(data => {
-      const sheets = data?.sheets || [];
-      if (!sheets.length) { bd.innerHTML = '<p class="hint" style="padding:24px">这张表没有可预览的内容</p>'; return; }
-      bd.innerHTML = '<div class="xlsx-wrap">' +
-        (sheets.length > 1
-          ? '<div class="xlsx-tabs">' + sheets.map((s, i) => '<button type="button" class="link' + (i ? "" : " on") + '" data-sheet="' + i + '">' + esc(s.name) + "</button>").join("") + "</div>"
-          : "") +
-        '<div class="xlsx-sheet" data-sheet-body></div></div>';
-      const body = bd.querySelector("[data-sheet-body]");
-      const show = i => {
-        body.innerHTML = renderXlsxSheet(sheets[i]);
-        bd.querySelectorAll("[data-sheet]").forEach(b => b.classList.toggle("on", Number(b.dataset.sheet) === i));
-      };
-      bd.querySelectorAll("[data-sheet]").forEach(b => b.onclick = () => show(Number(b.dataset.sheet)));
-      show(0);
-    })
-    .catch(err => {
-      bd.innerHTML = '<p class="hint" style="padding:24px">表格读取失败：' + esc(err.message || "请稍后重试") + "</p>";
-    });
-}
 
 function buildPreview(key, name) {
   const ext = String(key.split(".").pop() || "").toLowerCase();
@@ -91,8 +34,7 @@ function buildPreview(key, name) {
       : '<iframe src="' + previewUrl + '" title="原件预览"></iframe>') +
     '</div></div>';
   document.body.appendChild(box);
-  // xlsx 走原表格结构渲染（行列/合并单元格/列宽），不转 PDF、不改内容编排。
-  if (ext === "xlsx") { box.querySelector(".fv-bd").classList.add("xlsx-mode"); renderXlsxPreview(box, key, name); }
+  // xlsx 走后端「缩放打印版 PDF」：保留原件表格样式、减少换页，单元格内容一律不改。
   const close = () => { box.remove(); document.removeEventListener("keydown", onKey); };
   const onKey = e => { if (e.key === "Escape") close(); };
   box.querySelectorAll("[data-fv-close]").forEach(el => el.onclick = close);

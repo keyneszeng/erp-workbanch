@@ -86,15 +86,29 @@ App({
         : "请先登录已配置的正式 HTTPS 服务"));
     const ext0 = String(fileKey).split(".").pop().toLowerCase();
     // txt/csv 不在 wx.openDocument 支持列表里：跳到原生文本预览页。
-    // xlsx 走原表格结构预览页（行列/合并单元格），不转 PDF、不改变内容编排。
-    // 两处都用同一个 Bearer 会话读取，与 Web 端原样预览对齐。
-    if (["txt", "csv", "xlsx"].includes(ext0)) {
-      const page = ext0 === "xlsx" ? "file-sheet" : "file-text";
+    // xlsx 走 ?preview=1（后端缩放到一页宽的 PDF，保留原件表格样式），与 Web 端一致。
+    if (["txt", "csv"].includes(ext0)) {
       return new Promise((resolve, reject) => wx.navigateTo({
-        url: "/pages/" + page + "/index?key=" + encodeURIComponent(fileKey) + "&name=" +
-          encodeURIComponent(String(fileKey).split("/").pop() || "原件"),
+        url: "/pages/file-text/index?key=" + encodeURIComponent(fileKey) + "&name=" +
+          encodeURIComponent(String(fileKey).split("/").pop() || "文本原件"),
         success: () => resolve(true),
-        fail: () => reject(new Error("预览页打开失败，请稍后重试"))
+        fail: () => reject(new Error("文本预览页打开失败，请稍后重试"))
+      }));
+    }
+    if (ext0 === "xlsx") {
+      return new Promise((resolve, reject) => wx.downloadFile({
+        url: base + "/uploads/" + encodeURIComponent(fileKey) + "?preview=1",
+        header: { Authorization: "Bearer " + token },
+        success: r => {
+          if (r.statusCode !== 200 || !r.tempFilePath) {
+            if (r.statusCode === 401 && this.globalData.token === token) this.clearSession();
+            return reject(new Error("表格预览生成失败（" + r.statusCode + "）"));
+          }
+          wx.openDocument({ filePath: r.tempFilePath, fileType: "pdf", showMenu: true,
+            success: () => resolve(true),
+            fail: () => reject(new Error("表格预览打开失败，请稍后重试")) });
+        },
+        fail: () => reject(new Error("表格预览下载失败，请检查网络或稍后重试"))
       }));
     }
     return new Promise((resolve, reject) => wx.downloadFile({

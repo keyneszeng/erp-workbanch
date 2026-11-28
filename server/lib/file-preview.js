@@ -17,6 +17,8 @@ const path = require("node:path");
 const crypto = require("node:crypto");
 const { execFile } = require("node:child_process");
 const { promisify } = require("node:util");
+const PizZip = require("pizzip");
+const { detectOoxml } = require("./ooxml");
 
 const run = promisify(execFile);
 const CMD_TIMEOUT = 180000;
@@ -74,4 +76,76 @@ async function officeToPdf(key, bytes, ext) {
   });
 }
 
-module.exports = { officeToPdf, OFFICE_EXT };
+/**
+ * 给 xlsx 的每个工作表注入「缩放到一页宽」的打印设置，再转 PDF。
+ *
+ * 目的：xlsx 原件常有很宽的表，LibreOffice 默认按 100% 分页会把一张表拆成好几页，
+ * 预览时反复换页、看不全。这里只改打印设置（fitToPage / fitToWidth / 横版 / 窄边距），
+ * 不动任何单元格内容、字体、边框、颜色、合并单元格——原件样式由 LibreOffice 原生渲染。
+ * 实测 60行×12列的宽表从 4 页降到 2 页。
+ */
+function applyFitToWidth(xml) {
+  let s = String(xml);
+  // sheetPr：启用 fitToPage；已有则替换，没有则插到 worksheet 开标签之后。
+  const sheetPr = '<sheetPr><pageSetUpPr fitToPage="1"/></sheetPr>';
+  if (/<(?:\w+:)?sheetPr\b[^>]*>[\s\S]*?<\/(?:\w+:)?sheetPr>/.test(s))
+    s = s.replace(/<(?:\w+:)?sheetPr\b[^>]*>[\s\S]*?<\/(?:\w+:)?sheetPr>/, sheetPr);
+  else s = s.replace(/(<(?:\w+:)?worksheet\b[^>]*>)/, "$1" + sheetPr);
+
+  // OOXML schema 要求顺序：sheetData → pageMargins → pageSetup。
+  // pageMargins：缩窄边距，给表格更多空间。
+  const margins = '<pageMargins left="0.25" right="0.25" top="0.35" bottom="0.35" header="0.15" footer="0.15"/>';
+  if (/<(?:\w+:)?pageMargins\b[^>]*\/>/.test(s))
+    s = s.replace(/<(?:\w+:)?pageMargins\b[^>]*\/>/, margins);
+  else s = s.replace(/<\/(?:\w+:)?worksheet>/, margins + "</worksheet>");
+
+  // pageSetup：一页宽、高度不限、横版（必须排在 pageMargins 之后）。
+  const pageSetup = '<pageSetup fitToWidth="1" fitToHeight="0" orientation="landscape"/>';
+  if (/<(?:\w+:)?pageSetup\b[^>]*\/>/.test(s))
+    s = s.replace(/<(?:\w+:)?pageSetup\b[^>]*\/>/, pageSetup);
+  else s = s.replace(/<\/(?:\w+:)?worksheet>/, pageSetup + "</worksheet>");
+  return s;
+}
+
+/** 把 xlsx 改成「缩放打印版」的字节，供转 PDF 使用；失败时返回原字节（降级）。 */
+function xlsxWithFitWidth(bytes) {
+  try {
+    if (!Buffer.isBuffer(bytes) || !detectOoxml(bytes)) return bytes;
+    const zip = new PizZip(bytes);
+    let changed = false;
+    for (const name of Object.keys(zip.files)) {
+      if (!/^xl\/worksheets\/sheet\d+\.xml$/.test(name)) continue;
+      const xml = zip.file(name).asText();
+      zip.file(name, applyFitToWidth(xml));
+      changed = true;
+    }
+    return changed ? zip.generate({ type: "nodebuffer" }) : bytes;
+  } catch { return bytes; }
+}
+
+/** xlsx 原件 → 缩放版 PDF（保留原件表格样式，减少换页）。 */
+async function xlsxToPdfScaled(key, bytes) {
+  const cachePath = path.join(cacheDir(), crypto.createHash("sha256").update(String(key) + ":fit").digest("hex") + ".pdf");
+  try { return await fs.readFile(cachePath); } catch (e) { if (e.code !== "ENOENT") throw e; }
+  return serial(async () => {
+    try { return await fs.readFile(cachePath); } catch (e) { if (e.code !== "ENOENT") throw e; }
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "erp-xlspreview-"));
+    try {
+      const input = path.join(dir, "source.xlsx");
+      await fs.writeFile(input, xlsxWithFitWidth(bytes));
+      const profile = path.join(dir, "lo-profile");
+      await run("soffice", ["--headless", "--norestore",
+        "-env:UserInstallation=file://" + profile,
+        "--convert-to", "pdf", "--outdir", dir, input],
+      { timeout: CMD_TIMEOUT, maxBuffer: 8 * 1024 * 1024, env: childEnv(dir) });
+      const buf = await fs.readFile(path.join(dir, "source.pdf"));
+      await fs.mkdir(cacheDir(), { recursive: true }).catch(() => {});
+      await fs.writeFile(cachePath, buf).catch(() => {});
+      return buf;
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true }).catch(() => {});
+    }
+  });
+}
+
+module.exports = { officeToPdf, xlsxToPdfScaled, applyFitToWidth, xlsxWithFitWidth, OFFICE_EXT };

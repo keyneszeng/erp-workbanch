@@ -18,7 +18,7 @@ const { assertProjectVisible, can, hasModule } = require("../lib/rbac");
 const { logAudit } = require("../lib/audit");
 const { getProject } = require("../lib/workflow");
 const { HttpError } = require("../lib/util");
-const { officeToPdf, OFFICE_EXT } = require("../lib/file-preview");
+const { officeToPdf, xlsxToPdfScaled, OFFICE_EXT } = require("../lib/file-preview");
 const { parseXlsxTable } = require("../lib/xlsx-render");
 const { storage, newKey, checkMime, sniffMime, safeName, MAX_BYTES, ALLOWED_MIME } = require("../lib/storage");
 
@@ -172,7 +172,8 @@ function register(router) {
     // ?preview=1：在线预览模式。权限校验已在上面全部走完，这里只改返回形态。
     // Office 原件用 LibreOffice 转 PDF 后内联返回，前端弹窗 iframe 直接看。
     if (ctx.query.preview === "1" && OFFICE_EXT.has(ext)) {
-      const buf = await officeToPdf(key, obj.buffer, ext);
+      // xlsx 走「缩放到一页宽」的 PDF：保留原件表格样式，减少换页；不改任何单元格内容。
+      const buf = ext === "xlsx" ? await xlsxToPdfScaled(key, obj.buffer) : await officeToPdf(key, obj.buffer, ext);
       return { __file: { buffer: buf, mime: "application/pdf", name, download: false, cache: "private, max-age=86400" } };
     }
     // txt/csv 预览时按纯文本内联，避免被当成二进制下载。

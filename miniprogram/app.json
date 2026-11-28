@@ -3,7 +3,7 @@
     "pages/welcome/index","pages/public-proposal/index",
     "pages/home/index","pages/bind/index","pages/projects/index","pages/apply/index",
     "pages/project/index","pages/verification/index","pages/approvals/index","pages/materials/index",
-    "pages/account/index","pages/invite/index","pages/file-text/index","pages/file-sheet/index"
+    "pages/account/index","pages/invite/index","pages/file-text/index"
   ],
   "window":{
     "navigationBarTitleText":"会规智云","navigationBarBackgroundColor":"#10243f",
