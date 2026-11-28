@@ -8,16 +8,18 @@ const emptyContract=()=>({categoryIndex:0,name:"",vendor:"",amount:"",rightsText
 // 因此讲者照片额外提供「相册选图 → 逐张填姓名」的通道，姓名拼成文件名后走同一套上传。
 let speakerSeq=0;
 Page({
- data:{projects:[],index:0,pid:"",kind:"课件",name:"",error:"",busy:false,uploaded:"",
+ data:{projects:[],index:0,pid:"",directoryOpen:true,directoryLoading:false,directoryError:"",directorySearch:"",directoryProjects:[],directoryStats:null,allMaterials:false,materialStats:{count:0,uploaded:0,kinds:0},kindCounts:[],historyCounts:[],kind:"课件",name:"",error:"",busy:false,uploaded:"",
   // 类别由服务端统一下发；不维护独立的客户端类别清单。
   activeKinds:[],historyKinds:[],disabledKinds:[],categoryDisabled:false,materialRows:[],visibleFiles:[],filesLoading:false,
   custom:false,customKind:"",locked:false,canMaterialWrite:false,canMaterialRead:false,canContractRead:false,canMaterialReplace:false,materialMutationLocked:false,batchResults:[],speakerFiles:[],deletingId:0,
   archiveAllowed:false,archiveOpen:false,archiveSources:[],archiveCustomWatermark:false,archiveWatermarkMode:0,archiveWatermarkOptions:["操作员＋时间","无水印","自定义水印"],archiveWatermarkText:"",historyContract:"",historyRows:[],contractMode:false,contractsLoading:false,contractRows:[],contractError:"",canUploadContract:false,
   contractTypes:CONTRACT_TYPES,contractStatuses:["草稿","待签署","已签署"],contractDraft:emptyContract(),contractNotice:"",
   sponsorRights:[{id:"",label:"请选择赞助权益类目"}],rightIndex:0,rightId:""},
- onLoad(q){if(q.pid)this.setData({pid:q.pid});},
+ onLoad(q){if(q.pid)this.setData({pid:q.pid,directoryOpen:false});},
  onShow(){if(!this.data.busy&&!this.data.archiveOpen)return this.load();},
  async load(){
+  if(!this.data.pid)return this.loadDirectory();
+  this.setData({directoryOpen:false});
   try{
    const r=await app.api("/projects?page=1&size=100");
    const projects=(r.rows||[]).slice();
@@ -41,11 +43,63 @@ Page({
    if(p){await this.loadKinds(p.id);if(this.data.contractMode&&this.data.canContractRead)await this.loadContracts(p.id);else if(this.data.kind==="权益照片"&&this.data.canMaterialWrite&&!this.data.locked)await this.loadRights(p.id);}
   }catch(e){this.setData({error:e.message});}
  },
+ async loadDirectory(){
+  const seq=(this._directorySeq||0)+1;this._directorySeq=seq;
+  this.setData({directoryOpen:true,directoryLoading:true,directoryError:"",directoryProjects:[],directoryStats:null});
+  try{
+   const d=await app.api("/materials?page=1&size=1");
+   if(this._directorySeq!==seq||!this.data.directoryOpen)return;
+   const projects=d.projects||[];
+   this.setData({projects,directoryStats:{projects:projects.length,uploaded:projects.filter(p=>p.uploadedCount>0).length,total:d.total??0}});
+   this.filterDirectory();
+  }catch(e){
+   if(this._directorySeq!==seq||!this.data.directoryOpen)return;
+   // Project-only grants can still open the project detail, without granting materials-directory access.
+   if(e.status===403||e.status===404){
+    try{
+     const r=await app.api("/projects?page=1&size=100"),projects=(r.rows||[]).slice();
+     const pages=Number(r.pages)||Math.ceil(Number(r.total||projects.length)/100);
+     for(let n=2;n<=pages;n++){
+      const next=await app.api("/projects?page="+n+"&size=100");
+      for(const p of next.rows||[])if(!projects.some(x=>x.id===p.id))projects.push(p);
+     }
+     if(this._directorySeq!==seq||!this.data.directoryOpen)return;
+     this.setData({projects,directoryStats:null});this.filterDirectory();
+    }catch(err){if(this._directorySeq===seq)this.setData({directoryError:err.message||"项目目录读取失败"});}
+   }else this.setData({directoryError:e.message||"材料目录读取失败"});
+  }finally{if(this._directorySeq===seq)this.setData({directoryLoading:false});}
+ },
+ filterDirectory(){
+  const term=String(this.data.directorySearch||"").trim().toLowerCase();
+  this.setData({directoryProjects:this.data.projects.filter(p=>!term||[p.id,p.name,p.status].some(v=>String(v||"").toLowerCase().includes(term)))});
+ },
+ searchDirectory(e){this.setData({directorySearch:e.detail.value});this.filterDirectory();},
+ async openDirectoryProject(e){
+  if(this.data.busy||this.data.directoryLoading)return;
+  const index=this.data.projects.findIndex(p=>p.id===e.currentTarget.dataset.pid);
+  if(index<0)return;
+  this._directorySeq=(this._directorySeq||0)+1;
+  this.setData({directoryOpen:false,allMaterials:false,kind:"课件",custom:false,customKind:"",contractMode:false});
+  await this.select({detail:{value:index}});
+ },
+ async backDirectory(){
+  if(this.data.busy||this.data.archiveOpen)return;
+  this._materialSeq=(this._materialSeq||0)+1;this._contractSeq=(this._contractSeq||0)+1;this._batch=null;
+  this.setData({pid:"",directoryOpen:true,allMaterials:false,materialRows:[],visibleFiles:[],contractMode:false,canMaterialRead:false,canMaterialWrite:false,canMaterialReplace:false,canContractRead:false,archiveAllowed:false,activeKinds:[],historyKinds:[],kindCounts:[],historyCounts:[]});
+  await this.loadDirectory();
+ },
+ toggleAllMaterials(e){
+  if(this.data.busy)return;
+  this.setData({allMaterials:e.currentTarget.dataset.mode==="all"});this.syncVisibleFiles();
+ },
  // The selected category is the entry form and the persistent file list.
  syncVisibleFiles(){
   const raw=this.data.custom?String(this.data.customKind||"").trim():this.data.kind;
   const selected=raw==="劳务收集表"?"劳务表":raw;
-  this.setData({categoryDisabled:this.data.disabledKinds.includes(selected),visibleFiles:this.data.materialRows.filter(row=>row.kind===selected)});
+  const rows=this.data.materialRows;
+  const counts=k=>rows.filter(r=>r.kind===k).length;
+  const chips=k=>({kind:k,count:counts(k),disabled:this.data.disabledKinds.includes(k)});
+  this.setData({categoryDisabled:this.data.disabledKinds.includes(selected),visibleFiles:this.data.allMaterials?rows:rows.filter(row=>row.kind===selected),kindCounts:this.data.activeKinds.map(chips),historyCounts:this.data.historyKinds.map(chips),materialStats:{count:rows.length,uploaded:rows.filter(r=>!!r.file_key).length,kinds:new Set(rows.map(r=>r.kind)).size}});
  },
  async loadKinds(pid,{preserveError=false}={}){
   if(!pid)return;
@@ -84,14 +138,16 @@ Page({
    const disabled=(shared.disabled||[]).map(normalizedKind);
    const kinds=[...new Set(catalog.map(normalizedKind))]
      .filter(k=>!retired.has(k)&&!disabled.includes(k));
-   const rows=(data.materials||[]).filter(row=>row&&row.kind&&!row.deleted_at&&row.file_key)
-     .map(row=>({...row,filename:row.file_name||row.name||row.file_key,kind:normalizedKind(row.kind)}));
+   const rightById=new Map((data.sponsorRights?.rights||[]).map(r=>[Number(r.id),r]));
+   const sponsorById=new Map((data.sponsorRights?.contracts||[]).map(c=>[c.id,c]));
+   const rows=(data.materials||[]).filter(row=>row&&row.kind&&!row.deleted_at)
+     .map(row=>{const right=rightById.get(Number(row.sponsor_right_id));return {...row,filename:row.file_name||row.name||row.file_key,kind:normalizedKind(row.kind),contractEvidence:retired.has(row.kind),sponsor_right_category:row.sponsor_right_category||right?.category||"",sponsor_enterprise:row.sponsor_enterprise||sponsorById.get(right?.sponsor_id)?.enterprise||""};});
    const history=[...new Set([...(shared.history||[]),...rows.map(row=>row.kind)].map(normalizedKind))]
      .filter(k=>!kinds.includes(k)&&!retired.has(k)).sort();
    // 历史合同及劳务协议、会务协议仍保存在服务端，不进入材料收集的可选类别。
    const chosen=this.data.kind;
    const kind=kinds.includes(chosen)||history.includes(chosen)?chosen:(kinds.includes("课件")?"课件":kinds[0]||history[0]||"现场照片");
-   this.setData({activeKinds:kinds,historyKinds:history,disabledKinds:disabled,materialRows:rows.filter(row=>!retired.has(row.kind)),kind,
+   this.setData({activeKinds:kinds,historyKinds:history,disabledKinds:disabled,materialRows:rows,kind,
      filesLoading:false,...(preserveError?{}:{error:""})});
    this.syncVisibleFiles();
   }catch(e){
@@ -112,7 +168,7 @@ Page({
  chooseKind(e){
   if(this.data.busy)return;
   this._batch=null;const kind=e.currentTarget.dataset.kind;
-  this.setData({kind,custom:false,customKind:"",uploaded:"",error:"",batchResults:[],speakerFiles:[],contractMode:false});
+  this.setData({kind,custom:false,customKind:"",uploaded:"",error:"",batchResults:[],speakerFiles:[],contractMode:false,allMaterials:false});
   this.syncVisibleFiles();
   if(kind==="权益照片"&&this.data.canMaterialWrite&&!this.data.locked)this.loadRights(this.data.pid);
  },
@@ -534,7 +590,7 @@ Page({
   const id=Number(e.currentTarget?.dataset?.id);
   const pid=this.data.pid;
   const item=this.data.materialRows.find(row=>Number(row.id)===id);
-  if(!Number.isSafeInteger(id)||id<1||!item)return;
+  if(!Number.isSafeInteger(id)||id<1||!item||item.contractEvidence)return;
   const name=String(item.filename||"此材料");
   this.setData({busy:true,deletingId:id,error:"",uploaded:""});
   try{
