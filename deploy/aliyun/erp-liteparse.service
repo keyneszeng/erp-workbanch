@@ -1,0 +1,31 @@
+# Optional loopback OCR sidecar. Install explicitly after the ERP service user exists.
+[Unit]
+Description=ERP local RapidOCR service for LiteParse
+After=network.target
+
+[Service]
+Type=simple
+User=erp
+Group=erp
+WorkingDirectory=/opt/erp-liteparse/bridge
+Environment=HOME=/var/lib/erp-liteparse
+Environment=OMP_THREAD_LIMIT=1
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/opt/rapidocr-venv/bin/python /opt/erp-liteparse/bridge/rapid-ocr-http.py
+Restart=on-failure
+RestartSec=5
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+StateDirectory=erp-liteparse
+# Model weights must be installed/cached before use. No public OCR endpoint or external inference.
+IPAddressDeny=any
+IPAddressAllow=localhost
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+MemoryMax=2G
+TasksMax=64
+
+[Install]
+WantedBy=multi-user.target
