@@ -161,7 +161,7 @@ function mockMaterialsPage(files,api){
  const seen={chooseCount:0,mediaCount:0,toast:0,modalCount:0,confirmDelete:true,lastModal:null};
  const wx={
   chooseMessageFile:opts=>{seen.chooseCount=opts.count;opts.success({tempFiles:files});},
-  chooseMedia:opts=>{seen.mediaCount=opts.count;opts.success({tempFiles:files});},
+  chooseMedia:opts=>{seen.mediaCount=opts.count;seen.mediaCounts=(seen.mediaCounts||[]).concat(opts.count);opts.success({tempFiles:Array.isArray(files[0])?files[seen.mediaCounts.length-1]||[]:files});},
   getFileSystemManager:()=>({readFile:opts=>opts.success({data:new Uint8Array([1,2,3])})}),
   showToast:()=>{seen.toast++;},
   showModal:opts=>{seen.modalCount++;seen.lastModal=opts;
@@ -184,7 +184,7 @@ function mockMaterialsPage(files,api){
  page.data.locked=false;page.data.canMaterialWrite=true;page.data.canMaterialRead=true;
  return {page,seen};
 }
-test("微信小程序的讲者照片允许10文件多选并按原文件名逐份关联",async()=>{
+test("微信小程序的讲者照片允许50文件多选并按原文件名逐份关联",async()=>{
  const uploaded=[],registered=[];
  let seq=0;
  const files=["张三.jpg","李四照片.png"].map(name=>({name,path:"/tmp/"+name,size:128}));
@@ -202,7 +202,7 @@ test("微信小程序的讲者照片允许10文件多选并按原文件名逐份
  });
  page.data.kind="讲者照片";
  await page.addFile();
- assert.equal(seen.chooseCount,10);
+ assert.equal(seen.chooseCount,50);
  assert.equal(uploaded.length,2);
  assert.equal(registered.length,2);
  assert.deepEqual(registered.map(x=>x.name),["张三.jpg","李四照片.png"]);
@@ -212,7 +212,7 @@ test("微信小程序的讲者照片允许10文件多选并按原文件名逐份
  await page.addPhoto();
  // 相册图片没有原始文件名，进入逐张命名阶段而不是直接拒绝
  assert.equal(page.data.error,"");
- assert.equal(seen.mediaCount,10);
+ assert.equal(seen.mediaCount,20);
  assert.equal(page.data.speakerFiles.length,2);
 });
 test("微信小程序讲者照片可从相册选图，填姓名后按姓名归档",async()=>{
@@ -227,7 +227,7 @@ test("微信小程序讲者照片可从相册选图，填姓名后按姓名归�
  });
  page.data.kind="讲者照片";
  await page.addPhoto();
- assert.equal(seen.mediaCount,10);
+ assert.equal(seen.mediaCount,20);
  assert.equal(page.data.speakerFiles.length,2);
  assert.equal(page.data.error,"");
  // 姓名未填时不允许上传
@@ -243,7 +243,7 @@ test("微信小程序讲者照片可从相册选图，填姓名后按姓名归�
  assert.deepEqual(registered.map(x=>x.kind),["讲者照片","讲者照片"]);
  assert.equal(page.data.speakerFiles.length,0);
 });
-test("微信小程序全部类别10文件上限，终版议程按原选择顺序串行写入",async()=>{
+test("微信小程序普通文档10文件上限，终版议程按原选择顺序串行写入",async()=>{
  const names=["第一次议程.pdf","第二次议程.pdf","最终版议程.pdf"];
  const files=names.map(name=>({name,path:"/tmp/"+name,size:128}));
  const attached=[];
@@ -718,4 +718,26 @@ test("材料收集首页 Web 和小程序只展示两项项目统计，项目详
  assert.match(xml,/materialStats.count/);
  assert.match(webHome,/grid g2/);
  assert.match(miniHome,/material-stat-grid-directory/);
+});
+
+
+test("小程序相册分三轮累计50张照片，逐份登记且51张拒绝",async()=>{
+ const files=Array.from({length:50},(_,i)=>({path:"/tmp/photo"+i+".jpg",size:128}));
+ const registered=[];
+ const {page,seen}=mockMaterialsPage([files.slice(0,20),files.slice(20,40),files.slice(40)],async(url,method,body,headers)=>{
+  if(url.startsWith("/uploads?"))return {key:"a".repeat(32)+".jpg",name:decodeURIComponent(headers["X-File-Name"]),size:3,mime:"image/jpeg"};
+  if(url.endsWith("/materials")){registered.push(body);return {};}
+  throw Error("Unexpected API: "+url);
+ });
+ page.data.kind="现场照片";
+ await page.addPhoto();
+ assert.deepEqual(seen.mediaCounts,[20,20,10]);
+ assert.equal(registered.length,50);
+ assert.equal(new Set(registered.map(x=>x.name)).size,50);
+ assert.match(page.data.uploaded,/50份/);
+ const tooMany=Array.from({length:51},(_,i)=>({name:"照片"+i+".jpg",path:"/tmp/p"+i,size:100}));
+ const over=mockMaterialsPage(tooMany,async()=>{throw Error("over-limit files must never upload")});
+ over.page.data.kind="现场照片";
+ await over.page.addFile();
+ assert.match(over.page.data.error,/50/);
 });

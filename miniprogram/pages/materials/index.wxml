@@ -157,17 +157,17 @@
     </view>
     <view class="category-upload-caption">当前类别：{{custom?(customKind||'请填写自定义类别'):kind}}</view>
     <view wx:if="{{categoryDisabled}}" class="field-hint">当前材料类别已停用，仅可查看历史附件。</view>
-    <view wx:if="{{canMaterialWrite&&!locked}}" class="notice"><text class="notice-icon">i</text><text>每份材料自动采用对应文件名，无须逐份手工填写名称。单批最多10份，确认后上传原件。</text></view>
+    <view wx:if="{{canMaterialWrite&&!locked}}" class="notice"><text class="notice-icon">i</text><text>每份材料自动采用对应文件名，无须逐份手工填写名称。普通文件单批最多10份，照片单批最多50张，确认后上传原件。</text></view>
     <view wx:if="{{canMaterialWrite&&!locked&&!custom&&kind==='讲者照片'}}" class="field-hint">讲者照片：可直接用下方「拍照或从相册选择」批量选图，选完逐张填写讲者姓名（姓名即材料名称）；也可从微信会话选择已用姓名命名的图片（如张三.jpg），系统按文件名关联。</view>
     <view wx:if="{{canMaterialWrite&&!locked&&!custom&&kind==='终版议程'}}" class="field-hint">可同时选择最多10份议程，按选择顺序登记，最后一份作为唯一当前终版，其余为历史版。</view>
     <view wx:if="{{error}}" class="error"><text class="feedback-icon">!</text><text>{{error}}</text></view>
     <view wx:if="{{uploaded}}" class="success-note"><text class="feedback-icon">✓</text><text>{{uploaded}}</text></view>
 
     <button wx:if="{{canMaterialWrite&&!locked}}" class="upload-panel" loading="{{busy}}" disabled="{{busy||!canMaterialWrite||locked||filesLoading||categoryDisabled||!pid||(custom&&!customKind)||(!custom&&kind==='权益照片'&&!rightId)}}" bindtap="addPhoto">
-      <view class="upload-icon">照</view><view class="upload-title">拍照或从相册选择</view><view class="upload-sub">{{!custom&&kind==='讲者照片'?'相册批量选图，选完逐张填写讲者姓名':'相册可批量选择照片，每批最多10份'}}</view>
+      <view class="upload-icon">照</view><view class="upload-title">拍照或从相册选择</view><view class="upload-sub">{{!custom&&kind==='讲者照片'?'相册分轮选图，最多50张，选完逐张填写讲者姓名':'相册可分轮选择照片，每批最多50张'}}</view>
     </button>
     <button wx:if="{{canMaterialWrite&&!locked}}" class="upload-panel" loading="{{busy}}" disabled="{{busy||!canMaterialWrite||locked||filesLoading||categoryDisabled||!pid||(custom&&!customKind)||(!custom&&kind==='权益照片'&&!rightId)}}" bindtap="addFile">
-      <view class="upload-icon" style="background:#1f5f8b">档</view><view class="upload-title">从微信会话选择文件</view><view class="upload-sub">一次最多选择10份 Office、PDF、CSV、TXT 或图片</view>
+      <view class="upload-icon" style="background:#1f5f8b">档</view><view class="upload-title">从微信会话选择文件</view><view class="upload-sub">普通文件最多10份，纯照片最多50张</view>
     </button>
     <view wx:if="{{!custom&&kind==='讲者照片'&&speakerFiles.length}}" class="speaker-block">
       <view class="speaker-head">
@@ -222,7 +222,7 @@
       <view wx:else class="field-hint">{{allMaterials?'该项目尚未收集材料。':(locked||!canMaterialWrite?'该类别暂无已上传文件。':'该类别暂无已上传文件，选择上方入口即可录入。')}}</view>
     </view>
     <view wx:if="{{!custom&&(kind==='协会报销'||kind==='其他费用')}}" class="field-hint">票据归入本项目，会议核销后在财务付款明细中确认票号、实际收款方和金额。</view>
-    <view class="privacy-note">每批最多10份文件，单个附件不超过50 MB。OCR 仅辅助识别，不代表核销通过。</view>
+    <view class="privacy-note">普通文件每批最多10份，照片每批最多50张，单个附件不超过50 MB。OCR 仅辅助识别，不代表核销通过。</view>
     </block>
   </view>
   </block>

@@ -130,6 +130,11 @@ async function ready(){
   assert.notEqual(await speakerPicker.getAttribute("multiple"),null,
     "speaker photos must allow multi-file selection");
   const png=Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4/5+hHgAHggJ/P0MMywAAAABJRU5ErkJggg==","base64");
+  const excessivePhotos=Array.from({length:51},(_,i)=>({name:"超限照片"+i+".png",mimeType:"image/png",buffer:png}));
+  await speakerPicker.setInputFiles(excessivePhotos);
+  assert.equal(await speakerModal.locator("[data-material-file]").count(),0,"51张照片必须拒绝");
+  await speakerPicker.setInputFiles(excessivePhotos.slice(0,50));
+  assert.equal(await speakerModal.locator("[data-material-file]").count(),50,"50张照片可以选择");
   const speakers=["张三照片.png","李四主任.png"];
   await speakerPicker.setInputFiles(speakers.map(name=>({name,mimeType:"image/png",buffer:png})));
   await speakerModal.locator('[data-x="1"]').click();

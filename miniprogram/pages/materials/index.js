@@ -1,5 +1,13 @@
 const app=getApp();
 const MAX_MATERIAL_FILES_PER_BATCH=10;
+const MAX_MATERIAL_PHOTOS_PER_BATCH=50;
+const materialBatchLimit=(kind,files)=>kind!=="终版议程"&&files.length&&files.every(f=>/\.(jpe?g|png|webp|gif)$/i.test(f.name||""))?MAX_MATERIAL_PHOTOS_PER_BATCH:MAX_MATERIAL_FILES_PER_BATCH;
+function nativePhotoLimit(){
+ const version=wx.getAppBaseInfo?.().SDKVersion||wx.getSystemInfoSync?.().SDKVersion;
+ if(!version)return 20;
+ const [major,minor]=String(version).split(".").map(Number);
+ return major>2||major===2&&minor>=25?20:9;
+}
 const MAX_FILE_BYTES=50*1024*1024; // 与 Web upload.js / server storage.MAX_BYTES 保持一致
 const CONTRACT_TYPES=[{value:"会务需求",label:"会务协议"},{value:"劳务专家",label:"劳务协议"},{value:"企业赞助",label:"企业赞助合同"}];
 const frozenStatus=s=>["已核销","已结算","已归档"].includes(s);
@@ -509,34 +517,56 @@ Page({
   const kind=this.data.custom?this.data.customKind.trim():this.data.kind.trim();
   const pid=this.data.pid,rightId=this.data.rightId;
   const speaker=kind==="讲者照片";
-  if(speaker&&this.data.speakerFiles.length){
-   this.setData({error:"已有一批讲者照片待命名，请先上传或移除后再选"});return;
-  }
+  const existing=speaker?this.data.speakerFiles.slice():[];
+  const limit=kind==="终版议程"?MAX_MATERIAL_FILES_PER_BATCH:MAX_MATERIAL_PHOTOS_PER_BATCH;
+  if(existing.length>=limit){this.setData({error:"已达到单批 "+limit+" 张照片上限，请先上传或移除照片"});return;}
+  const files=[],stamp=Date.now();
+  const sameTarget=()=>this.data.pid===pid&&(this.data.custom?this.data.customKind.trim():this.data.kind.trim())===kind&&this.data.rightId===rightId;
   try{
-   const media=await new Promise((resolve,reject)=>wx.chooseMedia({
-    count:MAX_MATERIAL_FILES_PER_BATCH,mediaType:["image"],sizeType:["original"],sourceType:["album","camera"],success:resolve,fail:reject}));
-   const chosen=media.tempFiles||[];
-   if(!chosen.length)throw new Error("没有选中照片");
-   const stamp=Date.now();
-   const files=chosen.map((file,i)=>{
-    const path=String(file.tempFilePath||file.path||"");
-    const ext=/\.png$/i.test(path)?"png":/\.webp$/i.test(path)?"webp":"jpg";
-    const safeKind=kind.replace(/[\\/:*?"<>|]/g,"_")||"照片";
-    return {...file,path,ext,name:safeKind+"-"+stamp+"-"+(i+1)+"."+ext};
-   });
-   if(this.data.pid!==pid||(this.data.custom?this.data.customKind.trim():this.data.kind.trim())!==kind||this.data.rightId!==rightId)return;
+   this.setData({busy:true,error:""});
+   while(existing.length+files.length<limit){
+    const count=Math.min(nativePhotoLimit(),limit-existing.length-files.length);
+    let media;
+    try{
+     media=await new Promise((resolve,reject)=>wx.chooseMedia({
+      count,mediaType:["image"],sizeType:["original"],sourceType:["album","camera"],success:resolve,fail:reject}));
+    }catch(err){
+     if(/cancel/i.test(String(err?.errMsg||err?.message||"")))break;
+     throw err;
+    }
+    if(!sameTarget())return;
+    const chosen=media.tempFiles||[];
+    if(!chosen.length)break;
+    if(chosen.length>count)throw Error("相册返回照片超过本轮选择上限，请重新选择");
+    for(const file of chosen){
+     const path=String(file.tempFilePath||file.path||"");
+     if(!path)throw Error("照片路径无效，请重新选择");
+     const ext=/\.png$/i.test(path)?"png":/\.webp$/i.test(path)?"webp":/\.gif$/i.test(path)?"gif":"jpg";
+     const safeKind=kind.replace(/[\\/:*?"<>|]/g,"_")||"照片";
+     files.push({...file,path,ext,name:safeKind+"-"+stamp+"-"+(files.length+1)+"."+ext});
+    }
+    // A full native selection can be extended by another selection round.
+    // A partial selection is complete; speakers may also append later.
+    if(chosen.length<count||existing.length+files.length>=limit)break;
+    const more=await new Promise((resolve,reject)=>wx.showModal({
+     title:"继续选择照片？",content:"已选择 "+(existing.length+files.length)+" / "+limit+" 张，可继续从相册选择。",
+     confirmText:"继续选择",cancelText:"完成选择",success:r=>resolve(r.confirm),fail:reject
+    }));
+    if(!more||!sameTarget())break;
+   }
+   this.setData({busy:false});
+   if(!sameTarget()||!files.length)return;
    if(speaker){
-    // 相册图片没有原始文件名，先让用户逐张填写讲者姓名，姓名即材料名称
-    this.setData({speakerFiles:files.map(f=>({
+    this.setData({speakerFiles:[...existing,...files.map(f=>({
      uid:++speakerSeq,path:f.path,size:Number(f.size)||0,ext:f.ext,name:"",error:""
-    })),error:"",uploaded:""});
+    }))],error:"",uploaded:""});
     return;
    }
    if(await this.confirmMaterialBatch(files,pid,kind,rightId))await this.uploadBatch(files);
   }catch(e){
    if(/cancel/i.test(String(e&&e.errMsg||"")))return;
    this.setData({error:e.message||"图片选择失败"});
-  }
+  }finally{this.setData({busy:false});}
  },
  inputSpeakerName(e){
   const i=Number(e.currentTarget.dataset.index);
@@ -579,7 +609,7 @@ Page({
   const pid=this.data.pid,kind=this.data.custom?this.data.customKind.trim():this.data.kind.trim(),rightId=this.data.rightId;
   try{
    const result=await new Promise((resolve,reject)=>wx.chooseMessageFile({
-    count:MAX_MATERIAL_FILES_PER_BATCH,type:"file",
+    count:kind==="终版议程"?MAX_MATERIAL_FILES_PER_BATCH:MAX_MATERIAL_PHOTOS_PER_BATCH,type:"file",
     extension:["ppt","pptx","xls","xlsx","doc","docx","pdf","csv","txt","jpg","jpeg","png","webp","gif"],
     success:resolve,fail:reject
    }));
@@ -655,8 +685,9 @@ Page({
    this.setData({error:"请先选择对应的赞助权益二级类目"});return;
   }
   if(files){
-   if(files.length>MAX_MATERIAL_FILES_PER_BATCH||!files.length){
-    this.setData({error:"单批只能上传1至"+MAX_MATERIAL_FILES_PER_BATCH+"份材料"});return;
+   const limit=materialBatchLimit(kind,files);
+   if(files.length>limit||!files.length){
+    this.setData({error:"单批只能上传1至"+limit+"份材料"});return;
    }
    for(const f of files){
     if(!f.name||f.name.length>120||
