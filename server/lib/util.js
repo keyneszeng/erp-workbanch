@@ -22,7 +22,7 @@ function formatBeijingDate(d = new Date()) {
 }
 function now(d = new Date()) { return formatBeijingDateTime(d); }
 function today(d = new Date()) { return formatBeijingDate(d); }
-function nowIso(d = new Date()) { return formatBeijingDateTime(d, true) + "+08:00"; }
+function nowIso(d = new Date()) { return formatBeijingDateTime(d, true).replace(" ", "T") + "+08:00"; }
 
 /**
  * 生成业务单号：MP-2026-019 / PY-2026-041
