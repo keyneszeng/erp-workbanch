@@ -119,6 +119,7 @@ CREATE TABLE IF NOT EXISTS projects (
   tax_fee_rate REAL NOT NULL DEFAULT 0,
   people      INTEGER NOT NULL DEFAULT 0,
   owner       TEXT,
+  external_contact TEXT,
   phone       TEXT,
   dept        TEXT,
   agenda      TEXT,
@@ -1016,6 +1017,8 @@ function migrate() {
   // 原来 exec / finance 的数据范围是 `p.owner = ?`（比对姓名），
   // 于是新建一个同名账号就能看到别人名下的项目；负责人改名后又把自己名下的项目全丢了。
   addColumn("projects", "owner_id", "owner_id INTEGER");
+  // 立项与台账新增「外部联系人」：自由文本，不关联账号，默认空不影响已有项目。
+  addColumn("projects", "external_contact", "external_contact TEXT");
   db.exec(`CREATE TRIGGER IF NOT EXISTS budget_todo_owner_changed
     AFTER UPDATE OF owner_id ON projects WHEN OLD.owner_id IS NOT NEW.owner_id
     BEGIN DELETE FROM budget_todo_reads WHERE pid=NEW.id; END;`);

@@ -122,6 +122,44 @@ test("按负责人汇总全部项目，跨分页、同名账号隔离、负结�
  assert.equal((await request("admin",url,"POST",{owner_ids:["1"]})).status,400);
  for(const role of ["assoc","exec","finance","guest"])assert.equal((await request(role,url,"POST",{owner_ids:ids})).status,403);
 });
+test("外部联系人落库、台账列表可见并可勾选汇总",async()=>{
+ const {DatabaseSync}=require("node:sqlite");
+ const db=new DatabaseSync(DB);
+ const names=["测试外部联系人甲","测试外部联系人乙"];
+ const targets=["MP-2026-006","MP-2026-007"];
+ try{
+  for(const [i,pid] of targets.entries())
+   db.prepare("UPDATE projects SET external_contact=? WHERE id=?").run(names[i],pid);
+ }finally{db.close();}
+ const list=await request("admin","/api/project-ledger?size=100");
+ assert.equal(list.status,200);
+ const rows=list.body.rows.filter(r=>names.includes(r.external_contact));
+ assert.equal(rows.length,2);
+ for(const r of rows)assert.ok(names.includes(r.external_contact));
+ // 搜索外部联系人也能命中
+ const found=await request("admin","/api/project-ledger?q="+encodeURIComponent(names[0]));
+ assert.equal(found.status,200);
+ assert.ok(found.body.rows.some(r=>r.external_contact===names[0]));
+ const url="/api/project-ledger/external-contact-summary";
+ const expected=list.body.rows.filter(r=>names.includes(r.external_contact));
+ const result=await request("admin",url,"POST",{external_contacts:[...names,names[0]]});
+ assert.equal(result.status,200,JSON.stringify(result.body));
+ const sum=field=>expected.reduce((a,r)=>a+Math.round(r.financial_summary[field]*100),0)/100;
+ assert.equal(result.body.total.project_count,expected.length);
+ for(const key of ["available_budget","payment_paid","balance"])assert.equal(result.body.total[key],sum(key));
+ for(const g of result.body.contacts){
+  const group=expected.filter(r=>r.external_contact===g.external_contact);
+  assert.equal(g.project_count,group.length);
+  assert.equal(g.balance,group.reduce((a,r)=>a+Math.round(r.financial_summary.balance*100),0)/100);
+ }
+ assert.equal((await request("admin",url,"POST",{external_contacts:[]})).status,400);
+ assert.equal((await request("admin",url,"POST",{external_contacts:[""]})).status,400);
+ for(const role of ["assoc","exec","finance","guest"])
+  assert.equal((await request(role,url,"POST",{external_contacts:names})).status,403);
+ // 还原，避免影响后续用例
+ const restore=new DatabaseSync(DB);
+ try{for(const pid of targets)restore.prepare("UPDATE projects SET external_contact='' WHERE id=?").run(pid);}finally{restore.close();}
+});
 test("超预算结余为负数，待审批和驳回付款不计入实时结余，CSV口径一致",async()=>{
  const {DatabaseSync}=require("node:sqlite");
  const pid="MP-2026-005";

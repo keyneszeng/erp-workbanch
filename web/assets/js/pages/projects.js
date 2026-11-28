@@ -134,6 +134,7 @@ async function openCreate(root) {
       ph: "如：10 表示 10%",tip:"自定义输入 0～100，最多两位小数。按税费管理费率从立项预算扣减。" },
     { k: "people", l: "预计参会人数", t: "number", ph: "如：260" },
     { k: "owner_id", l: "项目负责人（协会成员）", t: "select", req: 1, opts: [] },
+    { k: "external_contact", l: "外部联系人", ph: "非协会成员的外部联系人，如合作方对接人" },
     { k: "phone", l: "联系电话", ph: "仅内部可见" },
     { k: "dept", l: "承办部门", t: "select", req: 1, opts: [{v:"",l:"请选择承办部门"}, ...(state.meta.depts || []).map(d=>({v:d,l:d}))] },
     { k: "agenda", l: "初版议程要点", t: "textarea", req: 1, rows: 3, full: 1, ph: "按环节列出，如：09:10 主题演讲 / 10:10 病例讨论 …" }

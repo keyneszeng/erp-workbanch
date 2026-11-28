@@ -12,7 +12,7 @@ const {parseTaxFeeRate,availableBudget,withBudgetFee}=require("../lib/budget-fee
 const {buildSettlementBreakdown}=require("../lib/settlement-breakdown");
 const { assignedMember } = require("../lib/member-directory");
 
-const EDITABLE = ["name", "assoc", "form", "date", "days", "event_end_date", "event_start_time", "event_end_time", "budget", "tax_fee_rate", "people", "owner", "owner_id", "phone", "dept", "agenda"];
+const EDITABLE = ["name", "assoc", "form", "date", "days", "event_end_date", "event_start_time", "event_end_time", "budget", "tax_fee_rate", "people", "owner", "owner_id", "external_contact", "phone", "dept", "agenda"];
 // 总管理员撤回核销后，项目负责人只可修改本项目基础资料；协会归属和负责人变更仍由管理员办理。
 const OWNER_REEDITABLE = EDITABLE.filter(k => !["assoc", "owner", "owner_id"].includes(k));
 
@@ -35,8 +35,8 @@ const MONEY_FIELDS = ["budget","tax_fee_rate"];
 const MONEY_LABEL = { budget: "预算", tax_fee_rate:"税费管理费率" };
 
 /** 字段长度上限（字符数），防止超长文本撑爆列表 / 导出 / 前端渲染 */
-const MAX_LEN = { name: 120, assoc: 40, owner: 20, phone: 30, dept: 40, agenda: 3000 };
-const LEN_LABEL = { name: "会议名称", assoc: "所属协会", owner: "项目负责人", phone: "联系电话", dept: "承办部门", agenda: "初版议程要点" };
+const MAX_LEN = { name: 120, assoc: 40, owner: 20, external_contact: 60, phone: 30, dept: 40, agenda: 3000 };
+const LEN_LABEL = { name: "会议名称", assoc: "所属协会", owner: "项目负责人", external_contact: "外部联系人", phone: "联系电话", dept: "承办部门", agenda: "初版议程要点" };
 
 function checkLength(body) {
   for (const [k, max] of Object.entries(MAX_LEN)) {
@@ -338,10 +338,10 @@ function register(router) {
     const id=transaction(()=>{
       const meetingId=nextMeetingId(db,b.assoc,b.date);
     db.prepare(
-      `INSERT INTO projects (id,name,assoc,form,date,days,budget,tax_fee_rate,people,owner,owner_id,phone,dept,agenda,event_end_date,event_start_time,event_end_time,status,status_at,created_by,created_at,updated_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+      `INSERT INTO projects (id,name,assoc,form,date,days,budget,tax_fee_rate,people,owner,owner_id,external_contact,phone,dept,agenda,event_end_date,event_start_time,event_end_time,status,status_at,created_by,created_at,updated_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
     ).run(meetingId, b.name, b.assoc, b.form, b.date, Number(b.days) || 1, Number(b.budget), parseTaxFeeRate(b.tax_fee_rate), Number(b.people) || 0,
-      b.owner, ownerId, b.phone || "", b.dept || "", b.agenda, b.event_end_date||null,b.event_start_time||null,b.event_end_time||null, "草稿", at, ctx.user.id, at, at);
+      b.owner, ownerId, b.external_contact || "", b.phone || "", b.dept || "", b.agenda, b.event_end_date||null,b.event_start_time||null,b.event_end_time||null, "草稿", at, ctx.user.id, at, at);
     db.prepare("INSERT OR IGNORE INTO project_members (project_id,user_id,role) VALUES (?,?,?)").run(meetingId, ctx.user.id, "创建人");
       return meetingId;
     });

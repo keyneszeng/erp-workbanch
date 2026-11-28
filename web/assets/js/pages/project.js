@@ -974,6 +974,7 @@ async function openEdit(root, pid, p, { ownerReeditOnly = false } = {}) {
       tip: "自定义输入 0～100，最多两位小数；可用预算实时重新计算。" },
     { k: "people", l: "预计人数", t: "number" },
     ...(!ownerReeditOnly ? [{ k: "owner_id", l: "负责人（协会成员）", t: "select", req: 1, opts: members.map((u) => ({v:String(u.id),l:u.name+"（"+u.role_name+"）"})) }] : []),
+    { k: "external_contact", l: "外部联系人", ph: "非协会成员的外部联系人，如合作方对接人" },
     { k: "phone", l: "联系电话" },
     { k: "dept", l: "承办部门", t: "select", req: 1, opts: [
       {v:"",l:"请选择承办部门"},

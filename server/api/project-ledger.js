@@ -93,7 +93,7 @@ function summarize(x){
   };
   return {
     meeting_no:p.id,project_name:p.name,association:p.assoc,meeting_date:p.date,
-    project_status:p.status,owner:p.owner||"",owner_id:p.owner_id??null,canonical_key:"projects.id",
+    project_status:p.status,owner:p.owner||"",owner_id:p.owner_id??null,external_contact:p.external_contact||"",canonical_key:"projects.id",
     financial_summary:sums,payment_types:payTypes,
     document_coverage:{contracts:contracts.length,contract_original_files:contractFileCount,
       invoice_numbers:invoiceNumberCount,invoice_original_files:invoiceFileCount,
@@ -172,7 +172,42 @@ function summarizeOwners(rows){
   return {owners:result,total:{project_count:totals.project_count,available_budget:totals.availableCents/100,
     payment_paid:totals.paidCents/100,balance:totals.balanceCents/100}};
 }
+function summarizeExternalContacts(rows){
+  const projects=new Map();
+  for(const row of rows){
+    if(!projects.has(row.id))projects.set(row.id,{project:row,paidCents:0});
+    if(row.paid_amount!=null)projects.get(row.id).paidCents+=cents(row.paid_amount);
+  }
+  const groups=new Map();
+  for(const {project:p,paidCents} of projects.values()){
+    const {available_budget,balance}=liveBudgetBalance(p,paidCents/100);
+    const key=String(p.external_contact||"").trim()||"—";
+    if(!groups.has(key))groups.set(key,{external_contact:key,project_count:0,availableCents:0,paidCents:0,balanceCents:0});
+    const g=groups.get(key);
+    g.project_count++;g.availableCents+=cents(available_budget);g.paidCents+=paidCents;g.balanceCents+=cents(balance);
+  }
+  const totals={project_count:0,availableCents:0,paidCents:0,balanceCents:0};
+  const result=[...groups.values()].map(g=>{
+    for(const k of Object.keys(totals))totals[k]+=g[k];
+    return {external_contact:g.external_contact,project_count:g.project_count,
+      available_budget:g.availableCents/100,payment_paid:g.paidCents/100,balance:g.balanceCents/100};
+  });
+  return {contacts:result,total:{project_count:totals.project_count,available_budget:totals.availableCents/100,
+    payment_paid:totals.paidCents/100,balance:totals.balanceCents/100}};
+}
 function register(router){
+  router.post("/api/project-ledger/external-contact-summary",async ctx=>{
+    requireAdmin(ctx);
+    const names=ctx.body?.external_contacts;
+    if(!Array.isArray(names)||!names.length||names.length>500||names.some(v=>typeof v!=="string"||!v.trim()||v.length>60))
+      throw bad("请选择有效的外部联系人（最多500位）");
+    const selected=[...new Set(names.map(v=>v.trim()))];
+    const {sql,params}=scopeFilter(ctx.user);
+    const rows=db.prepare(`SELECT p.id,p.external_contact,p.budget,p.tax_fee_rate,y.amount AS paid_amount
+      FROM projects p LEFT JOIN payments y ON y.pid=p.id AND y.status='已付款'
+      WHERE (${sql}) AND TRIM(COALESCE(p.external_contact,'')) IN (${selected.map(()=>"?").join(",")}) ORDER BY p.external_contact,p.id,y.id`).all(...params,...selected);
+    return summarizeExternalContacts(rows);
+  });
   router.post("/api/project-ledger/owner-summary",async ctx=>{
     requireAdmin(ctx);
     const ids=ctx.body?.owner_ids;
@@ -194,8 +229,8 @@ function register(router){
     if(!Number.isInteger(page)||page<1||page>100000 || !Number.isInteger(size)||size<1||size>100)
       throw bad("分页参数无效");
     const scope=scopeFilter(ctx.user);
-    const all=db.prepare("SELECT id,name,assoc,status,date,owner FROM projects p WHERE "+scope.sql+" ORDER BY date DESC,id DESC").all(...scope.params);
-    const filtered=keyword?all.filter(p=>[p.id,p.name,p.assoc,p.owner].some(v=>String(v||"").includes(keyword))):all;
+    const all=db.prepare("SELECT id,name,assoc,status,date,owner,external_contact FROM projects p WHERE "+scope.sql+" ORDER BY date DESC,id DESC").all(...scope.params);
+    const filtered=keyword?all.filter(p=>[p.id,p.name,p.assoc,p.owner,p.external_contact].some(v=>String(v||"").includes(keyword))):all;
     const rows=filtered.slice((page-1)*size,page*size).map(p=>summarize(raw(p.id)));
     return {rows,total:filtered.length,page,size,pages:Math.max(1,Math.ceil(filtered.length/size)),
       source:"projects.id / contracts.pid / payments.pid / settlements.pid / materials.pid"};
@@ -210,4 +245,4 @@ function register(router){
     return {__csv:exportCsv(detail),__filename:detail.meeting_no+"-项目台账.csv"};
   });
 }
-module.exports={register,buildDetail,exportCsv,summarizePaymentTypes,displayPaymentType,summarizeOwners};
+module.exports={register,buildDetail,exportCsv,summarizePaymentTypes,displayPaymentType,summarizeOwners,summarizeExternalContacts};
