@@ -116,3 +116,12 @@
 }
 .uploaded-file-delete::after { border: none; }
 .uploaded-file-delete[disabled] { opacity: .5; }
+
+/* Mobile rendering of the shared Web project directory and material statistics. */
+.material-stat-grid { display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12rpx;margin-top:24rpx; }
+.material-stat { display:flex;flex-direction:column;gap:6rpx;padding:16rpx 10rpx;background:#f4f8fd;border:1rpx solid #e3eaf4;border-radius:12rpx;font-size:20rpx;text-align:center;color:#60748d; }
+.material-stat-value { color:#23476d;font-size:34rpx;font-weight:700; }
+.material-project-folder { display:flex;align-items:center;gap:16rpx;padding:22rpx 0;border-bottom:1rpx solid #e9eef4; }
+.material-folder-icon { font-size:42rpx;flex-shrink:0; }
+.material-record-main { min-width:0;overflow-wrap:anywhere; }
+.uploaded-file-item { flex-wrap:wrap;align-items:center; }
