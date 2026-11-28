@@ -31,12 +31,18 @@ function cleanText(x){return String(x||"").replace(/\0/g,"").replace(/\r\n?/g,"\
  * PDF 有文本层时仍走 pdftotext：比任何视觉模型都快且准。
  */
 /**
- * 缓存里的识别结果是不是当前引擎产出的。
- * 历史上用过 tesseract 和旧 rapidocr_onnxruntime；
- * 升级 RapidOCR 后必须重识别图像；PDF 文本层可直接复用。
+ * 缓存里的识别结果是否可信可用。
+ *
+ * 历史上用过 tesseract 和旧 rapidocr_onnxruntime：那些引擎的结果确实不可靠，
+ * 升级后必须重识别；PDF 文本层可直接复用。
+ *
+ * LiteParse 特殊：它是真实跑过的完整识别（pdf-hybrid），识别结果本身可信。
+ * 关闭 LiteParse 只影响「新扫描用哪个引擎」，不能让过去已据以完成核销的历史证据
+ * 集体失效（否则已归档项目会突然显示核销 1/6）。因此这里始终接受 LiteParse 的
+ * 历史结果，不再依赖 ERP_LITEPARSE_ENABLED 开关。
  */
 function providerMatches(engine){
-  return engine==="RapidOCR (rapidocr/ONNXRuntime)" || engine==="Poppler pdftotext" || (liteparse.enabled()&&engine===liteparse.ENGINE);
+  return engine==="RapidOCR (rapidocr/ONNXRuntime)" || engine==="Poppler pdftotext" || engine===liteparse.ENGINE;
 }
 /**
  * PDF 扫描页渲染成 PNG。

@@ -46,13 +46,15 @@ test("failed or incomplete LiteParse falls back to existing Poppler without chan
   assert.equal(result.engine,"Poppler pdftotext");
  }
 }));
-test("disabled flag preserves existing OCR and invalidates optional provider cache",async()=>withFlags("0",async()=>{
+test("disabled flag preserves existing OCR and historical LiteParse cache",async()=>withFlags("0",async()=>{
  const commands=[];
  const r=await ocr.recognize(PDF,"pdf",{exec:async(program)=>{
   commands.push(program);return program==="pdfinfo"?"Pages: 5\n":"甲方：某医学会 乙方：某会务公司 合同金额：1000元 本协议用于会议执行并保留原件核对依据。";
  }});
  assert.deepEqual(commands,["pdfinfo","pdftotext"]);assert.equal(r.engine,"Poppler pdftotext");
- assert.equal(ocr.providerMatches(provider.ENGINE),false);
+ // 关闭 LiteParse 只影响新扫描用哪个引擎；过去真实跑过的 LiteParse 识别结果仍可信，
+ // 否则历史核销证据会在关闭引擎后集体失效（已归档项目突然显示核销 1/6）。
+ assert.equal(ocr.providerMatches(provider.ENGINE),true);
 }));
 test("optional parser is bounded to one active document",async()=>{
  let finish;
