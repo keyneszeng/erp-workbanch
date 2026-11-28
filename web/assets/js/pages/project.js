@@ -45,7 +45,7 @@ export async function render(root, [pid]) {
     TABS.filter(([key])=>key==="overview" || (key==="payments"?sections.finance:
       key==="timeline"?sections.audit:!!sections[key]));
   if (!visibleTabs.some(([k])=>k===tab)) tab="overview";
-  const canEdit = can("project:edit") && p.status!=="已归档";
+  const canEdit = (can("project:edit") || d.ownerReeditEnabled) && p.status!=="已归档";
 
   root.innerHTML = `
   <div class="crumb"><a data-go="projects">会议项目</a> / 会议编号：<span class="mono">${esc(p.id)}</span></div>
@@ -57,13 +57,15 @@ export async function render(root, [pid]) {
     <div class="acts">
       ${d.actions.map((a) => `<button class="btn ${a.enabled ? "btn-p" : "btn-o"}"
         data-act="${a.action}" ${a.enabled ? "" : "disabled"} title="${esc(a.reason || "")}">${a.label}</button>`).join("")}
+      ${state.super && p.status==="已核销" && !d.settlement ? '<button class="btn btn-o" id="retractVerifyBtn">撤回核销</button>' : ""}
       ${canEdit ? '<button class="btn btn-o" id="editBtn">编辑资料</button>' : ""}
       ${state.super ? '<button class="btn btn-o" data-go="admin-content/'+esc(p.id)+'">总管理员修订全部内容</button>' : ""}
       ${!participant && can("project:change") && ["已立项", "筹备中", "执行中"].includes(p.status) ? '<button class="btn btn-o" id="changeBtn">提交变更</button>' : ""}
     </div>
   </div>
 
-  <div class="panel"><div class="steps">${ORDER.map((s, i) => {
+  ${d.ownerReeditEnabled ? '<div class="gate mt"><b>核销已撤回，资料修改窗口已开启</b>项目负责人可修改会议基础资料；保存后需要重新完成核验。</div>' : ""}
+  <div class="panel"><div class="steps">${ORDER.map((s, i) => {}
     const cur = ORDER.indexOf(p.status);
     const cls = i < cur ? "done" : i === cur ? "cur" : "";
     return `${i ? '<span class="ln"></span>' : ""}<span class="st ${cls}"><i>${i < cur ? "✓" : i + 1}</i>${s}</span>`;
@@ -92,7 +94,11 @@ export async function render(root, [pid]) {
   const pdfBtn = root.querySelector("#downloadArchivePdf");
   if (pdfBtn) pdfBtn.onclick = () => downloadArchivePdf(pid, pdfBtn);
   const eb = root.querySelector("#editBtn");
-  if (eb) eb.onclick = () => openEdit(root, pid, p).catch((e) => toast(e.message,"warn"));
+  if (eb) eb.onclick = () => openEdit(root, pid, p, {
+    ownerReeditOnly: !!d.ownerReeditEnabled && !can("project:edit") && !state.super
+  }).catch((e) => toast(e.message,"warn"));
+  const retractBtn = root.querySelector("#retractVerifyBtn");
+  if (retractBtn) retractBtn.onclick = () => retractVerification(root, pid);
   const cb = root.querySelector("#changeBtn");
   if (cb) cb.onclick = () => openChange(root, pid);
 
@@ -929,12 +935,37 @@ async function delMember(root, pid, uid) {
   } catch (e) { toast(e.message, "warn"); }
 }
 
-async function openEdit(root, pid, p) {
-  const directory = await api.get("/api/users/assignable?assoc="+encodeURIComponent(p.assoc));
+async function retractVerification(root, pid) {
+  const reason = await promptBox({
+    title: "撤回核销",
+    label: "撤回原因",
+    ph: "请说明需要负责人修改的项目资料及原因",
+    required: true,
+    ok: "下一步"
+  });
+  if (!reason) return;
+  const confirmed = await confirmBox(
+    "撤回后项目将退回「待核销」，原七项核验结论会重置并保留审计快照；负责人可重新编辑基础资料。已登记付款记录及付款凭证不会被删除，结算单已生成的项目不能撤回。",
+    { title: "确认撤回核销", ok: "确认撤回", danger: true }
+  );
+  if (!confirmed) return;
+  try {
+    const r = await api.post(`/api/projects/${encodeURIComponent(pid)}/retract-verification`, { reason });
+    toast(r.message, "ok");
+    tab = "overview";
+    await refresh(root, pid);
+  } catch (e) {
+    toast(e.message, "warn");
+  }
+}
+
+async function openEdit(root, pid, p, { ownerReeditOnly = false } = {}) {
+  const directory = ownerReeditOnly ? { rows: [] } :
+    await api.get("/api/users/assignable?assoc="+encodeURIComponent(p.assoc));
   const members = directory.rows || [];
   const fields = [
     { k: "name", l: "会议名称", req: 1, full: 1 },
-    { k: "assoc", l: "所属协会", t: "select", req: 1, opts: state.meta.assocs },
+    ...(!ownerReeditOnly ? [{ k: "assoc", l: "所属协会", t: "select", req: 1, opts: state.meta.assocs }] : []),
     { k: "form", l: "会议形式", t: "select", req: 1, opts: state.meta.forms },
     { k: "date", l: "会议日期", t: "date", req: 1 },
     { k: "days", l: "会期（天）", t: "number" },
@@ -942,7 +973,7 @@ async function openEdit(root, pid, p) {
     { k: "tax_fee_rate", l: "税费管理费率（%）", t: "number", req: 1, full: 1,
       tip: "自定义输入 0～100，最多两位小数；可用预算实时重新计算。" },
     { k: "people", l: "预计人数", t: "number" },
-    { k: "owner_id", l: "负责人（协会成员）", t: "select", req: 1, opts: members.map((u) => ({v:String(u.id),l:u.name+"（"+u.role_name+"）"})) },
+    ...(!ownerReeditOnly ? [{ k: "owner_id", l: "负责人（协会成员）", t: "select", req: 1, opts: members.map((u) => ({v:String(u.id),l:u.name+"（"+u.role_name+"）"})) }] : []),
     { k: "phone", l: "联系电话" },
     { k: "dept", l: "承办部门", t: "select", req: 1, opts: [
       {v:"",l:"请选择承办部门"},
@@ -951,7 +982,7 @@ async function openEdit(root, pid, p) {
     ] },
     { k: "agenda", l: "议程要点", t: "textarea", req: 1, full: 1, rows: 3 }
   ];
-  const m = modal({ title: "编辑项目资料", width: "640px", body: formHtml(fields, p),
+  const m = modal({ title: ownerReeditOnly ? "修改项目基础资料" : "编辑项目资料", width: "640px", body: formHtml(fields, p),
     footer: `<button class="btn btn-o" data-x="0">取消</button><button class="btn btn-p" data-x="1">保存</button>` });
   const validateFee=bindBudgetFeePreview(m);
   const assocSelect = m.querySelector('[name="assoc"]');
@@ -974,7 +1005,6 @@ async function openEdit(root, pid, p) {
     } catch (e) { toast(e.message, "warn"); }
   };
 }
-
 async function openChange(root, pid) {
   const fields = [
     { k: "title", l: "变更内容", t: "textarea", req: 1, rows: 4, full: 1, ph: "如：议程调整：新增 1 个圆桌环节" },

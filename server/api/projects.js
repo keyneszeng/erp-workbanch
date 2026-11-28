@@ -13,6 +13,18 @@ const {buildSettlementBreakdown}=require("../lib/settlement-breakdown");
 const { assignedMember } = require("../lib/member-directory");
 
 const EDITABLE = ["name", "assoc", "form", "date", "days", "event_end_date", "event_start_time", "event_end_time", "budget", "tax_fee_rate", "people", "owner", "owner_id", "phone", "dept", "agenda"];
+// 总管理员撤回核销后，项目负责人只可修改本项目基础资料；协会归属和负责人变更仍由管理员办理。
+const OWNER_REEDITABLE = EDITABLE.filter(k => !["assoc", "owner", "owner_id"].includes(k));
+
+function canOwnerReeditProject(project, user) {
+  if (!project || !user || project.status !== "待核销" ||
+      !project.owner_id || Number(project.owner_id) !== Number(user.id) ||
+      settlementOf(project.id)) return false;
+  const latest = db.prepare(
+    "SELECT entity_type FROM admin_content_revisions WHERE pid=? ORDER BY id DESC LIMIT 1"
+  ).get(project.id);
+  return latest?.entity_type === "verification_retraction";
+}
 
 /**
  * 账目基准字段：结算单的 income 直接取 projects.budget，
@@ -188,11 +200,13 @@ function listProjects(user, { status, q, assoc, stage, page, size } = {}) {
 }
 
 function detail(project, user) {
-  // 普通用户/嘉宾只可查看会议公开信息；项目成员资格不等于财务、合同和审计权限。
+  const pid = project.id;
+  const ownerReeditEnabled = canOwnerReeditProject(project, user);
+  // 普通用户/嘉宾只可查看会议公开信息；项目成员资格不等于财务、合同和审计权限.
   // 必须在 API 层裁剪，不能仅隐藏前端页签（直接请求仍会读取原始 JSON）。
   // 仅有项目列表浏览权并不意味着可读取合同、付款、人员或操作审计。
   // 与岗位名称无关，任何角色均要显式获得内部业务模块或具体操作授权。
-  if (!isSuper(user) && !["project:transition","project:approve","project:edit","project:change",
+  if (!ownerReeditEnabled && !isSuper(user) && !["project:transition","project:approve","project:edit","project:change",
     "contract:write","contract:approve","demand:write",
     "payment:create","payment:approve","payment:pay","settle:create",
     "verify:check","verify:exception","verify:exception_approve","verify:conclude",
@@ -202,7 +216,6 @@ function detail(project, user) {
     return { project: { id, name, assoc, form, date, days, people, owner, agenda, status },
       actions: [], visibility: "participant" };
   }
-  const pid = project.id;
   const sourceProposal=db.prepare("SELECT proposal_id FROM public_proposal_project_links WHERE project_id=?").get(pid);
   const permitted=(mods,actions)=>isSuper(user)||mods.some(m=>hasModule(user,m))||actions.some(a=>can(user,a));
   const viewFinance=permitted(["finance"],["payment:create","payment:approve","payment:pay","settle:create","ledger:read"]);
@@ -214,7 +227,7 @@ function detail(project, user) {
   const viewExec=permitted(["exec"],["project:transition","invite:manage"]);
   const viewApprovals=permitted(["audit"],["project:approve","payment:approve","verify:exception_approve","change:execute","audit:read"]);
   const viewAudit=permitted(["audit"],["audit:read"]);
-  const viewBudget=viewFinance||["project:create","project:edit","project:change","project:approve","verify:check","verify:conclude"].some(k=>can(user,k));
+  const viewBudget=ownerReeditEnabled||viewFinance||["project:create","project:edit","project:change","project:approve","verify:check","verify:conclude"].some(k=>can(user,k));
   const viewNotice=permitted(["prep"],["project:create","project:edit","project:change","project:approve"]);
   const publicProject=()=>{const {budget,available_budget,tax_fee_rate,phone,public_contact_name,public_contact_info,...rest}=project;return rest;};
   const members = db.prepare(
@@ -240,6 +253,7 @@ function detail(project, user) {
 
   return {
     project:viewBudget?project:publicProject(),
+    ownerReeditEnabled,
     sourcePublicProposalId:sourceProposal?.proposal_id||null,
     sectionAccess:{finance:viewFinance,contracts:viewContracts,materials:viewMaterials,verify:viewVerify,demand:viewDemand,team:viewTeam,exec:viewExec,approvals:viewApprovals,audit:viewAudit,budget:viewBudget,notice:viewNotice},
     members: viewTeam?members:[],
@@ -348,13 +362,66 @@ function register(router) {
     return detail(p, ctx.user);
   });
 
+  router.post("/api/projects/:id/retract-verification", async (ctx) => {
+    if (!isSuper(ctx.user)) throw forbidden("只有总管理员可以撤回已核销状态");
+    const p = getProject(ctx.params.id);
+    assertProjectVisible(ctx.user, p);
+    if (p.status !== "已核销") throw conflict(`只有「已核销」项目可以撤回，当前状态「${p.status}」`, "NOT_VERIFIED");
+    if (settlementOf(p.id)) throw conflict("项目已生成结算单，不能撤回核销；请按财务更正流程办理", "FROZEN");
+    const reason = String(ctx.body?.reason || "").trim();
+    if (!reason) throw bad("撤回核销必须填写原因");
+    if (reason.length > 500) throw bad("撤回原因不能超过 500 字");
+
+    const at = now();
+    transaction(() => {
+      const current = getProject(p.id);
+      if (current.status !== "已核销") throw conflict("项目状态已变化，请刷新后重试", "PROJECT_CHANGED");
+      if (settlementOf(p.id)) throw conflict("项目已生成结算单，不能撤回核销", "FROZEN");
+      const steps = db.prepare(
+        "SELECT step_no,name,result,remark,evidence_json,invoice_amount,checked_by,checked_at FROM verify_steps WHERE pid=? ORDER BY step_no"
+      ).all(p.id);
+      const paymentSnapshot = db.prepare(
+        "SELECT COUNT(*) AS count, COALESCE(ROUND(SUM(CASE WHEN status='已付款' THEN amount ELSE 0 END),2),0) AS paid FROM payments WHERE pid=?"
+      ).get(p.id);
+      db.prepare(
+        "INSERT INTO admin_content_revisions(pid,entity_type,record_id,reason,before_json,after_json,changed_by,changed_at) VALUES (?,?,?,?,?,?,?,?)"
+      ).run(
+        p.id, "verification_retraction", p.id, reason,
+        JSON.stringify({ status: current.status, status_at: current.status_at, steps, payments: paymentSnapshot }),
+        JSON.stringify({ status: "待核销", status_at: at, reset_step_nos: steps.map(x => x.step_no),
+          owner_edit_enabled: true, payment_records_preserved: true, payments: paymentSnapshot }),
+        ctx.user.name, at
+      );
+      db.prepare(
+        "UPDATE verify_steps SET result='待判定',remark=?,evidence_json=NULL,invoice_amount=NULL,checked_by=NULL,checked_at=NULL WHERE pid=?"
+      ).run("总管理员撤回核销，项目资料修改后需重新核验", p.id);
+      const changed = db.prepare(
+        "UPDATE projects SET status='待核销',status_at=?,updated_at=? WHERE id=? AND status='已核销'"
+      ).run(at, at, p.id);
+      if (!changed.changes) throw conflict("项目状态已变化，请刷新后重试", "PROJECT_CHANGED");
+      logAudit({
+        user: ctx.user, module: "会后核销", action: "撤回核销", target: p.id,
+        detail: `总管理员撤回「已核销」状态，退回「待核销」；重置 ${steps.length} 项核验结论；保留 ${paymentSnapshot.count} 笔付款记录（已付款 ¥${paymentSnapshot.paid}）；原因：${reason}`,
+        ip: ctx.ip
+      });
+    });
+    return { project: getProject(p.id), message: "已撤回核销，项目退回「待核销」；负责人可修改项目基础资料，修改后须重新核验" };
+  });
+
   router.patch("/api/projects/:id", async (ctx) => {
     const p = getProject(ctx.params.id);
     assertProjectVisible(ctx.user, p);
-    // 资料修改：总管理员恒可；其余需协会管理员及以上，且已结算 / 已归档项目不可改
-    if (!isSuper(ctx.user)) {
+    const ownerReeditEnabled = canOwnerReeditProject(p, ctx.user);
+    // 总管理员、已获 project:edit 权限的用户照常编辑；撤回核销后，项目负责人获得一次受限的基础资料修改窗口。
+    if (!isSuper(ctx.user) && !can(ctx.user,"project:edit") && !ownerReeditEnabled) {
       assertCan(ctx.user,"project:edit","当前账号未获项目资料修改权限");
+    }
+    if (!isSuper(ctx.user)) {
       if (p.status === "已归档") throw conflict("已归档项目资料已封存，不可修改");
+      if (ownerReeditEnabled && !can(ctx.user,"project:edit")) {
+        const blocked = Object.keys(ctx.body || {}).filter(k => !OWNER_REEDITABLE.includes(k));
+        if (blocked.length) throw forbidden("撤回核销后，项目负责人仅可修改会议基础资料；所属协会及项目负责人变更须由总管理员办理");
+      }
       // 已结算 = 账目封账，结算单已按当时的预算与合同算完。
       // 此处若不拦，改完预算就和结算单永久对不上了（原来只拦了「已归档」）。
       // 非金额项目资料在归档前可以修改。
